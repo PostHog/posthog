@@ -32,6 +32,19 @@ import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/postho
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
+// Email MX validation runs on every email send, so without a mock the test-panel
+// email tests would do live DNS lookups for their fixture recipients (and
+// example.com publishes a null MX, which validation correctly blocks). Resolve
+// everything as deliverable — validation behavior is covered by
+// email-validation.service.test.ts.
+jest.mock('node:dns/promises', () => ({
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: jest.fn().mockResolvedValue([{ exchange: 'mx.example.com', priority: 10 }]),
+        resolve4: jest.fn().mockResolvedValue(['1.2.3.4']),
+        resolve6: jest.fn().mockResolvedValue([]),
+    })),
+}))
+
 describe('CDP API', () => {
     let hub: Hub
     let cdpDeps: CdpConsumerBaseDeps
@@ -771,6 +784,59 @@ describe('CDP API', () => {
         })
     })
 
+    describe('hogflow wait_until_condition test invocations', () => {
+        // Matches events whose name equals `eventName` - same shape the serializer compiles
+        // for an "events to wait for" entry.
+        const eventBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
+
+        const waitFlowConfiguration = {
+            name: 'Wait flow',
+            actions: [
+                { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+                {
+                    id: 'wait_node',
+                    name: 'Wait',
+                    type: 'wait_until_condition',
+                    config: {
+                        events: [
+                            {
+                                filters: {
+                                    bytecode: eventBytecode('follow_up'),
+                                    events: [{ id: 'follow_up', name: 'follow_up', type: 'events', order: 0 }],
+                                },
+                            },
+                        ],
+                        condition: { filters: null },
+                        max_wait_duration: '5m',
+                    },
+                },
+                { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+            ],
+            edges: [
+                { from: 'wait_node', to: 'exit_node', type: 'branch', index: 0 },
+                { from: 'wait_node', to: 'exit_node', type: 'continue' },
+            ],
+        }
+
+        it.each([
+            ['matching', 'follow_up', 'exit_node'],
+            ['non-matching', 'some_other_event', 'wait_node'],
+        ])('a %s test event resolves the wait step correctly', async (_, eventName, expectedNextActionId) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals: { ...globals, event: { ...globals.event!, event: eventName } },
+                    mock_async_functions: true,
+                    configuration: waitFlowConfiguration,
+                    current_action_id: 'wait_node',
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.nextActionId).toEqual(expectedNextActionId)
+        })
+    })
+
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
 
@@ -889,6 +955,125 @@ describe('CDP API', () => {
                     totalEnqueued: 0,
                     pagesProcessed: 0,
                 })
+                // No email action in the flow, so the audience must not be deduped by email
+                expect(state.dedupeKey).toBeUndefined()
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
+        it('sets email dedupe on the resolver state when the flow sends email to the default {{person.properties.email}}', async () => {
+            const emailHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch email hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [
+                    {
+                        id: 'email_1',
+                        type: 'function_email',
+                        name: 'Send email',
+                        config: {
+                            template_id: 'template-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: '{{ person.properties.email }}', name: '' },
+                                        from: {},
+                                        subject: 'Hi',
+                                        text: 'Hello',
+                                        html: '<p>Hello</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                ] as any,
+                trigger: {
+                    type: 'batch',
+                    filters: { properties: [] },
+                },
+            })
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${emailHogFlow.team_id}/hog_flows/${emailHogFlow.id}/batch_invocations/job-790`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, unknown>
+                expect(state.dedupeKey).toEqual('email')
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
+        it('skips email dedupe when the flow sends to a customized recipient (e.g. work_email)', async () => {
+            // Regression guard for the wrong-property footgun: if the customer wired their
+            // email action to send to `person.properties.work_email`, deduping on
+            // `person.properties.email` would collapse the wrong groups. Better to skip dedupe.
+            const emailHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch email hog flow (custom recipient)',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [
+                    {
+                        id: 'email_1',
+                        type: 'function_email',
+                        name: 'Send email',
+                        config: {
+                            template_id: 'template-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: '{{ person.properties.work_email }}', name: '' },
+                                        from: {},
+                                        subject: 'Hi',
+                                        text: 'Hello',
+                                        html: '<p>Hello</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                ] as any,
+                trigger: {
+                    type: 'batch',
+                    filters: { properties: [] },
+                },
+            })
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${emailHogFlow.team_id}/hog_flows/${emailHogFlow.id}/batch_invocations/job-791`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, unknown>
+                expect(state.dedupeKey).toBeUndefined()
             } finally {
                 api['batchResolverProducer'] = null
             }

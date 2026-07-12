@@ -33,7 +33,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push'
               with:
@@ -71,6 +71,7 @@ jobs:
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
               run: |
                   bin/ci-wait-for-docker launch --down
 
@@ -106,6 +107,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
               run: bin/ci-wait-for-docker wait
 
             - name: Run migrations and create test data
@@ -186,6 +188,7 @@ jobs:
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
               run: |
                   bin/ci-wait-for-docker launch --down
 
@@ -218,6 +221,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
               run: bin/ci-wait-for-docker wait
 
             - name: Run migrations and create test data

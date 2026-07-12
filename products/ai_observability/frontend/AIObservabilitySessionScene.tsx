@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { type Ref, Suspense, lazy, useEffect, useRef } from 'react'
+import { type Ref, Suspense, useEffect, useRef } from 'react'
 
 import { IconWarning, IconWrench } from '@posthog/icons'
 import { LemonButton, LemonDrawer, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -31,13 +32,14 @@ import { SentimentBar } from './components/SentimentTag'
 import { SessionPlayerControls } from './components/SessionPlayer/SessionPlayerControls'
 import { SessionSeekbar } from './components/SessionPlayer/SessionSeekbar'
 import { TypingIndicator } from './components/SessionPlayer/TypingIndicator'
+import { TraceTimeline } from './components/TraceTimeline/TraceTimeline'
 import { TranscriptBubbleStream } from './ConversationDisplay/TranscriptBubbleStream'
 import { SessionTurn } from './extractSessionTurns'
 import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic'
 import { sessionPlaybackLogic } from './sessionPlaybackLogic'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
-const LLMASessionFeedbackDisplay = lazy(() =>
+const LLMASessionFeedbackDisplay = lazyWithRetry(() =>
     import('./LLMASessionFeedbackDisplay').then((m) => ({ default: m.LLMASessionFeedbackDisplay }))
 )
 
@@ -105,9 +107,8 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         expandedGenerationIds,
     } = useValues(aiObservabilitySessionDataLogic)
     const { sessionId, dateRange } = useValues(aiObservabilitySessionLogic)
-    const { summarizeAllTraces, loadNextData, closeStepsDrawer, toggleGenerationExpanded } = useActions(
-        aiObservabilitySessionDataLogic
-    )
+    const { summarizeAllTraces, loadNextData, closeStepsDrawer, toggleGenerationExpanded, focusGenerationExpanded } =
+        useActions(aiObservabilitySessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { getSessionTitle } = useValues(llmSessionTitleLazyLoaderLogic)
     const { ensureSessionTitleLoaded } = useActions(llmSessionTitleLazyLoaderLogic)
@@ -314,6 +315,13 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
             >
                 {drawerTraceId ? (
                     <div className="flex flex-col gap-3">
+                        <TraceTimeline
+                            events={fullTraces[drawerTraceId]?.events ?? []}
+                            selectedEventId={
+                                expandedGenerationIds.size === 1 ? Array.from(expandedGenerationIds)[0] : null
+                            }
+                            onSelectEvent={focusGenerationExpanded}
+                        />
                         <AIObservabilityTraceEvents
                             trace={fullTraces[drawerTraceId]}
                             isLoading={loadingFullTraces.has(drawerTraceId)}

@@ -20,10 +20,20 @@ const pathsWithoutProjectId = [
     'render_query',
 ]
 
+// Instance-level pages that live under a product's own path prefix rather than
+// under `/instance/*`, so they need an exact (rather than first-segment) exemption.
+const exactPathsWithoutProjectId = ['/feature_flags/staff']
+
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 
 function isPathWithoutProjectId(path: string): boolean {
-    const firstPart = path.split('/')[1]
+    const pathname = path.split(/[?#]/)[0]
+    if (
+        exactPathsWithoutProjectId.some((exactPath) => pathname === exactPath || pathname.startsWith(exactPath + '/'))
+    ) {
+        return true
+    }
+    const firstPart = pathname.split('/')[1]
     return pathsWithoutProjectId.includes(firstPart)
 }
 
@@ -61,6 +71,22 @@ export function removeProjectIdIfPresent(path: string): string {
         return '/' + path.split('/').splice(3).join('/')
     }
     return path
+}
+
+/**
+ * kea-router runs `decodeURI(pathname)` while matching routes. A stray `%` that isn't a valid
+ * escape (e.g. a distinct id like `50%off` in `/person/50%off`) makes `decodeURI` throw
+ * `URIError` synchronously inside the router, before any scene loads, crashing the whole app.
+ * Escape every `%` so the path stays decodable and routing falls through to the scene (or 404)
+ * instead of throwing. Well-formed paths are returned untouched.
+ */
+export function ensureRoutablePathname(path: string): string {
+    try {
+        decodeURI(path)
+        return path
+    } catch {
+        return path.replace(/%/g, '%25')
+    }
 }
 
 export function stripTrailingSlash(path: string): string {

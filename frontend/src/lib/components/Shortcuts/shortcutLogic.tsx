@@ -70,6 +70,7 @@ function triggerShortcut(shortcut: ShortcutType, triggeredKeybind: string[]): vo
         keybind: formatKeybind(triggeredKeybind),
         interaction: shortcut.interaction,
         scope: shortcut.scope ?? 'global',
+        mechanism: 'shortcut',
     })
 
     if (shortcut.interaction === 'click') {
@@ -153,6 +154,8 @@ export const shortcutLogic = kea<shortcutLogicType>([
                 cache.sequenceKeys = []
                 cache.sequenceShortcut = null
 
+                // modifier vocabulary and order must stay in lockstep with formatTriggeredKeybind in
+                // lib/hooks/useKeyboardHotkeys.tsx, so the same chord reports the same `keybind` string
                 const pressedKeys: string[] = [COMMAND_OR_CTRL]
                 if (event.shiftKey) {
                     pressedKeys.push('shift')

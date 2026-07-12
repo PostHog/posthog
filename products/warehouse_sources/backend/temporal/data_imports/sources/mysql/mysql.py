@@ -33,7 +33,10 @@ from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
-from posthog.exceptions_capture import capture_exception
+# Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
+# explain_query, fetch_average_row_size) deliberately do NOT report handled failures here;
+# their guard tests patch `mysql.capture_exception` to enforce that.
+from posthog.exceptions_capture import capture_exception  # noqa: F401
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -1087,8 +1090,14 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             row_size_bytes = max(row[0] or 0, 1)
             return int(row_size_bytes)
         except Exception as e:
+            # Row-size sampling is a best-effort probe: on any failure the caller falls back to the
+            # default chunk size and the sync proceeds. A genuine problem (missing table, revoked
+            # permission) resurfaces in the real extraction query and is classified through the normal
+            # retryable/non-retryable path, while a transient connection drop here (e.g. pymysql's
+            # `InterfaceError(0, '')` when the socket was already closed) stays retryable there too.
+            # Capturing it would only flood error tracking with handled duplicates, so log at debug and
+            # fall back. Mirrors `get_partition_settings` and the Redshift source's `fetch_average_row_size`.
             logger.debug(f"fetch_average_row_size: Error: {e}.", exc_info=e)
-            capture_exception(e)
             return None
 
     def find_index_for_cursor(

@@ -180,6 +180,11 @@ class AhrefsSourceConfig(config.Config):
 
 
 @config.config
+class AikidoSecuritySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AirOpsSourceConfig(config.Config):
     pass
 
@@ -201,6 +206,11 @@ class AirtableSourceConfig(config.Config):
 
 
 @config.config
+class AivenSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AkeneoSourceConfig(config.Config):
     pass
 
@@ -210,6 +220,11 @@ class AlgoliaSourceConfig(config.Config):
     application_id: str
     api_key: str
     index_name: str
+
+
+@config.config
+class AlgunaSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -274,6 +289,11 @@ class AmplitudeSourceConfig(config.Config):
 
 
 @config.config
+class AnthropicSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class ApifyDatasetSourceConfig(config.Config):
     api_token: str
     dataset_id: str
@@ -326,6 +346,11 @@ class ApptivoSourceConfig(config.Config):
 
 
 @config.config
+class AppwriteSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AsanaSourceConfig(config.Config):
     access_token: str
 
@@ -362,6 +387,11 @@ class AviationstackSourceConfig(config.Config):
 
 
 @config.config
+class AviatorSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AwinSourceConfig(config.Config):
     api_token: str
 
@@ -393,6 +423,11 @@ class BabelforceSourceConfig(config.Config):
 
 
 @config.config
+class BackblazeSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class BambooHRSourceConfig(config.Config):
     subdomain: str
     api_key: str
@@ -405,6 +440,11 @@ class BasecampSourceConfig(config.Config):
 
 @config.config
 class BaserowSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class BasetenSourceConfig(config.Config):
     pass
 
 
@@ -445,6 +485,11 @@ class BingAdsSourceConfig(config.Config):
 
 @config.config
 class BitlySourceConfig(config.Config):
+    pass
+
+
+@config.config
+class BlandAISourceConfig(config.Config):
     pass
 
 
@@ -516,6 +561,21 @@ class BrexSourceConfig(config.Config):
 
 
 @config.config
+class BrowseAISourceConfig(config.Config):
+    pass
+
+
+@config.config
+class BrowserUseSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class BrowserbaseSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class BugsnagSourceConfig(config.Config):
     auth_token: str
 
@@ -544,7 +604,7 @@ class BuzzsproutSourceConfig(config.Config):
 
 @config.config
 class CalComSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -626,6 +686,11 @@ class ChargedeskSourceConfig(config.Config):
 class ChargifySourceConfig(config.Config):
     api_key: str
     subdomain: str
+
+
+@config.config
+class ChartHopSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -742,7 +807,8 @@ class CloseSourceConfig(config.Config):
 
 @config.config
 class CloudbedsSourceConfig(config.Config):
-    pass
+    api_key: str
+    property_id: str | None = None
 
 
 @config.config
@@ -752,7 +818,8 @@ class CloudflareSourceConfig(config.Config):
 
 @config.config
 class CoassembleSourceConfig(config.Config):
-    pass
+    workspace_id: str
+    api_key: str
 
 
 @config.config
@@ -768,6 +835,16 @@ class CodaSourceConfig(config.Config):
 @config.config
 class CodefreshSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class CodySourceConfig(config.Config):
+    pass
+
+
+@config.config
+class CohereSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -809,7 +886,8 @@ class ConcordSourceConfig(config.Config):
 
 @config.config
 class ConfigCatSourceConfig(config.Config):
-    pass
+    basic_auth_username: str
+    basic_auth_password: str
 
 
 @config.config
@@ -876,6 +954,11 @@ class CultureAmpSourceConfig(config.Config):
 
 
 @config.config
+class CursorSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class CurveSourceConfig(config.Config):
     pass
 
@@ -937,13 +1020,28 @@ class DbtSourceConfig(config.Config):
 
 
 @config.config
+class DecagonSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class DeelSourceConfig(config.Config):
     api_token: str
 
 
 @config.config
+class DeepgramSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class DelightedSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class DenoDeploySourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -955,6 +1053,11 @@ class DeputySourceConfig(config.Config):
 class DevinAISourceConfig(config.Config):
     api_key: str
     org_id: str
+
+
+@config.config
+class DigitalOceanSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -979,7 +1082,9 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class DockerhubSourceConfig(config.Config):
-    pass
+    username: str
+    personal_access_token: str
+    namespace: str | None = None
 
 
 @config.config
@@ -1040,6 +1145,11 @@ class DynamoDBSourceConfig(config.Config):
 
 
 @config.config
+class E2BSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class EConomicSourceConfig(config.Config):
     app_secret_token: str
     agreement_grant_token: str
@@ -1075,6 +1185,11 @@ class ElasticemailSourceConfig(config.Config):
 class ElasticsearchSourceConfig(config.Config):
     host: str
     auth_method: ElasticsearchAuthMethodConfig
+
+
+@config.config
+class ElevenLabsSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -1194,6 +1309,11 @@ class FinnworldsSourceConfig(config.Config):
 
 
 @config.config
+class FintocSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class FireHydrantSourceConfig(config.Config):
     api_key: str
     region: Literal["us", "eu"] = config.value(default="us")
@@ -1210,6 +1330,16 @@ class FireboltSourceConfig(config.Config):
 
 
 @config.config
+class FirecrawlSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class FireworksAISourceConfig(config.Config):
+    pass
+
+
+@config.config
 class FleetioSourceConfig(config.Config):
     api_key: str
     account_token: str
@@ -1217,7 +1347,8 @@ class FleetioSourceConfig(config.Config):
 
 @config.config
 class FlexmailSourceConfig(config.Config):
-    pass
+    account_id: str
+    personal_access_token: str
 
 
 @config.config
@@ -1232,6 +1363,11 @@ class FloatAppSourceConfig(config.Config):
 
 @config.config
 class FlowluSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class FlyIoSourceConfig(config.Config):
     pass
 
 
@@ -1324,7 +1460,7 @@ class GiphySourceConfig(config.Config):
 
 @config.config
 class GitBookSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1497,8 +1633,23 @@ class GridlySourceConfig(config.Config):
 
 
 @config.config
+class GroqSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class GrowthBookSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class GuardianSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class GumloopSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -1518,12 +1669,32 @@ class HarnessSourceConfig(config.Config):
 
 
 @config.config
+class HarveySourceConfig(config.Config):
+    pass
+
+
+@config.config
+class HatchetSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class HealthchecksSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class HeapSourceConfig(config.Config):
     pass
 
 
 @config.config
 class HeightSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class HeliconeSourceConfig(config.Config):
     pass
 
 
@@ -1535,6 +1706,26 @@ class HellobatonSourceConfig(config.Config):
 
 @config.config
 class HelpScoutSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class HerokuSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class HetznerSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class HexSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class HeyGenSourceConfig(config.Config):
     pass
 
 
@@ -1578,11 +1769,16 @@ class HuggingFaceSourceConfig(config.Config):
 
 @config.config
 class HumanitixSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class HuntrSourceConfig(config.Config):
+    access_token: str
+
+
+@config.config
+class HyperspellSourceConfig(config.Config):
     pass
 
 
@@ -1608,17 +1804,33 @@ class ImaggaSourceConfig(config.Config):
 
 
 @config.config
+class ImpactSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class IncidentIoSourceConfig(config.Config):
     api_key: str
 
 
 @config.config
-class InflowinventorySourceConfig(config.Config):
+class InfisicalSourceConfig(config.Config):
     pass
 
 
 @config.config
+class InflowinventorySourceConfig(config.Config):
+    company_id: str
+    api_key: str
+
+
+@config.config
 class InforNexusSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class InngestSourceConfig(config.Config):
     pass
 
 
@@ -1665,7 +1877,7 @@ class IntruderSourceConfig(config.Config):
 
 @config.config
 class InvoicedSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1694,7 +1906,7 @@ class JiraSourceConfig(config.Config):
 
 @config.config
 class JobNimbusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1711,7 +1923,8 @@ class JotformSourceConfig(config.Config):
 
 @config.config
 class JudgeMeReviewsSourceConfig(config.Config):
-    pass
+    shop_domain: str
+    api_token: str
 
 
 @config.config
@@ -1722,7 +1935,7 @@ class JustCallSourceConfig(config.Config):
 
 @config.config
 class JustSiftSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1742,12 +1955,22 @@ class KafkaSourceConfig(config.Config):
 
 
 @config.config
+class KapaAISourceConfig(config.Config):
+    pass
+
+
+@config.config
 class KatanaSourceConfig(config.Config):
     api_key: str
 
 
 @config.config
 class KekaSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class KernelSourceConfig(config.Config):
     pass
 
 
@@ -1782,6 +2005,11 @@ class KnockSourceConfig(config.Config):
 
 
 @config.config
+class KoyebSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class KustomerSourceConfig(config.Config):
     org_name: str
     api_key: str
@@ -1791,6 +2019,21 @@ class KustomerSourceConfig(config.Config):
 class LagoSourceConfig(config.Config):
     api_key: str
     api_url: str | None = None
+
+
+@config.config
+class LambdaLabsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class LangSmithSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class LangfuseSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -1857,6 +2100,11 @@ class LinearSourceConfig(config.Config):
 
 
 @config.config
+class LingoDevSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class LinkedinAdsSourceConfig(config.Config):
     account_id: str
     linkedin_ads_integration_id: int = config.value(converter=config.str_to_int)
@@ -1874,6 +2122,16 @@ class LinkrunnerSourceConfig(config.Config):
 
 @config.config
 class LinnworksSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class LinodeSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class LlamaCloudSourceConfig(config.Config):
     pass
 
 
@@ -1899,6 +2157,11 @@ class LoopsSourceConfig(config.Config):
 
 @config.config
 class LumaSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class M3terSourceConfig(config.Config):
     pass
 
 
@@ -1948,7 +2211,7 @@ class MailosaurSourceConfig(config.Config):
 
 @config.config
 class MailtrapSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1975,13 +2238,23 @@ class MatomoSourceConfig(config.Config):
 
 
 @config.config
+class MaxioSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class Mem0SourceConfig(config.Config):
+    pass
+
+
+@config.config
 class MendeleySourceConfig(config.Config):
     pass
 
 
 @config.config
 class MentionSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -2013,7 +2286,17 @@ class MetabaseSourceConfig(config.Config):
 
 
 @config.config
+class MetorialSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class MetricoolSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class MetriportSourceConfig(config.Config):
     pass
 
 
@@ -2043,12 +2326,22 @@ class MicrosoftTeamsSourceConfig(config.Config):
 
 
 @config.config
+class MintlifySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class MiroSourceConfig(config.Config):
     pass
 
 
 @config.config
 class MissiveSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class MistralAISourceConfig(config.Config):
     pass
 
 
@@ -2087,6 +2380,11 @@ class MongoDBSourceConfig(config.Config):
 
 
 @config.config
+class MonoSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class MuxSourceConfig(config.Config):
     access_token_id: str
     secret_key: str
@@ -2094,7 +2392,7 @@ class MuxSourceConfig(config.Config):
 
 @config.config
 class MyHoursSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2137,6 +2435,11 @@ class NeonSourceConfig(config.Config):
 
 @config.config
 class NetSuiteSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class NetlifySourceConfig(config.Config):
     pass
 
 
@@ -2185,6 +2488,11 @@ class NoCRMSourceConfig(config.Config):
 
 
 @config.config
+class NorthflankSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class NorthpassLMSSourceConfig(config.Config):
     api_key: str
 
@@ -2222,7 +2530,7 @@ class OmnisendSourceConfig(config.Config):
 
 @config.config
 class OncehubSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2242,7 +2550,8 @@ class OneSignalSourceConfig(config.Config):
 
 @config.config
 class OnepagecrmSourceConfig(config.Config):
-    pass
+    user_id: str
+    api_key: str
 
 
 @config.config
@@ -2252,6 +2561,11 @@ class OnfleetSourceConfig(config.Config):
 
 @config.config
 class OpenAIAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class OpenAISourceConfig(config.Config):
     pass
 
 
@@ -2278,6 +2592,11 @@ class OpenFDASourceConfig(config.Config):
 
 
 @config.config
+class OpenRouterSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class OpenWeatherSourceConfig(config.Config):
     api_key: str
     locations: str
@@ -2285,7 +2604,7 @@ class OpenWeatherSourceConfig(config.Config):
 
 @config.config
 class OpinionStageSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2377,7 +2696,7 @@ class PandaDocSourceConfig(config.Config):
 
 @config.config
 class PaperformSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2392,12 +2711,15 @@ class PardotSourceConfig(config.Config):
 
 @config.config
 class PartnerStackSourceConfig(config.Config):
-    pass
+    public_key: str
+    private_key: str
 
 
 @config.config
 class PartnerizeSourceConfig(config.Config):
-    pass
+    application_key: str
+    user_api_key: str
+    publisher_id: str
 
 
 @config.config
@@ -2418,6 +2740,11 @@ class PaylocitySourceConfig(config.Config):
 @config.config
 class PaystackSourceConfig(config.Config):
     secret_api_key: str
+
+
+@config.config
+class PeecAISourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -2443,7 +2770,7 @@ class PerkSourceConfig(config.Config):
 
 @config.config
 class PersistIqSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2472,13 +2799,20 @@ class PgAnalyzeSourceConfig(config.Config):
 
 @config.config
 class PhylloSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
 class PicqerSourceConfig(config.Config):
     account_name: str
     api_key: str
+
+
+@config.config
+class PineconeSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -2500,7 +2834,10 @@ class PipedriveSourceConfig(config.Config):
 
 @config.config
 class PipelinerSourceConfig(config.Config):
-    pass
+    service_url: str
+    space_id: str
+    username: str
+    password: str
 
 
 @config.config
@@ -2533,6 +2870,11 @@ class PlanetScaleSourceConfig(config.Config):
 
 @config.config
 class PlanhatSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class PlatformShSourceConfig(config.Config):
     pass
 
 
@@ -2597,7 +2939,9 @@ class PrestaShopSourceConfig(config.Config):
 
 @config.config
 class PretixSourceConfig(config.Config):
-    pass
+    organizer: str
+    api_token: str
+    base_url: str | None = None
 
 
 @config.config
@@ -2607,7 +2951,7 @@ class PrimetricSourceConfig(config.Config):
 
 @config.config
 class PrintifySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2617,6 +2961,11 @@ class ProductboardSourceConfig(config.Config):
 
 @config.config
 class ProductiveSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class PromptingCompanySourceConfig(config.Config):
     pass
 
 
@@ -2631,13 +2980,19 @@ class PylonSourceConfig(config.Config):
 
 
 @config.config
+class QdrantSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class QontoSourceConfig(config.Config):
     pass
 
 
 @config.config
 class QualarooSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -2694,7 +3049,8 @@ class RecreationSourceConfig(config.Config):
 
 @config.config
 class RecruiteeSourceConfig(config.Config):
-    pass
+    company_id: str
+    api_token: str
 
 
 @config.config
@@ -2737,8 +3093,13 @@ class ReferralHeroSourceConfig(config.Config):
 
 
 @config.config
-class RentCastSourceConfig(config.Config):
+class RenderSourceConfig(config.Config):
     pass
+
+
+@config.config
+class RentCastSourceConfig(config.Config):
+    api_key: str
 
 
 @config.config
@@ -2747,8 +3108,13 @@ class RepairshoprSourceConfig(config.Config):
 
 
 @config.config
-class ReplyIoSourceConfig(config.Config):
+class ReplicateSourceConfig(config.Config):
     pass
+
+
+@config.config
+class ReplyIoSourceConfig(config.Config):
+    api_key: str
 
 
 @config.config
@@ -2762,8 +3128,13 @@ class RetailExpressSourceConfig(config.Config):
 
 
 @config.config
-class RetentlySourceConfig(config.Config):
+class RetellAISourceConfig(config.Config):
     pass
+
+
+@config.config
+class RetentlySourceConfig(config.Config):
+    api_key: str
 
 
 @config.config
@@ -2788,13 +3159,18 @@ class RipplingSourceConfig(config.Config):
 
 
 @config.config
+class RoarkSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class RocketChatSourceConfig(config.Config):
     pass
 
 
 @config.config
 class RocketlaneSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2809,11 +3185,16 @@ class RootlySourceConfig(config.Config):
 
 @config.config
 class RssSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class RuddrSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class RunPodSourceConfig(config.Config):
     pass
 
 
@@ -2829,7 +3210,7 @@ class SFTPSourceConfig(config.Config):
 
 @config.config
 class SafetyCultureSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2854,7 +3235,7 @@ class SalesLoftSourceConfig(config.Config):
 
 @config.config
 class SalesflareSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2894,6 +3275,16 @@ class SapSuccessFactorsSourceConfig(config.Config):
 
 @config.config
 class SavvyCalSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class ScaleAISourceConfig(config.Config):
+    pass
+
+
+@config.config
+class ScalewaySourceConfig(config.Config):
     pass
 
 
@@ -2904,7 +3295,7 @@ class SearchAds360SourceConfig(config.Config):
 
 @config.config
 class SecodaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2925,7 +3316,8 @@ class SendPulseSourceConfig(config.Config):
 
 @config.config
 class SendowlSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -2981,7 +3373,8 @@ class ShippoSourceConfig(config.Config):
 
 @config.config
 class ShopWiredSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -2998,11 +3391,16 @@ class ShortcutSourceConfig(config.Config):
 
 @config.config
 class ShortioSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class ShutterstockSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class SigNozSourceConfig(config.Config):
     pass
 
 
@@ -3022,12 +3420,22 @@ class SimFinSourceConfig(config.Config):
 
 
 @config.config
-class SimpleCastSourceConfig(config.Config):
+class SimSourceConfig(config.Config):
     pass
 
 
 @config.config
+class SimpleCastSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class SimplesatSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class SkyvernSourceConfig(config.Config):
     pass
 
 
@@ -3037,8 +3445,15 @@ class SlackSourceConfig(config.Config):
 
 
 @config.config
-class SmailySourceConfig(config.Config):
+class SlashSourceConfig(config.Config):
     pass
+
+
+@config.config
+class SmailySourceConfig(config.Config):
+    subdomain: str
+    username: str
+    password: str
 
 
 @config.config
@@ -3048,7 +3463,7 @@ class SmartEngageSourceConfig(config.Config):
 
 @config.config
 class SmartreachSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3058,7 +3473,7 @@ class SmartsheetSourceConfig(config.Config):
 
 @config.config
 class SmartwaiverSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3080,7 +3495,8 @@ class SnowflakeSourceConfig(config.Config):
 
 @config.config
 class SolarwindsServiceDeskSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["us", "eu", "au"] = config.value(default="us")
 
 
 @config.config
@@ -3096,7 +3512,7 @@ class SparkPostSourceConfig(config.Config):
 
 @config.config
 class SplitIoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3132,7 +3548,7 @@ class StatuspageSourceConfig(config.Config):
 
 @config.config
 class StiggSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3186,7 +3602,8 @@ class SurveyMonkeySourceConfig(config.Config):
 
 @config.config
 class SurveySparrowSourceConfig(config.Config):
-    pass
+    access_token: str
+    data_center: Literal["us", "eu", "ap", "me", "uk", "ap-sy", "ca"] = config.value(default="us")
 
 
 @config.config
@@ -3196,6 +3613,11 @@ class SurvicateSourceConfig(config.Config):
 
 @config.config
 class SvixSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class SynthesiaSourceConfig(config.Config):
     pass
 
 
@@ -3228,7 +3650,7 @@ class TalkwalkerSourceConfig(config.Config):
 
 @config.config
 class TavusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3243,7 +3665,7 @@ class TeachableSourceConfig(config.Config):
 
 @config.config
 class TeamtailorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3253,8 +3675,13 @@ class TeamworkSourceConfig(config.Config):
 
 
 @config.config
-class TempoSourceConfig(config.Config):
+class TelliSourceConfig(config.Config):
     pass
+
+
+@config.config
+class TempoSourceConfig(config.Config):
+    api_token: str
 
 
 @config.config
@@ -3270,8 +3697,15 @@ class TemporalIOSourceConfig(config.Config):
 
 
 @config.config
-class TestrailSourceConfig(config.Config):
+class TerraApiSourceConfig(config.Config):
     pass
+
+
+@config.config
+class TestrailSourceConfig(config.Config):
+    subdomain: str
+    username: str
+    api_key: str
 
 
 @config.config
@@ -3297,7 +3731,7 @@ class TickTickSourceConfig(config.Config):
 
 @config.config
 class TicketTailorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3332,6 +3766,11 @@ class TodoistSourceConfig(config.Config):
 
 
 @config.config
+class TogetherAISourceConfig(config.Config):
+    pass
+
+
+@config.config
 class TogglSourceConfig(config.Config):
     pass
 
@@ -3349,6 +3788,12 @@ class TrelloSourceConfig(config.Config):
 
 @config.config
 class TremendousSourceConfig(config.Config):
+    api_key: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
+
+
+@config.config
+class TriggerDevSourceConfig(config.Config):
     pass
 
 
@@ -3358,7 +3803,22 @@ class TrustPilotSourceConfig(config.Config):
 
 
 @config.config
+class TursoSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class TwelveDataSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class TwelveLabsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class TwentySourceConfig(config.Config):
     pass
 
 
@@ -3398,16 +3858,30 @@ class USCensusSourceConfig(config.Config):
 
 @config.config
 class UbidotsSourceConfig(config.Config):
-    pass
+    api_token: str
+    api_base_url: Literal["https://industrial.api.ubidots.com", "https://things.ubidots.com"] | None = config.value(
+        default="https://industrial.api.ubidots.com"
+    )
 
 
 @config.config
 class UnleashSourceConfig(config.Config):
+    instance_url: str
+    api_token: str
+
+
+@config.config
+class UnstructuredSourceConfig(config.Config):
     pass
 
 
 @config.config
 class UpPromoteSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class UpstashSourceConfig(config.Config):
     pass
 
 
@@ -3432,7 +3906,17 @@ class VantageSourceConfig(config.Config):
 
 
 @config.config
+class VapiSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class VeeqoSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class VellumSourceConfig(config.Config):
     pass
 
 
@@ -3440,6 +3924,11 @@ class VeeqoSourceConfig(config.Config):
 class VercelSourceConfig(config.Config):
     access_token: str
     team_id: str | None = None
+
+
+@config.config
+class VespaSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3451,6 +3940,11 @@ class VismaEconomicSourceConfig(config.Config):
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
+
+
+@config.config
+class VultrSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3481,6 +3975,11 @@ class WhenIWorkSourceConfig(config.Config):
 
 @config.config
 class WikipediaPageviewsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class WindmillSourceConfig(config.Config):
     pass
 
 
@@ -3531,8 +4030,14 @@ class WrikeSourceConfig(config.Config):
 
 
 @config.config
-class WufooSourceConfig(config.Config):
+class WritesonicSourceConfig(config.Config):
     pass
+
+
+@config.config
+class WufooSourceConfig(config.Config):
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -3619,6 +4124,11 @@ class ZenefitsSourceConfig(config.Config):
 
 @config.config
 class ZenloopSourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class ZepSourceConfig(config.Config):
     pass
 
 
@@ -3674,7 +4184,8 @@ class ZohoInvoiceSourceConfig(config.Config):
 
 @config.config
 class ZonkaFeedbackSourceConfig(config.Config):
-    pass
+    auth_token: str
+    data_center: Literal["us1", "e", "in"] = config.value(default="us1")
 
 
 @config.config
@@ -3718,12 +4229,15 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AGILECRM: AgileCRMSourceConfig,
         ExternalDataSourceType.AHA: AhaSourceConfig,
         ExternalDataSourceType.AHREFS: AhrefsSourceConfig,
+        ExternalDataSourceType.AIKIDOSECURITY: AikidoSecuritySourceConfig,
         ExternalDataSourceType.AIROPS: AirOpsSourceConfig,
         ExternalDataSourceType.AIRBYTE: AirbyteSourceConfig,
         ExternalDataSourceType.AIRCALL: AircallSourceConfig,
         ExternalDataSourceType.AIRTABLE: AirtableSourceConfig,
+        ExternalDataSourceType.AIVEN: AivenSourceConfig,
         ExternalDataSourceType.AKENEO: AkeneoSourceConfig,
         ExternalDataSourceType.ALGOLIA: AlgoliaSourceConfig,
+        ExternalDataSourceType.ALGUNA: AlgunaSourceConfig,
         ExternalDataSourceType.ALPACABROKERAPI: AlpacaBrokerAPISourceConfig,
         ExternalDataSourceType.ALPHAVANTAGE: AlphaVantageSourceConfig,
         ExternalDataSourceType.AMAZONADS: AmazonAdsSourceConfig,
@@ -3735,6 +4249,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AMAZONSQS: AmazonSQSSourceConfig,
         ExternalDataSourceType.AMAZONSELLINGPARTNER: AmazonSellingPartnerSourceConfig,
         ExternalDataSourceType.AMPLITUDE: AmplitudeSourceConfig,
+        ExternalDataSourceType.ANTHROPIC: AnthropicSourceConfig,
         ExternalDataSourceType.APIFYDATASET: ApifyDatasetSourceConfig,
         ExternalDataSourceType.APOLLO: ApolloSourceConfig,
         ExternalDataSourceType.APPLOVIN: AppLovinSourceConfig,
@@ -3745,6 +4260,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.APPSFLYER: AppsFlyerSourceConfig,
         ExternalDataSourceType.APPSTACK: AppstackSourceConfig,
         ExternalDataSourceType.APPTIVO: ApptivoSourceConfig,
+        ExternalDataSourceType.APPWRITE: AppwriteSourceConfig,
         ExternalDataSourceType.ASANA: AsanaSourceConfig,
         ExternalDataSourceType.ASHBY: AshbySourceConfig,
         ExternalDataSourceType.ASSEMBLYAI: AssemblyAISourceConfig,
@@ -3752,21 +4268,25 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.ATTIO: AttioSourceConfig,
         ExternalDataSourceType.AUTH0: Auth0SourceConfig,
         ExternalDataSourceType.AVIATIONSTACK: AviationstackSourceConfig,
+        ExternalDataSourceType.AVIATOR: AviatorSourceConfig,
         ExternalDataSourceType.AWIN: AwinSourceConfig,
         ExternalDataSourceType.AWSCLOUDTRAIL: AwsCloudTrailSourceConfig,
         ExternalDataSourceType.AZUREBLOB: AzureBlobSourceConfig,
         ExternalDataSourceType.AZUREDEVOPS: AzureDevOpsSourceConfig,
         ExternalDataSourceType.AZURETABLESTORAGE: AzureTableStorageSourceConfig,
         ExternalDataSourceType.BABELFORCE: BabelforceSourceConfig,
+        ExternalDataSourceType.BACKBLAZE: BackblazeSourceConfig,
         ExternalDataSourceType.BAMBOOHR: BambooHRSourceConfig,
         ExternalDataSourceType.BASECAMP: BasecampSourceConfig,
         ExternalDataSourceType.BASEROW: BaserowSourceConfig,
+        ExternalDataSourceType.BASETEN: BasetenSourceConfig,
         ExternalDataSourceType.BEAMER: BeamerSourceConfig,
         ExternalDataSourceType.BIGCOMMERCE: BigCommerceSourceConfig,
         ExternalDataSourceType.BIGMAILER: BigMailerSourceConfig,
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BITLY: BitlySourceConfig,
+        ExternalDataSourceType.BLANDAI: BlandAISourceConfig,
         ExternalDataSourceType.BLOGGER: BloggerSourceConfig,
         ExternalDataSourceType.BLUETALLY: BluetallySourceConfig,
         ExternalDataSourceType.BOLDSIGN: BoldSignSourceConfig,
@@ -3779,6 +4299,9 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BREEZYHR: BreezyHRSourceConfig,
         ExternalDataSourceType.BREVO: BrevoSourceConfig,
         ExternalDataSourceType.BREX: BrexSourceConfig,
+        ExternalDataSourceType.BROWSEAI: BrowseAISourceConfig,
+        ExternalDataSourceType.BROWSERUSE: BrowserUseSourceConfig,
+        ExternalDataSourceType.BROWSERBASE: BrowserbaseSourceConfig,
         ExternalDataSourceType.BUGSNAG: BugsnagSourceConfig,
         ExternalDataSourceType.BUILDBETTER: BuildBetterSourceConfig,
         ExternalDataSourceType.BUILDKITE: BuildkiteSourceConfig,
@@ -3800,6 +4323,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
         ExternalDataSourceType.CHARGEDESK: ChargedeskSourceConfig,
         ExternalDataSourceType.CHARGIFY: ChargifySourceConfig,
+        ExternalDataSourceType.CHARTHOP: ChartHopSourceConfig,
         ExternalDataSourceType.CHARTMOGUL: ChartMogulSourceConfig,
         ExternalDataSourceType.CHATWOOT: ChatwootSourceConfig,
         ExternalDataSourceType.CHECKOUTCOM: CheckoutComSourceConfig,
@@ -3825,6 +4349,8 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,
         ExternalDataSourceType.CODA: CodaSourceConfig,
         ExternalDataSourceType.CODEFRESH: CodefreshSourceConfig,
+        ExternalDataSourceType.CODY: CodySourceConfig,
+        ExternalDataSourceType.COHERE: CohereSourceConfig,
         ExternalDataSourceType.COINAPI: CoinApiSourceConfig,
         ExternalDataSourceType.COINGECKO: CoinGeckoSourceConfig,
         ExternalDataSourceType.COINMARKETCAP: CoinMarketCapSourceConfig,
@@ -3842,6 +4368,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CRITEO: CriteoSourceConfig,
         ExternalDataSourceType.CRUNCHBASE: CrunchbaseSourceConfig,
         ExternalDataSourceType.CULTUREAMP: CultureAmpSourceConfig,
+        ExternalDataSourceType.CURSOR: CursorSourceConfig,
         ExternalDataSourceType.CURVE: CurveSourceConfig,
         ExternalDataSourceType.CUSTOM: CustomSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
@@ -3852,10 +4379,14 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DATORAMA: DatoramaSourceConfig,
         ExternalDataSourceType.DB2: Db2SourceConfig,
         ExternalDataSourceType.DBT: DbtSourceConfig,
+        ExternalDataSourceType.DECAGON: DecagonSourceConfig,
         ExternalDataSourceType.DEEL: DeelSourceConfig,
+        ExternalDataSourceType.DEEPGRAM: DeepgramSourceConfig,
         ExternalDataSourceType.DELIGHTED: DelightedSourceConfig,
+        ExternalDataSourceType.DENODEPLOY: DenoDeploySourceConfig,
         ExternalDataSourceType.DEPUTY: DeputySourceConfig,
         ExternalDataSourceType.DEVINAI: DevinAISourceConfig,
+        ExternalDataSourceType.DIGITALOCEAN: DigitalOceanSourceConfig,
         ExternalDataSourceType.DINGCONNECT: DingConnectSourceConfig,
         ExternalDataSourceType.DISPLAYVIDEO360: DisplayVideo360SourceConfig,
         ExternalDataSourceType.DIXA: DixaSourceConfig,
@@ -3872,6 +4403,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DWOLLA: DwollaSourceConfig,
         ExternalDataSourceType.DYNAMICS365: Dynamics365SourceConfig,
         ExternalDataSourceType.DYNAMODB: DynamoDBSourceConfig,
+        ExternalDataSourceType.E2B: E2BSourceConfig,
         ExternalDataSourceType.ECONOMIC: EConomicSourceConfig,
         ExternalDataSourceType.EZOFFICEINVENTORY: EZOfficeInventorySourceConfig,
         ExternalDataSourceType.EASYPOST: EasypostSourceConfig,
@@ -3879,6 +4411,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.EBAY: EbaySourceConfig,
         ExternalDataSourceType.ELASTICEMAIL: ElasticemailSourceConfig,
         ExternalDataSourceType.ELASTICSEARCH: ElasticsearchSourceConfig,
+        ExternalDataSourceType.ELEVENLABS: ElevenLabsSourceConfig,
         ExternalDataSourceType.ELOQUA: EloquaSourceConfig,
         ExternalDataSourceType.EMAILOCTOPUS: EmailOctopusSourceConfig,
         ExternalDataSourceType.EMPLOYMENTHERO: EmploymentHeroSourceConfig,
@@ -3900,14 +4433,18 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.FINANCIALMODELLING: FinancialModellingSourceConfig,
         ExternalDataSourceType.FINNHUB: FinnhubSourceConfig,
         ExternalDataSourceType.FINNWORLDS: FinnworldsSourceConfig,
+        ExternalDataSourceType.FINTOC: FintocSourceConfig,
         ExternalDataSourceType.FIREHYDRANT: FireHydrantSourceConfig,
         ExternalDataSourceType.FIREBASE: FirebaseSourceConfig,
         ExternalDataSourceType.FIREBOLT: FireboltSourceConfig,
+        ExternalDataSourceType.FIRECRAWL: FirecrawlSourceConfig,
+        ExternalDataSourceType.FIREWORKSAI: FireworksAISourceConfig,
         ExternalDataSourceType.FLEETIO: FleetioSourceConfig,
         ExternalDataSourceType.FLEXMAIL: FlexmailSourceConfig,
         ExternalDataSourceType.FLEXPORT: FlexportSourceConfig,
         ExternalDataSourceType.FLOATAPP: FloatAppSourceConfig,
         ExternalDataSourceType.FLOWLU: FlowluSourceConfig,
+        ExternalDataSourceType.FLYIO: FlyIoSourceConfig,
         ExternalDataSourceType.FORMBRICKS: FormbricksSourceConfig,
         ExternalDataSourceType.FREEAGENT: FreeAgentSourceConfig,
         ExternalDataSourceType.FREIGHTVIEW: FreightviewSourceConfig,
@@ -3955,14 +4492,25 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GREENHOUSE: GreenhouseSourceConfig,
         ExternalDataSourceType.GREYTHR: GreytHrSourceConfig,
         ExternalDataSourceType.GRIDLY: GridlySourceConfig,
+        ExternalDataSourceType.GROQ: GroqSourceConfig,
+        ExternalDataSourceType.GROWTHBOOK: GrowthBookSourceConfig,
         ExternalDataSourceType.GUARDIAN: GuardianSourceConfig,
+        ExternalDataSourceType.GUMLOOP: GumloopSourceConfig,
         ExternalDataSourceType.GURU: GuruSourceConfig,
         ExternalDataSourceType.GUSTO: GustoSourceConfig,
         ExternalDataSourceType.HARNESS: HarnessSourceConfig,
+        ExternalDataSourceType.HARVEY: HarveySourceConfig,
+        ExternalDataSourceType.HATCHET: HatchetSourceConfig,
+        ExternalDataSourceType.HEALTHCHECKS: HealthchecksSourceConfig,
         ExternalDataSourceType.HEAP: HeapSourceConfig,
         ExternalDataSourceType.HEIGHT: HeightSourceConfig,
+        ExternalDataSourceType.HELICONE: HeliconeSourceConfig,
         ExternalDataSourceType.HELLOBATON: HellobatonSourceConfig,
         ExternalDataSourceType.HELPSCOUT: HelpScoutSourceConfig,
+        ExternalDataSourceType.HEROKU: HerokuSourceConfig,
+        ExternalDataSourceType.HETZNER: HetznerSourceConfig,
+        ExternalDataSourceType.HEX: HexSourceConfig,
+        ExternalDataSourceType.HEYGEN: HeyGenSourceConfig,
         ExternalDataSourceType.HIBOB: HiBobSourceConfig,
         ExternalDataSourceType.HIGHLEVEL: HighLevelSourceConfig,
         ExternalDataSourceType.HIGHTOUCH: HightouchSourceConfig,
@@ -3972,13 +4520,17 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.HUGGINGFACE: HuggingFaceSourceConfig,
         ExternalDataSourceType.HUMANITIX: HumanitixSourceConfig,
         ExternalDataSourceType.HUNTR: HuntrSourceConfig,
+        ExternalDataSourceType.HYPERSPELL: HyperspellSourceConfig,
         ExternalDataSourceType.IP2WHOIS: IP2WhoisSourceConfig,
         ExternalDataSourceType.IKAS: IkasSourceConfig,
         ExternalDataSourceType.ILLUMINABASESPACE: IlluminaBasespaceSourceConfig,
         ExternalDataSourceType.IMAGGA: ImaggaSourceConfig,
+        ExternalDataSourceType.IMPACT: ImpactSourceConfig,
         ExternalDataSourceType.INCIDENTIO: IncidentIoSourceConfig,
+        ExternalDataSourceType.INFISICAL: InfisicalSourceConfig,
         ExternalDataSourceType.INFLOWINVENTORY: InflowinventorySourceConfig,
         ExternalDataSourceType.INFORNEXUS: InforNexusSourceConfig,
+        ExternalDataSourceType.INNGEST: InngestSourceConfig,
         ExternalDataSourceType.INSIGHTFUL: InsightfulSourceConfig,
         ExternalDataSourceType.INSIGHTLY: InsightlySourceConfig,
         ExternalDataSourceType.INSTAGRAM: InstagramSourceConfig,
@@ -4001,16 +4553,22 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.K6CLOUD: K6CloudSourceConfig,
         ExternalDataSourceType.KYVE: KYVESourceConfig,
         ExternalDataSourceType.KAFKA: KafkaSourceConfig,
+        ExternalDataSourceType.KAPAAI: KapaAISourceConfig,
         ExternalDataSourceType.KATANA: KatanaSourceConfig,
         ExternalDataSourceType.KEKA: KekaSourceConfig,
+        ExternalDataSourceType.KERNEL: KernelSourceConfig,
         ExternalDataSourceType.KISI: KisiSourceConfig,
         ExternalDataSourceType.KISSMETRICS: KissmetricsSourceConfig,
         ExternalDataSourceType.KLARNA: KlarnaSourceConfig,
         ExternalDataSourceType.KLAUS: KlausSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
         ExternalDataSourceType.KNOCK: KnockSourceConfig,
+        ExternalDataSourceType.KOYEB: KoyebSourceConfig,
         ExternalDataSourceType.KUSTOMER: KustomerSourceConfig,
         ExternalDataSourceType.LAGO: LagoSourceConfig,
+        ExternalDataSourceType.LAMBDALABS: LambdaLabsSourceConfig,
+        ExternalDataSourceType.LANGSMITH: LangSmithSourceConfig,
+        ExternalDataSourceType.LANGFUSE: LangfuseSourceConfig,
         ExternalDataSourceType.LATTICE: LatticeSourceConfig,
         ExternalDataSourceType.LAUNCHDARKLY: LaunchDarklySourceConfig,
         ExternalDataSourceType.LEADFEEDER: LeadfeederSourceConfig,
@@ -4023,15 +4581,19 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.LIGHTFIELD: LightfieldSourceConfig,
         ExternalDataSourceType.LIGHTSPEEDRETAIL: LightspeedRetailSourceConfig,
         ExternalDataSourceType.LINEAR: LinearSourceConfig,
+        ExternalDataSourceType.LINGODEV: LingoDevSourceConfig,
         ExternalDataSourceType.LINKEDINADS: LinkedinAdsSourceConfig,
         ExternalDataSourceType.LINKEDINPAGES: LinkedinPagesSourceConfig,
         ExternalDataSourceType.LINKRUNNER: LinkrunnerSourceConfig,
         ExternalDataSourceType.LINNWORKS: LinnworksSourceConfig,
+        ExternalDataSourceType.LINODE: LinodeSourceConfig,
+        ExternalDataSourceType.LLAMACLOUD: LlamaCloudSourceConfig,
         ExternalDataSourceType.LOB: LobSourceConfig,
         ExternalDataSourceType.LOKALISE: LokaliseSourceConfig,
         ExternalDataSourceType.LOOKER: LookerSourceConfig,
         ExternalDataSourceType.LOOPS: LoopsSourceConfig,
         ExternalDataSourceType.LUMA: LumaSourceConfig,
+        ExternalDataSourceType.M3TER: M3terSourceConfig,
         ExternalDataSourceType.MSSQL: MSSQLSourceConfig,
         ExternalDataSourceType.MAILCHIMP: MailchimpSourceConfig,
         ExternalDataSourceType.MAILERLITE: MailerLiteSourceConfig,
@@ -4044,6 +4606,8 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.MARKETO: MarketoSourceConfig,
         ExternalDataSourceType.MARKETSTACK: MarketstackSourceConfig,
         ExternalDataSourceType.MATOMO: MatomoSourceConfig,
+        ExternalDataSourceType.MAXIO: MaxioSourceConfig,
+        ExternalDataSourceType.MEM0: Mem0SourceConfig,
         ExternalDataSourceType.MENDELEY: MendeleySourceConfig,
         ExternalDataSourceType.MENTION: MentionSourceConfig,
         ExternalDataSourceType.MERCADOADS: MercadoAdsSourceConfig,
@@ -4051,20 +4615,25 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.MERGE: MergeSourceConfig,
         ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
         ExternalDataSourceType.METABASE: MetabaseSourceConfig,
+        ExternalDataSourceType.METORIAL: MetorialSourceConfig,
         ExternalDataSourceType.METRICOOL: MetricoolSourceConfig,
+        ExternalDataSourceType.METRIPORT: MetriportSourceConfig,
         ExternalDataSourceType.METRONOME: MetronomeSourceConfig,
         ExternalDataSourceType.MICROSOFTDATAVERSE: MicrosoftDataverseSourceConfig,
         ExternalDataSourceType.MICROSOFTENTRAID: MicrosoftEntraIdSourceConfig,
         ExternalDataSourceType.MICROSOFTLISTS: MicrosoftListsSourceConfig,
         ExternalDataSourceType.MICROSOFTTEAMS: MicrosoftTeamsSourceConfig,
+        ExternalDataSourceType.MINTLIFY: MintlifySourceConfig,
         ExternalDataSourceType.MIRO: MiroSourceConfig,
         ExternalDataSourceType.MISSIVE: MissiveSourceConfig,
+        ExternalDataSourceType.MISTRALAI: MistralAISourceConfig,
         ExternalDataSourceType.MIXMAX: MixMaxSourceConfig,
         ExternalDataSourceType.MIXPANEL: MixpanelSourceConfig,
         ExternalDataSourceType.MODE: ModeSourceConfig,
         ExternalDataSourceType.MOLLIE: MollieSourceConfig,
         ExternalDataSourceType.MONDAY: MondaySourceConfig,
         ExternalDataSourceType.MONGODB: MongoDBSourceConfig,
+        ExternalDataSourceType.MONO: MonoSourceConfig,
         ExternalDataSourceType.MUX: MuxSourceConfig,
         ExternalDataSourceType.MYHOURS: MyHoursSourceConfig,
         ExternalDataSourceType.MYSQL: MySQLSourceConfig,
@@ -4074,6 +4643,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NEBIUSAI: NebiusAISourceConfig,
         ExternalDataSourceType.NEON: NeonSourceConfig,
         ExternalDataSourceType.NETSUITE: NetSuiteSourceConfig,
+        ExternalDataSourceType.NETLIFY: NetlifySourceConfig,
         ExternalDataSourceType.NEWRELIC: NewRelicSourceConfig,
         ExternalDataSourceType.NEWYORKTIMES: NewYorkTimesSourceConfig,
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
@@ -4082,6 +4652,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NEXTDOORADS: NextdoorAdsSourceConfig,
         ExternalDataSourceType.NINJAONERMM: NinjaOneRMMSourceConfig,
         ExternalDataSourceType.NOCRM: NoCRMSourceConfig,
+        ExternalDataSourceType.NORTHFLANK: NorthflankSourceConfig,
         ExternalDataSourceType.NORTHPASSLMS: NorthpassLMSSourceConfig,
         ExternalDataSourceType.NOTION: NotionSourceConfig,
         ExternalDataSourceType.NUTSHELL: NutshellSourceConfig,
@@ -4095,11 +4666,13 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.ONESIGNAL: OneSignalSourceConfig,
         ExternalDataSourceType.ONEPAGECRM: OnepagecrmSourceConfig,
         ExternalDataSourceType.ONFLEET: OnfleetSourceConfig,
+        ExternalDataSourceType.OPENAI: OpenAISourceConfig,
         ExternalDataSourceType.OPENAIADS: OpenAIAdsSourceConfig,
         ExternalDataSourceType.OPENAQ: OpenAQSourceConfig,
         ExternalDataSourceType.OPENDATADC: OpenDataDcSourceConfig,
         ExternalDataSourceType.OPENEXCHANGERATES: OpenExchangeRatesSourceConfig,
         ExternalDataSourceType.OPENFDA: OpenFDASourceConfig,
+        ExternalDataSourceType.OPENROUTER: OpenRouterSourceConfig,
         ExternalDataSourceType.OPENWEATHER: OpenWeatherSourceConfig,
         ExternalDataSourceType.OPINIONSTAGE: OpinionStageSourceConfig,
         ExternalDataSourceType.OPSGENIE: OpsgenieSourceConfig,
@@ -4128,6 +4701,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PAYPAL: PayPalSourceConfig,
         ExternalDataSourceType.PAYLOCITY: PaylocitySourceConfig,
         ExternalDataSourceType.PAYSTACK: PaystackSourceConfig,
+        ExternalDataSourceType.PEECAI: PeecAISourceConfig,
         ExternalDataSourceType.PENDO: PendoSourceConfig,
         ExternalDataSourceType.PENNYLANE: PennylaneSourceConfig,
         ExternalDataSourceType.PERIGON: PerigonSourceConfig,
@@ -4139,6 +4713,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PGANALYZE: PgAnalyzeSourceConfig,
         ExternalDataSourceType.PHYLLO: PhylloSourceConfig,
         ExternalDataSourceType.PICQER: PicqerSourceConfig,
+        ExternalDataSourceType.PINECONE: PineconeSourceConfig,
         ExternalDataSourceType.PINGDOM: PingdomSourceConfig,
         ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
@@ -4149,6 +4724,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PLAIN: PlainSourceConfig,
         ExternalDataSourceType.PLANETSCALE: PlanetScaleSourceConfig,
         ExternalDataSourceType.PLANHAT: PlanhatSourceConfig,
+        ExternalDataSourceType.PLATFORMSH: PlatformShSourceConfig,
         ExternalDataSourceType.PLAUSIBLE: PlausibleSourceConfig,
         ExternalDataSourceType.PLUNK: PlunkSourceConfig,
         ExternalDataSourceType.POCKET: PocketSourceConfig,
@@ -4164,8 +4740,10 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PRINTIFY: PrintifySourceConfig,
         ExternalDataSourceType.PRODUCTBOARD: ProductboardSourceConfig,
         ExternalDataSourceType.PRODUCTIVE: ProductiveSourceConfig,
+        ExternalDataSourceType.PROMPTINGCOMPANY: PromptingCompanySourceConfig,
         ExternalDataSourceType.PYPI: PyPISourceConfig,
         ExternalDataSourceType.PYLON: PylonSourceConfig,
+        ExternalDataSourceType.QDRANT: QdrantSourceConfig,
         ExternalDataSourceType.QONTO: QontoSourceConfig,
         ExternalDataSourceType.QUALAROO: QualarooSourceConfig,
         ExternalDataSourceType.QUALTRICS: QualtricsSourceConfig,
@@ -4185,22 +4763,27 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.REDIS: RedisSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
         ExternalDataSourceType.REFERRALHERO: ReferralHeroSourceConfig,
+        ExternalDataSourceType.RENDER: RenderSourceConfig,
         ExternalDataSourceType.RENTCAST: RentCastSourceConfig,
         ExternalDataSourceType.REPAIRSHOPR: RepairshoprSourceConfig,
+        ExternalDataSourceType.REPLICATE: ReplicateSourceConfig,
         ExternalDataSourceType.REPLYIO: ReplyIoSourceConfig,
         ExternalDataSourceType.RESEND: ResendSourceConfig,
         ExternalDataSourceType.RETAILEXPRESS: RetailExpressSourceConfig,
+        ExternalDataSourceType.RETELLAI: RetellAISourceConfig,
         ExternalDataSourceType.RETENTLY: RetentlySourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.REVOLUTMERCHANT: RevolutMerchantSourceConfig,
         ExternalDataSourceType.RINGCENTRAL: RingCentralSourceConfig,
         ExternalDataSourceType.RIPPLING: RipplingSourceConfig,
+        ExternalDataSourceType.ROARK: RoarkSourceConfig,
         ExternalDataSourceType.ROCKETCHAT: RocketChatSourceConfig,
         ExternalDataSourceType.ROCKETLANE: RocketlaneSourceConfig,
         ExternalDataSourceType.ROLLBAR: RollbarSourceConfig,
         ExternalDataSourceType.ROOTLY: RootlySourceConfig,
         ExternalDataSourceType.RSS: RssSourceConfig,
         ExternalDataSourceType.RUDDR: RuddrSourceConfig,
+        ExternalDataSourceType.RUNPOD: RunPodSourceConfig,
         ExternalDataSourceType.SAPFIELDGLASS: SAPFieldglassSourceConfig,
         ExternalDataSourceType.SFTP: SFTPSourceConfig,
         ExternalDataSourceType.SAFETYCULTURE: SafetyCultureSourceConfig,
@@ -4217,6 +4800,8 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SAPHANA: SapHanaSourceConfig,
         ExternalDataSourceType.SAPSUCCESSFACTORS: SapSuccessFactorsSourceConfig,
         ExternalDataSourceType.SAVVYCAL: SavvyCalSourceConfig,
+        ExternalDataSourceType.SCALEAI: ScaleAISourceConfig,
+        ExternalDataSourceType.SCALEWAY: ScalewaySourceConfig,
         ExternalDataSourceType.SEARCHADS360: SearchAds360SourceConfig,
         ExternalDataSourceType.SECODA: SecodaSourceConfig,
         ExternalDataSourceType.SEGMENT: SegmentSourceConfig,
@@ -4237,12 +4822,16 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SHORTCUT: ShortcutSourceConfig,
         ExternalDataSourceType.SHORTIO: ShortioSourceConfig,
         ExternalDataSourceType.SHUTTERSTOCK: ShutterstockSourceConfig,
+        ExternalDataSourceType.SIGNOZ: SigNozSourceConfig,
         ExternalDataSourceType.SIGMACOMPUTING: SigmaComputingSourceConfig,
         ExternalDataSourceType.SIGNNOW: SignNowSourceConfig,
+        ExternalDataSourceType.SIM: SimSourceConfig,
         ExternalDataSourceType.SIMFIN: SimFinSourceConfig,
         ExternalDataSourceType.SIMPLECAST: SimpleCastSourceConfig,
         ExternalDataSourceType.SIMPLESAT: SimplesatSourceConfig,
+        ExternalDataSourceType.SKYVERN: SkyvernSourceConfig,
         ExternalDataSourceType.SLACK: SlackSourceConfig,
+        ExternalDataSourceType.SLASH: SlashSourceConfig,
         ExternalDataSourceType.SMAILY: SmailySourceConfig,
         ExternalDataSourceType.SMARTENGAGE: SmartEngageSourceConfig,
         ExternalDataSourceType.SMARTREACH: SmartreachSourceConfig,
@@ -4272,6 +4861,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SURVEYSPARROW: SurveySparrowSourceConfig,
         ExternalDataSourceType.SURVICATE: SurvicateSourceConfig,
         ExternalDataSourceType.SVIX: SvixSourceConfig,
+        ExternalDataSourceType.SYNTHESIA: SynthesiaSourceConfig,
         ExternalDataSourceType.SYSTEME: SystemeSourceConfig,
         ExternalDataSourceType.TMDB: TMDbSourceConfig,
         ExternalDataSourceType.TVMAZE: TVMazeSourceConfig,
@@ -4282,8 +4872,10 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TEACHABLE: TeachableSourceConfig,
         ExternalDataSourceType.TEAMTAILOR: TeamtailorSourceConfig,
         ExternalDataSourceType.TEAMWORK: TeamworkSourceConfig,
+        ExternalDataSourceType.TELLI: TelliSourceConfig,
         ExternalDataSourceType.TEMPO: TempoSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
+        ExternalDataSourceType.TERRAAPI: TerraApiSourceConfig,
         ExternalDataSourceType.TESTRAIL: TestrailSourceConfig,
         ExternalDataSourceType.THINKIFIC: ThinkificSourceConfig,
         ExternalDataSourceType.THINKIFICCOURSES: ThinkificCoursesSourceConfig,
@@ -4296,12 +4888,17 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TIMELY: TimelySourceConfig,
         ExternalDataSourceType.TINYEMAIL: TinyemailSourceConfig,
         ExternalDataSourceType.TODOIST: TodoistSourceConfig,
+        ExternalDataSourceType.TOGETHERAI: TogetherAISourceConfig,
         ExternalDataSourceType.TOGGL: TogglSourceConfig,
         ExternalDataSourceType.TRACKPMS: TrackPMSSourceConfig,
         ExternalDataSourceType.TRELLO: TrelloSourceConfig,
         ExternalDataSourceType.TREMENDOUS: TremendousSourceConfig,
+        ExternalDataSourceType.TRIGGERDEV: TriggerDevSourceConfig,
         ExternalDataSourceType.TRUSTPILOT: TrustPilotSourceConfig,
+        ExternalDataSourceType.TURSO: TursoSourceConfig,
         ExternalDataSourceType.TWELVEDATA: TwelveDataSourceConfig,
+        ExternalDataSourceType.TWELVELABS: TwelveLabsSourceConfig,
+        ExternalDataSourceType.TWENTY: TwentySourceConfig,
         ExternalDataSourceType.TWILIO: TwilioSourceConfig,
         ExternalDataSourceType.TWITTER: TwitterSourceConfig,
         ExternalDataSourceType.TWITTERADS: TwitterAdsSourceConfig,
@@ -4310,21 +4907,28 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.USCENSUS: USCensusSourceConfig,
         ExternalDataSourceType.UBIDOTS: UbidotsSourceConfig,
         ExternalDataSourceType.UNLEASH: UnleashSourceConfig,
+        ExternalDataSourceType.UNSTRUCTURED: UnstructuredSourceConfig,
         ExternalDataSourceType.UPPROMOTE: UpPromoteSourceConfig,
+        ExternalDataSourceType.UPSTASH: UpstashSourceConfig,
         ExternalDataSourceType.UPTICK: UptickSourceConfig,
         ExternalDataSourceType.USERVOICE: UservoiceSourceConfig,
         ExternalDataSourceType.VWO: VWOSourceConfig,
         ExternalDataSourceType.VANTAGE: VantageSourceConfig,
+        ExternalDataSourceType.VAPI: VapiSourceConfig,
         ExternalDataSourceType.VEEQO: VeeqoSourceConfig,
+        ExternalDataSourceType.VELLUM: VellumSourceConfig,
         ExternalDataSourceType.VERCEL: VercelSourceConfig,
+        ExternalDataSourceType.VESPA: VespaSourceConfig,
         ExternalDataSourceType.VISMAECONOMIC: VismaEconomicSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
+        ExternalDataSourceType.VULTR: VultrSourceConfig,
         ExternalDataSourceType.WAITERAID: WaiteraidSourceConfig,
         ExternalDataSourceType.WASABI: WasabiSourceConfig,
         ExternalDataSourceType.WATCHMODE: WatchmodeSourceConfig,
         ExternalDataSourceType.WEBFLOW: WebflowSourceConfig,
         ExternalDataSourceType.WHENIWORK: WhenIWorkSourceConfig,
         ExternalDataSourceType.WIKIPEDIAPAGEVIEWS: WikipediaPageviewsSourceConfig,
+        ExternalDataSourceType.WINDMILL: WindmillSourceConfig,
         ExternalDataSourceType.WOOCOMMERCE: WooCommerceSourceConfig,
         ExternalDataSourceType.WORDPRESS: WordpressSourceConfig,
         ExternalDataSourceType.WORKOS: WorkOSSourceConfig,
@@ -4333,6 +4937,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.WORKFLOWMAX: WorkflowmaxSourceConfig,
         ExternalDataSourceType.WORKRAMP: WorkrampSourceConfig,
         ExternalDataSourceType.WRIKE: WrikeSourceConfig,
+        ExternalDataSourceType.WRITESONIC: WritesonicSourceConfig,
         ExternalDataSourceType.WUFOO: WufooSourceConfig,
         ExternalDataSourceType.XERO: XeroSourceConfig,
         ExternalDataSourceType.XSOLLA: XsollaSourceConfig,
@@ -4351,6 +4956,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.ZENDESKSUNSHINE: ZendeskSunshineSourceConfig,
         ExternalDataSourceType.ZENEFITS: ZenefitsSourceConfig,
         ExternalDataSourceType.ZENLOOP: ZenloopSourceConfig,
+        ExternalDataSourceType.ZEP: ZepSourceConfig,
         ExternalDataSourceType.ZOHOANALYTICS: ZohoAnalyticsSourceConfig,
         ExternalDataSourceType.ZOHOBIGIN: ZohoBiginSourceConfig,
         ExternalDataSourceType.ZOHOBILLING: ZohoBillingSourceConfig,

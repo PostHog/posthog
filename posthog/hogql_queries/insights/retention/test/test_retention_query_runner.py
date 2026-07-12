@@ -52,7 +52,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention"
 
@@ -3916,6 +3916,61 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                     [0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0],
                     [1, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+    def test_retention_with_breakdown_with_group_properties(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="org:finance", properties={"industry": "finance"}
+        )
+        create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="org:tech", properties={"industry": "technology"}
+        )
+
+        create_person(team=self.team, distinct_ids=["person1"])
+        create_person(team=self.team, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                # finance org
+                ("person1", _date(0), {"$group_0": "org:finance"}),
+                ("person1", _date(1), {"$group_0": "org:finance"}),
+                ("person1", _date(3), {"$group_0": "org:finance"}),
+                # technology org
+                ("person2", _date(0), {"$group_0": "org:tech"}),
+                ("person2", _date(1), {"$group_0": "org:tech"}),
+            ],
+        )
+
+        # Breaking down by a group property must resolve the events->groups join
+        # (chain group_0, not groups_0), otherwise the query fails to resolve.
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {"totalIntervals": 6, "period": "Day"},
+                "breakdownFilter": {"breakdowns": [{"property": "industry", "type": "group", "group_type_index": 0}]},
+            }
+        )
+
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"finance", "technology"})
+
+        finance_cohorts = pluck([c for c in result if c.get("breakdown_value") == "finance"], "values", "count")
+        self.assertEqual(
+            finance_cohorts,
+            pad(
+                [
+                    [1, 1, 0, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
                 ]
             ),
         )

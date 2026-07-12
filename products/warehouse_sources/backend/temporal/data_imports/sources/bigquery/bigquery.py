@@ -22,17 +22,19 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlparse
 
 from django.conf import settings
 
 import boto3
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import BadRequest, Forbidden, NotFound
+from google.api_core.exceptions import BadRequest, Forbidden, InternalServerError, NotFound, ServiceUnavailable
+from google.api_core.retry import Retry, if_exception_type
+from google.auth.exceptions import RefreshError
 from google.auth import (
     aws as google_auth_aws,
     credentials as google_auth_credentials,
-    exceptions as google_auth_exceptions,
     impersonated_credentials as google_auth_impersonated_credentials,
 )
 from google.auth.transport.requests import AuthorizedSession
@@ -65,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -145,14 +148,49 @@ BIGQUERY_INVALID_IDENTIFIER_ERROR = (
 _BIGQUERY_JOB_RETRY_RECOMMENDED = "Retrying the job may solve the problem"
 
 
+def _is_transient_rate_quota_exceeded(exc: Exception) -> bool:
+    """True for BigQuery's per-second rate quotas, which are transient and recover on their own.
+
+    BigQuery caps some operations by a per-second rate (e.g. "Quota exceeded: Your project ...
+    exceeded quota for tabledata.list bytes per second per project."), surfaced from
+    `jobs.getQueryResults` as a `Forbidden` (403, reason `quotaExceeded`). The quota window resets
+    each second, so a query that trips one recovers within moments — but the library's own retry
+    predicates only cover `rateLimitExceeded` / `backendError` / `internalError`, not
+    `quotaExceeded`, so neither the API-call retry nor the job retry waits it out and the read/copy
+    query crashes the whole sync. This is distinct from the administrator-set "Custom quota
+    exceeded" daily cost cap (kept non-retryable in `get_non_retryable_errors`), which resets only
+    on Google's daily schedule and must not be retried in place. Matched on the stable "per second"
+    wording rather than the volatile project/quota id.
+    """
+    message = str(exc)
+    return "per second" in message and "Custom quota exceeded" not in message
+
+
 def _query_job_should_retry(exc: Exception) -> bool:
     # Defer to the library's own default predicate for the reasons it already covers; importing it
     # directly (rather than reading the private `Retry._predicate`) means a library rename fails
     # loudly at import instead of silently dropping that default coverage.
-    return _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc) or _job_should_retry(exc)
+    return (
+        _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc) or _is_transient_rate_quota_exceeded(exc) or _job_should_retry(exc)
+    )
 
 
 BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_job_should_retry)
+
+
+# The Storage Read API can drop a ReadRows stream mid-flight with a transient gRPC INTERNAL error
+# ("Received RST_STREAM with error code 2"). The client's default ReadRows retry only reconnects on
+# ServiceUnavailable, so the INTERNAL escapes as an unhandled InternalServerError and fails the whole
+# read, and with it the import activity, which then re-runs the (potentially large) temp-table copy
+# from scratch. Reconnecting resumes the stream from the last-read offset, so widen the default
+# predicate to also retry INTERNAL. Parameters mirror the library's default ReadRows retry.
+BIGQUERY_READ_ROWS_RETRY = Retry(
+    predicate=if_exception_type(ServiceUnavailable, InternalServerError),
+    initial=0.1,
+    maximum=60.0,
+    multiplier=1.3,
+    deadline=86400.0,
+)
 
 
 class BigQueryDatasetNotFoundError(Exception):
@@ -263,22 +301,22 @@ class Boto3CredentialsSupplier(google_auth_aws.AwsSecurityCredentialsSupplier):
     ) -> google_auth_aws.AwsSecurityCredentials:
         session_credentials = self.session.get_credentials()
         if session_credentials is None:
-            raise google_auth_exceptions.RefreshError("Cannot obtain AWS credentials", retryable=False)
+            raise RefreshError("Cannot obtain AWS credentials", retryable=False)
 
         credentials = session_credentials.get_frozen_credentials()
 
         if credentials.access_key is None:
-            raise google_auth_exceptions.RefreshError("Cannot obtain AWS credentials", retryable=False)
+            raise RefreshError("Cannot obtain AWS credentials", retryable=False)
 
         if credentials.secret_key is None:
-            raise google_auth_exceptions.RefreshError("Cannot obtain AWS credentials", retryable=False)
+            raise RefreshError("Cannot obtain AWS credentials", retryable=False)
 
         return google_auth_aws.AwsSecurityCredentials(credentials.access_key, credentials.secret_key, credentials.token)
 
     def get_aws_region(self, context: google_auth_aws.AwsSecurityCredentialsSupplierContext, request) -> str:
         region_name = self.session.region_name
         if not region_name:
-            raise google_auth_exceptions.RefreshError("AWS region not populated", retryable=False)
+            raise RefreshError("AWS region not populated", retryable=False)
         return region_name
 
 
@@ -389,6 +427,16 @@ def bigquery_client(
         location=location,
         credentials=credentials,
         _http=authed_session,
+    )
+    # `_connection.API_BASE_URL` is the endpoint the client will actually call (it honors
+    # api_endpoint overrides and universe-domain hosts), so the logged host can't drift.
+    # It's a private attribute, so read it fail-soft: a library rename must degrade the log
+    # field, not crash the sync.
+    api_base_url: str = getattr(getattr(client, "_connection", None), "API_BASE_URL", None) or "bigquery.googleapis.com"
+    log_connection_open(
+        db_host=urlparse(api_base_url).hostname or api_base_url,
+        via="vendor_https",
+        project_id=project_id,
     )
 
     try:
@@ -559,7 +607,7 @@ def validate_bigquery_credentials(
                 f"Permission denied while accessing BigQuery dataset '{dataset_id}' in project "
                 f"'{resolved_dataset_project_id}'."
             )
-        except google_auth_exceptions.RefreshError as e:
+        except RefreshError as e:
             return False, f"Failed to obtain Google Cloud credentials: {e}"
         except Exception as e:
             capture_exception(e)
@@ -685,6 +733,23 @@ def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, 
     return False
 
 
+def _is_missing_table_or_dataset(error: Exception) -> bool:
+    """True for a table/dataset that's absent from the region the query job runs in.
+
+    BigQuery raises a `NotFound` whose `str()` is "Not found: Table <id> was not found in
+    location EU" (or "Not found: Dataset ..." / "... was not found in location ...") when the
+    table was deleted or renamed after schema discovery selected it, or lives in a different
+    region than the one we query. That's a user-side condition the main read path already
+    surfaces non-retryably (see `BigQuerySource.get_non_retryable_errors`), so the best-effort
+    row-count probe shouldn't also capture it as error-tracking noise. Distinct from the
+    transient "Not found: Job" lookup race, which is retried before reaching here.
+    """
+    if not isinstance(error, NotFound):
+        return False
+    message = str(error)
+    return "was not found in location" in message or "Not found: Table" in message or "Not found: Dataset" in message
+
+
 def _get_rows_to_sync(
     table: bigquery.Table,
     client: bigquery.Client,
@@ -730,7 +795,8 @@ def _get_rows_to_sync(
         return 0
     except Exception as e:
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-        capture_exception(e)
+        if not _is_missing_table_or_dataset(e):
+            capture_exception(e)
 
         return 0
 
@@ -967,7 +1033,7 @@ def _run_destination_query_with_job_retry(
 
     def _run() -> None:
         job = client.query(query, job_config=job_config, project=project)
-        job.result()
+        job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY)
 
     _with_job_not_found_retry(_run)
 
@@ -990,7 +1056,7 @@ def _query_result_with_job_retry(
 
     def _run() -> RowIterator:
         job = client.query(query, job_config=job_config, project=project)
-        return job.result(page_size=page_size)
+        return job.result(page_size=page_size, job_retry=BIGQUERY_QUERY_JOB_RETRY)
 
     return _with_job_not_found_retry(_run)
 
@@ -1045,9 +1111,14 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             # `bigquery.jobs.create`) or auth failure surfaces here rather than at `result()`.
             # Both calls must sit inside the try so a permission-denied account degrades to
             # "no new schemas" instead of crashing schema discovery.
+            # Qualify INFORMATION_SCHEMA with the project: when the dataset lives in a different
+            # project than the service account (the `dataset_project` option), the client's default
+            # project and the job's billing project diverge, and BigQuery can't resolve an unqualified
+            # `dataset.INFORMATION_SCHEMA.*` — it rejects the job with "ProjectId must be non-empty".
+            project = _resolve_query_project(config)
             query = conn.query(
-                f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
-                project=_resolve_query_project(config),
+                f"SELECT table_name, column_name, data_type, is_nullable FROM `{project}.{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+                project=project,
             )
             rows = query.result()
         except Forbidden:
@@ -1080,7 +1151,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             raise BigQueryTokenRefreshError(
                 f"{BIGQUERY_TOKEN_RESPONSE_ERROR}. Please re-upload your service account key file and verify its token_uri."
             ) from e
-        except google_auth_exceptions.RefreshError as e:
+        except RefreshError as e:
             # google-auth rejects the service-account grant here with an `invalid_grant`
             # `RefreshError` whose `str()` is an opaque tuple repr. Surface the actionable message
             # instead of leaking it to the wizard. Other RefreshErrors (offline token_uri, transient
@@ -1131,12 +1202,15 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         # the BigQuery region / metadata version, hence the
         # `removeprefix` below — the JOIN has to tolerate both shapes or
         # half the rows get dropped.
+        # Project-qualify the dataset (see `get_columns`): an unqualified `dataset.INFORMATION_SCHEMA.*`
+        # fails with "ProjectId must be non-empty" when the dataset lives in a different project.
+        qualified_dataset = f"{project}.{dataset_id}"
         query = f"""
         SELECT tc.table_name, kcu.column_name
-        FROM `{dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-        JOIN `{dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+        FROM `{qualified_dataset}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        JOIN `{qualified_dataset}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
         ON tc.constraint_name = kcu.constraint_name
-        JOIN `{dataset_id}`.INFORMATION_SCHEMA.COLUMNS c
+        JOIN `{qualified_dataset}`.INFORMATION_SCHEMA.COLUMNS c
         ON kcu.table_name = c.table_name
         AND (
             kcu.column_name = c.column_name
@@ -1185,9 +1259,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
             project = _resolve_query_project(config)
 
+            # Project-qualify the dataset (see `get_columns`): an unqualified `dataset.INFORMATION_SCHEMA.*`
+            # fails with "ProjectId must be non-empty" when the dataset lives in a different project.
             query = f"""
             SELECT table_name, column_name
-            FROM `{_resolve_dataset_id(config)}`.INFORMATION_SCHEMA.COLUMNS
+            FROM `{project}.{_resolve_dataset_id(config)}`.INFORMATION_SCHEMA.COLUMNS
             WHERE is_partitioning_column = 'YES'
                OR clustering_ordinal_position = 1
             """
@@ -1412,7 +1488,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         return
 
                     stream_name = read_session.streams[0].name
-                    read_rows_stream = bq_storage.read_rows(stream_name)
+                    read_rows_stream = bq_storage.read_rows(stream_name, retry=BIGQUERY_READ_ROWS_RETRY)
                     rows_iterator = read_rows_stream.rows()
 
                     record_batches = []

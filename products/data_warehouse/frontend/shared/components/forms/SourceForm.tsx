@@ -37,7 +37,7 @@ import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
-import { GoogleSearchConsoleSiteSelector } from './GoogleSearchConsoleSiteSelector'
+import { IntegrationAccountSelector } from './IntegrationAccountSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
@@ -283,6 +283,24 @@ export const sourceFieldToElement = (
         )
     }
 
+    // Ad/analytics sources whose account/property field is backed by the shared IntegrationAccount
+    // contract: once the OAuth integration is picked, the text input becomes a dropdown of the
+    // accounts the integration can access (one component, one logic, one endpoint shape for all).
+    if (field.type === 'oauth-account-select') {
+        return (
+            <IntegrationAccountSelector
+                key={field.name}
+                fieldName={field.name}
+                fieldLabel={field.label}
+                integrationField={field.integrationField}
+                integrationKind={field.integrationKind}
+                sourceType={sourceConfig.name}
+                placeholder={field.placeholder}
+                caption={field.caption}
+            />
+        )
+    }
+
     if (field.type === 'file-upload') {
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
@@ -314,13 +332,6 @@ export const sourceFieldToElement = (
     if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
         // Special case, this is the GitHub repository field
         return <GitHubRepositorySelector key={field.name} />
-    }
-
-    if (field.type === 'text' && field.name === 'site_url' && sourceConfig.name === 'GoogleSearchConsole') {
-        // Special case — once the user picks an OAuth integration the selector swaps the
-        // text input for a dropdown populated from the Search Console API. Avoids the
-        // `sc-domain:` vs trailing-slash typos that bounce off `validate_credentials`.
-        return <GoogleSearchConsoleSiteSelector key={field.name} />
     }
 
     return (

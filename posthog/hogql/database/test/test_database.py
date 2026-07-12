@@ -26,6 +26,8 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
+    _CATALOG_PICKLE_MODULE_PREFIXES,
+    _CATALOG_PICKLE_MODULES,
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
     _CatalogUnpickler,
@@ -151,6 +153,31 @@ class TestBuildDatabaseRootNode(TestCase):
         object.__setattr__(with_extra, "__pydantic_extra__", {"extra_key": "value"})
         restored_extra = pickle.loads(pickle.dumps(with_extra, protocol=pickle.HIGHEST_PROTOCOL))
         assert restored_extra.__pydantic_extra__ == {"extra_key": "value"}
+
+    def test_catalog_pickle_allowlist_covers_every_catalog_class(self):
+        # A missing allowlist entry (e.g. a product mounts a static catalog table without touching
+        # _CATALOG_PICKLE_MODULES) already fails the round-trip tests above, but with a bare
+        # UnpicklingError — this failure names the offending module and the fix.
+        modules: set[str] = set()
+
+        class RecordingUnpickler(pickle.Unpickler):
+            def find_class(self, module: str, name: str) -> Any:
+                modules.add(module)
+                return super().find_class(module, name)
+
+        blob = pickle.dumps(_construct_database_root_node(include_posthog_tables=True), pickle.HIGHEST_PROTOCOL)
+        RecordingUnpickler(io.BytesIO(blob)).load()
+
+        unlisted = {
+            module
+            for module in modules
+            if not module.startswith(_CATALOG_PICKLE_MODULE_PREFIXES) and module not in _CATALOG_PICKLE_MODULES
+        }
+        assert not unlisted, (
+            f"The static HogQL catalog pickles classes from modules the restricted unpickler rejects: "
+            f"{sorted(unlisted)}. Add each module to _CATALOG_PICKLE_MODULES in "
+            f"posthog/hogql/database/database.py, or the catalog will fail to load at request time."
+        )
 
     def test_catalog_unpickler_allowlists_catalog_classes_and_rejects_others(self):
         # Restricted unpickler resolves catalog classes but rejects anything else, so a tampered blob

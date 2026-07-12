@@ -1,10 +1,17 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, renderInsightPage } from '~/test/insight-testing'
+
+// The disabled-reason copy shows through LemonButton's Tooltip, which has a 400ms open
+// delay. On contended CI shards that delay plus jsdom positioning can exceed the default
+// 1s waitFor budget, so the hover assertions flake. Give them room (and raise the per-test
+// timeout to match, so a single waitFor can't exhaust the 5s default test budget).
+configure({ asyncUtilTimeout: 5000 })
+jest.setTimeout(15000)
 
 jest.mock('lib/components/AutoSizer', () => ({
     AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
@@ -62,7 +69,8 @@ describe('TaxonomicBreakdownFilter', () => {
             const button = await waitForBreakdownButton()
             await userEvent.hover(button)
             await waitFor(() => {
-                const docsLink = screen.getByRole('link', { name: /read the docs/i })
+                const docsLink = screen.getByText(/read the docs/i).closest('a')
+                expect(docsLink).not.toBeNull()
                 expect(docsLink).toHaveAttribute('href', 'https://posthog.com/docs/product-analytics/trends/breakdowns')
             })
         })
@@ -109,7 +117,8 @@ describe('TaxonomicBreakdownFilter', () => {
             await userEvent.hover(button)
             await waitFor(() => {
                 expect(screen.getByText(/single cohort breakdown/i)).toBeInTheDocument()
-                const docsLink = screen.getByRole('link', { name: /read the docs/i })
+                const docsLink = screen.getByText(/read the docs/i).closest('a')
+                expect(docsLink).not.toBeNull()
                 expect(docsLink).toHaveAttribute(
                     'href',
                     'https://posthog.com/docs/product-analytics/trends/breakdowns#cohorts-and-breakdowns'

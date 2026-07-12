@@ -1,15 +1,18 @@
 name: Resolve outdated bot comments
 
+# Reusable workflow, called by pr-housekeeping.yml on PR synchronize.
+# Push-cancels-previous-push comes from the caller's concurrency group.
+
 on:
-    pull_request:
-        types: [synchronize]
+    workflow_call:
+        secrets:
+            GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_APP_ID:
+                required: false
+            GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY:
+                required: false
 
 permissions:
     contents: read
-
-concurrency:
-    group: resolve-bot-comments-${{ github.event.pull_request.number }}
-    cancel-in-progress: true
 
 jobs:
     resolve-outdated:
