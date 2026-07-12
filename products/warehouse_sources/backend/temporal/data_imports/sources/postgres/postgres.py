@@ -403,18 +403,28 @@ def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
 
     The best-effort probes run during `postgres_source` setup (`_explain_query`,
     `_get_table_chunk_size`, and the numeric-scale probe in `_get_table`) isolate their
-    queries in `connection.transaction(savepoint_name=...)`. When the upstream
-    connection drops mid-probe, psycopg's `Transaction.__exit__` skips its savepoint
-    teardown — it early-returns whenever the connection is no longer OK — leaving the
-    connection's transaction-nesting counter incremented. The surrounding helpers then
-    swallow the follow-up "connection closed" errors, so discovery finishes "successfully"
-    and the implicit commit in the enclosing `with connection:` raises a misleading
+    queries in a `connection.transaction()` context. When the upstream connection drops
+    mid-probe, psycopg's `Transaction.__exit__` skips its teardown — it early-returns
+    whenever `pgconn.status != OK` — leaving the connection's transaction-nesting counter
+    (`_num_transactions`) incremented. The surrounding helpers then swallow the follow-up
+    "connection closed" errors, so discovery finishes "successfully" and the implicit
+    commit in the enclosing `with connection:` raises a misleading
     `ProgrammingError: Explicit commit() forbidden within a Transaction context`, burying
-    the real cause. Detect the broken connection first and raise the actual
-    dropped-connection error (transient, so it stays retryable) — the activity then retries
-    on a fresh connection instead of failing on a self-inflicted commit error.
+    the real cause.
+
+    Detecting only `connection.broken` isn't enough: `broken` requires `pgconn.status ==
+    BAD`, but the leak fires on any non-OK status and the status can settle back to a
+    non-BAD value by the time we check — so the guard sails past a genuinely dangling
+    counter. Check the leftover counter directly: a non-zero `_num_transactions` at this
+    point means a probe's transaction context didn't tear down cleanly, which only happens
+    when the connection dropped mid-probe. Either signal raises the actual
+    dropped-connection error (transient, so it stays retryable) so the activity retries on
+    a fresh connection instead of failing on a self-inflicted commit error.
     """
-    if connection.broken:
+    # `_num_transactions` is psycopg-internal; guard the access so a future rename degrades
+    # to "only checks broken" rather than crashing this guard.
+    dangling_transaction = getattr(connection, "_num_transactions", 0) > 0
+    if connection.broken or dangling_transaction:
         raise psycopg.OperationalError("connection to server was lost during table metadata discovery")
 
 
@@ -3044,11 +3054,12 @@ def postgres_source(
                             raise
 
                     # If a transient drop killed the connection during one of the best-effort
-                    # savepoint probes above, the implicit commit on `with connection:` exit would
-                    # otherwise raise a misleading "Explicit commit() forbidden within a Transaction
-                    # context" (psycopg leaves the transaction-nesting counter incremented when it
-                    # tears a savepoint down on a no-longer-OK connection). Surface the real,
-                    # retryable dropped-connection error instead.
+                    # probes above, the implicit commit on `with connection:` exit would otherwise
+                    # raise a misleading "Explicit commit() forbidden within a Transaction context"
+                    # (psycopg leaves the transaction-nesting counter incremented when a probe's
+                    # `connection.transaction()` context tears down on a no-longer-OK connection).
+                    # Surface the real, retryable dropped-connection error instead — the guard
+                    # detects both a fully broken connection and a leftover dangling counter.
                     _raise_if_setup_connection_broken(connection)
                 break
             except (psycopg.errors.SerializationFailure, psycopg.errors.QueryCanceled) as e:

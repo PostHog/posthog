@@ -1365,6 +1365,7 @@ class TestRaiseIfSetupConnectionBroken:
     def test_broken_connection_raises_retryable_dropped_error(self):
         connection = mock.MagicMock()
         connection.broken = True
+        connection._num_transactions = 0
 
         with pytest.raises(psycopg.OperationalError) as exc_info:
             _raise_if_setup_connection_broken(cast(Any, connection))
@@ -1375,11 +1376,27 @@ class TestRaiseIfSetupConnectionBroken:
         message = str(exc_info.value)
         assert not any(key in message for key in PostgresSource().get_non_retryable_errors())
 
+    def test_dangling_transaction_counter_raises_retryable_dropped_error(self):
+        # The recurring production case: a probe's `connection.transaction()` context leaked
+        # the transaction-nesting counter when the drop left psycopg's `Transaction.__exit__`
+        # early-returning, but the connection hasn't flipped to fully `broken`. Without the
+        # counter check the guard passes and the implicit `with connection:` commit raises the
+        # masked "Explicit commit() forbidden within a Transaction context".
+        connection = mock.MagicMock()
+        connection.broken = False
+        connection._num_transactions = 1
+
+        with pytest.raises(psycopg.OperationalError) as exc_info:
+            _raise_if_setup_connection_broken(cast(Any, connection))
+
+        assert _is_connection_dropped_error(exc_info.value) is True
+
     def test_healthy_connection_is_a_noop(self):
         connection = mock.MagicMock()
         connection.broken = False
+        connection._num_transactions = 0
 
-        # A healthy connection must not raise.
+        # A healthy connection with no leftover transaction context must not raise.
         _raise_if_setup_connection_broken(cast(Any, connection))
 
 
@@ -1855,9 +1872,10 @@ class TestServerCursorStatementTimeout:
         def __init__(self):
             self.autocommit = False
             self.closed = False
-            # Real psycopg connections expose `broken`; the setup path probes it via
-            # `_raise_if_setup_connection_broken`, so the fake must carry it too.
+            # Real psycopg connections expose `broken` and `_num_transactions`; the setup path
+            # probes both via `_raise_if_setup_connection_broken`, so the fake must carry them.
             self.broken = False
+            self._num_transactions = 0
             self.adapters = mock.Mock()
 
         def cursor(self, *args, **kwargs):
