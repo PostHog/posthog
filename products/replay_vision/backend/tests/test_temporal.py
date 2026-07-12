@@ -38,7 +38,6 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.quota import QuotaSnapshot
-from products.replay_vision.backend.temporal import ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _extract_segments,
     _resolve_citations,
@@ -111,6 +110,7 @@ from products.replay_vision.backend.temporal.types import (
     UploadedVideo,
 )
 from products.replay_vision.backend.temporal.workflow import (
+    ApplyScannerWorkflow,
     _activity_timeout_kind,
     _extract_kind_for_type,
     _root_cause_message,

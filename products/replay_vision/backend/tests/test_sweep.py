@@ -11,7 +11,6 @@ from posthog.models import Organization, Team
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import DEFAULT_CANDIDATE_LIMIT, CandidateSession
-from products.replay_vision.backend.temporal import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
 )
@@ -36,6 +35,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
     InFlightApplyCounts,
     SweepScannerInputs,
 )
+from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.vision_actions.activities import evaluate_due_vision_actions_activity
 from products.replay_vision.backend.temporal.vision_actions.types import DueVisionAction
 
