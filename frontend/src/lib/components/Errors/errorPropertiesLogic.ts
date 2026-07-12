@@ -18,7 +18,7 @@ import {
     getSessionId,
 } from 'lib/components/Errors/utils'
 import { dayjs } from 'lib/dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
 import { KeyedStackFrameRecords, stackFrameLogic } from './Frame/stackFrameLogic'

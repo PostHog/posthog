@@ -8,7 +8,7 @@ import { Protocol } from 'pmtiles'
 import { useEffect, useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 

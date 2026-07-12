@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { Realm, Region } from '~/types'
 
