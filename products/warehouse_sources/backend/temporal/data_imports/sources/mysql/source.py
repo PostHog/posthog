@@ -95,6 +95,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             name=SchemaExternalDataSourceType.MY_SQL,
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
+            keywords=["sql", "mariadb"],
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             iconPath="/static/services/mysql.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mysql",

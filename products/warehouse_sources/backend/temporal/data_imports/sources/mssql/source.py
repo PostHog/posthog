@@ -153,7 +153,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         return SourceConfig(
             name=SchemaExternalDataSourceType.MSSQL,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["sql server"],
+            keywords=["sql server", "sql", "mssql"],
             label="Microsoft SQL Server",
             caption="Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the PostHog Data warehouse.",
             iconPath="/static/services/sql-azure.png",
