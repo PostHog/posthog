@@ -10,14 +10,14 @@ from posthog.clickhouse.property_values import (
 
 # Length and empty-value filtering now lives in the property-vals service, so the
 # MV passes everything from the Kafka table straight through. property_values lives
-# on AUX in prod but on DATA in dev (dev's aux nodes don't host it), matching
+# on AUX except in dev (dev's aux nodes don't host it), matching
 # 0262/0268. Single-node local/hobby get overridden to ALL by the migration runner.
 if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
     _ROLES = [NodeRole.AUX]
 elif settings.CLOUD_DEPLOYMENT == "DEV":
     _ROLES = [NodeRole.DATA]
 else:
-    _ROLES = [NodeRole.DATA]
+    _ROLES = [NodeRole.AUX]
 
 operations = [
     run_sql_with_exceptions(DROP_PROPERTY_VALUES_MV_SQL(), node_roles=_ROLES),
