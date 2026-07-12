@@ -22,6 +22,23 @@ if TYPE_CHECKING:
     from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 
+# Some provider keys serve models that the model registry tags under a different
+# provider. Azure OpenAI hosts the same models (gpt-4.1, ...) that the registry
+# labels "openai", so a request built from that registry arrives with
+# provider="openai" even though the key is "azure_openai". Map a key provider to
+# the request providers it may legitimately serve so those requests validate and
+# route through the key's provider instead of being rejected.
+_COMPATIBLE_REQUEST_PROVIDERS: dict[str, frozenset[str]] = {
+    "azure_openai": frozenset({"openai"}),
+}
+
+
+def _providers_compatible(key_provider: str, request_provider: str) -> bool:
+    return key_provider == request_provider or request_provider in _COMPATIBLE_REQUEST_PROVIDERS.get(
+        key_provider, frozenset()
+    )
+
+
 class Client:
     """Unified LLM client for llm_analytics."""
 
@@ -52,21 +69,31 @@ class Client:
         return self.provider_key.encrypted_config.get("api_key")
 
     def _validate_provider(self, request_provider: str) -> None:
-        """Validate that request provider matches provider key's provider."""
-        if self.provider_key is not None and self.provider_key.provider != request_provider:
+        """Validate that the request provider is served by the provider key."""
+        if self.provider_key is not None and not _providers_compatible(self.provider_key.provider, request_provider):
             raise ProviderMismatchError(self.provider_key.provider, request_provider)
+
+    def _resolve_provider(self, request_provider: str) -> str:
+        """Return the provider to route through, treating the key as authoritative.
+
+        An azure_openai key serves the OpenAI model namespace, so an "openai"
+        request is routed through Azure rather than the OpenAI adapter.
+        """
+        if self.provider_key is not None and _providers_compatible(self.provider_key.provider, request_provider):
+            return self.provider_key.provider
+        return request_provider
 
     def complete(self, request: CompletionRequest) -> CompletionResponse:
         """Non-streaming completion."""
         self._validate_provider(request.provider)
-        provider = _get_provider(request.provider, self.provider_key)
+        provider = _get_provider(self._resolve_provider(request.provider), self.provider_key)
         api_key, base_url = self._resolve_credentials()
         return provider.complete(request, api_key, self.analytics, base_url)
 
     def stream(self, request: CompletionRequest) -> Generator[StreamChunk]:
         """Streaming completion."""
         self._validate_provider(request.provider)
-        provider = _get_provider(request.provider, self.provider_key)
+        provider = _get_provider(self._resolve_provider(request.provider), self.provider_key)
         api_key, base_url = self._resolve_credentials()
         yield from provider.stream(request, api_key, self.analytics, base_url)
 

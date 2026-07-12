@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -88,6 +88,31 @@ class TestProviderRouting(SimpleTestCase):
         assert provider.azure_endpoint == ""
         assert provider.api_version == DEFAULT_API_VERSION
 
+    def test_azure_key_routes_openai_model_request_to_azure_adapter(self):
+        """An openai-registry model under an Azure key reaches the Azure adapter (#60297)."""
+        from products.ai_observability.backend.llm.providers.azure_openai import AzureOpenAIAdapter
+
+        mock_key = MagicMock()
+        mock_key.provider = "azure_openai"
+        mock_key.encrypted_config = {
+            "api_key": "test-key",
+            "azure_endpoint": "https://contoso.openai.azure.com/",
+            "api_version": "2025-01-01",
+        }
+
+        client = Client(provider_key=mock_key)
+        request = CompletionRequest(
+            model="gpt-4.1",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+        )
+
+        with patch.object(AzureOpenAIAdapter, "complete", return_value="ok") as mock_complete:
+            result = client.complete(request)
+
+        assert result == "ok"
+        assert mock_complete.called
+
 
 class TestProviderMismatchValidation(SimpleTestCase):
     def test_provider_mismatch_raises_error(self):
@@ -127,6 +152,30 @@ class TestProviderMismatchValidation(SimpleTestCase):
         client._validate_provider("fireworks")
         client._validate_provider("minimax")
         client._validate_provider("zeabur")
+
+    def test_azure_key_serves_openai_model_request(self):
+        # Models like gpt-4.1 are registered under the "openai" provider, so a
+        # request built from the model registry arrives with provider="openai"
+        # even when an Azure key is selected. An azure_openai key must serve it
+        # rather than raise. Regression test for #60297.
+        mock_key = MagicMock()
+        mock_key.provider = "azure_openai"
+        mock_key.encrypted_config = {"api_key": "test-key"}
+
+        client = Client(provider_key=mock_key)
+
+        client._validate_provider("openai")
+        assert client._resolve_provider("openai") == "azure_openai"
+
+    def test_azure_key_still_rejects_unrelated_provider(self):
+        mock_key = MagicMock()
+        mock_key.provider = "azure_openai"
+        mock_key.encrypted_config = {"api_key": "test-key"}
+
+        client = Client(provider_key=mock_key)
+
+        with pytest.raises(ProviderMismatchError):
+            client._validate_provider("anthropic")
 
 
 class TestApiKeyExtraction(SimpleTestCase):
