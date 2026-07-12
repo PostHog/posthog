@@ -161,12 +161,7 @@ describe('hog-charts canvas-renderer (bars)', () => {
 
             it('falls back to a solid color for dashed (hatched) bars regardless of fillStyle', () => {
                 const ctx = mockCanvasContext()
-                const dashed = makeSeries({
-                    key: 's',
-                    data: [1],
-                    color: '#abcdef',
-                    stroke: { partial: { fromIndex: 0 } },
-                })
+                const dashed = makeSeries({ key: 's', data: [1], color: '#abcdef', stroke: { partial: { fromIndex: 0 } } })
                 drawBars(makeDrawContext(ctx, ['a']), dashed, [BASE_BAR], 0, 'gloss')
                 expect(ctx.createRadialGradient).not.toHaveBeenCalled()
             })
@@ -265,39 +260,6 @@ describe('hog-charts canvas-renderer (bars)', () => {
             }
             expect(fillStyleSeen[0]).toBe('#11223344')
             expect(typeof fillStyleSeen[1]).not.toBe('string')
-            expect(typeof fillStyleSeen[2]).not.toBe('string')
-        })
-
-        it('hatches individual bars flagged via bars[i].hatch, including non-contiguous indices', () => {
-            const ctx = mockCanvasContext()
-            const drawCtx = makeDrawContext(ctx, ['a', 'b', 'c'])
-            const series = makeSeries({
-                key: 's',
-                data: [1, 2, 3],
-                color: '#55667788',
-                bars: [{ hatch: true }, {}, { hatch: true }],
-            })
-            const fillStyleSeen: (string | CanvasPattern)[] = []
-            const original = Object.getOwnPropertyDescriptor(ctx, 'fillStyle')
-            Object.defineProperty(ctx, 'fillStyle', {
-                set(v) {
-                    fillStyleSeen.push(v)
-                },
-                get() {
-                    return ''
-                },
-            })
-            try {
-                drawBars(drawCtx, series, [
-                    bar({ x: 0, dataIndex: 0 }),
-                    bar({ x: 60, dataIndex: 1 }),
-                    bar({ x: 120, dataIndex: 2 }),
-                ])
-            } finally {
-                Object.defineProperty(ctx, 'fillStyle', original!)
-            }
-            expect(typeof fillStyleSeen[0]).not.toBe('string')
-            expect(fillStyleSeen[1]).toBe('#55667788')
             expect(typeof fillStyleSeen[2]).not.toBe('string')
         })
 

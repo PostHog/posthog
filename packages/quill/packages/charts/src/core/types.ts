@@ -51,11 +51,8 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by
      *  data index. Lets one series draw bars with distinct identity (e.g. an aggregated breakdown,
      *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
-     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`).
-     *  `hatch` fills that bar with the diagonal-hatch pattern (in the bar's resolved color) instead
-     *  of a solid fill — for flagging individual not-final bars (e.g. a bucket still being
-     *  ingested) without the contiguous-range constraint of `stroke.partial`. */
-    bars?: { color?: string; label?: string; meta?: Meta; hatch?: boolean }[]
+     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
+    bars?: { color?: string; label?: string; meta?: Meta }[]
     /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
      *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
      *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched

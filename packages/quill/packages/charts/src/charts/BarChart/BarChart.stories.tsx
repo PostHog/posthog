@@ -50,12 +50,7 @@ export const Grouped: Story = {
 export const WithBarTrack: Story = {
     render: () => {
         const theme = useReactiveTheme()
-        const config: BarChartConfig = {
-            barLayout: 'grouped',
-            showGrid: true,
-            barCornerRadius: 6,
-            bars: { track: true },
-        }
+        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, barCornerRadius: 6, bars: { track: true } }
         return (
             <Stage>
                 <BarChart series={THREE_SERIES} labels={DAYS} config={config} theme={theme} />
@@ -247,25 +242,6 @@ export const IncompletePeriod: Story = {
         const theme = useReactiveTheme()
         const config: BarChartConfig = { barLayout: 'stacked', showGrid: true }
         const series: Series[] = THREE_SERIES.map((s) => ({ ...s, stroke: { partial: { fromIndex: 5 } } }))
-        return (
-            <Stage>
-                <BarChart series={series} labels={DAYS} config={config} theme={theme} />
-            </Stage>
-        )
-    },
-}
-
-/** Individual bars flagged via `bars[i].hatch` — e.g. buckets still being ingested. Unlike
- *  `stroke.partial` (IncompletePeriod above), the flagged indices need not be contiguous. */
-export const HatchedBars: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        const config: BarChartConfig = { barLayout: 'stacked', showGrid: true }
-        const hatched = new Set([2, 5, 6])
-        const series: Series[] = TWO_SERIES.map((s) => ({
-            ...s,
-            bars: DAYS.map((_, i) => (hatched.has(i) ? { hatch: true } : {})),
-        }))
         return (
             <Stage>
                 <BarChart series={series} labels={DAYS} config={config} theme={theme} />
