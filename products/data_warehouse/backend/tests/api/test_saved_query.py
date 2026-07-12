@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
@@ -1138,6 +1140,46 @@ class TestSavedQuery(APIBaseTest):
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
+
+    @parameterized.expand(["create", "update"])
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception")
+    def test_user_facing_hogql_error_is_surfaced_not_captured(self, path: str, mock_capture_exception):
+        # An expected, user-facing HogQL error (e.g. warehouse access denial) must be surfaced to the
+        # user with its real message and must NOT be reported to error tracking as a bug.
+        error_message = "You don't have access to table sheets_table"
+
+        if path == "create":
+            with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=QueryError(error_message)):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                    {
+                        "name": "denied_view",
+                        "query": {"kind": "HogQLQuery", "query": "select * from sheets_table"},
+                    },
+                )
+        else:
+            create_response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                },
+            )
+            self.assertEqual(create_response.status_code, 201, create_response.content)
+            saved_query = create_response.json()
+
+            with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=QueryError(error_message)):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                    {
+                        "query": {"kind": "HogQLQuery", "query": "select * from sheets_table"},
+                        "edited_history_id": saved_query["latest_history_id"],
+                    },
+                )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn(error_message, str(response.json()))
+        mock_capture_exception.assert_not_called()
 
     def test_create_with_activity_log(self):
         response = self.client.post(
