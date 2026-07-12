@@ -107,6 +107,7 @@ async def generate_digest_data_lookup(
     key_kind: TeamDataKey,
     query_func: Callable[[datetime, datetime], QuerySet],
     resource_type: DigestResourceType,
+    per_team_limit: int | None = None,
 ) -> None:
     async with Heartbeater():
         bind_contextvars(
@@ -128,7 +129,10 @@ async def generate_digest_data_lookup(
             batch_start, batch_end = input.batch
             async for team in query_teams_for_digest()[batch_start:batch_end]:
                 try:
-                    digest_data = resource_type(await queryset_to_list(db_query.filter(team_id=team.id)))
+                    team_query = db_query.filter(team_id=team.id)
+                    if per_team_limit is not None:
+                        team_query = team_query[:per_team_limit]
+                    digest_data = resource_type(await queryset_to_list(team_query))
 
                     key = team_data_key(input.digest.key, key_kind, team.id)
                     await r.setex(key, input.common.redis_ttl, digest_data.model_dump_json())
@@ -340,6 +344,12 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
         )
 
 
+# Issue names come from exception ingestion, so a noisy (or malicious) client can create
+# hundreds of new issues in a week. Cap at the 5 newest per team, mirroring the error
+# tracking weekly digest, which also shows at most 5 new issues.
+NEW_ERROR_ISSUES_PER_TEAM_LIMIT = 5
+
+
 @activity.defn(name="generate-error-issue-lookup")
 async def generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> None:
     # New error-tracking issues follow the standard "created within window" lookup,
@@ -349,6 +359,7 @@ async def generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> No
         key_kind=TeamDataKey.ERROR_ISSUES,
         query_func=query_new_error_issues,
         resource_type=ErrorIssueList,
+        per_team_limit=NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
     )
 
 

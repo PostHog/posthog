@@ -131,6 +131,8 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
     # "New this week" = issue first created within the digest window. Only active issues
     # (not archived/resolved/suppressed) are worth surfacing as a new production error.
     # Cross-team batch query for the weekly digest — callers execute it off the request path.
+    # Issue names are attacker-controlled (created from exception ingestion), so callers must
+    # cap how many they surface per team; newest-first ordering makes a per-team slice safe.
     return (
         ErrorTrackingIssue.objects.filter(
             created_at__gt=period_start,
