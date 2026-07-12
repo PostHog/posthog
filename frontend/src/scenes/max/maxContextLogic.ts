@@ -70,8 +70,17 @@ const removeEntity = <TContext extends EntityWithIdAndType>(state: TContext[], i
 // catches it runs on every read, so dedupe by message to avoid spamming when it keeps
 // throwing — but never let the failure stay silent.
 const reportedSceneContextErrors = new Set<string>()
+// Kea throws "[KEA] Can not find path ... in the store." when a keyed scene logic is unmounted
+// mid scene-transition (the path is gone before this selector re-runs). It's an expected race, not a
+// real context-building failure, and the message embeds the keyed id — so reporting it would spawn a
+// new error-tracking issue per id and defeat the message-based dedupe below. Skip it.
+const isTransientKeaUnmountError = (err: Error): boolean =>
+    /\[KEA\] Can not find path .* in the store\./.test(err.message)
 const reportSceneContextError = (error: unknown): void => {
     const err = error instanceof Error ? error : new Error(String(error))
+    if (isTransientKeaUnmountError(err)) {
+        return
+    }
     const key = `${err.name}: ${err.message}`
     if (reportedSceneContextErrors.has(key)) {
         return
