@@ -367,9 +367,12 @@ class DeltaTableHelper:
             "write_to_deltalake: a merge referenced a partition data file missing from S3; "
             "marking the table for a full rebuild on the next run"
         )
+        schema_id = self._job.schema_id
+        if schema_id is None:
+            return
         try:
             await database_sync_to_async_pool(update_sync_type_config_keys)(
-                self._job.schema_id, self._job.team_id, updates={DELTA_MISSING_DATA_FILES_KEY: True}
+                schema_id, self._job.team_id, updates={DELTA_MISSING_DATA_FILES_KEY: True}
             )
         except Exception as e:
             capture_exception(e)
