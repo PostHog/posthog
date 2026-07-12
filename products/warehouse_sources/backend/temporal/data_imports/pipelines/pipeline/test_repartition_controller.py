@@ -6,7 +6,7 @@ import tempfile
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from django.db import OperationalError
+from django.db import InterfaceError, OperationalError
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -410,3 +410,35 @@ class TestRepartitionActivity:
         schema.refresh_from_db()
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0
+
+    @pytest.mark.parametrize(
+        "transient_exc",
+        [
+            OperationalError("server closed the connection unexpectedly"),
+            InterfaceError("connection already closed"),
+            # A cancellation that arrives Exception-derived through async_to_sync (real asyncio.CancelledError
+            # is a BaseException, not caught here — it propagates so Temporal reschedules).
+            CancelledError(),
+        ],
+    )
+    def test_pre_extraction_transient_error_not_reported(self, team, transient_exc):
+        # Nothing queued, flag on: measuring the on-disk table lazily loads FKs off a pool thread, so a
+        # transient pooler drop (or worker-shutdown cancellation) can surface from get_delta_table. That's
+        # infra noise the sync already swallows, so it must NOT reach capture_exception and spawn a new
+        # error-tracking issue — the pre-extraction path mirrors the main path's transient handling.
+        schema = _make_schema(team, {"partitioning_enabled": True, "partition_mode": "md5", "partitioning_keys": ["id"]})
+        mocked = AsyncMock()
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event") as capture,
+            patch.object(repartition_table, "capture_exception") as capture_exc,
+            patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
+            patch.object(
+                repartition_table.DeltaTableHelper, "get_delta_table", new=AsyncMock(side_effect=transient_exc)
+            ),
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+        mocked.assert_not_called()
+        capture_exc.assert_not_called()
+        assert "warehouse_repartition_started" not in [c.args[0] for c in capture.call_args_list]
