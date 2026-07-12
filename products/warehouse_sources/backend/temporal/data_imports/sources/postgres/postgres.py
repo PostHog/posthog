@@ -1065,6 +1065,20 @@ def _is_unsupported_function_error(error: Exception, function_name: str) -> bool
     return any(marker in message for marker in ("does not exist", "unknown function", "not found", "no function"))
 
 
+def _is_unsupported_set_local_timeout_error(error: Exception) -> bool:
+    """True when `error` is a connection pooler rejecting our `SET LOCAL statement_timeout` opener.
+
+    Postgres-wire-compatible poolers in transaction mode (Supabase/PgBouncer, e.g. port 6543) accept
+    the connection but refuse to change GUCs, answering `SET LOCAL statement_timeout` with SQLSTATE
+    0A000 (`FeatureNotSupported`): `setting configuration parameter "statement_timeout" not supported`.
+    The best-effort metadata lookups here open with that statement, so treat this as an expected "no
+    timeout control" answer and let callers degrade quietly instead of alerting on it.
+    """
+    if not isinstance(error, psycopg.errors.FeatureNotSupported):
+        return False
+    return "statement_timeout" in str(error).lower()
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1133,12 +1147,16 @@ def _rls_active_from_conn(
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
-        # than flooding error tracking. Still capture genuinely unexpected failures.
+        # than flooding error tracking. A connection pooler in transaction mode (Supabase/PgBouncer)
+        # is the same story one statement earlier: it rejects our opening `SET LOCAL
+        # statement_timeout` with a `FeatureNotSupported`, also an expected shape. Still capture
+        # genuinely unexpected failures.
         if (
             not connection.closed
             and not connection.broken
             and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
             and not _is_unsupported_function_error(e, "row_security_active")
+            and not _is_unsupported_set_local_timeout_error(e)
         ):
             capture_exception(e)
         return {}
@@ -1194,8 +1212,15 @@ def _xmin_capable_tables_from_conn(
     except Exception as e:
         # Best-effort like the PK/RLS/index lookups it runs alongside: losing the `supports_xmin`
         # hint just hides the option for this listing. A non-Postgres engine may lack `relkind`
-        # semantics entirely, so degrade quietly.
-        if not connection.closed and not connection.broken and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
+        # semantics entirely, and a connection pooler in transaction mode rejects the opening `SET
+        # LOCAL statement_timeout` with `FeatureNotSupported` — both are expected shapes, so degrade
+        # quietly rather than alerting on them.
+        if (
+            not connection.closed
+            and not connection.broken
+            and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
+            and not _is_unsupported_set_local_timeout_error(e)
+        ):
             structlog.get_logger().warning("Failed to detect xmin-capable tables for Postgres schemas", exc_info=e)
         return set()
 
