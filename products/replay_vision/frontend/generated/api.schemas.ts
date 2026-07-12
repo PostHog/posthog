@@ -610,6 +610,33 @@ export const ScannerModelEnumApi = {
     Gemini35Flash: 'gemini-3.5-flash',
 } as const
 
+export interface FeedbackThemeSessionApi {
+    /** Observation whose feedback comment backs this theme. */
+    observation_id: string
+    /** Session recording the feedback comment was about. */
+    session_id: string
+}
+
+export interface FeedbackThemeApi {
+    /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
+    theme: string
+    /** How many feedback comments describe this failure mode. */
+    count: number
+    /** Up to two short representative quotes from the feedback comments. */
+    examples: string[]
+    /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
+    sessions: FeedbackThemeSessionApi[]
+}
+
+export interface FeedbackThemesApi {
+    /** Recurring failure modes, most frequent first. */
+    themes: FeedbackThemeApi[]
+    /** Number of thumbs-down feedback comments the summary was generated from. */
+    feedback_count: number
+    /** When the summary was generated. */
+    generated_at: string
+}
+
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -679,6 +706,8 @@ export interface ReplayScannerApi {
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
     readonly updated_at: string
+    /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+    readonly feedback_themes: FeedbackThemesApi | null
 }
 
 export interface PaginatedReplayScannerListApi {
@@ -759,6 +788,8 @@ export interface PatchedReplayScannerApi {
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null
     readonly updated_at?: string
+    /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+    readonly feedback_themes?: FeedbackThemesApi | null
 }
 
 /**
@@ -935,6 +966,65 @@ export const ReplayScannerPromptSuggestionStatusEnumApi = {
     NoChange: 'no_change',
 } as const
 
+export interface PromptEvaluationResultApi {
+    /** The rated session that was re-run with the suggested prompt. */
+    session_id: string
+    /** The original rated observation the comparison is against. */
+    observation_id: string
+    /** The team's rating of the original output (thumbs up = true). */
+    rated_correct: boolean
+    /**
+     * The original output's primary outcome.
+     * @nullable
+     */
+    before: string | null
+    /**
+     * The suggested prompt's outcome for the same session. Null when the run errored or returned no discrete outcome (e.g. a classifier with no tags).
+     * @nullable
+     */
+    after: string | null
+    /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), or error. */
+    outcome: string
+    /**
+     * Why this session's re-run failed, when it did.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface PromptEvaluationSummaryApi {
+    /** Thumbs-up sessions whose output is unchanged. */
+    kept: number
+    /** Thumbs-up sessions whose output changed. */
+    regressed: number
+    /** Thumbs-down sessions whose output changed. */
+    fixed: number
+    /** Thumbs-down sessions whose output is unchanged. */
+    still_wrong: number
+    /** Sessions whose re-run failed. */
+    errors: number
+}
+
+export interface PromptSuggestionEvaluationApi {
+    /** running, succeeded, or failed. */
+    status: string
+    /** When the evaluation started. */
+    started_at: string
+    /**
+     * When the evaluation finished, if it has.
+     * @nullable
+     */
+    finished_at: string | null
+    /** How many rated sessions are being re-run. */
+    total: number
+    /** The rated set the evaluation ran against. */
+    labels_fingerprint: string
+    /** Per-session outcomes, in completion order. */
+    results: PromptEvaluationResultApi[]
+    /** Outcome counts. Null while the evaluation is running. */
+    summary: PromptEvaluationSummaryApi | null
+}
+
 export interface ReplayScannerPromptSuggestionApi {
     readonly id: string
     /** pending (current), applied, dismissed, or superseded by a newer suggestion.
@@ -964,6 +1054,8 @@ export interface ReplayScannerPromptSuggestionApi {
     readonly applied_at: string | null
     /** User who applied this suggestion to the scanner; null unless applied. */
     readonly applied_by: UserBasicApi | null
+    /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
+    readonly evaluation: PromptSuggestionEvaluationApi | null
 }
 
 export interface PaginatedReplayScannerPromptSuggestionListApi {
@@ -975,6 +1067,15 @@ export interface PaginatedReplayScannerPromptSuggestionListApi {
     results: ReplayScannerPromptSuggestionApi[]
 }
 
+export interface EvaluatePromptSuggestionRequestApi {
+    /**
+     * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
+     * @minimum 1
+     * @maximum 100
+     */
+    session_limit?: number
+}
+
 export interface CurrentPromptSuggestionApi {
     /** The newest suggestion for this scanner, or null when none has been generated yet. */
     suggestion: ReplayScannerPromptSuggestionApi | null
@@ -982,6 +1083,8 @@ export interface CurrentPromptSuggestionApi {
     stale: boolean
     /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
     rated_count: number
+    /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
+    evaluation_session_cap: number
 }
 
 /**
