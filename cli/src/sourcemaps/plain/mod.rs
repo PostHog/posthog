@@ -91,14 +91,21 @@ mod tests {
     }
 
     #[test]
-    fn process_concurrency_defaults_to_ten() {
-        let parsed = SourcemapCli::try_parse_from(["test", "process", "--directory", "."])
-            .expect("process args should parse");
+    fn process_accepts_concurrency_override() {
+        let parsed = SourcemapCli::try_parse_from([
+            "test",
+            "process",
+            "--directory",
+            ".",
+            "--concurrency",
+            "18",
+        ])
+        .expect("process args should parse");
         let SourcemapCommand::Process(args) = parsed.command else {
             panic!("expected process command");
         };
 
-        assert_eq!(args.upload_concurrency.concurrency.get(), 10);
+        assert_eq!(args.upload_concurrency.concurrency.get(), 18);
     }
 
     #[test]
