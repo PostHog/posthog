@@ -242,7 +242,7 @@ class CHQueryErrorCannotParseUuid(InternalCHQueryError):
     pass
 
 
-class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
+class CHQueryErrorUnsupportedMethod(ExposedCHQueryError):
     pass
 
 
@@ -293,7 +293,7 @@ class CHQueryErrorUnknownTable(ExposedCHQueryError):
 CLICKHOUSE_UNKNOWN_EXCEPTION = ErrorCodeMeta("UNKNOWN_EXCEPTION")
 CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     0: ErrorCodeMeta("OK"),
-    1: ErrorCodeMeta("UNSUPPORTED_METHOD", category=QueryErrorCategory.USER_ERROR),
+    1: ErrorCodeMeta("UNSUPPORTED_METHOD", user_safe=True),
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),
     3: ErrorCodeMeta("UNEXPECTED_END_OF_FILE"),
     4: ErrorCodeMeta("EXPECTED_END_OF_FILE"),

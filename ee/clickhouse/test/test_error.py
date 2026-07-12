@@ -150,6 +150,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            ServerException(
+                "Code: 1. DB::Exception: Function 'nullIn' is supported only if second argument is constant or table expression. (UNSUPPORTED_METHOD)",
+                code=1,
+            ),
+            "CHQueryErrorUnsupportedMethod",
+            "Function 'nullIn' is supported only if second argument is constant or table expression. (UNSUPPORTED_METHOD)",
+            1,
+            "CHQueryErrorUnsupportedMethod",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
