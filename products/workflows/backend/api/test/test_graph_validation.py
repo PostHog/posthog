@@ -112,7 +112,9 @@ class TestValidateGraph(TestCase):
         valid = [_edge("t", "a"), _edge("a", "x", "branch", index=0), _edge("a", "x")]
         assert validate_graph(actions, valid) == []
         # Missing the branch edge is rejected so a success-blind step can't ship via the graph API.
-        assert "missing its success edge" in _graph_errors(actions, [_edge("t", "a"), _edge("a", "x")])
+        missing = _graph_errors(actions, [_edge("t", "a"), _edge("a", "x")])
+        assert "missing its resolution edge" in missing
+        assert "taken when the task completes" in missing
         # index 1 is out of range (only the completed path exists).
         assert "out of range [0, 1)" in _graph_errors(actions, [_edge("t", "a"), _edge("a", "x", "branch", index=1)])
 

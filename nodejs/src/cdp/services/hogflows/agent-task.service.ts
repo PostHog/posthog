@@ -6,6 +6,12 @@ import { internalFetch } from '~/common/utils/request'
 // scoped to this one caller/callee pair rather than the fleet-wide INTERNAL_API_SECRET.
 export const WORKFLOWS_TASKS_SECRET_HEADER = 'X-Workflows-Tasks-Secret'
 
+// The agent_task wake protocol, shared by the handler (poll) and the subscription matcher (event).
+// Django emits TASK_COMPLETION_EVENT with a `status` in TERMINAL_TASK_STATUSES; keep the two Node
+// readers on one definition so a new terminal status can't move out of lockstep.
+export const TASK_COMPLETION_EVENT = '$task_run_completed'
+export const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+
 export interface CreateAgentTaskRequest {
     teamId: number
     // Correlation identity: the task-completion internal event is emitted with this distinct_id so

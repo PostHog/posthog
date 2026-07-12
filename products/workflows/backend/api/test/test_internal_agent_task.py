@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from products.tasks.backend.facade import contracts
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -28,14 +30,9 @@ class TestInternalAgentTaskAPI(APIBaseTest):
         body.update(overrides)
         return body
 
-    def test_rejects_missing_secret(self):
-        response = self.client.post(self.url, self._create_body(), content_type="application/json")
-        assert response.status_code == 401
-
-    def test_rejects_wrong_secret(self):
-        response = self.client.post(
-            self.url, self._create_body(), content_type="application/json", **{SECRET_HEADER: "nope"}
-        )
+    @parameterized.expand([("missing", {}), ("wrong", {SECRET_HEADER: "nope"})])
+    def test_rejects_bad_secret(self, _name, headers):
+        response = self.client.post(self.url, self._create_body(), content_type="application/json", **headers)
         assert response.status_code == 401
 
     @patch("products.workflows.backend.api.internal_agent_task._agent_task_step_enabled", return_value=False)

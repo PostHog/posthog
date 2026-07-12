@@ -70,7 +70,7 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     # Wake a parked workflow agent_task step on ANY terminal transition — including CANCELLED, and
     # including activity retries where old_status == input.status (a crash between the status save
     # and the emit would otherwise lose the wake forever). The persisted once-guard dedupes.
-    if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]:
+    if task_run.is_terminal:
         task_run.emit_workflow_completion_event_if_needed()
 
     log_with_activity_context(
