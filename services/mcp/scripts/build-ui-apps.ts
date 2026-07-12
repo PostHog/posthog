@@ -27,6 +27,11 @@ if (existsSync(dotEnvPath)) {
     const output = dotenvConfig({ path: dotEnvPath })
     const loadedKeys = Object.keys(output.parsed || {})
     console.info('📝 Loaded environment from .env', loadedKeys)
+} else if (existsSync(resolve(MCP_ROOT_DIR, '.dev.vars'))) {
+    console.warn(
+        '⚠️ Support for `.dev.vars` was removed - move your local config to `.env` (see .env.example). ' +
+            'Building with fallback values (no analytics token).'
+    )
 }
 
 function buildAppAsync(appName: string): Promise<void> {

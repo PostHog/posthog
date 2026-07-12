@@ -318,7 +318,7 @@ If you're using a self-hosted instance of PostHog, you can specify a custom base
 To run the MCP server (Hono on Node) locally, run the following command:
 
 ```bash
-pnpm run dev:hono
+pnpm run dev
 ```
 
 Or use `bin/start-mcp-server` from the repo root, which also bootstraps `.env` and sets Redis/port defaults.
@@ -333,7 +333,7 @@ It does not serve the MCP protocol itself - see [ARCHITECTURE.md](ARCHITECTURE.m
 To run just the worker locally:
 
 ```bash
-pnpm run dev
+pnpm run dev:proxy
 ```
 
 ### Developing with local resources
@@ -341,7 +341,7 @@ pnpm run dev
 To develop with warm loading for MCP resources (workflows, prompts, examples):
 
 1. Start the [context-mill](https://github.com/PostHog/context-mill) dev server: `cd ../context-mill && npm run dev`
-2. Start the MCP server with local resources: `pnpm run dev:local-resources` (the Hono dev server with `POSTHOG_MCP_LOCAL_SKILLS_URL` pointed at context-mill)
+2. Start the MCP server with local resources: `pnpm run dev:local-resources` (runs `bin/start-mcp-server` with `POSTHOG_MCP_LOCAL_SKILLS_URL` pointed at context-mill)
 
 Changes in the examples repo will be reflected on the next request.
 
@@ -354,8 +354,8 @@ This repository is organized to support multiple language implementations:
 
 ### Development Commands
 
-- `pnpm run dev:hono` - Start the MCP development server
-- `pnpm run dev` - Start the edge-proxy worker (wrangler)
+- `pnpm run dev` - Start the MCP development server
+- `pnpm run dev:proxy` - Start the edge-proxy worker (wrangler)
 - `pnpm run format` - Format and lint code
 
 ### Adding New Tools

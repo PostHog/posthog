@@ -67,7 +67,7 @@ pnpm install
 pnpm run build:ui-apps
 
 # Start the server (needs a local Redis on port 6379 for session state)
-pnpm run dev:hono
+pnpm run dev
 ```
 
 ### 3. Test with MCP Inspector
@@ -147,7 +147,7 @@ pnpm run build:ui-apps -- --watch
 And the MCP server in another:
 
 ```bash
-pnpm run dev:hono
+pnpm run dev
 ```
 
 Changes to `src/ui-apps/` will trigger a rebuild. Ask Claude a new query to see updated UI.

@@ -38,10 +38,10 @@ fi
 if [ "$RUNTIME" = "hono" ]; then
     export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
     export PORT="${PORT:-8787}"
-    exec pnpm run dev:hono
+    exec pnpm run dev
 else
     # Edge-proxy worker only (wrangler dev) - the MCP protocol itself is
     # served by the Hono runtime. Wrangler reads `.env` when `.dev.vars`
     # is absent.
-    exec pnpm run dev
+    exec pnpm run dev:proxy
 fi
