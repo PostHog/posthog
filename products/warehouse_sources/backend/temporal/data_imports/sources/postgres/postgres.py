@@ -410,11 +410,17 @@ def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
     swallow the follow-up "connection closed" errors, so discovery finishes "successfully"
     and the implicit commit in the enclosing `with connection:` raises a misleading
     `ProgrammingError: Explicit commit() forbidden within a Transaction context`, burying
-    the real cause. Detect the broken connection first and raise the actual
-    dropped-connection error (transient, so it stays retryable) — the activity then retries
-    on a fresh connection instead of failing on a self-inflicted commit error.
+    the real cause.
+
+    A hard drop flips the connection to `broken`, but a drop that lands precisely while
+    psycopg is entering or leaving the probe's `transaction()` block can leave the nesting
+    counter incremented while `broken` stays False (the connection is `INERROR`, not BAD).
+    `commit()` refuses outright whenever that counter is non-zero, so checking `broken` alone
+    misses this case. Detect either signal and raise the actual dropped-connection error
+    (transient, so it stays retryable) — the activity then retries on a fresh connection
+    instead of failing on the self-inflicted commit error.
     """
-    if connection.broken:
+    if connection.broken or getattr(connection, "_num_transactions", 0) > 0:
         raise psycopg.OperationalError("connection to server was lost during table metadata discovery")
 
 

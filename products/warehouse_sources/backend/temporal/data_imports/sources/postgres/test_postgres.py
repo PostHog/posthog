@@ -1365,6 +1365,7 @@ class TestRaiseIfSetupConnectionBroken:
     def test_broken_connection_raises_retryable_dropped_error(self):
         connection = mock.MagicMock()
         connection.broken = True
+        connection._num_transactions = 0
 
         with pytest.raises(psycopg.OperationalError) as exc_info:
             _raise_if_setup_connection_broken(cast(Any, connection))
@@ -1375,11 +1376,27 @@ class TestRaiseIfSetupConnectionBroken:
         message = str(exc_info.value)
         assert not any(key in message for key in PostgresSource().get_non_retryable_errors())
 
+    def test_leaked_transaction_counter_raises_retryable_dropped_error(self):
+        # A drop while psycopg was entering/leaving a probe's transaction() block leaves the
+        # nesting counter incremented without flipping `broken` — the exact state (`INERROR`,
+        # not BAD) that made the exit-commit raise the masked ProgrammingError in production.
+        connection = mock.MagicMock()
+        connection.broken = False
+        connection._num_transactions = 1
+
+        with pytest.raises(psycopg.OperationalError) as exc_info:
+            _raise_if_setup_connection_broken(cast(Any, connection))
+
+        assert _is_connection_dropped_error(exc_info.value) is True
+        message = str(exc_info.value)
+        assert not any(key in message for key in PostgresSource().get_non_retryable_errors())
+
     def test_healthy_connection_is_a_noop(self):
         connection = mock.MagicMock()
         connection.broken = False
+        connection._num_transactions = 0
 
-        # A healthy connection must not raise.
+        # A healthy connection with no leaked transaction nesting must not raise.
         _raise_if_setup_connection_broken(cast(Any, connection))
 
 
