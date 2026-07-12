@@ -92,6 +92,8 @@ export interface TraceGitMetadata {
 export interface BranchPRResolution {
     key: string | null
     matches: BranchPRMatchApi[]
+    /** True when the resolve was skipped because feature flags had not loaded yet — retried once they do. */
+    gated?: boolean
 }
 
 /** Identity of one resolution request. Branch alone is not enough: two traces can carry the same
@@ -150,6 +152,12 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         resolvingKey: [
             null as string | null,
             { loadBranchPRMatches: (_, gitMetadata: TraceGitMetadata | null) => branchPRResolutionKey(gitMetadata) },
+        ],
+        // The metadata of the latest resolve request, kept so a resolve skipped while feature flags
+        // were still loading can be re-dispatched once they arrive (see the featureFlags subscription).
+        lastGitMetadata: [
+            null as TraceGitMetadata | null,
+            { loadBranchPRMatches: (_, gitMetadata: TraceGitMetadata | null) => gitMetadata },
         ],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         highlightMessageIndex: [
@@ -353,9 +361,15 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     const key = branchPRResolutionKey(gitMetadata)
                     const branch = gitMetadata?.branch ?? null
 
-                    // Gated on engineering analytics: only that product can turn a git branch into a PR link.
-                    if (!branch || !values.featureFlags?.[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                    if (!branch) {
                         return { key, matches: [] }
+                    }
+
+                    // Gated on engineering analytics: only that product can turn a git branch into a PR link.
+                    // Flags may not have loaded yet (deep link straight to a trace) — mark the skip as
+                    // gated so the featureFlags subscription retries once they arrive.
+                    if (!values.featureFlags?.[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                        return { key, matches: [], gated: !Object.keys(values.featureFlags ?? {}).length }
                     }
 
                     await breakpoint(100)
@@ -526,7 +540,14 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
+        featureFlags: (featureFlags: Record<string, unknown>) => {
+            // A resolve skipped because flags had not loaded yet (deep link straight to a trace)
+            // is retried once they arrive — otherwise the chip stays permanently unlinked.
+            if (featureFlags?.[FEATURE_FLAGS.ENGINEERING_ANALYTICS] && values.branchPRResolution.gated) {
+                actions.loadBranchPRMatches(values.lastGitMetadata)
+            }
+        },
         traceId: (traceId: string) => {
             if (traceId) {
                 actions.loadCommentCount()
