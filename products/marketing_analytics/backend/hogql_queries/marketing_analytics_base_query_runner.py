@@ -928,19 +928,23 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
 
             # Get conversion goals and filter out invalid ones
-            conversion_goals = self._get_team_conversion_goals()
-            valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
-                conversion_goals
-            )
-            self._valid_conversion_goals_count = len(valid_conversion_goals)
+            with self.timings.measure("ma_get_conversion_goals"):
+                conversion_goals = self._get_team_conversion_goals()
+            with self.timings.measure("ma_filter_conversion_goals"):
+                valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
+                    conversion_goals
+                )
+                self._valid_conversion_goals_count = len(valid_conversion_goals)
 
             # Create processors only for valid conversion goals
-            processors = (
-                self._create_conversion_goal_processors(valid_conversion_goals) if valid_conversion_goals else []
-            )
+            with self.timings.measure("ma_create_conversion_processors"):
+                processors = (
+                    self._create_conversion_goal_processors(valid_conversion_goals) if valid_conversion_goals else []
+                )
 
             # Build the complete query with CTEs using AST
-            return self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
+            with self.timings.measure("ma_build_complete_query"):
+                return self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
 
     def _generate_aggregated_conversion_goals_cte(self, conversion_aggregator, date_range) -> Optional[ast.CTE]:
         """Generate aggregated conversion goals CTE without GROUP BY for aggregated queries"""
