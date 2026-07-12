@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
@@ -15,7 +16,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { AvailableFeature, OrganizationBasicType } from '~/types'
 
