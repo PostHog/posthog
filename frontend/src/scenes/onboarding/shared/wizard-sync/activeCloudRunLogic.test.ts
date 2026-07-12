@@ -82,14 +82,34 @@ describe('activeCloudRunLogic', () => {
             })
         })
 
-        it('does not call the server for a non-provisioned user', async () => {
+        it('does not call the server for a non-provisioned user', () => {
             setUser(false)
             logic = activeCloudRunLogic()
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions(['hydrateFromServer']).toFinishAllListeners()
+            // Gated before the request — a non-provisioned user never reaches server hydration.
             expect(mockActiveWizardRun).not.toHaveBeenCalled()
             expect(logic.values.activeCloudRun).toBeNull()
+        })
+
+        it('hydrates once the provisioned status loads after mount', async () => {
+            // The user (and so isProvisionedUser) resolves asynchronously; mounting before it does
+            // must not permanently skip the one server lookup — the original one-shot afterMount did.
+            mockActiveWizardRun.mockResolvedValue({
+                task_id: 'srv-task',
+                run_id: 'srv-run',
+                status: 'in_progress',
+                started_at: '2026-02-02T00:00:00Z',
+            })
+            logic = activeCloudRunLogic()
+            logic.mount()
+            expect(mockActiveWizardRun).not.toHaveBeenCalled()
+
+            setUser(true)
+
+            await expectLogic(logic).toDispatchActions(['hydrateFromServer', 'setActiveCloudRun'])
+            expect(mockActiveWizardRun).toHaveBeenCalledWith(String(MOCK_TEAM_ID))
+            expect(logic.values.activeCloudRun).toMatchObject({ taskId: 'srv-task', runId: 'srv-run' })
         })
 
         it('does not clobber a fresher local handle', async () => {

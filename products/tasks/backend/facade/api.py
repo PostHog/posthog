@@ -629,33 +629,34 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunHandleD
     """The team's active onboarding wizard cloud run, for rehydrating the setup FAB.
 
     The drop flow starts the wizard cloud run server-side (``create_wizard_cloud_run``),
-    so a freshly-signed-in user has no client-side handle. Returns the most recent
-    onboarding (``ORIGIN_PRODUCT == ONBOARDING``) task's latest run when it's still
+    so a freshly-signed-in user has no client-side handle. Returns the most recent run
+    across the team's onboarding (``ORIGIN_PRODUCT == ONBOARDING``) tasks that's still
     running, or completed within the last day (so we can show "PostHog is wired up" +
     the PR); otherwise ``None``. Team-scoped.
     """
-    task = (
-        Task.objects.filter(team_id=team_id, origin_product=Task.OriginProduct.ONBOARDING, archived=False)
-        .order_by("-created_at", "-id")
-        .first()
-    )
-    if task is None:
-        return None
-    run = TaskRun.objects.filter(task_id=task.id).order_by("-created_at", "-id").first()
-    if run is None:
-        return None
-    # Non-terminal runs always surface; terminal ones only while the result is still
-    # fresh enough to be worth showing on first landing.
-    if run.is_terminal:
-        anchor = run.updated_at or run.created_at
-        if anchor is None or anchor < django_timezone.now() - timedelta(days=1):
-            return None
-    return contracts.WizardCloudRunHandleDTO(
-        task_id=task.id,
-        run_id=run.id,
-        status=run.status,
-        started_at=run.created_at,
-    )
+    onboarding_task_ids = Task.objects.filter(
+        team_id=team_id, origin_product=Task.OriginProduct.ONBOARDING, archived=False
+    ).values_list("id", flat=True)
+    fresh_after = django_timezone.now() - timedelta(days=1)
+    # Scan runs newest-first and surface the first that qualifies: picking the newest task up front
+    # would let a newer onboarding task with no live run hide an older task's still-running one.
+    # Both the task set and the run are scoped by team_id so a mismatched/legacy run row can't leak
+    # another team's handle back to the requester.
+    runs = TaskRun.objects.filter(task_id__in=onboarding_task_ids, team_id=team_id).order_by("-created_at", "-id")
+    for run in runs:
+        # Non-terminal runs always surface; terminal ones only while the result is still
+        # fresh enough to be worth showing on first landing.
+        if run.is_terminal:
+            anchor = run.updated_at or run.created_at
+            if anchor is None or anchor < fresh_after:
+                continue
+        return contracts.WizardCloudRunHandleDTO(
+            task_id=run.task_id,
+            run_id=run.id,
+            status=run.status,
+            started_at=run.created_at,
+        )
+    return None
 
 
 def get_stale_queued_task_run_ids(

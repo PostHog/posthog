@@ -1,4 +1,5 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -83,6 +84,13 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
             (persistedCloudRun, currentProjectId): CloudRunHandle | null =>
                 scopedCloudRun(persistedCloudRun, currentProjectId),
         ],
+        // The two inputs hydrateFromServer needs, both of which load asynchronously after mount.
+        // We wait for this to flip true rather than firing once on mount, so a run started for a
+        // provisioned user before their user/project loaded still gets hydrated.
+        canHydrateFromServer: [
+            (s) => [s.isProvisionedUser, s.currentProjectId],
+            (isProvisionedUser, currentProjectId): boolean => isProvisionedUser && currentProjectId != null,
+        ],
     }),
     listeners(({ actions, values }) => ({
         hydrateFromServer: async () => {
@@ -114,7 +122,14 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.hydrateFromServer()
-    }),
+    subscriptions(({ actions }) => ({
+        // Fires once on mount (with the current value) and again whenever readiness changes, so
+        // hydration runs as soon as both inputs are available — not just if they happened to be
+        // ready at mount. hydrateFromServer is idempotent, so a no-op false value is harmless.
+        canHydrateFromServer: (canHydrate: boolean) => {
+            if (canHydrate) {
+                actions.hydrateFromServer()
+            }
+        },
+    })),
 ])

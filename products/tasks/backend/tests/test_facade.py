@@ -153,6 +153,26 @@ class TestFacadeReadsAndMappers(TestCase):
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         self.assertIsNone(facade.get_active_wizard_cloud_run(other_team.id))
 
+    def test_get_active_wizard_cloud_run_surfaces_older_active_run_behind_newer_stale_task(self):
+        # The newest onboarding task's run is stale, but an older task still has a live run:
+        # keying off task-recency alone would return nothing and hide the active run.
+        older_task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        active = TaskRun.objects.create(task=older_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        newer_task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        stale_run = TaskRun.objects.create(task=newer_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        now = django_timezone.now()
+        TaskRun.objects.filter(id=active.id).update(
+            created_at=now - timedelta(days=3), updated_at=now - timedelta(days=3)
+        )
+        TaskRun.objects.filter(id=stale_run.id).update(
+            created_at=now - timedelta(days=2), updated_at=now - timedelta(days=2)
+        )
+
+        handle = facade.get_active_wizard_cloud_run(self.team.id)
+        assert handle is not None
+        self.assertEqual(handle.task_id, older_task.id)
+        self.assertEqual(handle.run_id, active.id)
+
     def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
         other_integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
