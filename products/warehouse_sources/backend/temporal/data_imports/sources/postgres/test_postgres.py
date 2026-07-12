@@ -6372,6 +6372,33 @@ class TestRlsActiveFromConnErrorHandling:
         assert result == {}
         capture_mock.assert_not_called()
 
+    def test_unsupported_statement_timeout_error_is_not_captured(self):
+        # Some Postgres-wire-compatible engines (e.g. Aurora DSQL) reject the `SET LOCAL
+        # statement_timeout` guard this lookup opens with. That's an expected incompatibility, not a
+        # bug — degrade quietly instead of flooding error tracking.
+        conn = self._conn_raising(
+            psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_unrelated_feature_not_supported_error_is_still_captured(self):
+        # Only the statement_timeout rejection is expected — an unrelated FeatureNotSupported must
+        # still surface so we don't blanket-swallow a real incompatibility.
+        conn = self._conn_raising(
+            psycopg.errors.FeatureNotSupported("cannot execute SELECT in a read-only transaction")
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_called_once()
+
 
 class TestGetRowsInitialConnectRetry:
     # Regression: the main server-cursor read path opened its initial connection with a bare
