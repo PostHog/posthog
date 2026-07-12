@@ -63,6 +63,24 @@ export const BillingProductWithAddons: Story = {
     },
 }
 
+// A card-backed org (has_active_subscription) whose Product Analytics is still on the free tier
+// (subscribed: false) should still see the billing limit control so they can cap spend / enable overage.
+export const BillingProductCardOnFileOnFreeTier: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                },
+            },
+        })
+
+        const product = billingJson.products.find((product) => product.type === 'product_analytics')
+
+        return <BillingProduct product={{ ...(product as BillingProductV2Type), subscribed: false }} />
+    },
+}
+
 export const BillingProductWithStandalonePricingAddon: Story = {
     render: () => {
         useStorybookMocks({
