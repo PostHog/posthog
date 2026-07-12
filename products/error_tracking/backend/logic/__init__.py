@@ -143,9 +143,13 @@ def _fingerprint_queryset(team_id: int) -> QuerySet[ErrorTrackingIssueFingerprin
 
 
 def _with_canonical_fingerprint(queryset: QuerySet[ErrorTrackingIssue], team_id: int) -> QuerySet[ErrorTrackingIssue]:
+    # Canonical = earliest-created fingerprint; must match list_first_fingerprints' ordering,
+    # or list links and detail-page canonical URLs diverge for the same issue.
+    # Filters the fingerprint table directly instead of _fingerprint_queryset: the outer
+    # queryset is already team-scoped, so the issue__team_id join would only re-verify
+    # the outer row's own team on every correlated subquery execution.
     canonical_fingerprint = (
-        _fingerprint_queryset(team_id)
-        .filter(issue_id=OuterRef("pk"))
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=OuterRef("pk"))
         .order_by("created_at", "id")
         .values("fingerprint")[:1]
     )
@@ -225,7 +229,9 @@ def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> QuerySet[Er
 
 
 def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[ErrorTrackingIssueFingerprintV2]:
-    """Earliest-created fingerprint per issue (one row per issue), via Postgres DISTINCT ON."""
+    """Earliest-created fingerprint per issue (one row per issue), via Postgres DISTINCT ON.
+
+    Ordering must match _with_canonical_fingerprint, or list links and canonical URLs diverge."""
     return list(
         _fingerprint_queryset(team_id)
         .filter(issue_id__in=issue_ids)

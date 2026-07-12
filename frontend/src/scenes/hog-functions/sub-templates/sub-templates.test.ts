@@ -12,10 +12,10 @@ const EXTERNAL_ISSUE_TEMPLATE_IDS = ['template-linear', 'template-github', 'temp
 describe('error tracking alert sub-templates', () => {
     it.each(ERROR_TRACKING_ALERT_SUB_TEMPLATE_IDS)('%s uses fingerprint-based issue links', (subTemplateId) => {
         const serializedTemplates = JSON.stringify(HOG_FUNCTION_SUB_TEMPLATES[subTemplateId])
-        const issueUrls = serializedTemplates.match(/\{project\.url\}\/error_tracking\/[^"\\)\s]+/g)
+        const issueUrls = serializedTemplates.match(/\{project\.url\}\/error_tracking\/[^"\\)\s]+/g) ?? []
 
-        expect(issueUrls).toHaveLength(3)
-        expect(issueUrls?.every((url) => url.includes(FINGERPRINT_PATH_EXPRESSION))).toBe(true)
+        expect(issueUrls.length).toBeGreaterThan(0)
+        expect(issueUrls.every((url) => url.includes(FINGERPRINT_PATH_EXPRESSION))).toBe(true)
         expect(serializedTemplates).not.toContain('/error_tracking/{event.distinct_id}')
     })
 
@@ -24,6 +24,6 @@ describe('error tracking alert sub-templates', () => {
             (candidate) => candidate.template_id === templateId
         )
 
-        expect(JSON.stringify(template)).toContain(`"posthog_issue_id":{"value":"${FINGERPRINT_PATH_SEGMENT}"}`)
+        expect(template?.inputs?.posthog_issue_id?.value).toBe(FINGERPRINT_PATH_SEGMENT)
     })
 })

@@ -536,13 +536,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             loadIssueSuccess: ({ issue }: { issue: ErrorTrackingIssueSceneIssue }) => {
                 actions.canonicalizeIssueUrl(issue)
 
-                const willRemountAtCanonicalFingerprint =
-                    props.isScene &&
-                    !props.legacyFingerprint &&
-                    issue.matched_by === 'issue_id' &&
-                    !!issue.fingerprint &&
-                    issue.fingerprint !== props.identifier
-                if (willRemountAtCanonicalFingerprint) {
+                // canonicalizeIssueUrl remounts the logic under a new key when the URL changes
+                // to a different identifier — skip loading in this doomed instance
+                const canonicalIdentifier = getCanonicalIssueIdentifier(props, issue)
+                if (canonicalIdentifier !== null && canonicalIdentifier !== props.identifier) {
                     return
                 }
 
@@ -552,15 +549,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 actions.loadSpikeEvents()
             },
             canonicalizeIssueUrl: ({ issue }) => {
-                if (!props.isScene) {
-                    return
-                }
-
-                const canonicalIdentifier = props.legacyFingerprint
-                    ? props.identifier
-                    : issue.matched_by === 'issue_id'
-                      ? issue.fingerprint
-                      : null
+                const canonicalIdentifier = getCanonicalIssueIdentifier(props, issue)
                 if (!canonicalIdentifier) {
                     return
                 }
@@ -672,19 +661,23 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 ])
 
-const ERROR_TRACKING_ISSUE_STATUSES: ErrorTrackingIssue['status'][] = [
-    'archived',
-    'active',
-    'resolved',
-    'pending_release',
-    'suppressed',
-]
+// The URL identifier the scene should live at, or null when the current one is already right.
+// Used both to navigate (canonicalizeIssueUrl) and to detect the pending remount that
+// navigation causes (loadIssueSuccess) — keep it the single source of that decision.
+function getCanonicalIssueIdentifier(
+    props: ErrorTrackingIssueSceneLogicProps,
+    issue: ErrorTrackingIssueSceneIssue
+): string | null {
+    if (!props.isScene) {
+        return null
+    }
+    if (props.legacyFingerprint) {
+        return props.identifier
+    }
+    return issue.matched_by === 'issue_id' && issue.fingerprint ? issue.fingerprint : null
+}
 
 function toErrorTrackingIssue(response: ErrorTrackingIssueResolveResponseApi): ErrorTrackingIssueSceneIssue {
-    if (!ERROR_TRACKING_ISSUE_STATUSES.includes(response.status as ErrorTrackingIssue['status'])) {
-        throw new Error(`Unknown error tracking issue status: ${response.status}`)
-    }
-
     const assignee: ErrorTrackingRelationalIssue['assignee'] =
         response.assignee?.id != null && (response.assignee.type === 'user' || response.assignee.type === 'role')
             ? {

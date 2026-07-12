@@ -6,6 +6,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import {
+    ERROR_TRACKING_ISSUE_CREATED_DISCORD_MESSAGE,
+    ERROR_TRACKING_ISSUE_CREATED_TEAMS_MESSAGE,
+} from 'scenes/hog-functions/sub-templates/sub-templates'
 
 import { HogFunctionConfigurationType } from '~/types'
 
@@ -110,14 +114,14 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
                     configuration.inputs = {
                         webhookUrl: { value: formValues.microsoftTeamsWebhookUrl },
                         text: {
-                            value: '**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))',
+                            value: ERROR_TRACKING_ISSUE_CREATED_TEAMS_MESSAGE,
                         },
                     }
                 } else if (values.integration === 'discord') {
                     configuration.inputs = {
                         webhookUrl: { value: formValues.discordWebhookUrl },
                         content: {
-                            value: '**🔴 {event.properties.name} created:** {event.properties.description}\n\n[View in PostHog]({project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)',
+                            value: ERROR_TRACKING_ISSUE_CREATED_DISCORD_MESSAGE,
                         },
                     }
                 } else if (values.integration === 'slack') {

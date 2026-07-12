@@ -348,6 +348,14 @@ export const productRedirects: Record<
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/engineering-analytics': '/engineering-analytics/overview',
     '/engineering-analytics/authors': '/engineering-analytics/overview',
+    '/error_tracking/configuration': (_params, searchParams, hashParams) => {
+        const { tab, ...restSearchParams } = searchParams
+        return combineUrl(
+            '/error_tracking',
+            { ...restSearchParams, activeTab: 'configuration' },
+            { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
+        ).url
+    },
     '/logs/sampling/new': (_params, searchParams, hashParams) =>
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
@@ -1020,7 +1028,6 @@ export const productUrls = {
         identifier: string,
         params: {
             timestamp?: string
-            fingerprint?: string
             searchQuery?: string
             dateRange?: DateRange
             filterGroup?: UniversalFiltersGroup

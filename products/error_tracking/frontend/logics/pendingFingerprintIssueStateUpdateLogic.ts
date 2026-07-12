@@ -108,7 +108,7 @@ export const pendingFingerprintIssueStateUpdateLogic = kea<pendingFingerprintIss
 function findCurrentIssueState(id: string): CurrentIssueState | null {
     const detail = errorTrackingIssueSceneLogic.findAllMounted().find((logic) => logic.values.issue?.id === id)?.values
         .issue as ErrorTrackingRelationalIssue | null | undefined
-    if (detail && detail.id === id) {
+    if (detail) {
         return {
             id: detail.id,
             name: detail.name ?? null,

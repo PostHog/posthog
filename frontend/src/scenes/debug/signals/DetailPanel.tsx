@@ -234,18 +234,17 @@ export function DetailPanel({
                     <Section label="Source ID">
                         <div className="flex flex-col gap-2">
                             <code className="text-xs select-all">{signal.source_id}</code>
-                            {signal.source_product === 'error_tracking' &&
-                                typeof (signal.extra as Partial<ErrorTrackingSignalExtraApi>).fingerprint ===
-                                    'string' && (
-                                    <Link
-                                        to={urls.errorTrackingIssue(
-                                            (signal.extra as ErrorTrackingSignalExtraApi).fingerprint
-                                        )}
-                                        className="inline-flex items-center gap-1 text-xs font-medium"
-                                    >
-                                        Open in Error tracking <IconExternal className="size-3" />
-                                    </Link>
-                                )}
+                            {signal.source_product === 'error_tracking' && (
+                                <Link
+                                    to={urls.errorTrackingIssue(
+                                        (signal.extra as Partial<ErrorTrackingSignalExtraApi>).fingerprint ??
+                                            signal.source_id
+                                    )}
+                                    className="inline-flex items-center gap-1 text-xs font-medium"
+                                >
+                                    Open in Error tracking <IconExternal className="size-3" />
+                                </Link>
+                            )}
                         </div>
                     </Section>
                 )}

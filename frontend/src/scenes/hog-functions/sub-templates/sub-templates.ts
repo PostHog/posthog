@@ -10,6 +10,13 @@ import {
     SurveyEventName,
 } from '~/types'
 
+// Also used by the onboarding alert setup (onboardingErrorTrackingAlertsLogic) — keep the
+// issue deep-link format in one place so URL changes can't drift between the two surfaces.
+export const ERROR_TRACKING_ISSUE_CREATED_DISCORD_MESSAGE =
+    '**🔴 {event.properties.name} created:** {event.properties.description}\n\n[View in PostHog]({project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)'
+export const ERROR_TRACKING_ISSUE_CREATED_TEAMS_MESSAGE =
+    '**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))'
+
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     HogFunctionSubTemplateIdType,
     Pick<HogFunctionSubTemplateType, 'sub_template_id' | 'type' | 'context_id'> &
@@ -599,7 +606,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when an issue is created',
             inputs: {
                 content: {
-                    value: '**🔴 {event.properties.name} created:** {event.properties.description}\n\n[View in PostHog]({project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)',
+                    value: ERROR_TRACKING_ISSUE_CREATED_DISCORD_MESSAGE,
                 },
             },
         },
@@ -610,7 +617,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is created',
             inputs: {
                 text: {
-                    value: '**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))',
+                    value: ERROR_TRACKING_ISSUE_CREATED_TEAMS_MESSAGE,
                 },
             },
         },
