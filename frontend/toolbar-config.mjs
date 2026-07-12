@@ -60,8 +60,9 @@ const deniedThirdPartyPackages = [
     // already-denied LineGraph.
     /^chart\.js(\/|$)/,
     /^chartjs-plugin-annotation(\/|$)/,
-    // hls.js video streaming, dynamically imported by the shared replay rrweb plugins.
-    /^hls\.js(\/|$)/,
+    // hls.js needs no deny anymore: its only path in was @posthog/replay-shared, whose last
+    // importer (~/types' SnapshotSourceType value re-export) is now type-only. Reintroduction
+    // is caught by FORBIDDEN_PACKAGES in bin/check-toolbar-graph.mjs.
 ]
 
 const deniedPatterns = [
