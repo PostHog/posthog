@@ -15,7 +15,7 @@ All parameters must be nested inside a `query` object.
 
 - Raw log lines matching a filter → `query-logs`.
 - A single number (how many logs match) → `logs-count`; per-time-bucket counts → `logs-count-ranges`.
-- Distribution of a dimension (which services emit the errors?) → `logs-facet-values-create`.
+- Distribution of a dimension (which services emit the errors?) → `logs-facet-values`.
 - Use **this** tool to summarize message _content_ — what distinct things the logs say and how often.
 
 # Reading the response

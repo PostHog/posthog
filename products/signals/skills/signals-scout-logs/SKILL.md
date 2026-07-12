@@ -25,7 +25,7 @@ You author reports directly via the report channel (`signals-scout-emit-report` 
 
 ## The stream is a firehose — never count it unfiltered
 
-On a busy project the log stream runs to hundreds of millions of lines/hour, the bulk of it `info`/`warn`. So an **unfiltered `logs-count` times out with a 500 at _any_ window** — it 500s even over a few minutes, so it is never a safe pre-flight. **Always bound every count** by `severityLevels` and/or `serviceNames`. `fatal`-only over 24h is cheap (often < 100 rows) and a great first probe. For an _all-severity_ read (total volume / "is anything logging"), use **`logs-services-create`** — it's an aggregation that survives the firehose where a raw count 500s (read its `services` list, ignore the `sparkline`).
+On a busy project the log stream runs to hundreds of millions of lines/hour, the bulk of it `info`/`warn`. So an **unfiltered `logs-count` times out with a 500 at _any_ window** — it 500s even over a few minutes, so it is never a safe pre-flight. **Always bound every count** by `severityLevels` and/or `serviceNames`. `fatal`-only over 24h is cheap (often < 100 rows) and a great first probe. For an _all-severity_ read (total volume / "is anything logging"), use **`logs-services-list`** — it's an aggregation that survives the firehose where a raw count 500s (read its `services` list, ignore the `sparkline`).
 
 **Date footgun:** relative units are `h` (hour) / `d` (day) / `m` (**month**) — there is **no minute unit**. `-30m` parses as 30 _months_ and silently returns a huge wrong count, not an error. For sub-hour precision pass explicit ISO `date_from`/`date_to`.
 
@@ -33,10 +33,10 @@ Carry the team's baselines in `pattern:` memory (total lines/hour, error+fatal/h
 
 ## Quick close-out: are logs even in use?
 
-Check with **`logs-services-create`** over `-24h` (`m` = month and there is no minute unit, so don't write `-15m`; `-24h`/`-7d` or explicit ISO are the safe forms) — it's an all-severity aggregation that survives the firehose. **Zero services back = genuinely not using logs.** Use a day-plus window, not minutes, so a batch/sparse project that only logs periodically isn't misread as silent. Do _not_ decide this from error/fatal counts alone: a team that logs only at `info`/`warn` (common — one line per request) would read as "no logs" and get permanently short-circuited. And don't read a `logs-count` 500 as "no logs" — that's the firehose, not silence. Write one scratchpad entry:
+Check with **`logs-services-list`** over `-24h` (`m` = month and there is no minute unit, so don't write `-15m`; `-24h`/`-7d` or explicit ISO are the safe forms) — it's an all-severity aggregation that survives the firehose. **Zero services back = genuinely not using logs.** Use a day-plus window, not minutes, so a batch/sparse project that only logs periodically isn't misread as silent. Do _not_ decide this from error/fatal counts alone: a team that logs only at `info`/`warn` (common — one line per request) would read as "no logs" and get permanently short-circuited. And don't read a `logs-count` 500 as "no logs" — that's the firehose, not silence. Write one scratchpad entry:
 
 - key: `not-in-use:logs:team{team_id}`
-- content: brief note ("checked at {timestamp}, logs-services-create returned 0 services")
+- content: brief note ("checked at {timestamp}, logs-services-list returned 0 services")
 
 Close out empty. Future logs runs will read this entry cold and short-circuit in seconds. Re-running with the same key idempotently refreshes the timestamp — the entry stays until logs ingestion actually shows up, at which point the next run rewrites or deletes it.
 
@@ -52,7 +52,7 @@ Three cheap reads cold-start a run:
 - `signals-scout-runs-list` (last 7d) — what prior logs scouts found and ruled out.
 - `inbox-reports-list` (filter by `search`=service/message, `source_product`, `ordering=-updated_at`) — the reports already in the inbox. A logs shift on a service you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring.
 - **The cheap tripwire set** (runs in seconds, no firehose) — this is the is-anything-loud-today check, _not_ an unfiltered baseline diff:
-  1. `logs-services-create` over `-1h` (read the `services` list, ignore the `sparkline`; `-1h`/`-24h` are valid, `-Nm` is months) — the **all-severity** volume + per-service share in one call, vs the team's lines/hour + busiest-services baseline. This is what catches an `info`/`warn` flood (e.g. a stuck retry loop logging at `info`) that the severity-filtered probes below would miss, and it names the hot service for localization.
+  1. `logs-services-list` over `-1h` (read the `services` list, ignore the `sparkline`; `-1h`/`-24h` are valid, `-Nm` is months) — the **all-severity** volume + per-service share in one call, vs the team's lines/hour + busiest-services baseline. This is what catches an `info`/`warn` flood (e.g. a stuck retry loop logging at `info`) that the severity-filtered probes below would miss, and it names the hot service for localization.
   2. `logs-count` `severityLevels=["fatal"]` over 24h (add a `searchTerm` for a specific crash signature) — fatal is rare, so this is cheap and catches crash loops.
   3. `logs-count` `severityLevels=["error","fatal"]` over the last 1h vs the team's error+fatal/hr baseline — a severity-shift proxy.
   4. `logs-alerts-list` — only a _new_ firing alert beyond known-noise ones is interesting.
@@ -75,13 +75,13 @@ Cross-source convergence: if `top_events` shows `$exception` flat over the same 
 
 Total volume flat but `error` / `fatal` proportion rising. Captures the kind of failure error tracking misses: caught-and-logged exceptions, retry-with-eventual-success patterns, degraded-but-functional dependencies (slow DB, cold cache, partial third-party outage).
 
-Validate in one call with `logs-services-create` (read-only despite the name) over the recent window — it returns the top-25 services with `error_count`, `error_rate`, and `volume_share_pct`, so you see _which_ service carries the rise without walking per-service counts. **Read only the `services` list and ignore the bundled `sparkline`** — the sparkline is hundreds of KB and overflows the budget to a file; the `services` list itself is tiny. Call it _without_ a severity filter to get each service's `error_rate`, or _with_ `severityLevels=["error","fatal"]` to rank services by error volume. A single service accounting for the rise is high-confidence; a uniform rise across services suggests an upstream platform issue. Drop to `query-logs` only for module-level detail within the culprit service.
+Validate in one call with `logs-services-list` (read-only) over the recent window — it returns the top-25 services with `error_count`, `error_rate`, and `volume_share_pct`, so you see _which_ service carries the rise without walking per-service counts. **Read only the `services` list and ignore the bundled `sparkline`** — the sparkline is hundreds of KB and overflows the budget to a file; the `services` list itself is tiny. Call it _without_ a severity filter to get each service's `error_rate`, or _with_ `severityLevels=["error","fatal"]` to rank services by error volume. A single service accounting for the rise is high-confidence; a uniform rise across services suggests an upstream platform issue. Drop to `query-logs` only for module-level detail within the culprit service.
 
 #### Service silence
 
 A service that normally accounts for a meaningful share of total log volume drops to near-zero. Different shape from error tracking entirely — there's no exception, the service is just gone.
 
-Validate: `logs-services-create` (read-only; read the `services` list, ignore the `sparkline`) ranks active services by `volume_share_pct` in one call — a service that held meaningful share before and is now absent from the list is the signal. Confirm with `logs-count-ranges` for that service over today vs 7d-prior (use `logs-count-ranges`, not `logs-sparkline-query` — the sparkline endpoint 500s on busy services over multi-hour windows). Cross-check `top_events` for the service's expected user-facing events — if those also dropped, the service is genuinely down.
+Validate: `logs-services-list` (read-only; read the `services` list, ignore the `sparkline`) ranks active services by `volume_share_pct` in one call — a service that held meaningful share before and is now absent from the list is the signal. Confirm with `logs-count-ranges` for that service over today vs 7d-prior (use `logs-count-ranges`, not `logs-sparkline-query` — the sparkline endpoint 500s on busy services over multi-hour windows). Cross-check `top_events` for the service's expected user-facing events — if those also dropped, the service is genuinely down.
 
 #### Fresh message pattern
 
@@ -143,7 +143,7 @@ Direct calls (read-only):
 
 - `logs-count` — bounded volume over a window. **Always** severity- and/or service-filtered; an unfiltered count 500s at any window (even minutes), so a filter is mandatory, not window length — see the firehose note above.
 - `logs-count-ranges` — locate _when_ in a window the volume sits (today vs 7d-prior, this hour vs same hour yesterday). The robust localizer — survives busy services where `logs-sparkline-query` 500s.
-- `logs-services-create` — **read-only despite the name** (it's a POST-backed aggregation, not a write). One call returns the top-25 services with `error_count` / `error_rate` / `volume_share_pct` — the cheap entry point for service-level triage. Read the `services` list and **ignore the oversized `sparkline`** it bundles (overflows to a file).
+- `logs-services-list` — **read-only** (it's a POST-backed aggregation, not a write). One call returns the top-25 services with `error_count` / `error_rate` / `volume_share_pct` — the cheap entry point for service-level triage. Read the `services` list and **ignore the oversized `sparkline`** it bundles (overflows to a file).
 - `logs-sparkline-query` — severity/service sparkline. Use sparingly: 500s on busy services over multi-hour windows — prefer `logs-count-ranges` for the time-bucketed shape.
 - `query-logs` — drill into individual records. Filter by severity, service, message text, attribute values, time range.
 - `logs-attributes-list` / `logs-attribute-values-list` — discover the team's log shape.

@@ -21,7 +21,7 @@ The bucket-level threshold is then **rate-scaled to the alert window** — a 7h 
 the math.
 
 The scaling assumes errors arrive uniformly within a bucket, which is rarely true — a real spike can pack
-the entire bucket's count into a single 5-minute window. That's exactly why `posthog:logs-alerts-simulate-create` is the
+the entire bucket's count into a single 5-minute window. That's exactly why `posthog:logs-alerts-simulate` is the
 final arbiter: it replays the alert state machine against actual per-minute history, not the rate-scaled
 average.
 

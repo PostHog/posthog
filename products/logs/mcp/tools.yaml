@@ -242,7 +242,7 @@ tools:
                 - last_error_message
                 - created_at
                 - updated_at
-    logs-alerts-simulate-create:
+    logs-alerts-simulate:
         operation: logs_alerts_simulate_create
         enabled: true
         scopes:
@@ -341,7 +341,7 @@ tools:
     logs-export-create:
         operation: logs_export_create
         enabled: false
-    logs-facet-values-create:
+    logs-facet-values:
         operation: logs_facet_values_create
         enabled: true
         scopes:
@@ -422,7 +422,7 @@ tools:
     logs-sampling-rules-update:
         operation: logs_sampling_rules_update
         enabled: false
-    logs-services-create:
+    logs-services-list:
         operation: logs_services_create
         enabled: true
         scopes:

@@ -360,15 +360,12 @@ const logsAlertsRetrieve = (): ToolBase<typeof LogsAlertsRetrieveSchema, Schemas
     },
 })
 
-const LogsAlertsSimulateCreateSchema = LogsAlertsSimulateCreateBody
+const LogsAlertsSimulateSchema = LogsAlertsSimulateCreateBody
 
-const logsAlertsSimulateCreate = (): ToolBase<
-    typeof LogsAlertsSimulateCreateSchema,
-    Schemas.LogsAlertSimulateResponse
-> => ({
-    name: 'logs-alerts-simulate-create',
-    schema: LogsAlertsSimulateCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsSimulateCreateSchema>) => {
+const logsAlertsSimulate = (): ToolBase<typeof LogsAlertsSimulateSchema, Schemas.LogsAlertSimulateResponse> => ({
+    name: 'logs-alerts-simulate',
+    schema: LogsAlertsSimulateSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsAlertsSimulateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.filters !== undefined) {
@@ -507,12 +504,12 @@ const logsCountRanges = (): ToolBase<typeof LogsCountRangesSchema, Schemas._Logs
     },
 })
 
-const LogsFacetValuesCreateSchema = LogsFacetValuesCreateBody
+const LogsFacetValuesSchema = LogsFacetValuesCreateBody
 
-const logsFacetValuesCreate = (): ToolBase<typeof LogsFacetValuesCreateSchema, Schemas._LogsFacetValuesResponse> => ({
-    name: 'logs-facet-values-create',
-    schema: LogsFacetValuesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsFacetValuesCreateSchema>) => {
+const logsFacetValues = (): ToolBase<typeof LogsFacetValuesSchema, Schemas._LogsFacetValuesResponse> => ({
+    name: 'logs-facet-values',
+    schema: LogsFacetValuesSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsFacetValuesSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -584,12 +581,12 @@ const logsPatternsDiff = (): ToolBase<typeof LogsPatternsDiffSchema, Schemas._Lo
     },
 })
 
-const LogsServicesCreateSchema = LogsServicesCreateBody
+const LogsServicesListSchema = LogsServicesCreateBody
 
-const logsServicesCreate = (): ToolBase<typeof LogsServicesCreateSchema, Schemas._LogsServicesResponse> => ({
-    name: 'logs-services-create',
-    schema: LogsServicesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsServicesCreateSchema>) => {
+const logsServicesList = (): ToolBase<typeof LogsServicesListSchema, Schemas._LogsServicesResponse> => ({
+    name: 'logs-services-list',
+    schema: LogsServicesListSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsServicesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -656,15 +653,15 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-alerts-list': logsAlertsList,
     'logs-alerts-partial-update': logsAlertsPartialUpdate,
     'logs-alerts-retrieve': logsAlertsRetrieve,
-    'logs-alerts-simulate-create': logsAlertsSimulateCreate,
+    'logs-alerts-simulate': logsAlertsSimulate,
     'logs-attribute-values-list': logsAttributeValuesList,
     'logs-attributes-list': logsAttributesList,
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
-    'logs-facet-values-create': logsFacetValuesCreate,
+    'logs-facet-values': logsFacetValues,
     'logs-patterns': logsPatterns,
     'logs-patterns-diff': logsPatternsDiff,
-    'logs-services-create': logsServicesCreate,
+    'logs-services-list': logsServicesList,
     'logs-sparkline-query': logsSparklineQuery,
     'query-logs': queryLogs,
 }

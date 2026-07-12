@@ -28,10 +28,10 @@ are trying to land thresholds that fire 0–3 times per week on real production 
 
 | Tool                                                                  | Job                                                                           | Where it fits      |
 | --------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------ |
-| `posthog:logs-services`                                               | Top-25 services in window with log_count, error_count, error_rate, sparkline. | Step 1 — triage.   |
+| `posthog:logs-services-list`                                          | Top-25 services in window with log_count, error_count, error_rate, sparkline. | Step 1 — triage.   |
 | `posthog:logs-attributes-list` / `posthog:logs-attribute-values-list` | Discover keys/values for narrower filters.                                    | Step 2, optional.  |
 | `posthog:logs-count-ranges`                                           | Adaptive time-bucketed counts for a filter.                                   | Step 3 — baseline. |
-| `posthog:logs-alerts-simulate-create`                                 | Replay a draft config against `-7d` history with full state machine.          | Step 4 — validate. |
+| `posthog:logs-alerts-simulate`                                        | Replay a draft config against `-7d` history with full state machine.          | Step 4 — validate. |
 | `posthog:logs-alerts-create`                                          | Persist the alert.                                                            | Step 5 — ship.     |
 | `posthog:logs-alerts-destinations-create`                             | Wire the alert to Slack or webhook.                                           | Step 5 — ship.     |
 
@@ -42,7 +42,7 @@ the very end if the user asks "show me a sample of what would have fired" — `l
 
 ### 1. Triage — pick candidate services
 
-Call `posthog:logs-services` for the last 24h with no filters. The response is capped at 25 services and includes a
+Call `posthog:logs-services-list` for the last 24h with no filters. The response is capped at 25 services and includes a
 sparkline, so it is small and bounded.
 
 A service is a candidate when **both** are true:
@@ -115,7 +115,7 @@ for the reasoning:
 | `datapoints_to_alarm` | `2`                                         | N in N-of-M. 2-of-3 reduces flap from a single noisy bucket.          |
 | `cooldown_minutes`    | `30`                                        | Minimum time between repeat fires.                                    |
 
-Call `posthog:logs-alerts-simulate-create` with these settings and `date_from: "-7d"`. The response gives you `fire_count`
+Call `posthog:logs-alerts-simulate` with these settings and `date_from: "-7d"`. The response gives you `fire_count`
 and `resolve_count`.
 
 ### 5. Iterate — three rounds, then ship or skip
@@ -159,7 +159,7 @@ least one of**:
 - `serviceNames` — list of service name strings
 - `filterGroup` — property filter group
 
-The same shape goes into `posthog:logs-alerts-simulate-create`'s `filters` field. Match the simulate filters to the alert filters
+The same shape goes into `posthog:logs-alerts-simulate`'s `filters` field. Match the simulate filters to the alert filters
 exactly — otherwise the simulation is testing a different alert than the one you ship.
 
 Example minimum:
@@ -173,9 +173,9 @@ Example minimum:
 
 ## Token-economy rules
 
-- One `posthog:logs-services` call at the start, not per-candidate.
+- One `posthog:logs-services-list` call at the start, not per-candidate.
 - One `posthog:logs-count-ranges` call per candidate at `targetBuckets: 24`. Don't go above 30 during authoring.
-- ≤ 3 `posthog:logs-alerts-simulate-create` calls per candidate.
+- ≤ 3 `posthog:logs-alerts-simulate` calls per candidate.
 - Zero `posthog:query-logs` calls during the authoring loop.
 - Prefer reporting a small set of well-validated alerts over a long list of unvalidated drafts.
 
