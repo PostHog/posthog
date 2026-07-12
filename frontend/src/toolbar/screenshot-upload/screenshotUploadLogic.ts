@@ -5,6 +5,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { ToolbarRequestError } from '~/toolbar/toolbarRequestError'
+import { safeFetch } from '~/toolbar/utils'
 import { captureElementScreenshot, uploadScreenshot } from '~/toolbar/utils/screenshot'
 import { EventDefinition } from '~/types'
 
@@ -89,22 +91,22 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
                         return null
                     }
 
-                    const blob = await fetch(previewUrl).then((r) => r.blob())
+                    const blob = await safeFetch(previewUrl).then((r) => r.blob())
                     const { mediaId } = await uploadScreenshot(blob)
                     breakpoint()
 
-                    // Re-raise on failure so submitUploadFailure surfaces the toast; toolbarApi
-                    // already logged it, so don't double-report via the global loader handler.
+                    // Tagged throw drives submitUploadFailure (which surfaces the toast)
+                    // without reporting the failed request as an exception.
                     const result = await toolbarApi.objectMediaPreviews.create(
                         {
                             uploaded_media_id: mediaId,
                             event_definition_id: selectedDefinition.id,
                         },
-                        { context: 'create_object_media_preview', captureOnError: false }
+                        { context: 'create_object_media_preview' }
                     )
                     breakpoint()
                     if (!result.ok) {
-                        throw new Error(result.error.detail)
+                        throw new ToolbarRequestError(result.error.detail, result.status)
                     }
 
                     return { success: true }

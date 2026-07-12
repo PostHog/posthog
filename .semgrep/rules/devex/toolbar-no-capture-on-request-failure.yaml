@@ -1,0 +1,33 @@
+rules:
+    - id: toolbar-no-capture-on-request-failure
+      message: |
+          `captureToolbarException` inside a failed-request branch. A `!result.ok` from
+          `toolbarApi` is an expected outcome (auth expiry, validation, backend incident,
+          network) - it is already logged and visible in telemetry, and must not be
+          reported to error tracking. Handle the failure locally (fallback value, toast
+          via `toastOnError`) or `throw new ToolbarRequestError(...)` if a kea `*Failure`
+          action needs to fire. Error tracking is reserved for genuine toolbar bugs.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          include:
+              - frontend/src/toolbar
+              - frontend/src/lib/components/heatmaps
+              - frontend/src/lib/components/HedgehogMode
+      pattern-either:
+          - pattern: |
+                if (!$RESULT.ok) {
+                    ...
+                    captureToolbarException(...)
+                    ...
+                }
+          - pattern: |
+                if ($RESULT.ok) {
+                    ...
+                } else {
+                    ...
+                    captureToolbarException(...)
+                    ...
+                }
+      metadata:
+          category: best-practice

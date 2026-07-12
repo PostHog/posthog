@@ -6,7 +6,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/types'
 import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour, Survey } from '~/types'
 
@@ -24,16 +23,20 @@ import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, Prod
  *     so no caller needs a `try/catch` and no listener can leak an unhandled rejection.
  *   - It always parses the body and returns a discriminated-union `ToolbarApiResult`,
  *     so every call site branches on `result.ok` the same way.
- *   - It centralizes observability: every failure is logged via `toolbarLogger`, and
- *     genuinely-unexpected failures (network errors, 5xx, malformed JSON) are reported
- *     to error tracking. Auth (401/403) and client (4xx) errors are expected outcomes —
- *     they are logged but not reported as exceptions.
+ *   - It NEVER reports request failures to error tracking. Failed requests - auth
+ *     (401/403), client (4xx), server (5xx), network, malformed bodies - are expected
+ *     outcomes of running on customer pages; they are logged via `toolbarLogger` and
+ *     visible in the `toolbar api request` telemetry, but they are not exceptions.
+ *     Error tracking is reserved for genuine toolbar bugs.
  *   - Per-request telemetry (`toolbar api request`) is emitted by `toolbarFetch` itself.
  *
  * What stays at the call site is only what is genuinely call-site specific: the
  * fallback value to use on failure, and any feature side effects (e.g. resetting a
  * form, disabling a mode). Toasting and re-authentication are opt-in via options so
- * that loaders stay quiet while user-initiated writes can surface a message.
+ * that loaders stay quiet while user-initiated writes can surface a message. A call
+ * site that needs its kea `*Failure` action to fire converts a failed result into a
+ * `throw new ToolbarRequestError(...)` - the global loader handler logs those without
+ * capturing them.
  *
  * Auth flows (OAuth code exchange, token refresh, the reachability HEAD check) and the
  * pre-mount feature-flag preload deliberately do NOT use this — they run before the
@@ -79,13 +82,6 @@ export interface ToolbarApiOptions {
      * additionally kicks off re-authentication. Defaults to `false`.
      */
     reauthenticateOnForbidden?: boolean
-    /**
-     * Report unexpected failures (network / 5xx / malformed JSON) to error tracking.
-     * Defaults to `true`. Set to `false` when the caller deliberately re-raises the
-     * failure (e.g. a kea loader that throws to drive its own `*Failure` reducer) so the
-     * exception is only captured once.
-     */
-    captureOnError?: boolean
     /**
      * Passed through to `toolbarFetch`. Use `'use-as-provided'` for pagination URLs that
      * come from a response body (they are pinned to the uiHost/apiHost origin). Defaults
@@ -143,19 +139,13 @@ async function request<T>(
     payload: Record<string, any> | FormData | undefined,
     options: ToolbarApiOptions
 ): Promise<ToolbarApiResult<T>> {
-    const {
-        context,
-        toastOnError = false,
-        reauthenticateOnForbidden = false,
-        captureOnError = true,
-        urlConstruction = 'full',
-    } = options
+    const { context, toastOnError = false, reauthenticateOnForbidden = false, urlConstruction = 'full' } = options
     const pathname = pathnameForLog(url)
 
     let response: Response
     try {
         response = await toolbarFetch(url, method, payload, urlConstruction)
-    } catch (e) {
+    } catch {
         const error: ToolbarApiErrorInfo = {
             status: 0,
             detail: 'Network error',
@@ -164,9 +154,6 @@ async function request<T>(
             isNetworkError: true,
         }
         toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
-            captureToolbarException(e, context, { reason: 'network' })
-        }
         emitToast(toastOnError, error)
         return { ok: false, status: 0, data: null, error }
     }
@@ -181,7 +168,7 @@ async function request<T>(
         try {
             const data = (await response.json()) as T
             return { ok: true, status, data }
-        } catch (e) {
+        } catch {
             const error: ToolbarApiErrorInfo = {
                 status,
                 detail: 'The server returned a malformed response.',
@@ -190,9 +177,6 @@ async function request<T>(
                 isNetworkError: false,
             }
             toolbarLogger.error('api', `Response was not valid JSON: ${context}`, { context, method, pathname, status })
-            if (captureOnError) {
-                captureToolbarException(e, context, { reason: 'invalid_json', status })
-            }
             emitToast(toastOnError, error)
             return { ok: false, status, data: null, error }
         }
@@ -213,13 +197,10 @@ async function request<T>(
         toolbarConfigLogic.actions.authenticate()
     }
 
-    // Server errors are unexpected and worth an exception; auth and other client errors
-    // are expected outcomes (stale session, validation) — log them but don't report.
+    // Any HTTP failure is an expected outcome of talking to the API (stale session,
+    // validation, backend incident) - log it, never report it to error tracking.
     if (isServerError) {
         toolbarLogger.error('api', `Request failed (server): ${context}`, { context, method, pathname, status })
-        if (captureOnError) {
-            captureToolbarException(new Error(`${context}: HTTP ${status}`), context, { status })
-        }
     } else {
         toolbarLogger.warn('api', `Request failed: ${context}`, { context, method, pathname, status })
     }

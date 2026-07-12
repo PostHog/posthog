@@ -55,11 +55,21 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                     const endpoint = '/api/users/@me/hedgehog_config'
                     const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
                     if (mountedToolbarConfigLogic) {
-                        // If toolbarConfigLogic is mounted, we're inside the Toolbar
+                        // If toolbarConfigLogic is mounted, we're inside the Toolbar.
                         if (!mountedToolbarConfigLogic.values.isAuthenticated) {
                             return null
                         }
-                        return await (await toolbarFetch(endpoint, 'GET')).json()
+                        // The config is cosmetic - on any request failure (network, auth,
+                        // non-JSON body) fall back to defaults rather than raising an error.
+                        try {
+                            const response = await toolbarFetch(endpoint, 'GET')
+                            if (!response.ok) {
+                                return null
+                            }
+                            return await response.json()
+                        } catch {
+                            return null
+                        }
                     }
                     return await api.get<Partial<HedgehogConfig>>(endpoint)
                 },

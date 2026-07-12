@@ -1,0 +1,23 @@
+rules:
+    - id: toolbar-transport-no-error-tracking
+      message: |
+          Exception capture in the toolbar's transport layer. `toolbarFetch` and
+          `toolbarApi` must never report failures to error tracking: every failure they
+          see is request-shaped (4xx, 5xx, network, malformed body) and expected on
+          customer pages. They log via `toolbarLogger`, emit `toolbar api request`
+          telemetry, and return a failure result (`ToolbarApiResult` / a synthetic
+          `Response`) for the caller to handle. If a call site needs to raise, it throws
+          `ToolbarRequestError`, which the global kea loader handler logs without
+          capturing. Error tracking is reserved for genuine toolbar bugs, reported from
+          the code that owns them.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          include:
+              - frontend/src/toolbar/toolbarApi.ts
+              - frontend/src/toolbar/toolbarFetch.ts
+      pattern-either:
+          - pattern: captureToolbarException(...)
+          - pattern: $X.captureException(...)
+      metadata:
+          category: best-practice
