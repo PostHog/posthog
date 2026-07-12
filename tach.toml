@@ -730,6 +730,7 @@ depends_on = [
     "products.cdp",
     "products.feature_flags",
     "products.notifications",
+    "products.tasks",
 ]
 layer = "modules"
 
