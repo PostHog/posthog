@@ -4784,22 +4784,24 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         expected_gte_mango: list[tuple[str]],
     ) -> None:
         # End-to-end: rewrite preserves the printer's prior semantics for both nullability flavors AND ClickHouse picks up the minmax index. Companion to ``test_materialized_column_optimization_returns_correct_results`` below.
+        # Unique event name so the queries below see only this test's events. Postgres teams roll back
+        # between tests but ClickHouse events don't, so a reused team_id can carry foreign events from
+        # another test class into an un-scoped `FROM events` query.
+        event_name = "mat_col_opt_range_test"
         with materialized("events", "test_prop", create_minmax_index=True, is_nullable=is_nullable) as mat_col:
-            _create_event(team=self.team, distinct_id="d_low", event="test_event", properties={"test_prop": "apple"})
-            _create_event(team=self.team, distinct_id="d_mid", event="test_event", properties={"test_prop": "mango"})
-            _create_event(team=self.team, distinct_id="d_high", event="test_event", properties={"test_prop": "zebra"})
-            _create_event(team=self.team, distinct_id="d_empty", event="test_event", properties={"test_prop": ""})
-            _create_event(
-                team=self.team, distinct_id="d_null_str", event="test_event", properties={"test_prop": "null"}
-            )
-            _create_event(team=self.team, distinct_id="d_missing", event="test_event", properties={})
-            _create_event(team=self.team, distinct_id="d_null", event="test_event", properties={"test_prop": None})
+            _create_event(team=self.team, distinct_id="d_low", event=event_name, properties={"test_prop": "apple"})
+            _create_event(team=self.team, distinct_id="d_mid", event=event_name, properties={"test_prop": "mango"})
+            _create_event(team=self.team, distinct_id="d_high", event=event_name, properties={"test_prop": "zebra"})
+            _create_event(team=self.team, distinct_id="d_empty", event=event_name, properties={"test_prop": ""})
+            _create_event(team=self.team, distinct_id="d_null_str", event=event_name, properties={"test_prop": "null"})
+            _create_event(team=self.team, distinct_id="d_missing", event=event_name, properties={})
+            _create_event(team=self.team, distinct_id="d_null", event=event_name, properties={"test_prop": None})
 
             index_name = get_minmax_index_name(mat_col.name)
 
             lt_result = execute_hogql_query(
                 team=self.team,
-                query="SELECT distinct_id FROM events WHERE properties.test_prop < 'mango' ORDER BY distinct_id",
+                query=f"SELECT distinct_id FROM events WHERE event = '{event_name}' AND properties.test_prop < 'mango' ORDER BY distinct_id",
             )
             self.assertEqual(lt_result.results, expected_lt_mango)
             assert lt_result.clickhouse is not None
@@ -4809,7 +4811,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             gte_result = execute_hogql_query(
                 team=self.team,
-                query="SELECT distinct_id FROM events WHERE properties.test_prop >= 'mango' ORDER BY distinct_id",
+                query=f"SELECT distinct_id FROM events WHERE event = '{event_name}' AND properties.test_prop >= 'mango' ORDER BY distinct_id",
             )
             self.assertEqual(gte_result.results, expected_gte_mango)
             assert gte_result.clickhouse is not None
@@ -4824,47 +4826,48 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_materialized_column_optimization_returns_correct_results(self, _, is_nullable) -> None:
+        event_name = "mat_col_opt_eq_test"
         with materialized("events", "test_prop", create_minmax_index=True, is_nullable=is_nullable) as mat_col:
             _create_event(
                 team=self.team,
                 distinct_id="d1",
-                event="test_event",
+                event=event_name,
                 properties={"test_prop": "target_value"},
             )
             _create_event(
                 team=self.team,
                 distinct_id="d2",
-                event="test_event",
+                event=event_name,
                 properties={"test_prop": "other_value"},
             )
             _create_event(
                 team=self.team,
                 distinct_id="d3",
-                event="test_event",
+                event=event_name,
                 properties={"test_prop": ""},
             )
             _create_event(
                 team=self.team,
                 distinct_id="d4",
-                event="test_event",
+                event=event_name,
                 properties={"test_prop": "null"},
             )
             _create_event(
                 team=self.team,
                 distinct_id="d5",
-                event="test_event",
+                event=event_name,
                 properties={},
             )
             _create_event(
                 team=self.team,
                 distinct_id="d6",
-                event="test_event",
+                event=event_name,
                 properties={"test_prop": None},
             )
 
             eq_result = execute_hogql_query(
                 team=self.team,
-                query="SELECT distinct_id FROM events WHERE properties.test_prop = 'target_value' ORDER BY distinct_id",
+                query=f"SELECT distinct_id FROM events WHERE event = '{event_name}' AND properties.test_prop = 'target_value' ORDER BY distinct_id",
             )
             self.assertEqual(eq_result.results, [("d1",)])
             assert eq_result.clickhouse is not None
@@ -4875,7 +4878,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             neq_result = execute_hogql_query(
                 team=self.team,
-                query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
+                query=f"SELECT distinct_id FROM events WHERE event = '{event_name}' AND properties.test_prop != 'target_value' ORDER BY distinct_id",
             )
             self.assertEqual(neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
 
@@ -5266,13 +5269,14 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             assert "has(" not in self._expr("lower(properties.test_prop) in ('', 'value2')")
 
     def test_force_data_skipping_indices_works_with_simple_equality(self) -> None:
+        event_name = "mat_col_opt_force_index_test"
         with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_index=True) as mat_col:
-            _create_event(team=self.team, distinct_id="test", event="test", properties={"test_prop": "foo"})
+            _create_event(team=self.team, distinct_id="test", event=event_name, properties={"test_prop": "foo"})
 
             index_name = get_bloom_filter_index_name(mat_col.name)
             result = execute_hogql_query(
                 team=self.team,
-                query="SELECT distinct_id FROM events WHERE properties.test_prop = 'foo'",
+                query=f"SELECT distinct_id FROM events WHERE event = '{event_name}' AND properties.test_prop = 'foo'",
                 modifiers=HogQLQueryModifiers(
                     materializationMode=MaterializationMode.AUTO,
                     forceClickhouseDataSkippingIndexes=[index_name],
@@ -5334,13 +5338,17 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
     def test_lower_in_uses_bloom_filter_lower_index_on_events(self) -> None:
         # Events are a single direct scan, so EXPLAIN of the executed query exposes the skip index directly
+        event_name = "mat_col_lower_bloom_events_test"
         with materialized("events", "email", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
-            _create_event(team=self.team, distinct_id="u1", event="e", properties={"email": "Foo@Example.com"})
+            _create_event(team=self.team, distinct_id="u1", event=event_name, properties={"email": "Foo@Example.com"})
 
             result = execute_hogql_query(
                 team=self.team,
-                query="SELECT count() FROM events WHERE lower(properties.email) IN {emails}",
-                placeholders={"emails": ast.Constant(value=["foo@example.com", "bar@example.com"])},
+                query="SELECT count() FROM events WHERE event = {event} AND lower(properties.email) IN {emails}",
+                placeholders={
+                    "event": ast.Constant(value=event_name),
+                    "emails": ast.Constant(value=["foo@example.com", "bar@example.com"]),
+                },
                 modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
             )
             assert result.results == [(1,)]
@@ -5354,13 +5362,17 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
     def test_lower_in_uses_ngram_lower_index_on_events(self) -> None:
         # The rewrite must also let an ngram_lower index serve the IN lookup end to end.
+        event_name = "mat_col_lower_ngram_events_test"
         with materialized("events", "email", is_nullable=True, create_ngram_lower_index=True) as mat_col:
-            _create_event(team=self.team, distinct_id="u1", event="e", properties={"email": "Foo@Example.com"})
+            _create_event(team=self.team, distinct_id="u1", event=event_name, properties={"email": "Foo@Example.com"})
 
             result = execute_hogql_query(
                 team=self.team,
-                query="SELECT count() FROM events WHERE lower(properties.email) IN {emails}",
-                placeholders={"emails": ast.Constant(value=["foo@example.com", "bar@example.com"])},
+                query="SELECT count() FROM events WHERE event = {event} AND lower(properties.email) IN {emails}",
+                placeholders={
+                    "event": ast.Constant(value=event_name),
+                    "emails": ast.Constant(value=["foo@example.com", "bar@example.com"]),
+                },
                 modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
             )
             assert result.results == [(1,)]
@@ -5384,6 +5396,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
     def test_ilike_and_not_ilike_optimization_gives_correct_results(
         self, _, is_nullable, create_ngram_lower_index
     ) -> None:
+        event_name = "mat_col_opt_ilike_test"
         if is_nullable is not None:
             mat_col = materialize(
                 "events", "test_prop", is_nullable=is_nullable, create_ngram_lower_index=create_ngram_lower_index
@@ -5447,7 +5460,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             _create_event(
                 team=self.team,
                 distinct_id=case,
-                event="test_event",
+                event=event_name,
                 properties={"test_prop": case if case != "None" else None},
             )
         flush_persons_and_events()
@@ -5458,8 +5471,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             pattern_expr = ast.Constant(value=pattern if pattern != "None" else None)
             ilike_result = execute_hogql_query(
                 team=self.team,
-                query="SELECT distinct_id FROM events WHERE ilike(properties.test_prop, {pattern}) ORDER BY distinct_id",
-                placeholders={"pattern": pattern_expr},
+                query="SELECT distinct_id FROM events WHERE event = {event} AND ilike(properties.test_prop, {pattern}) ORDER BY distinct_id",
+                placeholders={"pattern": pattern_expr, "event": ast.Constant(value=event_name)},
             )
             ilike_matches = {d for (d,) in ilike_result.results}
             assert ilike_matches == ilike_expected, "ilike " + str(pattern)
@@ -5480,8 +5493,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             not_ilike_expected = cases.difference(ilike_expected)
             not_ilike_result = execute_hogql_query(
                 team=self.team,
-                query="SELECT distinct_id FROM events WHERE notILike(properties.test_prop, {pattern}) ORDER BY distinct_id",
-                placeholders={"pattern": pattern_expr},
+                query="SELECT distinct_id FROM events WHERE event = {event} AND notILike(properties.test_prop, {pattern}) ORDER BY distinct_id",
+                placeholders={"pattern": pattern_expr, "event": ast.Constant(value=event_name)},
             )
             not_ilike_matches = {d for (d,) in not_ilike_result.results}
             assert not_ilike_matches == not_ilike_expected, "not_ilike " + str(pattern)
@@ -5496,6 +5509,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_in_and_not_in_optimization_gives_correct_results(self, _, is_nullable, create_bloom_filter_index) -> None:
+        event_name = "mat_col_opt_in_test"
         if is_nullable is not None:
             mat_col = materialize(
                 "events", "test_prop", is_nullable=is_nullable, create_bloom_filter_index=create_bloom_filter_index
@@ -5534,7 +5548,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             _create_event(
                 team=self.team,
                 distinct_id=case,
-                event="test_event",
+                event=event_name,
                 properties={"test_prop": case if case != "None" else None},
             )
 
@@ -5547,8 +5561,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             in_result = execute_hogql_query(
                 team=self.team,
-                query="SELECT distinct_id FROM events WHERE properties.test_prop IN {in_values} ORDER BY distinct_id",
-                placeholders={"in_values": in_tuple},
+                query="SELECT distinct_id FROM events WHERE event = {event} AND properties.test_prop IN {in_values} ORDER BY distinct_id",
+                placeholders={"in_values": in_tuple, "event": ast.Constant(value=event_name)},
             )
             in_matches = {d for (d,) in in_result.results}
             assert in_matches == in_expected, f"IN {in_values}"
@@ -5566,8 +5580,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             not_in_expected = cases.difference(in_expected)
             not_in_result = execute_hogql_query(
                 team=self.team,
-                query="SELECT distinct_id FROM events WHERE properties.test_prop NOT IN {in_values} ORDER BY distinct_id",
-                placeholders={"in_values": in_tuple},
+                query="SELECT distinct_id FROM events WHERE event = {event} AND properties.test_prop NOT IN {in_values} ORDER BY distinct_id",
+                placeholders={"in_values": in_tuple, "event": ast.Constant(value=event_name)},
             )
             not_in_matches = {d for (d,) in not_in_result.results}
             assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
@@ -5575,6 +5589,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand([("nullable", True), ("non_nullable", False)])
     def test_lower_in_optimization_handles_null_and_sentinel_rows(self, _, is_nullable) -> None:
         # The rewrite must stay correct for NULL/missing, empty-string, and literal-"null" property rows
+        event_name = "mat_col_opt_lower_in_test"
         with materialized("events", "test_prop", is_nullable=is_nullable, create_bloom_filter_lower_index=True):
             events: list[tuple[str, dict]] = [
                 ("mixed_case", {"test_prop": "Hello@PostHog.com"}),
@@ -5586,7 +5601,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 ("json_null", {"test_prop": None}),
             ]
             for distinct_id, properties in events:
-                _create_event(team=self.team, distinct_id=distinct_id, event="e", properties=properties)
+                _create_event(team=self.team, distinct_id=distinct_id, event=event_name, properties=properties)
             all_ids = {distinct_id for distinct_id, _ in events}
 
             def run(op: str) -> tuple[set[str], str]:
@@ -5594,7 +5609,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     query=(
                         f"SELECT distinct_id FROM events "
-                        f"WHERE lower(properties.test_prop) {op} ('hello@posthog.com') ORDER BY distinct_id"
+                        f"WHERE event = '{event_name}' AND lower(properties.test_prop) {op} ('hello@posthog.com') ORDER BY distinct_id"
                     ),
                     modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
                 )
