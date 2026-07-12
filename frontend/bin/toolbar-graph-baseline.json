@@ -2,7 +2,6 @@
     "//": "Toolbar -> app-zone import edges that exist today, enforced by bin/check-toolbar-graph.mjs. Do not add entries; delete them as the migration (.agents/toolbar-migration.md) cuts each edge.",
     "edges": [
         "src/lib/components/PropertyKeyInfo.tsx -> src/scenes/surveys/surveyQuestionLabelsLogic.ts",
-        "src/lib/lemon-ui/Link/Link.tsx -> src/scenes/notebooks/AddToNotebook/DraggableToNotebook.tsx",
         "src/lib/utils/eventUsageLogic.ts -> src/scenes/product-tours/constants.ts",
         "src/taxonomy/helpers.ts -> src/scenes/surveys/surveyQuestionLabelsLogic.ts",
         "src/taxonomy/taxonomy.tsx -> src/scenes/web-analytics/tabs/marketing-analytics/utils.ts",
