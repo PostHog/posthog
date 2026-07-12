@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
+import { type MouseEvent, useState } from 'react'
 
 import { IconCheck, IconLetter, IconGear, IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
+import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -29,8 +32,25 @@ export function ProjectCombobox(): JSX.Element | null {
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
 
+    // Switching to another project triggers a full-page reload (see `shouldForcePageLoad` in Link.tsx),
+    // which can take several seconds. We track the in-flight target locally so the clicked row shows a
+    // spinner and further clicks are blocked — without feedback the switcher looks frozen and users
+    // rage-click it. This is transient view state discarded by the reload, so it lives in the component.
+    const [switchingToTeamId, setSwitchingToTeamId] = useState<number | null>(null)
+    const isSwitching = switchingToTeamId !== null
+
     if (!isAuthenticatedTeam(currentTeam)) {
         return null
+    }
+
+    // Once a switch is in flight, swallow any further clicks so the pending reload isn't interrupted or duplicated.
+    const blockWhileSwitching = (event: MouseEvent<HTMLElement>): boolean => {
+        if (isSwitching) {
+            event.preventDefault()
+            event.stopPropagation()
+            return true
+        }
+        return false
     }
 
     return (
@@ -66,10 +86,14 @@ export function ProjectCombobox(): JSX.Element | null {
                                 buttonProps={{
                                     iconOnly: true,
                                     isSideActionRight: true,
+                                    className: cn(isSwitching && 'opacity-50'),
                                 }}
                                 tooltip={`View settings for project: ${currentTeam.name}`}
                                 tooltipPlacement="right"
                                 to={urls.project(currentTeam.id, urls.settings('project'))}
+                                onClick={(event) => {
+                                    blockWhileSwitching(event)
+                                }}
                                 data-attr="tree-navbar-project-dropdown-current-project-settings-button"
                             >
                                 <IconGear className="text-tertiary" />
@@ -107,14 +131,25 @@ export function ProjectCombobox(): JSX.Element | null {
                                             buttonProps={{
                                                 menuItem: true,
                                                 hasSideActionRight: true,
-                                                className: 'pr-12',
+                                                className: cn(
+                                                    'pr-12',
+                                                    isSwitching && switchingToTeamId !== team.id && 'opacity-50'
+                                                ),
                                             }}
-                                            tooltip={`Switch to project: ${team.name}`}
+                                            tooltip={
+                                                isSwitching ? 'Switching project…' : `Switch to project: ${team.name}`
+                                            }
                                             tooltipPlacement="right"
                                             to={relativeOtherProjectPath}
+                                            onClick={(event) => {
+                                                if (blockWhileSwitching(event)) {
+                                                    return
+                                                }
+                                                setSwitchingToTeamId(team.id)
+                                            }}
                                             data-attr="tree-navbar-project-dropdown-other-project-button"
                                         >
-                                            <IconBlank />
+                                            {switchingToTeamId === team.id ? <Spinner textColored /> : <IconBlank />}
                                             <ProjectName team={team} />
                                         </Link>
                                     </Combobox.Item>
@@ -124,10 +159,14 @@ export function ProjectCombobox(): JSX.Element | null {
                                             buttonProps={{
                                                 iconOnly: true,
                                                 isSideActionRight: true,
+                                                className: cn(isSwitching && 'opacity-50'),
                                             }}
                                             tooltip={`View settings for project: ${team.name}`}
                                             tooltipPlacement="right"
                                             to={urls.project(team.id, urls.settings('project'))}
+                                            onClick={(event) => {
+                                                blockWhileSwitching(event)
+                                            }}
                                             data-attr="tree-navbar-project-dropdown-other-project-settings-button"
                                         >
                                             <IconGear />
