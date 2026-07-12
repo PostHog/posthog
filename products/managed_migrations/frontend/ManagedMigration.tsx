@@ -15,7 +15,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -308,6 +309,7 @@ export function ManagedMigrations(): JSX.Element {
                 <>
                     <SceneTitleSection
                         name="Managed migrations"
+                        description={sceneConfigurations[Scene.ManagedMigration].description}
                         resourceType={{
                             type: 'managed_migration',
                             forceIcon: <IconSort />,

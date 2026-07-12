@@ -50,10 +50,65 @@ export const Grouped: Story = {
 export const WithBarTrack: Story = {
     render: () => {
         const theme = useReactiveTheme()
-        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, bars: { track: true, cornerRadius: 6 } }
+        const config: BarChartConfig = {
+            barLayout: 'grouped',
+            showGrid: true,
+            barCornerRadius: 6,
+            bars: { track: true },
+        }
         return (
             <Stage>
                 <BarChart series={THREE_SERIES} labels={DAYS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const WithBarTrackCeiling: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        // Per-bar `trackData` caps each track at a ceiling (funnel compare's entry level): the "previous"
+        // series fills its track only up to 70, leaving the region above blank — the volume gap — instead
+        // of drawing it as drop-off. "Current" has no ceiling, so its track spans the full axis.
+        const series: Series[] = [
+            { key: 'current', label: 'Current', color: '', data: [100, 60, 40] },
+            { key: 'previous', label: 'Previous', color: '', data: [70, 45, 30], trackData: [70, 70, 70] },
+        ]
+        const config: BarChartConfig = {
+            barLayout: 'grouped',
+            showGrid: true,
+            barCornerRadius: 6,
+            bars: { track: true, valueDomain: [0, 100] },
+        }
+        return (
+            <Stage>
+                <BarChart series={series} labels={['Step 1', 'Step 2', 'Step 3']} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const StackedWithTrackCeiling: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        // Stacked counterpart of WithBarTrackCeiling — the shape of a top-to-bottom funnel compare bar.
+        // The stack (converted + drop-off) sums to the period's entry level (70), and `trackData` on the
+        // drop-off declares that ceiling: the region beyond it is fully inert (no tooltip, pointer
+        // cursor, or highlight when hovered), with no track drawn.
+        const series: Series[] = [
+            { key: 'converted', label: 'Converted', color: '', data: [45] },
+            { key: 'drop-off', label: 'Drop-off', color: '', data: [25], trackData: [70] },
+        ]
+        const config: BarChartConfig = {
+            barLayout: 'stacked',
+            axisOrientation: 'horizontal',
+            showGrid: true,
+            barCornerRadius: 6,
+            bars: { valueDomain: [0, 100] },
+        }
+        return (
+            <Stage height={120}>
+                <BarChart series={series} labels={['Step 1']} config={config} theme={theme} />
             </Stage>
         )
     },
@@ -120,7 +175,8 @@ export const HorizontalWideValueLabels: Story = {
             axisOrientation: 'horizontal',
             showGrid: true,
             yTickFormatter: (v) => v.toLocaleString('en-US'),
-            bars: { cornerRadius: 4, fitToHeight: true },
+            barCornerRadius: 4,
+            bars: { fitToHeight: true },
         }
         const labels = ['/pricing', '/signup', '/product', '/docs', '/blog']
         const series: Series[] = [
@@ -199,6 +255,25 @@ export const IncompletePeriod: Story = {
     },
 }
 
+/** Individual bars flagged via `bars[i].hatch` — e.g. buckets still being ingested. Unlike
+ *  `stroke.partial` (IncompletePeriod above), the flagged indices need not be contiguous. */
+export const HatchedBars: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = { barLayout: 'stacked', showGrid: true }
+        const hatched = new Set([2, 5, 6])
+        const series: Series[] = TWO_SERIES.map((s) => ({
+            ...s,
+            bars: DAYS.map((_, i) => (hatched.has(i) ? { hatch: true } : {})),
+        }))
+        return (
+            <Stage>
+                <BarChart series={series} labels={DAYS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const HiddenSeries: Story = {
     render: () => {
         const theme = useReactiveTheme()
@@ -268,7 +343,7 @@ export const LargeDataset: Story = {
 export const CustomCornerRadius: Story = {
     render: () => {
         const theme = useReactiveTheme()
-        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, bars: { cornerRadius: 12 } }
+        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, barCornerRadius: 12 }
         return (
             <Stage>
                 <BarChart series={TWO_SERIES} labels={DAYS} config={config} theme={theme} />
@@ -296,7 +371,8 @@ function FillStyleColumn({ title, fillStyle }: { title: string; fillStyle: BarFi
         barLayout: 'grouped',
         showGrid: true,
         axisOrientation: 'horizontal',
-        bars: { cornerRadius: 4, fillStyle },
+        barCornerRadius: 4,
+        bars: { fillStyle },
     }
     return (
         // eslint-disable-next-line react/forbid-dom-props

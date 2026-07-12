@@ -8,13 +8,21 @@ module.exports = {
         ],
     },
     testEnvironment: 'node',
+    // Emit JUnit XML for Trunk flaky-test detection only when JEST_JUNIT_OUTPUT_DIR is set.
+    reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
     clearMocks: true,
     coverageProvider: 'v8',
     setupFiles: ['./jest.setup-env.ts'],
     setupFilesAfterEnv: ['./jest.setup.ts'],
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
     testTimeout: 60000,
-    modulePathIgnorePatterns: ['<rootDir>/.tmp/'],
+    // The image-scrub sidecar is a standalone package with its own jest run; keep the plugin-server suite out of it.
+    modulePathIgnorePatterns: [
+        '<rootDir>/.tmp/',
+        '<rootDir>/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/',
+    ],
+    // `dev/` folders hold dev-only benchmarks/scripts, never CI tests.
+    testPathIgnorePatterns: ['/node_modules/', '/dev/'],
 
     // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {

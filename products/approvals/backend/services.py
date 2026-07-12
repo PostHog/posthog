@@ -242,6 +242,25 @@ class ChangeRequestService:
                 change_request.state = ChangeRequestState.APPROVED
                 change_request.save()
 
+                # A change request bound to a scheduled change must not be applied on approval:
+                # the scheduled applier (process_scheduled_changes) applies it only once
+                # scheduled_at is reached. Auto-applying here would let an approver fire a
+                # future-dated flag change immediately, defeating the schedule.
+                if change_request.scheduled_changes.exists():
+                    logger.info(
+                        "Quorum reached for scheduled change; deferring application to fire time",
+                        extra={
+                            "change_request_id": str(change_request.id),
+                            "action_key": change_request.action_key,
+                        },
+                    )
+                    return ApproveResult(
+                        status="approved",
+                        message="Quorum reached. Change approved and will be applied at its scheduled time.",
+                        change_request=change_request,
+                        auto_applied=False,
+                    )
+
                 logger.info(
                     "Quorum reached, auto-applying change request",
                     extra={

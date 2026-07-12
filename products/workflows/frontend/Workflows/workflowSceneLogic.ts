@@ -4,11 +4,12 @@ import { urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { workflowSceneLogicType } from './workflowSceneLogicType'
 
-export const WorkflowTabs = ['workflow', 'logs', 'invocations', 'metrics', 'history'] as const
+export const WorkflowTabs = ['workflow', 'logs', 'invocations', 'metrics', 'assets', 'history'] as const
 export type WorkflowTab = (typeof WorkflowTabs)[number]
 
 export interface WorkflowSceneLogicProps {
@@ -49,6 +50,21 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
                     },
                 ]
             },
+        ],
+        // Drives the side panel: surfaces the Access control (and Activity) tab for a saved workflow.
+        // Must live on the scene logic — sidePanelContextLogic reads SIDE_PANEL_CONTEXT_KEY off the
+        // scene's registered logic, not workflowLogic.
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [(_, props) => props.id as WorkflowSceneLogicProps['id']],
+            (id): SidePanelSceneContext | null =>
+                id && id !== 'new'
+                    ? {
+                          activity_scope: ActivityScope.HOG_FLOW,
+                          activity_item_id: id,
+                          access_control_resource: 'hog_flow',
+                          access_control_resource_id: id,
+                      }
+                    : null,
         ],
     }),
     urlToAction(({ actions, values }) => ({

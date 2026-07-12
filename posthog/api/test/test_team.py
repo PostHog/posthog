@@ -685,6 +685,39 @@ def team_api_test_factory():
                 ]
             )
 
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_generate_first_secret_token_blocked_when_psak_enabled(self, _mock_flag):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self.team.secret_api_token = None
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("project secret API key", response.json()["detail"])
+            self.assertIsNone(self.team.secret_api_token)
+
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_rotate_existing_secret_token_allowed_when_psak_enabled(self, _mock_flag):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token = secret_api_token
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertNotEqual(self.team.secret_api_token, secret_api_token)
+            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
+
         @freeze_time("2022-02-08")
         def test_delete_secret_backup_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1531,6 +1564,32 @@ def team_api_test_factory():
             settings = response.json()["conversations_settings"]
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
+
+        def test_conversations_settings_change_reports_event_per_setting(self):
+            with patch("posthog.api.team.report_user_action") as mock_report:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"slack_nudge_enabled": False, "widget_greeting_text": "Hi!"}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                props_by_setting = {
+                    c.args[2]["setting"]: c.args[2]
+                    for c in mock_report.call_args_list
+                    if c.args[1] == "support setting changed"
+                }
+                assert set(props_by_setting) == {"slack_nudge_enabled", "widget_greeting_text"}
+                assert props_by_setting["slack_nudge_enabled"]["value"] is False
+                # Free-text values are withheld — the dict holds arbitrary copy and the widget token.
+                assert "value" not in props_by_setting["widget_greeting_text"]
+
+            # A no-op save (same values) must not re-fire the event.
+            with patch("posthog.api.team.report_user_action") as mock_report:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"slack_nudge_enabled": False}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert not any(c.args[1] == "support setting changed" for c in mock_report.call_args_list)
 
         def test_conversations_widget_position_setting(self):
             response = self.client.patch(

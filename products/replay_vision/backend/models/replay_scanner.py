@@ -21,13 +21,22 @@ class ScannerType(models.TextChoices):
     SUMMARIZER = "summarizer", "Summarizer"
 
 
+class SamplingMode(models.TextChoices):
+    FOCUSED = "focused", "Focused"
+    BALANCED = "balanced", "Balanced"
+    COMPREHENSIVE = "comprehensive", "Comprehensive"
+
+
 class ScannerProvider(models.TextChoices):
     GOOGLE = "google", "Google"
 
 
 class ScannerModel(models.TextChoices):
+    """Priced per observation in `billing.OBSERVATION_CREDITS_BY_MODEL`; new members need a price there."""
+
+    GEMINI_2_5_FLASH = "gemini-2.5-flash", "Gemini 2.5 Flash"
     GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_FLASH_LITE = "gemini-3.1-flash-lite-preview", "Gemini 3 Flash Lite"
+    GEMINI_3_5_FLASH = "gemini-3.5-flash", "Gemini 3.5 Flash"
 
 
 def initial_watermark() -> "datetime":
@@ -63,6 +72,12 @@ class ReplayScanner(UUIDModel):
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="0..1 random downsample applied after the query matches.",
     )
+    sampling_mode = models.CharField(
+        max_length=20,
+        choices=SamplingMode.choices,
+        default=SamplingMode.COMPREHENSIVE,
+        help_text="Quality pre-filter applied before random sampling. focused = top sessions by surfacing score, balanced = drops the lowest-quality sessions, comprehensive = no filter.",
+    )
 
     provider = models.CharField(max_length=32, choices=ScannerProvider.choices, default=ScannerProvider.GOOGLE)
     model = models.CharField(max_length=64, choices=ScannerModel.choices)
@@ -87,6 +102,14 @@ class ReplayScanner(UUIDModel):
         default="",
         db_default="",
         help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
+    )
+
+    # Shape: feedback_themes.build_feedback_themes. Not version-tracked: themes describe the
+    # ratings, not the scanner's behavior.
+    feedback_themes = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes.",
     )
 
     estimated_monthly_observations = models.PositiveIntegerField(
@@ -121,24 +144,32 @@ class ReplayScanner(UUIDModel):
         "scanner_config",
         "query",
         "sampling_rate",
+        "sampling_mode",
         "provider",
         "model",
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate"})
+    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate", "sampling_mode"})
 
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]
+            track_enabled = "enabled" in update_fields
         else:
             relevant = list(self._VERSION_TRACKED_FIELDS)
-        if self.pk and relevant:
+            track_enabled = True
+        # `_state.adding`, not `self.pk` — UUIDModel assigns the pk in __init__, so pk is truthy even on creates.
+        if not self._state.adding and (relevant or track_enabled):
             # SELECT FOR UPDATE so concurrent saves can't both bump scanner_version from the same baseline.
             with transaction.atomic():
                 old = (
-                    type(self).objects.select_for_update().filter(pk=self.pk).only("scanner_version", *relevant).first()
+                    type(self)
+                    .objects.select_for_update()
+                    .filter(pk=self.pk)
+                    .only("scanner_version", "enabled", *relevant)
+                    .first()
                 )
                 if old is not None:
                     changed = {f for f in relevant if getattr(old, f) != getattr(self, f)}
@@ -149,6 +180,11 @@ class ReplayScanner(UUIDModel):
                     if changed & self._ESTIMATE_FIELDS:
                         self.estimated_at = None
                         extra_fields.append("estimated_at")
+                    if track_enabled and not old.enabled and self.enabled:
+                        # Re-enabling restarts the sweep from now — don't backfill (and bill) the disabled gap.
+                        self.last_swept_at = initial_watermark()
+                        self.last_seen_session_id = ""
+                        extra_fields.extend(["last_swept_at", "last_seen_session_id"])
                     if update_fields is not None and extra_fields:
                         kwargs["update_fields"] = [*update_fields, *extra_fields]
                 super().save(*args, **kwargs)

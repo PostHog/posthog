@@ -7,8 +7,15 @@ export interface ChartTheme {
     colors: string[]
     backgroundColor?: string
     axisColor?: string
+    /** Stroke color for the L-shaped axis baselines and tick marks. Falls back to `axisColor`,
+     *  then `gridColor` — set it to mute the lines without muting the tick label text. */
+    axisLineColor?: string
     gridColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for interior grid lines. Solid when omitted. */
+    gridDashPattern?: number[]
     crosshairColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for the hover crosshair. Solid when omitted. */
+    crosshairDashPattern?: number[]
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
@@ -44,8 +51,19 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by
      *  data index. Lets one series draw bars with distinct identity (e.g. an aggregated breakdown,
      *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
-     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
-    bars?: { color?: string; label?: string; meta?: Meta }[]
+     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`).
+     *  `hatch` fills that bar with the diagonal-hatch pattern (in the bar's resolved color) instead
+     *  of a solid fill — for flagging individual not-final bars (e.g. a bucket still being
+     *  ingested) without the contiguous-range constraint of `stroke.partial`. */
+    bars?: { color?: string; label?: string; meta?: Meta; hatch?: boolean }[]
+    /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
+     *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
+     *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
+     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis; on
+     *  stacked charts no track is drawn — the ceiling only bounds interactivity. Used by funnel
+     *  compare to show a shorter period's volume gap as empty space rather than drop-off. Omit (or
+     *  leave an entry undefined) for the default full-axis extent. */
+    trackData?: number[]
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
     /** Mixed-type charts ({@link ComboChart}) read this to draw the series as a bar, line, or
@@ -203,6 +221,17 @@ export interface ChartMargins {
     left: number
 }
 
+/** `showAxisLines` value — a boolean toggles both edges; `{ x, y }` toggles each independently
+ *  (an omitted edge defaults to shown). */
+export type AxisLinesConfig = boolean | { x?: boolean; y?: boolean }
+
+export function resolveAxisLines(value: AxisLinesConfig | undefined): { x: boolean; y: boolean } {
+    if (value == null || typeof value === 'boolean') {
+        return { x: !!value, y: !!value }
+    }
+    return { x: value.x ?? true, y: value.y ?? true }
+}
+
 /** Base configuration shared by all chart types. */
 export interface ChartConfig {
     // — Scale —
@@ -228,7 +257,13 @@ export interface ChartConfig {
     showGrid?: boolean
     /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
      *  when `showGrid` is true, since the grid already frames the plot. */
-    showAxisLines?: boolean
+    showAxisLines?: AxisLinesConfig
+    /** Draw short tick marks on the axes next to each visible tick label. Pairs with
+     *  `showAxisLines` for a clean, grid-free axis that still reads precisely. */
+    showTickMarks?: boolean
+    /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
+     *  line with monotone-cubic curves that pass through every point without overshooting. */
+    curve?: 'linear' | 'monotone'
     /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
@@ -269,6 +304,10 @@ export interface YAxis {
     tickFormatter?: (value: number) => string
     /** Axis title. */
     label?: string
+    /** Hide this axis's tick labels and margin gutter. The scale still applies to its series. */
+    hide?: boolean
+    /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
+    startAtZero?: boolean
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
@@ -348,9 +387,6 @@ export type ValueDomain =
 export type BarFillStyle = 'flat' | 'gradient' | 'gloss'
 
 export interface BarsConfig {
-    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
-     *  segment. Defaults to 0 (square). */
-    cornerRadius?: number
     /** Draw a faint hatched track behind each bar, spanning the full plot height — for
      *  funnel-style charts where every bar is a share of a whole. Only honored when
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
@@ -391,7 +427,7 @@ export interface BarsConfig {
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
      *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
      *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
-     *  corners round at the full `cornerRadius` even when the edge segment is a thin sliver (e.g.
+     *  corners round at the full `barCornerRadius` even when the edge segment is a thin sliver (e.g.
      *  the last breakdown of a near-100% funnel step) — which per-segment rounding can't, as it
      *  clamps the radius to the sliver's half-width. Defaults to `false`. */
     roundStackEnds?: boolean
@@ -400,8 +436,13 @@ export interface BarsConfig {
 export interface BarChartConfig extends ChartConfig {
     /** Defaults to `stacked`. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
-    /** Bar appearance + band-layout details (corner rounding, track, shadow, padding…). */
+    /** Bar appearance + band-layout details (track, shadow, padding, fill style…). */
     bars?: BarsConfig
+    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
+     *  segment (or the whole stack with {@link BarsConfig.roundStackEnds}). Defaults to 0 (square).
+     *  Same top-level key as the time-series/combo configs, so one config shape rounds every bar
+     *  chart and shared config defaults can target them all. */
+    barCornerRadius?: number
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
 }

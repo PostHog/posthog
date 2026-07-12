@@ -683,11 +683,6 @@
             },
             "required": ["query"]
         },
-        "ReadDataWarehouseSchemaSchema": {
-            "type": "object",
-            "properties": {},
-            "description": "No input required. Returns core data warehouse schemas."
-        },
         "SavedMetricsAttachSchema": {
             "type": "array",
             "items": {

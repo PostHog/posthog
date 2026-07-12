@@ -8,6 +8,7 @@ import collections
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import certifi
 import structlog
@@ -29,13 +30,40 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    _is_host_safe,
+    log_connection_open,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 # Schema inference settings
 SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
 SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
+
+# Mongo yields whole documents (the full doc rides along under `data`), so a collection of large
+# documents can OOM the worker when a chunk is materialised into a PyArrow table — before any Delta
+# merge. Size the extraction chunk to a fixed byte budget: rows-per-chunk are derived from the average
+# document size and clamped, and a chunk flushes at whichever of the byte/row limit is hit first.
+MONGO_CHUNK_SIZE_BYTES = 100 * 1024 * 1024  # 100 MiB
+MONGO_MIN_CHUNK_ROWS = 100
+# Ceiling reuses the pipeline default so tiny documents keep the large, efficient chunk. The 100 MiB
+# byte budget is the real OOM guard; this only caps row count when documents are small enough that
+# many fit in that budget.
+MONGO_MAX_CHUNK_ROWS = DEFAULT_CHUNK_SIZE
+
+
+def _adaptive_chunk_size(avg_obj_size: int | None) -> int:
+    """Rows per extraction chunk, sized so one chunk holds roughly MONGO_CHUNK_SIZE_BYTES of documents.
+
+    Small documents keep the default (large, efficient) chunk; large documents get a small chunk so the
+    conversion of a chunk into a PyArrow table stays bounded. Falls back to the default when the average
+    document size is unknown.
+    """
+    if not avg_obj_size or avg_obj_size <= 0:
+        return DEFAULT_CHUNK_SIZE
+    rows = MONGO_CHUNK_SIZE_BYTES // avg_obj_size
+    return max(MONGO_MIN_CHUNK_ROWS, min(MONGO_MAX_CHUNK_ROWS, rows))
 
 
 def _convert_binary(value: Binary) -> str:
@@ -236,6 +264,8 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
 
 @contextlib.contextmanager
 def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
+    # rpartition strips credentials; multiple hosts stay comma-joined as-is.
+    log_connection_open(db_host=urlparse(connection_string).netloc.rpartition("@")[2], team_id=team_id)
     kwargs: dict[str, Any] = {
         "serverSelectionTimeoutMS": 10000,
         "tls": True,
@@ -493,6 +523,21 @@ def _get_primary_keys(collection: Collection, collection_name: str) -> list[str]
     return ["_id"]
 
 
+def _get_avg_document_size(collection: Collection, logger: FilteringBoundLogger) -> int | None:
+    """Average BSON document size in bytes from collStats, used to size the extraction chunk.
+
+    Returns None if unavailable (permissions, sharded stats, etc.) — the caller falls back to the
+    default chunk size. Never raises: chunk sizing is best-effort tuning, not correctness.
+    """
+    try:
+        stats = collection.database.command("collStats", collection.name)
+        avg_obj_size = stats.get("avgObjSize")
+        return int(avg_obj_size) if avg_obj_size else None
+    except Exception as e:
+        logger.debug(f"MongoDB: could not read collStats avgObjSize ({e}); using default chunk size")
+        return None
+
+
 def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: FilteringBoundLogger) -> int:
     try:
         rows_to_sync = collection.count_documents(query)
@@ -547,6 +592,12 @@ def mongo_source(
             _get_partition_settings(collection, collection_name) if should_use_incremental_field else None
         )
         rows_to_sync = _get_rows_to_sync(collection, query, logger)
+        avg_obj_size = _get_avg_document_size(collection, logger)
+
+    # Bound the extraction chunk to the collection's document size so large documents don't OOM the
+    # source->Arrow conversion (the merge is never reached for such collections).
+    chunk_size = _adaptive_chunk_size(avg_obj_size)
+    logger.debug(f"MongoDB: chunk_size={chunk_size} rows (avg_obj_size={avg_obj_size}, rows_to_sync={rows_to_sync})")
 
     def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
@@ -561,7 +612,7 @@ def mongo_source(
                 db_incremental_field_last_value,
             )
 
-            cursor = read_collection.find(query, batch_size=DEFAULT_CHUNK_SIZE)
+            cursor = read_collection.find(query, batch_size=chunk_size)
 
             for doc in cursor:
                 # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
@@ -595,4 +646,6 @@ def mongo_source(
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
+        chunk_size=chunk_size,
+        chunk_size_bytes=MONGO_CHUNK_SIZE_BYTES,
     )

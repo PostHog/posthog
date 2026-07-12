@@ -121,6 +121,13 @@ _MIN_RECOVERY_CONFLICT_CHUNK_SIZE = 100
 # this the drop is treated as sustained and re-raised for Temporal to retry the whole activity.
 _MAX_SETUP_CONNECTION_DROPPED_RETRIES = 5
 
+# Bounded in-process retries for a transient connection drop hit on the main server-cursor read
+# *before* the first row is yielded (e.g. during the DECLARE, which the connect-only
+# `_connect_with_dropped_retry` doesn't cover). At offset 0 nothing has been emitted, so re-running
+# the read from scratch is safe even for an unordered full-table scan. Past this the drop is treated
+# as sustained and re-raised for Temporal to retry the whole activity.
+_MAX_INITIAL_READ_DROP_RETRIES = 5
+
 
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
     """Return whether this source must connect over SSL/TLS.
@@ -226,9 +233,26 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 #   - ECHECKOUTRETRIES ("failed to check out a connection after multiple retries"): the pooler
 #     couldn't hand us a backend connection after retrying internally — its pool was momentarily
 #     exhausted or every backend was busy. A slot frees the moment another session returns one.
-# Both are the same transient class as the libpq drops above and recover on reconnect. Genuine
+#   - ECHECKOUTTIMEOUT ("unable to check out connection from the pool after <n>ms in Transaction
+#     mode"): the transaction-mode sibling of ECHECKOUTRETRIES — the pooler assigns a backend per
+#     transaction and couldn't check one out before its checkout timeout elapsed because the pool
+#     was saturated for the whole window. Clears the moment a session returns a connection.
+# These are all the same transient class as the libpq drops above and recover on reconnect. Genuine
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
-_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited", "echeckoutretries")
+#
+# Supavisor also surfaces a backend socket that closed mid-session — after the client authenticated
+# — as "Internal error (authenticated): :closed", where ":closed" is the Erlang gen_tcp reason for a
+# peer-closed socket (its DbHandler lost the backend connection to an idle cull, restart, or
+# failover). There's no error code here, so match the full phrase including the ":closed" reason: a
+# fresh reconnect re-establishes a new session — the same transient class. Matching only the
+# "(authenticated)" wrapper would be too broad: a non-:closed "Internal error (authenticated): ..."
+# could be a permanent pooler/protocol failure that should surface immediately, not be retried.
+_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
+    "edbhandlerexited",
+    "echeckoutretries",
+    "echeckouttimeout",
+    "internal error (authenticated): :closed",
+)
 
 # Connect-time capacity errors: the source refuses a *new* connection because it has hit a
 # connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many
@@ -310,13 +334,16 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
 
 
 def _is_connection_limit_error(error: BaseException) -> bool:
-    """True if the source refused a new connection because it's at a connection limit.
+    """True if the source refused a connection because it's at a connection limit.
 
-    Distinct from `_is_connection_dropped_error`: the connection was never established, so this is
-    only meaningful on the connect path (`_connect_with_dropped_retry`), not for mid-stream fetch
-    failures on an already-open connection.
+    Usually a connect-time refusal (`psycopg.OperationalError`), but a pooler that caches an
+    upstream login failure instead reveals the limit on the first query as a `ProtocolViolation`
+    ("server login has been failing, cached error: remaining connection slots are reserved ..."),
+    so match that type too. Distinct from `_is_connection_dropped_error` — the backend connection
+    was never usable — but the same transient capacity class: a slot frees the moment another
+    connection closes, so it stays retryable and is never a `NonRetryableError`.
     """
-    if not isinstance(error, psycopg.OperationalError):
+    if not isinstance(error, psycopg.OperationalError | psycopg.errors.ProtocolViolation):
         return False
     message = " ".join(str(arg) for arg in error.args).lower()
     return any(substring in message for substring in _CONNECTION_LIMIT_ERROR_SUBSTRINGS)
@@ -332,15 +359,43 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     the reconnect just needs retrying. Connection-limit refusals ("sorry, too many clients already",
     etc.) are likewise transient — a slot frees the moment another connection closes. Used by the
     read/sync connect retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The
-    user-facing validation path (`get_schemas`, via `_retry_on_connection_dropped` directly)
-    deliberately keeps failing fast on the same connect-time conditions, where a timeout usually means
-    an unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    schema-discovery path retries drops and connection-limit refusals too (via
+    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
+    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
+    and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
         or isinstance(error, psycopg.errors.ConnectionTimeout)
     )
+
+
+def _is_dropped_or_connection_limit(error: BaseException) -> bool:
+    """Transient conditions the background schema-discovery retry recovers from in process.
+
+    A mid-stream drop (`_is_connection_dropped_error`) or a connection-limit refusal
+    (`_is_connection_limit_error`). Both are transient — a slot frees as connections close, and a
+    pooler-cached login failure clears once the upstream has capacity — so discovery retries them on
+    a fresh connection instead of failing the activity and surfacing captured error-tracking noise.
+    Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
+    deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
+    should fail fast rather than burn the retry budget.
+    """
+    return _is_connection_dropped_error(error) or _is_connection_limit_error(error)
+
+
+def _is_recovery_conflict_error(error: BaseException) -> bool:
+    """True if the error is a Postgres hot-standby recovery conflict, at read or connect time.
+
+    A read canceled by the standby surfaces as SerializationFailure (SQLSTATE 40001), but when the
+    standby cancels the *connection's own startup* the failure comes back as a plain
+    OperationalError ("connection failed: ... FATAL: canceling statement due to conflict with
+    recovery") with no SQLSTATE-mapped subclass. Match the stable message so both are recognised.
+    """
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    return "conflict with recovery" in " ".join(str(arg) for arg in error.args)
 
 
 def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
@@ -1182,7 +1237,15 @@ def _schemas_from_conn(
             cursor.execute(
                 sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
             )
-        except psycopg.Error:
+        except psycopg.Error as e:
+            # A dropped or connection-limit-refused upstream fails on this first query too — a pooler
+            # surfacing "remaining connection slots are reserved ..." on the first statement. Rolling
+            # that back raises a misleading "the connection is lost" that buries the real cause, so
+            # re-raise the true error and let the discovery retry recover on a fresh connection. A
+            # live engine that merely rejects the SET (e.g. DuckDB) is not a drop/limit: clear the
+            # aborted transaction and fall back to the default timeout.
+            if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+                raise
             connection.rollback()
 
         discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
@@ -1272,9 +1335,11 @@ def get_schemas(
     # either on connect or on the first discovery query (e.g. `SELECT version()` in
     # `_is_duckdb_connection`). Retry the whole connect-and-discover cycle on a fresh connection so
     # the retry spans both — otherwise the blip fails the discovery activity and surfaces as
-    # captured error-tracking noise even though the next attempt would succeed. Permanent errors
-    # (auth failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
-    # matches transient drops.
+    # captured error-tracking noise even though the next attempt would succeed. Connection-limit
+    # refusals ("remaining connection slots are reserved", "sorry, too many clients already") are
+    # retried the same way — the customer's database is momentarily out of slots and frees one as
+    # connections close. Permanent errors (auth failures, SSL-required) re-raise immediately because
+    # `_is_dropped_or_connection_limit` matches only transient drops and connection-limit refusals.
     def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
         connection = _connect_to_postgres(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -1285,7 +1350,10 @@ def get_schemas(
             connection.close()
 
     return _retry_on_connection_dropped(
-        _connect_and_discover, structlog.get_logger(), max_attempts=_MAX_SETUP_CONNECTION_DROPPED_RETRIES
+        _connect_and_discover,
+        structlog.get_logger(),
+        max_attempts=_MAX_SETUP_CONNECTION_DROPPED_RETRIES,
+        is_retryable=_is_dropped_or_connection_limit,
     )
 
 
@@ -1490,16 +1558,22 @@ class SafeDateLoader(Loader):
     """Load PostgreSQL dates, handling edge cases beyond Python's date range.
 
     PostgreSQL can store dates beyond Python's datetime.date limits (year 1 to
-    year 9999). This includes 'infinity', '-infinity', and dates in years > 9999.
-    When encountering such dates, we clamp to Python's date limits rather than
-    raising an error.
+    year 9999). This includes 'infinity', '-infinity', and dates in years > 9999,
+    which we clamp to Python's date limits rather than raising an error.
+
+    Some Postgres-compatible engines (duckdb/duckgres) render a `date` in text
+    mode with a trailing time component ("2022-04-01 00:00:00" or ISO "…T…") — we
+    strip it before parsing. A value we genuinely cannot parse raises rather than
+    being clamped: silently mapping it onto date.max fabricates a real-looking
+    9999-12-31 and corrupts the whole column, which is far worse than a loud sync
+    failure.
     """
 
     def load(self, data) -> date | None:
         if data is None:
             return None
 
-        s = bytes(data).decode("utf-8")
+        s = bytes(data).decode("utf-8").strip()
 
         if s in ("infinity", "-infinity"):
             return date.max if s == "infinity" else date.min
@@ -1508,24 +1582,20 @@ class SafeDateLoader(Loader):
         if s.startswith("-") or "bc" in s.lower():
             return date.min
 
+        # Keep only the date portion — duckdb/duckgres may append a time or ISO "T".
+        date_part = s.replace("T", " ").split(" ", 1)[0]
+
         try:
-            parts = s.split("-")
-            if len(parts) == 3:
-                year = int(parts[0])
-                month = int(parts[1])
-                day = int(parts[2])
+            year, month, day = (int(part) for part in date_part.split("-"))
+        except ValueError as e:
+            raise ValueError(f"Unparseable PostgreSQL date value: {s!r}") from e
 
-                if year > 9999:
-                    return date.max
-                if year < 1:
-                    return date.min
+        if year > 9999:
+            return date.max
+        if year < 1:
+            return date.min
 
-                return date(year, month, day)
-        except (ValueError, IndexError):
-            pass
-
-        # Fallback: clamp to max for unparseable dates
-        return date.max
+        return date(year, month, day)
 
 
 def _clamp_out_of_range_timestamp(data, *, tzinfo: timezone | None) -> datetime:
@@ -2052,6 +2122,12 @@ def _has_duplicate_primary_keys(
 
         return row is not None
     except psycopg.errors.QueryCanceled:
+        raise
+    except psycopg.errors.InsufficientPrivilege:
+        # The sync role can't SELECT this table (SQLSTATE 42501, "permission denied for table").
+        # Swallowing it as "no duplicate keys" would be a false negative, and the extraction that
+        # follows fails on the same denial — already surfaced as non-retryable with an actionable
+        # message via `get_non_retryable_errors`. Propagate rather than capture it as noise.
         raise
     except psycopg.OperationalError:
         # A connection-level failure here (e.g. a foreign-data-wrapper server refusing a new
@@ -3074,10 +3150,16 @@ def postgres_source(
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)
                 # kills the fetch before rows come back.
+                #
+                # Also pin DateStyle to ISO so text-mode date/timestamp values always
+                # arrive as YYYY-MM-DD regardless of the server's configured DateStyle.
+                # A non-ISO source (e.g. German/SQL/Postgres styles) would otherwise send
+                # "04/01/2022" or "15.01.2024", which the Safe*Loaders can't parse.
                 try:
                     # Use psycopg.Cursor directly to bypass cursor_factory (which may be
                     # ServerCursor and requires a `name` arg, breaking an unnamed cursor()).
                     with psycopg.Cursor(connection) as setup_cursor:
+                        setup_cursor.execute(sql.SQL("SET DateStyle TO 'ISO, MDY'"))
                         setup_cursor.execute(
                             sql.SQL("SET statement_timeout = {timeout}").format(
                                 timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)
@@ -3121,10 +3203,30 @@ def postgres_source(
                 floor_retries = 0
                 # Open lazily inside the loop so a recovery conflict (or connection drop) raised by
                 # the connect itself is caught by the handlers below. A hot standby can cancel the
-                # connection's own startup with "conflict with recovery" (SerializationFailure) when
-                # we reconnect mid-recovery — opening outside the loop let that escape the whole
-                # fallback even though it's the same transient condition the loop already retries.
+                # connection's own startup with "conflict with recovery" when we reconnect
+                # mid-recovery — opening outside the loop let that escape the whole fallback even
+                # though it's the same transient condition the loop already retries.
                 connection: psycopg.Connection | None = None
+
+                def handle_recovery_conflict(e: BaseException) -> None:
+                    # Shared bookkeeping for a recovery conflict hit either while reading a chunk
+                    # (SerializationFailure) or while (re)connecting for one (the standby cancels the
+                    # connection's own startup). Shrink the chunk toward the floor first; only once
+                    # stuck at the floor count down to the non-retryable abort.
+                    nonlocal chunk_size, successive_errors, floor_retries
+                    successive_errors += 1
+                    reduced_chunk_size = _next_recovery_conflict_chunk_size(chunk_size, successive_errors)
+                    if reduced_chunk_size < chunk_size:
+                        chunk_size = reduced_chunk_size
+                        logger.debug(f"Reducing chunk size to {chunk_size} to reduce load on read replica")
+                        floor_retries = 0
+                    elif chunk_size <= _MIN_RECOVERY_CONFLICT_CHUNK_SIZE:
+                        floor_retries += 1
+                        if floor_retries >= _MAX_READ_RECOVERY_CONFLICT_RETRIES:
+                            _safe_close_connection(connection)
+                            raise _recovery_conflict_abort_error(floor_retries) from e
+                    time.sleep(min(2 * successive_errors, 30))
+
                 while True:
                     try:
                         if connection is None or connection.closed:
@@ -3167,23 +3269,8 @@ def postgres_source(
                     except psycopg.errors.SerializationFailure as e:
                         if "due to conflict with recovery" not in "".join(e.args):
                             raise
-
                         logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
-
-                        successive_errors += 1
-                        # Shrink toward the floor first; only once stuck at the floor do we count down to
-                        # the abort.
-                        reduced_chunk_size = _next_recovery_conflict_chunk_size(chunk_size, successive_errors)
-                        if reduced_chunk_size < chunk_size:
-                            chunk_size = reduced_chunk_size
-                            logger.debug(f"Reducing chunk size to {chunk_size} to reduce load on read replica")
-                            floor_retries = 0
-                        elif chunk_size <= _MIN_RECOVERY_CONFLICT_CHUNK_SIZE:
-                            floor_retries += 1
-                            if floor_retries >= _MAX_READ_RECOVERY_CONFLICT_RETRIES:
-                                _safe_close_connection(connection)
-                                raise _recovery_conflict_abort_error(floor_retries) from e
-                        time.sleep(min(2 * successive_errors, 30))
+                        handle_recovery_conflict(e)
                     except psycopg.errors.QueryCanceled as e:
                         # A chunk hit the 10-min statement_timeout. QueryCanceled
                         # subclasses OperationalError, so this clause must precede the
@@ -3222,6 +3309,17 @@ def postgres_source(
                             ) from e
                         raise
                     except _CONNECTION_DROPPED_ERROR_TYPES as e:
+                        if _is_recovery_conflict_error(e):
+                            # A recovery conflict raised by the (re)connect itself surfaces as a plain
+                            # OperationalError ("connection failed: ... conflict with recovery"), not a
+                            # SerializationFailure, so it bypasses the handler above. Same transient
+                            # condition — drop the dead connection so the loop reopens at the same
+                            # offset, and route it through the shared recovery-conflict retry.
+                            logger.debug(f"Recovery conflict on connect ({e}). Retrying chunk at offset {offset}")
+                            _safe_close_connection(connection)
+                            connection = None
+                            handle_recovery_conflict(e)
+                            continue
                         if not _is_dropped_or_connect_timeout(e):
                             _safe_close_connection(connection)
                             raise
@@ -3323,97 +3421,115 @@ def postgres_source(
                 )
                 return
 
-            offset = 0
-            try:
-                # Retry transient connection-dropped errors (e.g. "server closed the
-                # connection unexpectedly") on the initial connect, matching the
-                # offset-chunking bootstrap above. Retrying here is always safe: offset
-                # is still 0 and no rows have been yielded, so the unsafe-resume concern
-                # in the except clause below doesn't apply. Permanent errors (auth,
-                # SSL-required) still surface immediately — _is_connection_dropped_error
-                # only matches transient drops.
-                with _connect_with_dropped_retry(get_connection, logger) as connection:
-                    with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
-                        query = _build_query(
-                            schema,
-                            table_name,
-                            should_use_incremental_field,
-                            table.type,
-                            incremental_field,
-                            incremental_field_type,
-                            db_incremental_field_last_value,
-                            enabled_columns=enabled_columns,
-                            primary_keys=primary_keys,
-                            row_filters=row_filters,
-                            xmin_bounds=xmin_bounds,
+            initial_read_drop_retries = 0
+            while True:
+                offset = 0
+                try:
+                    # Retry transient connection-dropped errors (e.g. "server closed the
+                    # connection unexpectedly") on the initial connect, matching the
+                    # offset-chunking bootstrap above. Retrying here is always safe: offset
+                    # is still 0 and no rows have been yielded, so the unsafe-resume concern
+                    # in the except clause below doesn't apply. Permanent errors (auth,
+                    # SSL-required) still surface immediately — _is_connection_dropped_error
+                    # only matches transient drops.
+                    with _connect_with_dropped_retry(get_connection, logger) as connection:
+                        with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
+                            query = _build_query(
+                                schema,
+                                table_name,
+                                should_use_incremental_field,
+                                table.type,
+                                incremental_field,
+                                incremental_field_type,
+                                db_incremental_field_last_value,
+                                enabled_columns=enabled_columns,
+                                primary_keys=primary_keys,
+                                row_filters=row_filters,
+                                xmin_bounds=xmin_bounds,
+                            )
+                            logger.debug(f"Postgres query: {query.as_string()}")
+
+                            cursor.execute(query)
+
+                            column_names = [column.name for column in cursor.description or []]
+
+                            while True:
+                                rows = cursor.fetchmany(chunk_size)
+                                if not rows:
+                                    break
+
+                                dicts = [dict(zip(column_names, row)) for row in rows]
+                                del rows
+                                yield table_from_iterator(iter(dicts), arrow_schema)
+                                offset += len(dicts)
+                    return
+                except psycopg.errors.SerializationFailure as e:
+                    # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
+                    if using_read_replica and "conflict with recovery" in "".join(e.args):
+                        logger.debug(
+                            f"Falling back to offset chunking for table due to SerializationFailure error: {e}."
                         )
-                        logger.debug(f"Postgres query: {query.as_string()}")
+                        yield from offset_chunking(offset, chunk_size, from_recovery_conflict=True)
+                        return
 
-                        cursor.execute(query)
-
-                        column_names = [column.name for column in cursor.description or []]
-
-                        while True:
-                            rows = cursor.fetchmany(chunk_size)
-                            if not rows:
-                                break
-
-                            dicts = [dict(zip(column_names, row)) for row in rows]
-                            del rows
-                            yield table_from_iterator(iter(dicts), arrow_schema)
-                            offset += len(dicts)
-            except psycopg.errors.SerializationFailure as e:
-                # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
-                if using_read_replica and "conflict with recovery" in "".join(e.args):
-                    logger.debug(f"Falling back to offset chunking for table due to SerializationFailure error: {e}.")
-                    yield from offset_chunking(offset, chunk_size, from_recovery_conflict=True)
-                    return
-
-                raise
-            except psycopg.errors.QueryCanceled as e:
-                # A FETCH against the server cursor exhausted the 10-min
-                # statement_timeout. QueryCanceled subclasses OperationalError, so
-                # this clause must precede the connection-dropped handler below.
-                if _raised_while_closing_generator(e):
-                    # Not a real read timeout: the generator is being closed and the
-                    # cursor/connection teardown round-trip hit the statement_timeout.
-                    # Swallow it so close() completes cleanly instead of masking the
-                    # real outcome (e.g. an activity cancellation) with a phantom timeout.
-                    _safe_close_connection(connection)
-                    return
-                # Retrying is futile (usually a missing index on the incremental
-                # field or a scan too large to finish in time), so map it to the
-                # same non-retryable QueryTimeoutException the offset-chunking and
-                # windowed paths raise instead of leaking a raw, retryable
-                # QueryCanceled that Temporal keeps re-attempting.
-                timeout_error = _statement_timeout_as_non_retryable(
-                    e,
-                    should_use_incremental_field=should_use_incremental_field,
-                    incremental_field=incremental_field,
-                )
-                if timeout_error is not None:
-                    raise timeout_error from e
-                raise
-            except _CONNECTION_DROPPED_ERROR_TYPES as e:
-                # The server cursor holds a transaction open across the slow
-                # delta-merge between yields; the source can cull the backend
-                # (idle_in_transaction_session_timeout / PgBouncer) and the next
-                # fetch fails with "server conn crashed?". Resume from the current
-                # offset via offset_chunking, which runs in autocommit so it never
-                # holds a transaction open across the merge.
-                if not _is_connection_dropped_error(e):
                     raise
-                # Offset-based resume is only safe when the query has a stable
-                # ORDER BY (added by _build_query for incremental syncs, and by the
-                # xmin branch). A full-table scan has no ORDER BY, so Postgres may
-                # return rows in a different order on the resumed query and OFFSET
-                # would skip or duplicate rows. In that case re-raise and let the
-                # sync restart.
-                if not should_use_incremental_field and xmin_bounds is None:
+                except psycopg.errors.QueryCanceled as e:
+                    # A FETCH against the server cursor exhausted the 10-min
+                    # statement_timeout. QueryCanceled subclasses OperationalError, so
+                    # this clause must precede the connection-dropped handler below.
+                    if _raised_while_closing_generator(e):
+                        # Not a real read timeout: the generator is being closed and the
+                        # cursor/connection teardown round-trip hit the statement_timeout.
+                        # Swallow it so close() completes cleanly instead of masking the
+                        # real outcome (e.g. an activity cancellation) with a phantom timeout.
+                        _safe_close_connection(connection)
+                        return
+                    # Retrying is futile (usually a missing index on the incremental
+                    # field or a scan too large to finish in time), so map it to the
+                    # same non-retryable QueryTimeoutException the offset-chunking and
+                    # windowed paths raise instead of leaking a raw, retryable
+                    # QueryCanceled that Temporal keeps re-attempting.
+                    timeout_error = _statement_timeout_as_non_retryable(
+                        e,
+                        should_use_incremental_field=should_use_incremental_field,
+                        incremental_field=incremental_field,
+                    )
+                    if timeout_error is not None:
+                        raise timeout_error from e
                     raise
-                logger.debug(f"Connection dropped ({e}). Falling back to offset chunking at offset {offset}.")
-                yield from offset_chunking(offset, chunk_size)
-                return
+                except _CONNECTION_DROPPED_ERROR_TYPES as e:
+                    # The server cursor holds a transaction open across the slow
+                    # delta-merge between yields; the source can cull the backend
+                    # (idle_in_transaction_session_timeout / PgBouncer) and the next
+                    # fetch fails with "server conn crashed?". Resume from the current
+                    # offset via offset_chunking, which runs in autocommit so it never
+                    # holds a transaction open across the merge.
+                    if not _is_connection_dropped_error(e):
+                        raise
+                    # Offset-based resume is only safe when the query has a stable
+                    # ORDER BY (added by _build_query for incremental syncs, and by the
+                    # xmin branch). A full-table scan has no ORDER BY, so Postgres may
+                    # return rows in a different order on the resumed query and OFFSET
+                    # would skip or duplicate rows.
+                    if not should_use_incremental_field and xmin_bounds is None:
+                        # But a drop before the first row was yielded (offset == 0 — e.g. during
+                        # the server-cursor DECLARE, which the connect-only
+                        # _connect_with_dropped_retry above doesn't cover) is safe to retry by
+                        # re-running the read from scratch: nothing has been emitted, so there is
+                        # no resume ordering to get wrong. Mirrors the initial-connect retry. Once
+                        # any row is out, re-raise and let Temporal restart the whole activity.
+                        if offset == 0 and initial_read_drop_retries < _MAX_INITIAL_READ_DROP_RETRIES:
+                            initial_read_drop_retries += 1
+                            logger.debug(
+                                f"Connection dropped before first row ({e}). Retrying full-table read "
+                                f"(attempt {initial_read_drop_retries}/{_MAX_INITIAL_READ_DROP_RETRIES})."
+                            )
+                            time.sleep(min(2 * initial_read_drop_retries, 30))
+                            continue
+                        raise
+                    logger.debug(f"Connection dropped ({e}). Falling back to offset chunking at offset {offset}.")
+                    yield from offset_chunking(offset, chunk_size)
+                    return
 
     name = NamingConvention.normalize_identifier(table_name)
 

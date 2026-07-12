@@ -5,6 +5,7 @@ from unittest import mock
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from structlog.contextvars import get_contextvars
 
 from posthog.schema import (
@@ -20,15 +21,19 @@ from posthog.schema import (
 from posthog.hogql import ast
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     TtlSchedule,
 )
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     OOM_PIN_TTL_SECONDS,
+    REVALIDATION_TRIGGER,
+    SESSION_SETTLING_SECONDS,
+    STALE_WHILE_REVALIDATE_SECONDS,
     PerQueryOptedOut,
     PerQueryOptInNotSet,
     TooManyFilters,
@@ -36,6 +41,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     _oom_pin_key,
     check_common_eligibility,
     compute_filters_eligibility_hash,
+    handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
     is_precompute_unrestricted_for_team,
@@ -390,8 +396,13 @@ class TestWebEnsurePrecomputed(BaseTest):
     def test_pins_team_on_oom_and_runs_uncapped_first(self, mock_ensure):
         mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=True)
         web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
-        # ran with the caller's raw schedule this time (not yet pinned), then pinned for next time
-        assert mock_ensure.call_args.kwargs["ttl_seconds"] == {"default": 3600}
+        # ran width-uncapped this time (not yet pinned), then pinned for next time; the
+        # schedule is normalized to a TtlSchedule carrying the session-pad finality lag
+        passed = mock_ensure.call_args.kwargs["ttl_seconds"]
+        assert isinstance(passed, TtlSchedule)
+        assert passed.default_ttl_seconds == 3600
+        assert passed.max_window_days is None
+        assert passed.settling_period_seconds == SESSION_SETTLING_SECONDS
         assert is_team_oom_pinned(self.team.pk) is True
 
     @mock.patch(f"{_COMMON}.ensure_precomputed")
@@ -431,3 +442,93 @@ class TestWebEnsurePrecomputed(BaseTest):
         assert isinstance(passed, TtlSchedule)
         assert passed.max_window_days == 1
         assert passed.default_ttl_seconds == 3600
+
+    @parameterized.expand(
+        [
+            ("user_request", None),
+            ("eager_warmer", {"trigger": "webAnalyticsEagerBaselineWarming"}),
+            ("replay_warmer", {"trigger": "webAnalyticsQueryWarming"}),
+            # The revalidation task itself must never get the grace — a re-run that can
+            # be served stale would never refresh anything and freeze the cache.
+            ("stale_revalidation", {"trigger": REVALIDATION_TRIGGER}),
+            # The generic insight cache warmer isn't in the named trigger set — the
+            # CACHE_WARMUP feature gate must classify it as background, or it would
+            # persist stale rows into the insight cache under a fresh timestamp.
+            ("insight_warmer", {"trigger": "warmingV2", "feature": Feature.CACHE_WARMUP}),
+            # The lazy modules re-stamp feature=QUERY before ensuring, clobbering the
+            # warmer's CACHE_WARMUP tag — the trigger alone must classify as background.
+            ("insight_warmer_feature_clobbered", {"trigger": "warmingV2", "feature": Feature.QUERY}),
+            ("unknown_future_warmer", {"feature": Feature.CACHE_WARMUP}),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_stale_while_revalidate_grace_by_trigger(self, _name, tags, mock_ensure):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        reset_query_tags()
+        if tags is not None:
+            with tags_context(**tags):
+                web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        else:
+            web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        grace = mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"]
+        if tags is None:
+            assert grace == STALE_WHILE_REVALIDATE_SECONDS
+        else:
+            assert grace is None, f"background context {tags} must not be served stale"
+
+
+class TestStaleRevalidationEnqueue(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.query = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+
+    def tearDown(self):
+        reset_query_tags()
+        super().tearDown()
+
+    def _delay_patch(self):
+        return mock.patch(
+            "products.web_analytics.backend.tasks.lazy_precompute_revalidation"
+            ".revalidate_web_analytics_precompute.delay"
+        )
+
+    def test_handle_stale_served_tags_read_and_debounces_same_shape(self):
+        # Repeated stale serves of the same shape (current + compare period, or a user
+        # hammering forced refresh) must tag the read and mint exactly one revalidation
+        # task within the debounce window.
+        runner = WebOverviewQueryRunner(team=self.team, query=self.query)
+        reset_query_tags()
+        with self._delay_patch() as delay:
+            for _ in range(3):
+                handle_stale_served(runner=runner, family="web_overview")
+        assert get_query_tag_value("precompute_stale") is True
+        assert delay.call_count == 1
+        payload = delay.call_args.kwargs
+        assert payload["team_id"] == self.team.pk
+        assert payload["query"]["kind"] == "WebOverviewQuery"
+
+    def test_distinct_stale_shapes_each_get_a_revalidation(self):
+        # The debounce is per (team, family, shape), not per request: a second stale
+        # family in the same request context must still get its own refresh, or its
+        # data stays stale until a warmer happens to cover it.
+        overview_runner = WebOverviewQueryRunner(team=self.team, query=self.query)
+        stats_query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PAGE
+        )
+        stats_runner = WebStatsTableQueryRunner(team=self.team, query=stats_query)
+        reset_query_tags()
+        with self._delay_patch() as delay:
+            handle_stale_served(runner=overview_runner, family="web_overview")
+            handle_stale_served(runner=stats_runner, family="web_stats")
+        assert delay.call_count == 2
+
+    def test_broker_failure_does_not_break_the_stale_read_path(self):
+        # handle_stale_served runs inside the families' read try/except before the stale
+        # rows are read — a broker outage raising out of it would discard the stale
+        # result and fall back to the expensive live query, inverting SWR's purpose.
+        runner = WebOverviewQueryRunner(team=self.team, query=self.query)
+        reset_query_tags()
+        with self._delay_patch() as delay:
+            delay.side_effect = Exception("broker down")
+            handle_stale_served(runner=runner, family="web_overview")
+        assert get_query_tag_value("precompute_stale") is True

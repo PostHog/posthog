@@ -113,7 +113,17 @@ CREATE TABLE posthog.logs32 (
   INDEX idx_body_ngram3 lower(body) TYPE ngrambf_v1(3, 25000, 2, 0) GRANULARITY 1,
   INDEX idx_uuid_bloom uuid TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1
+  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
+  PROJECTION projection_aggregate_counts (SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  severity_text,
+  resource_fingerprint,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, severity_text, resource_fingerprint)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.logs32', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, severity_text, timestamp) PARTITION BY toDate(original_expiry_timestamp) SETTINGS add_minmax_index_for_numeric_columns = 1, allow_experimental_reverse_key = 1, allow_remote_fs_zero_copy_replication = 1, index_granularity = 8192, index_granularity_bytes = 104857600, storage_policy = 'default', ttl_only_drop_parts = 1;
 CREATE TABLE posthog.logs34 (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
@@ -154,7 +164,17 @@ CREATE TABLE posthog.logs34 (
   INDEX idx_body_ngram3 lower(body) TYPE ngrambf_v1(3, 25000, 2, 0) GRANULARITY 1,
   INDEX idx_uuid_bloom uuid TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1
+  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
+  PROJECTION projection_aggregate_counts (SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  severity_text,
+  resource_fingerprint,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, severity_text, resource_fingerprint)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.logs34', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, severity_text, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS add_minmax_index_for_numeric_columns = 1, allow_experimental_reverse_key = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1;
 CREATE TABLE posthog.logs_billing_metrics (
   team_id Int32,
@@ -229,6 +249,9 @@ CREATE TABLE posthog.metric_samples1 (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   timestamp DateTime64(6) CODEC(DoubleDelta),
   value Float64 CODEC(Gorilla(8)),
+  count UInt64 DEFAULT 1,
+  histogram_bounds Array(Float64),
+  histogram_counts Array(UInt64),
   trace_id String,
   span_id String,
   trace_flags Int32,
@@ -240,6 +263,8 @@ CREATE TABLE posthog.metric_series1 (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   metric_type LowCardinality(String),
   unit LowCardinality(String),
+  aggregation_temporality LowCardinality(String),
+  is_monotonic Bool DEFAULT false,
   service_name LowCardinality(String),
   resource_attributes Map(LowCardinality(String), String),
   attributes Map(LowCardinality(String), String),
@@ -247,7 +272,7 @@ CREATE TABLE posthog.metric_series1 (
   INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series1', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series1', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) TTL toDateTime(last_seen) + toIntervalDay(90) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.query_log_archive (
   hostname LowCardinality(String),
   user LowCardinality(String),
@@ -597,6 +622,9 @@ CREATE TABLE posthog.metric_samples (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   timestamp DateTime64(6) CODEC(DoubleDelta),
   value Float64 CODEC(Gorilla(8)),
+  count UInt64 DEFAULT 1,
+  histogram_bounds Array(Float64),
+  histogram_counts Array(UInt64),
   trace_id String,
   span_id String,
   trace_flags Int32
@@ -607,6 +635,8 @@ CREATE TABLE posthog.metric_series (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   metric_type LowCardinality(String),
   unit LowCardinality(String),
+  aggregation_temporality LowCardinality(String),
+  is_monotonic Bool DEFAULT false,
   service_name LowCardinality(String),
   resource_attributes Map(LowCardinality(String), String),
   attributes Map(LowCardinality(String), String),

@@ -40,7 +40,7 @@ from posthog.schema import (
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
@@ -173,12 +173,13 @@ def convert_tool_messages_to_dict(messages: Sequence[AssistantMessageUnion]) -> 
 def _process_events_data(
     events_in_context: list[MaxEventContext],
     team: Team,
+    user: User,
     limit: int | None = None,
     offset: int | None = None,
 ) -> tuple[list[dict], dict[str, str], bool]:
     """Common logic for processing events and building event data."""
     query = TeamTaxonomyQuery(limit=limit, offset=offset)
-    response = TeamTaxonomyQueryRunner(query, team).run(
+    response = TeamTaxonomyQueryRunner(query, team, user=user).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
         analytics_props={"source": EventSource.POSTHOG_AI},
     )
@@ -232,8 +233,8 @@ def _process_events_data(
     return processed_events, event_to_description, has_more
 
 
-def format_events_xml(events_in_context: list[MaxEventContext], team: Team) -> str:
-    processed_events, _, _ = _process_events_data(events_in_context, team)
+def format_events_xml(events_in_context: list[MaxEventContext], team: Team, user: User) -> str:
+    processed_events, _, _ = _process_events_data(events_in_context, team, user)
 
     root = ET.Element("defined_events")
     for event_data in processed_events:
@@ -250,10 +251,11 @@ def format_events_xml(events_in_context: list[MaxEventContext], team: Team) -> s
 def format_events_yaml(
     events_in_context: list[MaxEventContext],
     team: Team,
+    user: User,
     limit: int | None = None,
     offset: int | None = None,
 ) -> str:
-    processed_events, _, has_more = _process_events_data(events_in_context, team, limit=limit, offset=offset)
+    processed_events, _, has_more = _process_events_data(events_in_context, team, user, limit=limit, offset=offset)
 
     formatted_events = ["events:"]
     for event_data in processed_events:

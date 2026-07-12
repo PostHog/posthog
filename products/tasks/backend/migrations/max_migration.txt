@@ -1,1 +1,1 @@
-0044_alter_task_origin_product
+0055_task_artifact_registry

@@ -237,7 +237,7 @@ export type DateComponents = {
     clip: 'Start' | 'End'
 }
 
-export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
+export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqyMs])(|Start|End)$/
 
 export function dateStringToComponents(date: string | null): DateComponents | null {
     if (!date) {
@@ -306,7 +306,11 @@ export function dateStringToDayJs(date: string | null, timezone: string = 'UTC')
     if (!dateComponents) {
         return null
     }
-    const offset: dayjs.Dayjs = dayjs().tz(timezone).startOf('day')
+    // Calendar units anchor at the start of today; sub-day units are rolling
+    // windows from now ("-30M" must mean 30 minutes ago, not today 00:00 minus
+    // 30 minutes = yesterday 23:30) — matching the backend's relative_date_parse.
+    const isSubDay = ['hour', 'minute', 'second'].includes(dateComponents.unit)
+    const offset: dayjs.Dayjs = isSubDay ? dayjs().tz(timezone) : dayjs().tz(timezone).startOf('day')
     const response = componentsToDayJs(dateComponents, offset, timezone)
     return response
 }
@@ -404,7 +408,11 @@ export const areDatesValidForInterval = (
     const parsedOldDateTo = dateStringToDayJs(oldDateTo) || dayjs()
 
     if (oldDateFrom === 'all' || !parsedOldDateFrom) {
-        return interval === 'month'
+        return interval === 'month' || interval === 'quarter' || interval === 'year'
+    } else if (interval === 'year') {
+        return parsedOldDateTo.diff(parsedOldDateFrom, 'year') >= 2
+    } else if (interval === 'quarter') {
+        return parsedOldDateTo.diff(parsedOldDateFrom, 'quarter') >= 2
     } else if (interval === 'month') {
         return parsedOldDateTo.diff(parsedOldDateFrom, 'month') >= 2
     } else if (interval === 'week') {
@@ -431,13 +439,15 @@ export const areDatesValidForInterval = (
     throw new UnexpectedNeverError(interval)
 }
 
-const defaultDatesForInterval = {
+const defaultDatesForInterval: Record<IntervalType, { dateFrom: string; dateTo: null }> = {
     second: { dateFrom: '-1M', dateTo: null },
     minute: { dateFrom: '-1h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },
     week: { dateFrom: '-28d', dateTo: null },
     month: { dateFrom: '-6m', dateTo: null },
+    quarter: { dateFrom: '-3y', dateTo: null },
+    year: { dateFrom: '-5y', dateTo: null },
 }
 
 export const updateDatesWithInterval = (

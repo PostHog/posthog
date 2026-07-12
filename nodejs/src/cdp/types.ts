@@ -236,6 +236,7 @@ export type MinimalAppMetric = {
         | 'email_opened'
         | 'email_link_clicked'
         | 'email_bounced'
+        | 'email_bounce_prevented'
         | 'email_blocked'
         | 'email_spam'
         | 'email_unsubscribed'
@@ -292,6 +293,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
+    emailAssets: MessageAssetRow[]
     execResult?: unknown
 }
 
@@ -362,6 +364,11 @@ export type HogFlowInvocationContext = {
         //     debug line *and clears the flag* so any subsequent actions on the same dequeue
         //     (the email handler's `nextAction: exit`, etc.) log normally.
         routingOnlyReschedule?: boolean
+        // Set when a wait_until_condition re-parks on its polling interval. Lets the handler
+        // attribute a later condition match to the periodic poll (vs evaluate-on-entry) and emit
+        // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
+        // ever catches a wake the subscription streams missed, gating its eventual removal.
+        pollReparked?: boolean
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
@@ -401,6 +408,7 @@ export type HogFunctionInputSchemaType = {
         | 'posthog_business_hours'
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
+        | 'customer_analytics_account_relationships'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -520,6 +528,25 @@ export type WarehouseWebhookPayload = {
     team_id: number
     schema_id: string
     payload: Record<string, any>
+}
+
+export type MessageAssetRow = {
+    team_id: number
+    function_kind: 'hog_flow' | 'hog_function'
+    function_id: string
+    parent_run_id: string
+    invocation_id: string
+    action_id: string
+    kind: 'email'
+    distinct_id: string
+    person_id: string
+    recipient: string
+    subject: string
+    status: 'sent'
+    sent_at: string // ISO microsecond DateTime64
+    version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap
+    is_deleted: 0 | 1
+    html: string
 }
 
 export type Response = {

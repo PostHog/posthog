@@ -1,7 +1,14 @@
 import clsx from 'clsx'
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+    KeyboardEvent as ReactKeyboardEvent,
+    type CSSProperties,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from 'react'
 
-import { IconCode, IconComment, IconCopy, IconQuote, IconSparkles } from '@posthog/icons'
+import { IconCode, IconComment, IconCopy, IconExternal, IconQuote, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
@@ -33,6 +40,7 @@ export const TEXT_BLOCK_STYLE_BUTTONS: {
 
 export function FormattingToolbar({
     selectedBlockStyle,
+    selectedBlockQuoted,
     placement,
     top,
     left,
@@ -47,8 +55,11 @@ export function FormattingToolbar({
     isAskAIDisabled,
     startInlineCommentAtSelection,
     lockPosition,
+    returnFocusToEditor,
 }: {
     selectedBlockStyle: TextBlockStyle | null
+    /** Whether every selected block sits inside a blockquote — orthogonal to the text style. */
+    selectedBlockQuoted: boolean
     placement: 'above' | 'below'
     top: number
     left: number
@@ -63,10 +74,14 @@ export function FormattingToolbar({
     isAskAIDisabled?: boolean
     startInlineCommentAtSelection?: () => void
     lockPosition: () => void
+    /** Moves focus back into the editor (Escape while the toolbar holds focus). */
+    returnFocusToEditor?: () => void
 }): JSX.Element {
-    const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(initialLinkEditorOpen)
+    const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(initialLinkEditorOpen || !!currentLinkHref)
+    const [shouldFocusLinkInput, setShouldFocusLinkInput] = useState(initialLinkEditorOpen)
     const [linkHref, setLinkHref] = useState(currentLinkHref ?? '')
     const toolbarRef = useRef<HTMLDivElement | null>(null)
+    const linkInputRef = useRef<HTMLInputElement | null>(null)
     const [boundsShift, setBoundsShift] = useState({ x: 0, y: 0 })
 
     // The anchor point only clamps the toolbar's center to the viewport, so the rendered toolbar
@@ -117,21 +132,28 @@ export function FormattingToolbar({
     const normalizedLinkHref = sanitizeNotebookLinkHref(linkHref)
     const hasExistingLink = !!currentLinkHref
 
+    // Selecting linked text opens the URL editor right away (no extra click), but without
+    // stealing focus from the selection: the input only autofocuses on an explicit open.
     useEffect(() => {
-        if (initialLinkEditorOpen) {
+        if (initialLinkEditorOpen || currentLinkHref) {
             setLinkHref(currentLinkHref ?? '')
             setIsLinkEditorOpen(true)
+            if (initialLinkEditorOpen) {
+                setShouldFocusLinkInput(true)
+            }
             return
         }
 
-        if (!isLinkEditorOpen) {
-            setLinkHref(currentLinkHref ?? '')
-        }
-    }, [currentLinkHref, initialLinkEditorOpen, isLinkEditorOpen])
+        setIsLinkEditorOpen(false)
+        setShouldFocusLinkInput(false)
+        setLinkHref('')
+    }, [currentLinkHref, initialLinkEditorOpen])
 
     const openLinkEditor = (): void => {
         setLinkHref(currentLinkHref ?? '')
         setIsLinkEditorOpen(true)
+        setShouldFocusLinkInput(true)
+        linkInputRef.current?.focus()
     }
 
     const setLink = (): void => {
@@ -148,12 +170,66 @@ export function FormattingToolbar({
         setIsLinkEditorOpen(false)
     }
 
+    // Roving arrow-key navigation between the toolbar's buttons; Escape hands focus back to
+    // the editor. The buttons stay in the tab order, so this only augments focus movement.
+    const handleToolbarKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+        if (event.target instanceof HTMLElement && event.target.closest('.MarkdownNotebook__format-link-editor')) {
+            if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                setIsLinkEditorOpen(false)
+            }
+            return
+        }
+
+        if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            returnFocusToEditor?.()
+            return
+        }
+
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+            return
+        }
+
+        const toolbarElement = toolbarRef.current
+        if (!toolbarElement) {
+            return
+        }
+
+        const buttons = Array.from(toolbarElement.querySelectorAll<HTMLButtonElement>('button:not([disabled])'))
+        if (!buttons.length) {
+            return
+        }
+
+        const activeIndex = buttons.findIndex((button) => button === window.document.activeElement)
+        if (activeIndex === -1) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+        const nextIndex =
+            event.key === 'Home'
+                ? 0
+                : event.key === 'End'
+                  ? buttons.length - 1
+                  : (activeIndex + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
+        buttons[nextIndex].focus()
+    }
+
     return (
         <div
             className={clsx('MarkdownNotebook__format-toolbar', `MarkdownNotebook__format-toolbar--${placement}`)}
             contentEditable={false}
             ref={toolbarRef}
             style={toolbarStyle}
+            role="toolbar"
+            aria-label="Text formatting"
+            aria-orientation="horizontal"
+            aria-keyshortcuts="Alt+F10"
+            onKeyDown={handleToolbarKeyDown}
             onFocusCapture={lockPosition}
             onPointerDownCapture={lockPosition}
             onTouchStartCapture={lockPosition}
@@ -176,20 +252,30 @@ export function FormattingToolbar({
                 role="group"
                 aria-label="Text style"
             >
-                {TEXT_BLOCK_STYLE_BUTTONS.map((button) => (
-                    <LemonButton
-                        key={button.label}
-                        size="xsmall"
-                        icon={button.icon}
-                        tooltip={button.label}
-                        aria-label={button.label}
-                        active={selectedBlockStyle === button.style}
-                        className="MarkdownNotebook__format-style-button"
-                        onClick={() => setBlockStyle(selectedBlockStyle === button.style ? 'paragraph' : button.style)}
-                    >
-                        {button.content}
-                    </LemonButton>
-                ))}
+                {TEXT_BLOCK_STYLE_BUTTONS.map((button) => {
+                    // Quote membership is orthogonal to the text style, so a quoted heading lights up
+                    // both its heading button and the quote button. The quote button always dispatches
+                    // 'blockquote' — the editor toggles membership based on the selection's current state.
+                    const isActive =
+                        button.style === 'blockquote' ? selectedBlockQuoted : selectedBlockStyle === button.style
+                    return (
+                        <LemonButton
+                            key={button.label}
+                            size="xsmall"
+                            icon={button.icon}
+                            tooltip={button.label}
+                            aria-label={button.label}
+                            aria-pressed={isActive}
+                            active={isActive}
+                            className="MarkdownNotebook__format-style-button"
+                            onClick={() =>
+                                setBlockStyle(button.style === 'blockquote' || !isActive ? button.style : 'paragraph')
+                            }
+                        >
+                            {button.content}
+                        </LemonButton>
+                    )
+                })}
             </div>
             {showInlineActions ? (
                 <>
@@ -235,6 +321,7 @@ export function FormattingToolbar({
                         icon={<IconLink />}
                         tooltip="Link"
                         aria-label="Link"
+                        aria-pressed={hasExistingLink || isLinkEditorOpen}
                         active={hasExistingLink || isLinkEditorOpen}
                         onClick={openLinkEditor}
                     />
@@ -247,7 +334,7 @@ export function FormattingToolbar({
                     />
                 </>
             ) : null}
-            {showInlineActions && startInlineCommentAtSelection ? (
+            {startInlineCommentAtSelection ? (
                 <LemonButton
                     size="xsmall"
                     icon={<IconComment />}
@@ -276,10 +363,32 @@ export function FormattingToolbar({
                         aria-label="Link URL"
                         value={linkHref}
                         onChange={setLinkHref}
-                        onPressEnter={setLink}
-                        autoFocus
+                        onPressEnter={(event) => {
+                            // Cancel the keystroke fully: applying the link unmounts the toolbar
+                            // and returns focus/selection to the editor, where an uncancelled
+                            // Enter would still insert a paragraph and wipe the selected text
+                            event.preventDefault()
+                            event.stopPropagation()
+                            setLink()
+                        }}
+                        inputRef={linkInputRef}
+                        autoFocus={shouldFocusLinkInput}
                         className="MarkdownNotebook__format-link-input"
                     />
+                    {hasExistingLink && sanitizeNotebookLinkHref(currentLinkHref ?? '') ? (
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconExternal />}
+                            tooltip="Open link in new tab"
+                            aria-label="Open link in new tab"
+                            onClick={() => {
+                                const href = sanitizeNotebookLinkHref(currentLinkHref ?? '')
+                                if (href) {
+                                    window.open(href, '_blank', 'noopener')
+                                }
+                            }}
+                        />
+                    ) : null}
                     {hasExistingLink ? (
                         <LemonButton size="xsmall" status="danger" onClick={removeLink}>
                             Remove
@@ -325,6 +434,22 @@ export function getSelectedBlockStyle(
     }
 
     return [...styles][0]
+}
+
+/** True when the selection is non-empty and every selected block sits inside a blockquote. */
+export function getSelectedBlocksQuoted(
+    textRanges: FloatingToolbarTextRange[],
+    codeRanges: FloatingToolbarCodeRange[],
+    listItemRanges: FloatingToolbarListItemRange[] = []
+): boolean {
+    if (codeRanges.length || (!textRanges.length && !listItemRanges.length)) {
+        return false
+    }
+
+    return (
+        textRanges.every(({ node }) => node.type === 'blockquote' || !!node.blockquote) &&
+        listItemRanges.every(({ node }) => !!node.blockquote)
+    )
 }
 
 export function getSelectedTextBlockStyle(textRanges: FloatingToolbarTextRange[]): TextBlockStyle | null {

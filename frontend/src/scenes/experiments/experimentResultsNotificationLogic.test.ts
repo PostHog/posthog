@@ -13,7 +13,12 @@ import { experimentMetricsLogic } from './experimentMetricsLogic'
 import { experimentResultsNotificationLogic } from './experimentResultsNotificationLogic'
 
 const EXPERIMENT = experimentJson as unknown as Experiment
-const OFFER_DELAY_MS = 10_000
+
+const dispatchBeforeUnload = (): boolean => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+}
 
 describe('experimentResultsNotificationLogic', () => {
     let logic: ReturnType<typeof experimentResultsNotificationLogic.build>
@@ -54,49 +59,28 @@ describe('experimentResultsNotificationLogic', () => {
     })
 
     afterEach(() => {
-        jest.useRealTimers()
         logic?.unmount()
         metricsLogic?.unmount()
     })
 
-    it('offers the notification banner once a recalculation has run for the delay', async () => {
-        jest.useFakeTimers()
-        // Recalculation starts → the offer timer begins.
+    it('fires notifyResultsReady and resets the subscription when the recalculation finishes', async () => {
         metricsLogic.actions.setCurrentRecalculation({ id: 'x', status: 'in_progress' } as any)
-        expect(logic.values.showNotificationOffer).toBe(false)
+        logic.actions.setNotifyWhenResultsReady(true)
 
-        await jest.advanceTimersByTimeAsync(OFFER_DELAY_MS)
-        expect(logic.values.showNotificationOffer).toBe(true)
-    })
-
-    it('resets the offer when the recalculation finishes', async () => {
-        jest.useFakeTimers()
-        metricsLogic.actions.setCurrentRecalculation({ id: 'x', status: 'in_progress' } as any)
-        await jest.advanceTimersByTimeAsync(OFFER_DELAY_MS)
-        expect(logic.values.showNotificationOffer).toBe(true)
-
-        // Recalculation completes → offer is cleared.
         metricsLogic.actions.setCurrentRecalculation({ id: 'x', status: 'completed' } as any)
         await expectLogic(logic).toDispatchActions(['notifyResultsReady'])
-        expect(logic.values.showNotificationOffer).toBe(false)
         expect(logic.values.notifyWhenResultsReady).toBe(false)
     })
 
-    it('dismissNotificationOffer clears both flags', () => {
-        logic.actions.setShowNotificationOffer(true)
-        logic.actions.setNotifyWhenResultsReady(true)
-        logic.actions.dismissNotificationOffer()
-        expect(logic.values.showNotificationOffer).toBe(false)
-        expect(logic.values.notifyWhenResultsReady).toBe(false)
-    })
-
-    it('dismissing the offer disposes the pending timer so it cannot re-show the banner', async () => {
-        jest.useFakeTimers()
+    it('warns before unload while subscribed and stops once results land', async () => {
         metricsLogic.actions.setCurrentRecalculation({ id: 'x', status: 'in_progress' } as any)
-        // Dismiss before the offer timer fires.
-        logic.actions.dismissNotificationOffer()
-        await jest.advanceTimersByTimeAsync(OFFER_DELAY_MS)
-        // The timer was disposed, so the offer must stay dismissed.
-        expect(logic.values.showNotificationOffer).toBe(false)
+        expect(dispatchBeforeUnload()).toBe(false)
+
+        logic.actions.setNotifyWhenResultsReady(true)
+        expect(dispatchBeforeUnload()).toBe(true)
+
+        metricsLogic.actions.setCurrentRecalculation({ id: 'x', status: 'completed' } as any)
+        await expectLogic(logic).toDispatchActions(['notifyResultsReady'])
+        expect(dispatchBeforeUnload()).toBe(false)
     })
 })

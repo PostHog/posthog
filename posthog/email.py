@@ -38,8 +38,12 @@ def inline_css(value: str) -> str:
     """
     Returns an HTML document with inline CSS.
     Forked from getsentry/sentry
+
+    `keep_at_rules=True` preserves at-rules that can't be inlined onto elements — chiefly the
+    `@media` responsive block. Without it, css_inline drops every `<style>` block after
+    inlining and media queries never apply.
     """
-    inlined = css_inline.inline(value)
+    inlined = css_inline.inline(value, keep_at_rules=True)
     tree = lxml_html.document_fromstring(inlined)
     # CSS media query support is inconsistent when the DOCTYPE declaration is
     # missing, so we force it to HTML5 here.
@@ -144,6 +148,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "baa_signed_ai_disabled": "68",
     "integration_access_requested": "70",
     "posthog_ai_access_requested": "72",
+    "wizard_pr_ready": "74",
 }
 
 
@@ -199,7 +204,9 @@ def _send_via_http(
                     "message_data": properties,
                 }
 
-                response = requests.post(f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload)
+                response = requests.post(
+                    f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload, timeout=30
+                )
 
                 if response.status_code != 200:
                     raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
