@@ -7,11 +7,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
+import { InsightDateFilterNext } from 'scenes/insights/filters/InsightDateFilter/InsightDateFilterNext'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -49,6 +51,9 @@ export function InsightDisplayConfig(): JSX.Element {
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillDateFilterEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER]
+
     const isMetric = display === ChartDisplayType.Metric
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (compare, smoothing, multiple axes, alert/annotation overlays, statistical analysis).
@@ -76,9 +81,13 @@ export function InsightDisplayConfig(): JSX.Element {
             data-attr="insight-filters"
         >
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
-                {!isRetention && (
+                {(quillDateFilterEnabled || !isRetention) && (
                     <ConfigFilter>
-                        <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
+                        {quillDateFilterEnabled ? (
+                            <InsightDateFilterNext disabled={isFunnels && !!isEmptyFunnel} />
+                        ) : (
+                            <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
+                        )}
                     </ConfigFilter>
                 )}
 
@@ -88,10 +97,15 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
 
-                {!!isRetention && (
+                {!!isRetention && !quillDateFilterEnabled && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        {hasBreakdownFilter(breakdownFilter) && <RetentionBreakdownFilter />}
+                    </ConfigFilter>
+                )}
+
+                {!!isRetention && hasBreakdownFilter(breakdownFilter) && (
+                    <ConfigFilter>
+                        <RetentionBreakdownFilter />
                     </ConfigFilter>
                 )}
 
@@ -172,5 +186,5 @@ export function InsightDisplayConfig(): JSX.Element {
 }
 
 function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
-    return <span className="deprecated-space-x-2 flex items-center text-sm">{children}</span>
+    return <span className="flex items-center gap-2 text-sm">{children}</span>
 }
