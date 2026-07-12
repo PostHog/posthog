@@ -231,7 +231,10 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             )
     except RepartitionUnpartitionableError as e:
         # Terminal: the table can't be partitioned. Clear the flag so we don't retry every run.
-        schema.refresh_from_db(fields=["sync_type_config"])
+        if not _refresh_schema_config(schema, inputs.team_id, logger):
+            # Pooler dropped the connection while recording the skip — transient, not a repartition
+            # failure. The flag stays set and we re-evaluate on the next sync.
+            return
         schema.clear_repartition_pending()
         props = base_event_props(schema, schema.source, inputs.job_id)
         props.update({"trigger_reason": trigger_reason, "reason": str(e)})
@@ -261,8 +264,8 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             capture_exception(e)
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
             return
-        _handle_failure(inputs, schema, pending, trigger_reason, e)
-        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+        if _handle_failure(inputs, schema, pending, trigger_reason, e, logger):
+            DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
         return
 
     duration = time.monotonic() - start
@@ -285,15 +288,44 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     )
 
 
+def _refresh_schema_config(schema: ExternalDataSchema, team_id: int, logger: FilteringBoundLogger) -> bool:
+    """Refresh the schema's config before recording a repartition outcome, tolerating a pooler drop.
+
+    Recording an outcome starts by re-reading the schema, which hits the app DB. If the Postgres pooler
+    drops the connection at that instant `refresh_from_db` raises OperationalError/InterfaceError — the
+    same transient infra noise the mid-rewrite guard already swallows, not a repartition bug. Treat it
+    identically: log, capture, count it transient, and return False so the caller bails without failing
+    the activity. The swap is marker-idempotent, so the next sync retries cleanly. This preserves the
+    module's invariant that a repartition failure never fails the workflow. Returns True on success.
+    """
+    try:
+        schema.refresh_from_db(fields=["sync_type_config"])
+        return True
+    except (OperationalError, InterfaceError) as e:
+        logger.warning(
+            "repartition: transient database error recording outcome, will retry on next sync", exc_info=True
+        )
+        capture_exception(e)
+        DELTA_REPARTITION_TOTAL.labels(team_id=str(team_id), outcome="transient").inc()
+        return False
+
+
 def _handle_failure(
     inputs: RepartitionActivityInputs,
     schema: ExternalDataSchema,
     pending: dict[str, Any] | None,
     trigger_reason: str,
     error: Exception,
-) -> None:
-    """Record a failed attempt; give up (and clear the flag) after MAX_REPARTITION_ATTEMPTS."""
-    schema.refresh_from_db(fields=["sync_type_config"])
+    logger: FilteringBoundLogger,
+) -> bool:
+    """Record a failed attempt; give up (and clear the flag) after MAX_REPARTITION_ATTEMPTS.
+
+    Returns True if the failure was recorded, or False if a transient app-DB drop prevented the refresh
+    (already counted as transient) — the caller then skips the "failed" metric and lets the activity end
+    cleanly, since a repartition failure must never fail the workflow.
+    """
+    if not _refresh_schema_config(schema, inputs.team_id, logger):
+        return False
     pending = schema.repartition_pending or pending or {}
     attempts = int(pending.get("attempts", 0)) + 1
 
@@ -317,3 +349,4 @@ def _handle_failure(
 
     capture_repartition_event("warehouse_repartition_failed", props)
     capture_exception(error)
+    return True
