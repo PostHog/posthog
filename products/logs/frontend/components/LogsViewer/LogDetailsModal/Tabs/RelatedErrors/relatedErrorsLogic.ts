@@ -63,7 +63,7 @@ export const relatedErrorsLogic = kea<relatedErrorsLogicType>([
                             },
                         ],
                     },
-                    volumeResolution: 0,
+                    volumeResolution: 1,
                     withAggregations: true,
                     limit: 100,
                 }
