@@ -1,8 +1,11 @@
 import base64
 import logging
 import binascii
+from datetime import datetime, timedelta
 from typing import Any, cast
 from zoneinfo import available_timezones
+
+from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from croniter import croniter
@@ -1295,6 +1298,11 @@ class ChannelFeedMessageSerializer(DataclassSerializer):
         fields = ["id", "channel", "author", "author_kind", "event", "payload", "content", "created_at"]
 
 
+# A client-supplied created_at exists only to order a burst of announcements posted
+# in quick succession; anything beyond this window is backdating, not ordering.
+CHANNEL_FEED_CREATED_AT_WINDOW = timedelta(minutes=10)
+
+
 class ChannelFeedMessageWriteSerializer(serializers.Serializer):
     """Request body for posting a system announcement into a channel's feed."""
 
@@ -1303,8 +1311,14 @@ class ChannelFeedMessageWriteSerializer(serializers.Serializer):
         required=False, default=dict, help_text='Structured event data, e.g. {"context_name": "mobile"}.'
     )
     created_at = serializers.DateTimeField(
-        required=False, help_text="Optional explicit timestamp, so a client can order a burst of announcements."
+        required=False,
+        help_text="Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements.",
     )
+
+    def validate_created_at(self, value: datetime) -> datetime:
+        if abs(django_timezone.now() - value) > CHANNEL_FEED_CREATED_AT_WINDOW:
+            raise serializers.ValidationError("created_at must be within 10 minutes of the current time.")
+        return value
 
 
 class TaskMentionQuerySerializer(serializers.Serializer):

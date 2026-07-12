@@ -4717,7 +4717,10 @@ def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
     """Announce a newly-created public channel in its own feed as a system row
     ("Ann created this context"). Server-emitted so the announcement appears no
     matter which client (or integration) created the channel. Best-effort — a
-    feed-write failure must never break channel creation."""
+    feed-write failure must never break channel creation. The fail-closed
+    ``TeamScopedManager`` raises without team context, so callers outside a
+    request (temporal, MCP) must wrap in ``team_scope()`` or the announcement
+    is swallowed here and only logged."""
     try:
         ChannelFeedMessage.objects.create(
             team_id=channel.team_id,
@@ -4813,7 +4816,9 @@ def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) 
 def list_channel_feed_messages(
     channel_id: str | UUID, team_id: int, user_id: int | None
 ) -> list[contracts.ChannelFeedMessageDTO] | None:
-    """A channel's system-announcement feed, ascending. ``None`` when the channel isn't visible."""
+    """A channel's system-announcement feed, ascending. ``None`` when the channel isn't visible.
+    Unpaginated: the feed holds rare lifecycle events. Add pagination before any
+    per-task or per-thread event lands here."""
     if _visible_channel(channel_id, team_id, user_id) is None:
         return None
     messages = (

@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone as django_timezone
 
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -426,3 +429,40 @@ class ChannelFeedMessageAPITestCase(TestCase):
         self.client.post(self._channels_url(), {"name": "mobile"})
         feed = self.client.get(self._feed_url(channel_id)).json()
         self.assertEqual(len([m for m in feed if m["event"] == "channel_created"]), 1)
+
+    def test_client_created_at_orders_a_burst(self):
+        channel_id = self._public_channel()
+        now = django_timezone.now()
+        # Post out of order with explicit timestamps; the feed must sort by created_at.
+        second = (now + timedelta(seconds=2)).isoformat()
+        first = (now + timedelta(seconds=1)).isoformat()
+        self.client.post(
+            self._feed_url(channel_id),
+            {"event": "context_md_building", "payload": {}, "created_at": second},
+            format="json",
+        )
+        self.client.post(
+            self._feed_url(channel_id),
+            {"event": "context_created", "payload": {}, "created_at": first},
+            format="json",
+        )
+        events = [m["event"] for m in self.client.get(self._feed_url(channel_id)).json()]
+        self.assertEqual(events, ["channel_created", "context_created", "context_md_building"])
+
+    def test_created_at_outside_window_is_rejected(self):
+        channel_id = self._public_channel()
+        for delta in (timedelta(hours=-1), timedelta(hours=1)):
+            stamp = (django_timezone.now() + delta).isoformat()
+            response = self.client.post(
+                self._feed_url(channel_id),
+                {"event": "context_created", "created_at": stamp},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, stamp)
+
+    def test_feed_is_team_scoped(self):
+        channel_id = self._public_channel()
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        # Same org, wrong team in the URL — the channel must not resolve.
+        response = self.client.get(f"/api/projects/{other_team.id}/task_channels/{channel_id}/feed/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
