@@ -1371,7 +1371,6 @@ export type EncodedRecordingSnapshot = _EncodedRecordingSnapshot
 export type RecordingSnapshot = _RecordingSnapshot
 export type SessionRecordingSnapshotSource = _SessionRecordingSnapshotSource
 export type SessionRecordingSnapshotSourceResponse = _SessionRecordingSnapshotSourceResponse
-export { SnapshotSourceType } from '@posthog/replay-shared'
 
 export type SessionRecordingSnapshotParams = (
     | {

@@ -2,9 +2,8 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
+import { themeLogic } from 'lib/logic/themeLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export function useThemedHtml(overflowHidden = true, forcedTheme: 'light' | 'dark' | null = null): void {
     const { isDarkModeOn, customCss } = useValues(themeLogic)

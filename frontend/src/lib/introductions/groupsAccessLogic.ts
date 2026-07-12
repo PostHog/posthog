@@ -1,6 +1,6 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 

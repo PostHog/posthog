@@ -9,12 +9,12 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationQueueMessage } from '~/types'
 

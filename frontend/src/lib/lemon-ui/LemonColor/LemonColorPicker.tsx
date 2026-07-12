@@ -4,7 +4,7 @@ import { cloneElement, useEffect, useState } from 'react'
 import { LemonColorGlyph, LemonInput, LemonLabel, Popover } from '@posthog/lemon-ui'
 
 import { DataColorToken } from 'lib/colors'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { dataThemeLogic } from 'lib/logic/dataThemeLogic'
 
 import { LemonColorButton } from './LemonColorButton'
 import { LemonColorList } from './LemonColorList'
