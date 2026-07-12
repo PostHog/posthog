@@ -21,6 +21,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { uuid } from 'lib/utils/dom'
+import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
@@ -140,10 +141,17 @@ export type HogFlowEditorActionMetrics = {
     filtered: number
 }
 
+export type OutputMappingSuggestion = {
+    key: string
+    result_path: string
+    label: string
+}
+
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
     output_variable?: HogFlowAction['output_variable']
     getDefaultInputs?: () => Record<string, CyclotronInputType> | undefined
+    getOutputMappingSuggestions?: () => Promise<OutputMappingSuggestion[]>
 }
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
@@ -474,27 +482,31 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
                         const step = getHogFlowStep(action, values.hogFunctionTemplatesById)
 
-                        if (!step) {
-                            // Migrate old function actions to the basic functon action type
-                            if (action.type.startsWith('function_')) {
-                                action.type = 'function'
-                            }
-                        }
+                        // Migrate old function actions to the basic function action type without
+                        // writing back onto workflowLogic's action: an in-place mutation corrupts
+                        // the workflow subscription's previous-value snapshot, so legacy flows
+                        // would never compare deep-equal and would rebuild on every poll.
+                        const migratedAction: HogFlowAction =
+                            !step && action.type.startsWith('function_')
+                                ? ({ ...action, type: 'function' } as HogFlowAction)
+                                : action
 
                         return {
-                            id: action.id,
+                            id: migratedAction.id,
                             type: 'action',
-                            data: action,
+                            data: migratedAction,
                             position: { x: 0, y: 0 },
-                            handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
-                            deletable: !['trigger', 'exit'].includes(action.type),
+                            handles: Object.values(handlesByIdByNodeId[migratedAction.id] ?? {}),
+                            deletable: !['trigger', 'exit'].includes(migratedAction.type),
                             selectable: true,
                             draggable: false,
                             connectable: false,
                         }
                     })
 
-                    actions.setEdges(edges)
+                    // Reuse unchanged edge references so ReactFlow only reprocesses edges that
+                    // actually changed (matching its own applyEdgeChanges contract).
+                    actions.setEdges(reconcileById(values.edges, edges, (edge) => edge.id))
                     actions.setNodes(nodes)
                 } catch (error) {
                     console.error('Error resetting flow from hog flow', error)
@@ -502,10 +514,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
             },
 
-            setNodes: async ({ nodes }) => {
+            setNodes: async ({ nodes }, breakpoint) => {
                 const formattedNodes = await getFormattedNodes(nodes, values.edges)
+                // Drop this layout run if a newer setNodes was dispatched while elk was working,
+                // so overlapping rebuilds can't finish out of order and let a stale layout win.
+                breakpoint()
 
-                actions.setNodesRaw(formattedNodes)
+                // Reconcile after layout so positions participate in the equality check: a node
+                // that moved gets a fresh reference, an untouched one keeps its identity and its
+                // ReactFlow subtree doesn't re-render.
+                actions.setNodesRaw(reconcileById(values.nodes, formattedNodes, (node) => node.id))
             },
 
             onNodesDelete: ({ deleted }) => {
@@ -940,8 +958,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        workflow: (hogFlow?: HogFlow) => {
-            if (hogFlow) {
+        workflow: (hogFlow?: HogFlow, oldHogFlow?: HogFlow) => {
+            // Auto-save round-trips can emit a deep-equal workflow; skipping the rebuild avoids
+            // re-deriving every node and edge (including the async layout pass) for no change.
+            if (hogFlow && !objectsEqual(hogFlow, oldHogFlow)) {
                 actions.resetFlowFromHogFlow(hogFlow)
             }
         },

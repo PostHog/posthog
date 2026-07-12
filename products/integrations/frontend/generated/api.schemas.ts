@@ -184,6 +184,7 @@ export interface RoleLookupResponseApi {
  * * `slack` - Slack
  * * `slack-posthog-code` - Slack Posthog Code
  * * `snapchat` - Snapchat
+ * * `snowflake` - Snowflake
  * * `stripe` - Stripe
  * * `tiktok-ads` - Tiktok Ads
  * * `twilio` - Twilio
@@ -227,6 +228,7 @@ export const IntegrationKindEnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Snapchat: 'snapchat',
+    Snowflake: 'snowflake',
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
@@ -355,17 +357,6 @@ export interface GitHubTeamsResponseApi {
     has_more: boolean
 }
 
-export interface GoogleSearchConsoleSiteApi {
-    /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
-    siteUrl: string
-    /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
-    permissionLevel: string
-}
-
-export interface GoogleSearchConsoleSitesResponseApi {
-    sites: GoogleSearchConsoleSiteApi[]
-}
-
 export interface JiraProjectApi {
     /** Jira project ID. */
     id: string
@@ -472,6 +463,7 @@ export interface IntegrationAccessRequestApi {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -560,6 +552,7 @@ export type IntegrationsListParams = {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -614,6 +607,7 @@ export const IntegrationsListKind = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Snapchat: 'snapchat',
+    Snowflake: 'snowflake',
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',

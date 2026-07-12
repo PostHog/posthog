@@ -2816,6 +2816,11 @@ export interface FileSystemApi {
     readonly created_at: string
     /** @nullable */
     readonly last_viewed_at: string | null
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedFileSystemListApi {
@@ -2847,6 +2852,11 @@ export interface PatchedFileSystemApi {
     readonly created_at?: string
     /** @nullable */
     readonly last_viewed_at?: string | null
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -2963,6 +2973,11 @@ export interface FileSystemShortcutApi {
      */
     order?: number
     readonly created_at: string
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedFileSystemShortcutListApi {
@@ -3001,6 +3016,11 @@ export interface PatchedFileSystemShortcutApi {
      */
     order?: number
     readonly created_at?: string
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export interface FileSystemShortcutReorderApi {
@@ -3218,9 +3238,9 @@ export interface PatchedEnterprisePropertyDefinitionApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -3237,7 +3257,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }

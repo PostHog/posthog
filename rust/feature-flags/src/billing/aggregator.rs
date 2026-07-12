@@ -247,6 +247,10 @@ pub struct BillingAggregatorConfig {
     pub per_flush_batch_size: usize,
     /// Must be non-zero — see `validate`.
     pub shutdown_flush_timeout: Duration,
+    /// Override the random jitter with a fixed duration. Used by tests to make
+    /// timing deterministic under paused tokio time. Not intended for production.
+    #[doc(hidden)]
+    pub jitter_override: Option<Duration>,
 }
 
 impl Default for BillingAggregatorConfig {
@@ -256,6 +260,7 @@ impl Default for BillingAggregatorConfig {
             max_pending_entries: 500_000,
             per_flush_batch_size: 200,
             shutdown_flush_timeout: Duration::from_secs(15),
+            jitter_override: None,
         }
     }
 }
@@ -570,7 +575,10 @@ async fn run_flusher(inner: Arc<Inner>) {
     // Initial jitter desynchronizes fleet-wide flushes after a coordinated
     // deploy. Race it against shutdown so a quick SIGTERM doesn't wait for the
     // jitter to elapse before flushing.
-    let jitter = pick_jitter(inner.config.flush_interval);
+    let jitter = inner
+        .config
+        .jitter_override
+        .unwrap_or_else(|| pick_jitter(inner.config.flush_interval));
     tokio::select! {
         _ = tokio::time::sleep(jitter) => {}
         _ = inner.shutdown_signal.notified() => {
@@ -1160,6 +1168,7 @@ mod tests {
             max_pending_entries: 10_000,
             per_flush_batch_size: 200,
             shutdown_flush_timeout: Duration::from_secs(1),
+            jitter_override: None,
         }
     }
 
@@ -1523,8 +1532,9 @@ mod tests {
         //      window or at interval creation.
         //   2. Subsequent ticks drive flushes on the configured cadence.
         //
-        // Paused-time timing model. Jitter is in [0, 100ms] for
-        // flush_interval = 1s. We yield *before* advancing so the flusher
+        // Paused-time timing model. Jitter is pinned to exactly 100ms via
+        // `jitter_override` (production picks a random value in [0, 100ms]
+        // for flush_interval = 1s). We yield *before* advancing so the flusher
         // parks on its `sleep(jitter)` at virtual t=0 — otherwise the
         // sleep deadline would be set relative to whatever virtual time
         // we'd already advanced to. Advancing past max_jitter wakes the
@@ -1537,6 +1547,9 @@ mod tests {
             redis.clone(),
             BillingAggregatorConfig {
                 flush_interval,
+                // Pin jitter to 100ms so the interval is created at t=101ms
+                // and the first real tick fires at t=1101ms deterministically.
+                jitter_override: Some(Duration::from_millis(100)),
                 ..test_config()
             },
         );
@@ -1546,8 +1559,9 @@ mod tests {
         // Park the flusher on its jitter sleep before any advance.
         tokio::task::yield_now().await;
 
-        // Advance past max jitter so the sleep wakes; the flusher then
-        // installs its interval and swallows the immediate first tick.
+        // Advance past the pinned jitter (100ms) so the sleep wakes; the
+        // flusher then installs its interval and swallows the immediate
+        // first tick.
         tokio::time::advance(Duration::from_millis(101)).await;
         for _ in 0..16 {
             tokio::task::yield_now().await;
@@ -1560,7 +1574,8 @@ mod tests {
              real tick had a chance to elapse"
         );
 
-        // Just before the first real tick (at ≈ 1101ms).
+        // Just before the first real tick (at t=1101ms). We're at t=101ms,
+        // advance 998ms to t=1099ms < 1101ms.
         tokio::time::advance(Duration::from_millis(998)).await;
         for _ in 0..16 {
             tokio::task::yield_now().await;

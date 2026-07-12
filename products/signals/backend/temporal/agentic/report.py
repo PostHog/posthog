@@ -15,6 +15,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import is_available_for_team
+from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
 from products.signals.backend.artefact_schemas import ArtefactContent, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
@@ -331,6 +332,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
                 input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
             )
+            agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
+                input.team_id, STEP_RESEARCH
+            )
             context = CustomPromptSandboxContext(
                 team_id=input.team_id,
                 user_id=user_id,
@@ -340,6 +344,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 # artefacts, but never writes artefacts itself — the pipeline persists its
                 # structured outputs after the session.
                 posthog_mcp_scopes="read_only",
+                model=agent_runtime.model,
+                runtime_adapter=agent_runtime.runtime_adapter,
+                reasoning_effort=agent_runtime.reasoning_effort,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             # 2. Load previous research if this is a re-promoted report

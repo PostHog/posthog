@@ -209,7 +209,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
     listeners(({ actions, values }) => ({
         submitReauthenticationSuccess: () => {
             if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                values.timeSensitiveAuthenticationRequired[0]() // Resolve
+                values.timeSensitiveAuthenticationRequired[0]() // Signal success
             }
             posthog.capture('reauthentication_completed')
             actions.setTimeSensitiveAuthenticationRequired(false)
@@ -218,7 +218,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         },
         beginPasskey2FASuccess: () => {
             if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                values.timeSensitiveAuthenticationRequired[0]() // Resolve
+                values.timeSensitiveAuthenticationRequired[0]() // Signal success
             }
             posthog.capture('reauthentication_completed', { method: 'passkey_2fa' })
             actions.setTimeSensitiveAuthenticationRequired(false)
@@ -227,13 +227,13 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         },
         submitReauthenticationFailure: () => {
             if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                values.timeSensitiveAuthenticationRequired[1]() // Reject
+                values.timeSensitiveAuthenticationRequired[1]() // Signal failure/dismissal
             }
         },
         setDismissedReauthentication: ({ value }) => {
             if (value) {
                 if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                    values.timeSensitiveAuthenticationRequired[1]() // Reject
+                    values.timeSensitiveAuthenticationRequired[1]() // Signal failure/dismissal
                 }
                 posthog.capture('reauthentication_modal_dismissed')
             }
@@ -243,9 +243,12 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 // Here we try to offer a better UX by forcing re-authentication if they are about to timeout
                 // which is nicer than when they try to do something later and get a 403.
                 // We also make this a promise, so that `checkReauthentication` callsites can await
-                // `asyncActions.checkReauthentication()` and proceed once re-authentication is completed
-                return new Promise((resolve, reject) =>
-                    actions.setTimeSensitiveAuthenticationRequired([resolve, reject])
+                // `asyncActions.checkReauthentication()` and proceed once the flow concludes.
+                // Dismissal/failure resolves rather than rejects: the mount-time dispatch is
+                // fire-and-forget, so a rejection (especially a bare `reject()`) surfaces as an
+                // unhandled TypeError in kea's listener wrapper.
+                return new Promise<void>((resolve) =>
+                    actions.setTimeSensitiveAuthenticationRequired([resolve, resolve])
                 )
             }
         },

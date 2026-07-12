@@ -187,6 +187,16 @@ export class PgApprovalStore implements ApprovalStore {
         return Number(r.rows[0]?.count ?? 0)
     }
 
+    async countQueuedBySession(sessionId: string): Promise<number> {
+        const r = await this.pool.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count
+             FROM agent_tool_approval_request
+             WHERE session_id = $1 AND state = 'queued'`,
+            [sessionId]
+        )
+        return Number(r.rows[0]?.count ?? 0)
+    }
+
     private async runList(
         whereSeed: string,
         seedParams: unknown[],

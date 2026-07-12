@@ -32,7 +32,7 @@ source of truth for freshness.
 
 Force-refresh is used deliberately. The DEFAULT execution mode gates on the
 HogQL query result cache (6h staleness), which is the wrong clock for a
-precompute warmer whose buckets expire on a much shorter TTL (2h for
+precompute warmer whose buckets expire on a much shorter TTL (4h for
 today's bucket) — it would skip tiles whose Redis result is still "fresh"
 while the precompute they feed has gone cold. Force-refresh always recomputes,
 so every tick re-enters the precompute path. Crucially it goes through `run()`
@@ -45,7 +45,7 @@ harmless; the user-facing replay warming is `cache_warming.py`'s job.
 Why this exists
 ---------------
 The lazy precompute path caches per-day buckets in `web_*_preaggregated`
-tables with a 2h TTL. For high-traffic teams the dashboard's main tiles
+tables with a 4h TTL on the today window. For high-traffic teams the dashboard's main tiles
 are requested constantly — there is no reason to compute them reactively.
 Running the same query set ahead of every reasonable visit keeps the
 cache perpetually warm, so user requests turn into pure reads.
@@ -265,14 +265,16 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
         # through to the raw stats query and the paths preagg table stays cold.
         if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE):
             query["includeBounceRate"] = True
-        # EXIT_PAGE is served by the simple precompute, which bakes the cleaned-or-raw
-        # path into the stored breakdown value and the job hash (unlike PAGE/INITIAL_PAGE,
-        # whose paths precompute stores raw paths and cleans at read time). The End-paths
-        # tile sends `doPathCleaning=isPathCleaningEnabled` (true for teams with cleaning
-        # rules), so without this the warmer fills the raw variant while the dashboard
-        # reads the cleaned one and misses. True is a no-op for teams without cleaning
-        # rules (`apply_path_cleaning` returns the bare expression → identical hash).
-        if breakdown == WebStatsBreakdown.EXIT_PAGE:
+        # Every path breakdown bakes the cleaned-or-raw path into the stored breakdown
+        # value at INSERT time (#65660 for PAGE/INITIAL_PAGE via the paths precompute,
+        # and the simple precompute for EXIT_PAGE), so cleaned and raw are distinct job
+        # hashes. The dashboard tiles send `doPathCleaning=isPathCleaningEnabled` (true
+        # for teams with cleaning rules); without matching it here the warmer fills the
+        # raw variant while those teams' dashboards read the cleaned one and stay
+        # permanently cold, rebuilding synchronously on every real load. True is a
+        # no-op for teams without cleaning rules (`apply_path_cleaning` returns the
+        # bare expression, so the hash is identical).
+        if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.EXIT_PAGE):
             query["doPathCleaning"] = True
         queries.append(query)
 
@@ -312,9 +314,9 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             # Self-check the warm actually did its job: the tile must resolve to a
             # precompute read, not fall through to raw. `preComputeStrategy == LAZY_PRECOMPUTE` is only
             # True when the read passed the lazy executor's TTL freshness filter
-            # (`created_at + TTL >= now`; per LAZY_TTL_SECONDS the TTL ranges from 2h for
+            # (`created_at + TTL >= now`; per LAZY_TTL_SECONDS the TTL ranges from 4h for
             # today's window up to 14d for the oldest windows), so True is a
-            # guarantee the precomputed value is well within the current 2h TTL. A tile
+            # guarantee the precomputed value is well within the current 4h TTL. A tile
             # that comes back `not True` warmed nothing useful — surface it loudly so a
             # stale/missing precompute or a non-precomputable breakdown can't hide.
             if getattr(response, "preComputeStrategy", None) != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE:
@@ -532,7 +534,7 @@ def web_analytics_eager_baseline_warming_job():
     # holds, delete this schedule + job. Left running (not `default_status`
     # STOPPED) so the stop is an explicit operational toggle, not a silent
     # code-deploy behavior change.
-    # Hourly. The lazy cache's 2h TTL absorbs a single missed cycle, so
+    # Hourly. The lazy cache's 4h today-TTL absorbs missed cycles, so
     # there's no need to align with shorter cadences. Offset by 5 min from
     # the top of the hour to avoid colliding with the existing
     # `web_analytics_cache_warming_schedule` (`0 * * * *`).

@@ -1,6 +1,7 @@
 """Tests for the review_pr.py output format."""
 
 import sys
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock
@@ -13,6 +14,15 @@ sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 import review_pr  # noqa: E402
 from github import PRData  # noqa: E402
 from review_pr import GateResult, Pipeline  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_live_team_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Ownership resolves against the real repo tree, so fixture paths can match
+    # a real owning team and _summarize_ownership would then shell out to
+    # `gh api` mid-test - slow, network-dependent, and it trips tests that
+    # assert the pipeline never sleeps (subprocess waits sleep internally).
+    monkeypatch.setattr(review_pr, "check_team_membership", lambda *_a, **_k: False)
 
 
 def _fake_pr(head_sha: str) -> PRData:
@@ -32,6 +42,23 @@ def _fake_pr(head_sha: str) -> PRData:
         review_comments=[],
         check_runs=[],
     )
+
+
+def test_summarize_assurance_counts_threads_not_flattened_replies() -> None:
+    # A single unresolved thread with three replies must read as one unresolved
+    # thread, not four: replies inherit the thread's resolution state, and the
+    # assurance line the reviewer trusts would otherwise overstate open feedback.
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.review_comments = [
+        {"in_reply_to_id": None, "is_resolved": False, "is_outdated": False},
+        {"in_reply_to_id": 1, "is_resolved": False, "is_outdated": False},
+        {"in_reply_to_id": 1, "is_resolved": False, "is_outdated": False},
+        {"in_reply_to_id": 1, "is_resolved": False, "is_outdated": False},
+    ]
+    pipeline.pr = pr
+
+    assert pipeline._summarize_assurance()["unresolved_threads"] == 1
 
 
 def test_to_dict_includes_head_sha() -> None:
@@ -331,10 +358,15 @@ def test_title_flags_respect_exempt_paths(
     assert pipeline.classification["title_scrutiny_flags"] == expected_flags
 
 
-def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # A deny-listed PR can't be approved over an in-flight review, so waiting
     # 5 minutes before the inevitable REFUSE is pure runner cost.
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    # Stub the diff production: the review path would otherwise shell out to a real
+    # `git diff` here, whose internal waiting trips the sleep trap below.
+    diff_path = tmp_path / "diff.patch"
+    diff_path.write_text("")
+    monkeypatch.setattr(review_pr, "write_pr_diff", lambda *a, **k: diff_path)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: pytest.fail("gate-denied PR must not wait"))
 
     class _RefusingReviewer:

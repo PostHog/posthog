@@ -29,9 +29,6 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
 
         if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties
-            #
-            # See ee/clickhouse/queries/trends/breakdown.py#get_query or
-            # ee/clickhouse/queries/breakdown_props.py#get_breakdown_prop_values
             if self.filter.breakdown_type in ["event", "person"]:
                 boxed_breakdown = box_value(self.filter.breakdown)
                 for b in boxed_breakdown:

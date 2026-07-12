@@ -106,11 +106,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "list_profiles": {
-        "description": "A flat join table mapping which profiles belong to which Klaviyo list.",
-        "docs_url": "https://developers.klaviyo.com/en/reference/get_list_relationships_profiles",
+        "description": "A flat join table mapping which profiles belong to which Klaviyo list. Rows for profiles removed from a list are only pruned by a full refresh.",
+        "docs_url": "https://developers.klaviyo.com/en/reference/get_profiles_for_list",
         "columns": {
             "list_id": "Identifier of the list.",
             "profile_id": "Identifier of a profile that is a member of the list.",
+            "joined_group_at": "The datetime when the profile most recently joined the list. Updated if the profile re-joins.",
         },
     },
 }

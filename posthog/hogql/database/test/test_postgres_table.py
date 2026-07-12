@@ -38,6 +38,23 @@ _SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
     name: table for name, table in ALL_POSTGRES_SYSTEM_TABLES if table.access_scope is not None
 }
 
+# Facade-isolated products route data through their facade: their viewsets declare
+# `queryset = None` and DTO serializers, so the object-restrictable model can't be derived
+# from the viewset. Declared by db_table so product internals stay unimported here.
+_FACADE_OBJECT_GRANT_TABLES: dict[str, str] = {
+    "customer_analytics_account": "account",
+}
+
+# Team-level definition tables gated under an object-restrictable scope for resource-level
+# access only: their rows describe shapes shared by every account, not any single account's
+# data, so object-level denies don't apply (the default pk guard never matches a denied id).
+_SCOPE_GATED_METADATA_TABLES: frozenset[str] = frozenset(
+    {
+        "custom_property_definitions",
+        "account_relationship_definitions",
+    }
+)
+
 
 @lru_cache(maxsize=1)
 def _object_grant_registry() -> dict[type[Model], str]:
@@ -66,6 +83,8 @@ def _object_grant_registry() -> dict[type[Model], str]:
             model = getattr(meta, "model", None)
         if model is not None:
             registry[model] = scope
+    for db_table, scope in _FACADE_OBJECT_GRANT_TABLES.items():
+        registry[_model_by_pg_table()[db_table]] = scope
     return registry
 
 
@@ -457,6 +476,14 @@ class TestObjectAccessControlIdField(SimpleTestCase):
             self.assertIsNone(
                 table.access_control_id_field,
                 f"system.{table_name} scope '{scope}' has no object-level grants; remove access_control_id_field.",
+            )
+            return
+
+        if table_name in _SCOPE_GATED_METADATA_TABLES:
+            self.assertIsNone(
+                table.access_control_id_field,
+                f"system.{table_name} is team-level metadata under '{scope}'; object-level denies "
+                f"don't apply to it — leave access_control_id_field unset.",
             )
             return
 

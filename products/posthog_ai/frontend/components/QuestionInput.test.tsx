@@ -97,7 +97,7 @@ describe('QuestionInput', () => {
 
         fireEvent.click(screen.getByText('Insights'))
         fireEvent.click(screen.getByText('Flags'))
-        fireEvent.click(screen.getByRole('button', { name: 'Submit' }))
+        fireEvent.click(screen.getByText('Submit'))
 
         expect(respondToPermission).toHaveBeenCalledWith({
             requestId: 'req-1',
@@ -113,7 +113,7 @@ describe('QuestionInput', () => {
         // Open the custom "Type your answer" field, type, and submit.
         fireEvent.click(screen.getByText("Explain what you'd like instead."))
         fireEvent.change(screen.getByPlaceholderText('Type your answer...'), { target: { value: 'Cut churn' } })
-        fireEvent.click(screen.getByRole('button', { name: 'Submit' }))
+        fireEvent.click(screen.getByText('Submit'))
 
         expect(respondToPermission).toHaveBeenCalledWith({
             requestId: 'req-1',
@@ -132,7 +132,7 @@ describe('QuestionInput', () => {
         }
         render(<QuestionInput streamKey="conv-1" request={makeRequest([productsQuestion])} />)
 
-        fireEvent.click(screen.getByRole('button', { name: 'Submit' }))
+        fireEvent.click(screen.getByText('Submit'))
 
         expect(screen.getByText('Select at least one option')).toBeInTheDocument()
         expect(respondToPermission).not.toHaveBeenCalled()

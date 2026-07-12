@@ -70,8 +70,8 @@ export const organizationIntegrationsLogic = kea<organizationIntegrationsLogicTy
                             await api.organizationIntegrations.delete(id)
                             lemonToast.success('Integration disconnected.')
                             actions.loadOrganizationIntegrations()
-                        } catch {
-                            lemonToast.error('Failed to disconnect integration. Please try again.')
+                        } catch (error: any) {
+                            lemonToast.error(error?.detail || 'Failed to disconnect integration. Please try again.')
                         }
                     },
                 },

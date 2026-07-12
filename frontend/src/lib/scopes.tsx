@@ -22,9 +22,9 @@ export type APIScope = {
 // both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
 // and the copy can't drift. `ScopeAccessRow` renders warnings as plain text — no markdown formatting.
 export const SCOPES_IMPLYING_FEATURE_FLAG_WRITE: Partial<Record<APIScopeObject, string>> = {
-    survey: 'Surveys with targeting also manage a feature flag, so this key needs feature_flag:write too.',
+    survey: 'Surveys with targeting also manage a feature flag, so this key needs write access to feature flags too.',
     early_access_feature:
-        'Early access features manage a linked feature flag, so this key needs feature_flag:write too.',
+        'Early access features manage a linked feature flag, so this key needs write access to feature flags too.',
 }
 
 export const API_SCOPES: APIScope[] = [
@@ -94,6 +94,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    {
+        key: 'ingestion_warning',
+        objectName: 'Ingestion warning',
+        objectPlural: 'ingestion warnings',
+        disabledActions: ['write'],
+    },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
@@ -151,9 +157,7 @@ export const API_SCOPES: APIScope[] = [
         key: 'project',
         objectName: 'Project',
         objectPlural: 'projects',
-        warnings: {
-            write: 'This scope can be used to create or modify projects, including settings about how data is ingested.',
-        },
+        info: 'If you grant write access, this scope can be used to create or modify projects, including settings about how data is ingested.',
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },

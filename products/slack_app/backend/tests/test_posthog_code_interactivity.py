@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.integration import Integration
@@ -15,7 +16,16 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.api import _picker_context_cache_key
+from products.slack_app.backend.models import SlackPermissionMode, SlackSettings
+from products.slack_app.backend.services.agent_permissions import (
+    SLACK_PERMISSION_ACTION_APPROVE,
+    SLACK_PERMISSION_ACTION_DENY,
+    SLACK_PERMISSION_ACTION_SELECT,
+    SLACK_PERMISSION_CONTEXT_KIND,
+)
 from products.slack_app.backend.tests.helpers import sign_slack_request
+from products.tasks.backend.models import Task, TaskRun
 
 
 class TestPostHogCodeInteractivityHandler(TestCase):
@@ -234,6 +244,88 @@ class TestRepoPickerOptions(TestCase):
         assert "without a repository" in update_call["text"].lower()
 
     @patch("posthog.models.integration.WebClient")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_continue_as_bot_signals_authorship_confirmed(self, mock_config, mock_sync_connect, mock_webclient_class):
+        from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_webclient_class.return_value = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.signal = AsyncMock()
+        mock_sync_connect.return_value.get_workflow_handle.return_value = mock_handle
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "posthog_code_continue_as_bot",
+                    "value": json.dumps(
+                        {
+                            "workflow_id": "posthog-code-mention-T12345:C001:1234.5678",
+                            "integration_id": self.posthog_code_integration.id,
+                            "mentioning_slack_user_id": "U123",
+                        }
+                    ),
+                    "action_ts": "1700000000.123",
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+        response = self._post_interactivity(payload)
+        assert response.status_code == 200
+        mock_sync_connect.return_value.get_workflow_handle.assert_called_once_with(
+            "posthog-code-mention-T12345:C001:1234.5678"
+        )
+        mock_handle.signal.assert_called_once_with(PostHogCodeSlackMentionWorkflow.authorship_confirmed)
+        mock_webclient_class.return_value.chat_update.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("clicker_mismatch", "U_OTHER", "U123"),
+            ("missing_expected_user_fails_closed", "U123", None),
+        ]
+    )
+    @patch("posthog.models.integration.WebClient")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_continue_as_bot_does_not_signal_without_verified_mentioner(
+        self, _name, clicker_id, expected_user_id, mock_config, mock_sync_connect, mock_webclient_class
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_webclient_class.return_value = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.signal = AsyncMock()
+        mock_sync_connect.return_value.get_workflow_handle.return_value = mock_handle
+
+        value = {
+            "workflow_id": "posthog-code-mention-T12345:C001:1234.5678",
+            "integration_id": self.posthog_code_integration.id,
+        }
+        if expected_user_id is not None:
+            value["mentioning_slack_user_id"] = expected_user_id
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": clicker_id},
+            "actions": [
+                {
+                    "action_id": "posthog_code_continue_as_bot",
+                    "value": json.dumps(value),
+                    "action_ts": "1700000000.123",
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+        response = self._post_interactivity(payload)
+        assert response.status_code == 200
+        mock_sync_connect.assert_not_called()
+        mock_handle.signal.assert_not_called()
+
+    @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_submit_without_workflow_id_posts_expired(self, mock_config, mock_webclient_class):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
@@ -260,6 +352,254 @@ class TestRepoPickerOptions(TestCase):
         mock_client.chat_postMessage.assert_called_once()
         assert "selection expired" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
         assert "posthog again" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
+
+    def _create_permission_run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="Create PDF",
+            created_by=self.user,
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_url": "https://sandbox.example.com"},
+        )
+
+    def _cache_permission_context(self, task_run: TaskRun, token: str = "permission-token") -> str:
+        cache.set(
+            _picker_context_cache_key(token),
+            {
+                "kind": SLACK_PERMISSION_CONTEXT_KIND,
+                "integration_id": self.posthog_code_integration.id,
+                "slack_workspace_id": "T12345",
+                "channel": "C001",
+                "thread_ts": "1234.5678",
+                "task_id": str(task_run.task_id),
+                "run_id": str(task_run.id),
+                "request_id": "perm-1",
+                "expected_slack_user_id": "U123",
+                "default_option_id": "allow",
+                "reject_option_id": "reject",
+                "options": [
+                    {"optionId": "allow", "kind": "allow_once", "label": "Allow"},
+                    {"optionId": "always", "kind": "allow_always", "label": "Always allow this command"},
+                    {"optionId": "reject", "kind": "reject_once", "label": "Deny"},
+                ],
+            },
+            timeout=900,
+        )
+        return token
+
+    def _permission_payload(
+        self,
+        action_id: str,
+        token: str = "permission-token",
+        user_id: str = "U123",
+    ) -> dict:
+        return {
+            "type": "block_actions",
+            "user": {"id": user_id},
+            "response_url": "https://hooks.slack.example/permission",
+            "actions": [{"action_id": action_id, "value": token}],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+
+    def _permission_config_payload(
+        self,
+        token: str = "permission-token",
+        user_id: str = "U123",
+        selected_mode: str = SlackPermissionMode.FULL_AUTO,
+    ) -> dict:
+        block_id = f"posthog_code_permission_config:{token}"
+        return {
+            "type": "block_actions",
+            "user": {"id": user_id},
+            "response_url": "https://hooks.slack.example/permission",
+            "actions": [
+                {
+                    "action_id": SLACK_PERMISSION_ACTION_SELECT,
+                    "block_id": block_id,
+                    "selected_option": {"value": selected_mode},
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_approve_sends_default_option(
+        self,
+        mock_config,
+        mock_resolve_slack_user,
+        mock_signal_permission_response,
+        mock_requests_post,
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_resolve_slack_user.return_value = SimpleNamespace(user=self.user, slack_email=self.user.email)
+        task_run = self._create_permission_run()
+        token = self._cache_permission_context(task_run)
+
+        response = self._post_interactivity(self._permission_payload(SLACK_PERMISSION_ACTION_APPROVE, token))
+
+        assert response.status_code == 200
+        mock_signal_permission_response.assert_called_once_with(
+            task_run.id,
+            task_run.task_id,
+            task_run.team_id,
+            request_id="perm-1",
+            option_id="allow",
+            actor_user_id=self.user.id,
+            actor_slack_user_id="U123",
+            is_denial=False,
+            denial_message=None,
+            broker_reason="slack_human_response",
+        )
+        mock_requests_post.assert_called_once()
+        assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
+        assert mock_requests_post.call_args.kwargs["json"]["blocks"][0]["type"] == "card"
+        assert mock_requests_post.call_args.kwargs["json"]["text"] == "Approval recorded"
+        assert "body" not in mock_requests_post.call_args.kwargs["json"]["blocks"][0]
+        assert cache.get(_picker_context_cache_key(token)) is None
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_deny_sends_reject_option(
+        self,
+        mock_config,
+        mock_resolve_slack_user,
+        mock_signal_permission_response,
+        mock_requests_post,
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_resolve_slack_user.return_value = SimpleNamespace(user=self.user, slack_email=self.user.email)
+        task_run = self._create_permission_run()
+        token = self._cache_permission_context(task_run)
+
+        response = self._post_interactivity(self._permission_payload(SLACK_PERMISSION_ACTION_DENY, token))
+
+        assert response.status_code == 200
+        mock_signal_permission_response.assert_called_once()
+        signal_args = mock_signal_permission_response.call_args
+        assert signal_args.args == (task_run.id, task_run.task_id, task_run.team_id)
+        assert signal_args.kwargs["request_id"] == "perm-1"
+        assert signal_args.kwargs["option_id"] == "reject"
+        assert signal_args.kwargs["actor_user_id"] == self.user.id
+        assert signal_args.kwargs["actor_slack_user_id"] == "U123"
+        assert signal_args.kwargs["is_denial"] is True
+        assert "denied your approval request" in signal_args.kwargs["denial_message"]
+        assert "Try a different safe approach" in signal_args.kwargs["denial_message"]
+        assert signal_args.kwargs["broker_reason"] == "slack_human_response"
+        assert mock_requests_post.call_args.kwargs["json"]["text"] == "Denial recorded"
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_deny_keeps_context_when_workflow_signal_fails(
+        self,
+        mock_config,
+        mock_resolve_slack_user,
+        mock_signal_permission_response,
+        mock_requests_post,
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_resolve_slack_user.return_value = SimpleNamespace(user=self.user, slack_email=self.user.email)
+        mock_signal_permission_response.return_value = False
+        task_run = self._create_permission_run()
+        token = self._cache_permission_context(task_run)
+
+        response = self._post_interactivity(self._permission_payload(SLACK_PERMISSION_ACTION_DENY, token))
+
+        assert response.status_code == 200
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
+        assert "couldn't queue that response" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert cache.get(_picker_context_cache_key(token)) is not None
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_wrong_user_gets_ephemeral_feedback(
+        self,
+        mock_config,
+        mock_signal_permission_response,
+        mock_requests_post,
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        task_run = self._create_permission_run()
+        token = self._cache_permission_context(task_run)
+
+        response = self._post_interactivity(
+            self._permission_payload(SLACK_PERMISSION_ACTION_APPROVE, token, user_id="U_OTHER")
+        )
+
+        assert response.status_code == 200
+        mock_signal_permission_response.assert_not_called()
+        mock_requests_post.assert_called_once()
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
+
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response")
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_config_select_persists_user_setting(
+        self,
+        mock_config,
+        mock_requests_post,
+        mock_signal_permission_response,
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        # Pre-existing routing pick to a different project — saving a permission mode from an
+        # approval card bound to posthog_code_integration must not repoint it.
+        routing_team = Team.objects.create(organization=self.organization, name="Other Project")
+        routing_integration = Integration.objects.create(
+            team=routing_team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+        SlackSettings.objects.create(
+            slack_workspace_id="T12345",
+            slack_user_id="U123",
+            default_integration=routing_integration,
+        )
+        task_run = self._create_permission_run()
+        token = self._cache_permission_context(task_run)
+
+        response = self._post_interactivity(
+            self._permission_config_payload(token, selected_mode=SlackPermissionMode.FULL_AUTO)
+        )
+
+        assert response.status_code == 200
+        mock_signal_permission_response.assert_not_called()
+        settings = SlackSettings.objects.get(slack_workspace_id="T12345", slack_user_id="U123")
+        assert settings.default_integration_id == routing_integration.id
+        # Scoped to the card's integration only — never a workspace-wide grant.
+        assert settings.permission_modes == {str(self.posthog_code_integration.id): SlackPermissionMode.FULL_AUTO}
+        task_run.refresh_from_db()
+        assert task_run.state["slack_permission_mode"] == SlackPermissionMode.FULL_AUTO
+        mock_requests_post.assert_called_once()
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
+        assert "Full auto" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert cache.get(_picker_context_cache_key(token)) is not None
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_click_after_context_expiry_gets_ephemeral_feedback(self, mock_config, mock_requests_post):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+
+        response = self._post_interactivity(self._permission_payload(SLACK_PERMISSION_ACTION_APPROVE, "expired-token"))
+
+        assert response.status_code == 200
+        mock_requests_post.assert_called_once()
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
+        assert "expired" in mock_requests_post.call_args.kwargs["json"]["text"].lower()
 
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")

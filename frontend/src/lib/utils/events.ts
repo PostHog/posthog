@@ -42,6 +42,27 @@ export function getEventsWithPrimaryProperty<T extends { event: string }>(
     return events.filter((e) => getPrimaryPropertyForEvent(e.event, overrides) !== null)
 }
 
+/**
+ * The distinct set of primary properties promoted for a list of event names
+ * (taxonomy default first, then team override). Pure client-side — shared by
+ * `taxonomicFilterLogic`'s `eventNamesWithPrimaryProperties` selector and
+ * `useTaxonomicGroupsContext`'s headless equivalent so both express
+ * "taxonomy default first, then team override, distinct" once.
+ */
+export function distinctPrimaryPropertiesForEvents(
+    eventNames: string[],
+    overrides?: Record<string, string | null | undefined>
+): string[] {
+    const distinct = new Set<string>()
+    for (const eventName of eventNames) {
+        const primary = getPrimaryPropertyForEvent(eventName, overrides)
+        if (primary) {
+            distinct.add(primary)
+        }
+    }
+    return Array.from(distinct)
+}
+
 export function eventToDescription(
     event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     shortForm: boolean = false
