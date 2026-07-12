@@ -702,6 +702,7 @@ describe('maxContextLogic', () => {
             // Simulate the dashboard scene being active, mirroring how dashboardLogic.maxContext
             // builds its context from the (not yet fully loaded) dashboard value.
             jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue({
+                isMounted: () => true,
                 selectors: {
                     maxContext: () => [createMaxContextHelpers.dashboard(dashboardWithoutTiles)],
                 },
@@ -729,6 +730,7 @@ describe('maxContextLogic', () => {
             jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
             jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue({
+                isMounted: () => true,
                 selectors: {
                     maxContext: () => {
                         throw new Error('boom from scene maxContext')
@@ -747,6 +749,47 @@ describe('maxContextLogic', () => {
                 expect.objectContaining({ message: 'boom from scene maxContext' }),
                 expect.objectContaining({ feature: 'max_scene_context' })
             )
+        })
+
+        it('does not read (or report) context for a scene logic caught mid-unmount', async () => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            const maxContext = jest.fn(() => [createMaxContextHelpers.dashboard(mockDashboard)])
+
+            jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue({
+                isMounted: () => false,
+                selectors: { maxContext },
+            } as any)
+            jest.spyOn(sceneLogic.selectors, 'activeLoadedScene').mockReturnValue({
+                paramsToProps: () => ({}),
+                sceneParams: {},
+            } as any)
+
+            await expectLogic(logic).toMatchValues({ sceneContext: [] })
+
+            expect(maxContext).not.toHaveBeenCalled()
+            expect(captureException).not.toHaveBeenCalled()
+        })
+
+        it('treats a "Can not find path" throw as a benign mid-unmount race, not an exception', async () => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+            jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue({
+                isMounted: () => true,
+                selectors: {
+                    maxContext: () => {
+                        throw new Error('[KEA] Can not find path scenes.dashboard.dashboardLogic in the store')
+                    },
+                },
+            } as any)
+            jest.spyOn(sceneLogic.selectors, 'activeLoadedScene').mockReturnValue({
+                paramsToProps: () => ({}),
+                sceneParams: {},
+            } as any)
+
+            await expectLogic(logic).toMatchValues({ sceneContext: [] })
+
+            expect(captureException).not.toHaveBeenCalled()
         })
     })
 })

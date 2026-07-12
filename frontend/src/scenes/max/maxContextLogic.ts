@@ -525,7 +525,16 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 (state): MaxContextInput[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, {})
 
-                    if (activeSceneLogic && 'maxContext' in activeSceneLogic.selectors) {
+                    // During a scene transition, sceneLogic can still resolve the outgoing scene's
+                    // (keyed) logic reference after kea has already unmounted it. Reading its
+                    // maxContext then walks into a store path that no longer exists and throws
+                    // "Can not find path". Skip the read while unmounted — the next recompute after
+                    // the new scene mounts returns fresh context.
+                    if (
+                        activeSceneLogic &&
+                        activeSceneLogic.isMounted() &&
+                        'maxContext' in activeSceneLogic.selectors
+                    ) {
                         try {
                             const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, {})
                             return activeSceneLogic.selectors.maxContext(
@@ -533,8 +542,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || {}
                             )
                         } catch (error) {
-                            // Surface the failure instead of silently returning empty context.
-                            reportSceneContextError(error)
+                            // A logic caught mid-unmount throws a benign "Can not find path" — treat
+                            // that as a transient race and skip it quietly. Surface everything else
+                            // so genuine context-build bugs don't get swallowed.
+                            if (!(error instanceof Error && error.message.includes('Can not find path'))) {
+                                reportSceneContextError(error)
+                            }
                         }
                     }
                     return []
