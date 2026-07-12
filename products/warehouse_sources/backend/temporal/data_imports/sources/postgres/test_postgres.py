@@ -98,6 +98,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_partitioned_table,
     _is_read_replica,
     _is_unsupported_function_error,
+    _is_unsupported_statement_timeout_error,
     _next_recovery_conflict_chunk_size,
     _normalize_function_names,
     _pk_uniqueness_probe_timeout_error,
@@ -6307,6 +6308,29 @@ class TestIsUnsupportedFunctionError:
         assert _is_unsupported_function_error(error, "row_security_active") is expected
 
 
+class TestIsUnsupportedStatementTimeoutError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            # AWS Aurora DSQL / poolers: accept the connection but reject the SET as unsupported.
+            (
+                psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported'),
+                True,
+            ),
+            # Same shape surfaced by a proxy as a generic error without the psycopg subclass.
+            (Exception('setting configuration parameter "statement_timeout" not supported'), True),
+            # Bare FeatureNotSupported (SQLSTATE 0A000) means "engine lacks this feature".
+            (psycopg.errors.FeatureNotSupported("0A000"), True),
+            # A real statement_timeout firing is QueryCanceled ("statement timeout", no underscore,
+            # not "unsupported") — must NOT be mistaken for the engine lacking the knob.
+            (psycopg.errors.QueryCanceled("canceling statement due to statement timeout"), False),
+            (Exception("connection reset by peer"), False),
+        ],
+    )
+    def test_recognises_unsupported_statement_timeout(self, error, expected):
+        assert _is_unsupported_statement_timeout_error(error) is expected
+
+
 class TestRlsActiveFromConnErrorHandling:
     @staticmethod
     def _conn_raising(exc: Exception):
@@ -6320,6 +6344,20 @@ class TestRlsActiveFromConnErrorHandling:
         # A Postgres-wire engine without `row_security_active` is an expected shape: degrade to no
         # RLS warnings without flooding error tracking.
         conn = self._conn_raising(psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG))
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_unsupported_statement_timeout_error_is_not_captured(self):
+        # AWS Aurora DSQL (and some poolers) reject the best-effort `SET LOCAL statement_timeout`
+        # with FeatureNotSupported. RLS discovery is best-effort, so degrade to no warnings without
+        # flooding error tracking.
+        conn = self._conn_raising(
+            psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
+        )
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:
