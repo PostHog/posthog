@@ -3,11 +3,13 @@
 For multi-step workflows (read → filter → mutate many objects), write one TypeScript script against `@posthog/sdk` instead of many `call` round trips.
 
 ```text
-types <query>                                    # search SDK methods (regex or substring); signatures are scope-annotated for this token
-types show <symbol | domain.method | domain>     # full TS declarations plus related types, to a token budget
+types <query>                                    # search SDK methods and types (regex or substring); signatures are scope-annotated for this token
+types <TypeName... | domain.method | domain>     # exact names (space-separated for several) return full TS declarations; references come back as fetch hints
 run <typescript source>                          # compile-check, then execute the script
 apply <plan token>                               # apply a previously returned plan after the user confirms
 ```
+
+`types` picks its mode by exactness: if every token names an exact symbol you get those declarations and nothing more; anything else is a search. Output is char-capped — truncations name the exact follow-up `types` call, so never guess a cut-off declaration.
 
 Script contract: `import { client } from '@posthog/sdk'`, top-level `await` is fine, and the script must `export default` the value to return. Only `@posthog/sdk` can be imported. Discover the exact method signatures with `types` first — do not guess them.
 

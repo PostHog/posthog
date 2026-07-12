@@ -1,8 +1,14 @@
 /**
- * SDK surface discovery for the `types` / `types show` exec verbs. Search and
- * expansion run over the generated discovery index (a codegen-time artifact),
- * never over runtime type-walking. Results are scope-annotated per session so
- * agents know before writing a script which methods their token can call.
+ * SDK surface discovery for the `types` exec verb. One verb, two modes,
+ * disambiguated by exactness: when every whitespace/comma-separated token of
+ * the input resolves exactly (method id → type name → domain prefix) the verb
+ * fetches exactly those declarations; otherwise the whole input is one search
+ * pattern. Fetch responses stay lean — referenced types surface as hints, not
+ * inlined bodies — and are hard-capped at `TYPES_CHAR_LIMIT`, with every
+ * truncation naming the follow-up call. Both modes run over the generated
+ * discovery index (a codegen-time artifact), never over runtime type-walking.
+ * Results are scope-annotated per session so agents know before writing a
+ * script which methods their token can call.
  */
 
 import { hasScopes } from '@/lib/api'
@@ -25,7 +31,7 @@ export interface DiscoveryMethod {
 export interface DiscoveryType {
     name: string
     declaration: string
-    /** Direct references only — the BFS closure is computed at query time. */
+    /** Direct references only. */
     referencedTypes: string[]
     /** Precomputed `ceil(declaration.length / 4)`. */
     tokens: number
@@ -44,17 +50,18 @@ const MAX_TYPES_PATTERN_LENGTH = 200
 const MAX_SEARCH_RESULTS = 40
 
 /**
- * Token budget for a `types show` response. Sized so one expansion usually
- * answers (declaration + its reference closure) without flooding the model's
- * context — roughly half the exec layer's serialized-response cap.
+ * Hard cap on one `types` response. Fetches include whole declarations in
+ * request order while they fit; anything cut is named in a truncation hint so
+ * the agent can fetch it in a follow-up call — the response never exceeds the
+ * cap (roughly half the exec layer's serialized-response cap).
  */
-export const TYPES_SHOW_TOKEN_BUDGET = 6000
+export const TYPES_CHAR_LIMIT = 24_000
 
-const SHOW_HINT = 'Run "types show <domain.method | TypeName | domain>" to expand declarations.'
+const FETCH_HINT =
+    'Run "types <TypeName | domain.method | domain>" — exact names (several allowed, space-separated) return full declarations.'
 
 export interface Discovery {
-    search(query: string, sessionScopes: string[]): string
-    show(target: string, sessionScopes: string[]): string
+    resolve(input: string, sessionScopes: string[]): string
 }
 
 /** Annotate a signature with the session's scope standing, e.g. `[requires feature_flag:write ✓]`. */
@@ -82,6 +89,25 @@ function methodLine(method: DiscoveryMethod, sessionScopes: string[]): string {
     return `${method.signature}${title}${scopeAnnotation(method.scopes, sessionScopes)}`
 }
 
+function referencesHint(referencedTypes: string[]): string {
+    if (referencedTypes.length === 0) {
+        return ''
+    }
+    return `References — run "types ${referencedTypes.join(' ')}" for declarations`
+}
+
+type ResolvedTarget =
+    | { kind: 'method'; key: string; method: DiscoveryMethod }
+    | { kind: 'type'; key: string; type: DiscoveryType }
+    | { kind: 'domain'; key: string; domain: string; methods: DiscoveryMethod[] }
+
+/** One renderable unit of a fetch response, with what a truncation hint needs. */
+interface FetchSection {
+    label: string
+    text: string
+    referencedTypes: string[]
+}
+
 export function createDiscovery(index: DiscoveryIndex): Discovery {
     const typesByName = new Map<string, DiscoveryType>()
     for (const type of index.types) {
@@ -92,140 +118,181 @@ export function createDiscovery(index: DiscoveryIndex): Discovery {
         methodsById.set(method.id.toLowerCase(), method)
     }
 
-    /**
-     * Greedy BFS over the type-reference graph: direct references first, then
-     * transitive, each included only while its precomputed token count fits the
-     * remaining budget. A type that doesn't fit is skipped (not a hard stop) so
-     * smaller types later in the queue can still land; skipped names come back
-     * as truncation hints naming the follow-up call.
-     */
-    const fillTypes = (seedRefs: string[], budget: number): { included: DiscoveryType[]; truncated: string[] } => {
-        const included: DiscoveryType[] = []
-        const truncated: string[] = []
-        const visited = new Set<string>()
-        const queue = [...seedRefs]
-        let remaining = budget
-        while (queue.length > 0) {
-            const name = queue.shift()!
-            const key = name.toLowerCase()
-            if (visited.has(key)) {
-                continue
-            }
-            visited.add(key)
-            const type = typesByName.get(key)
-            if (!type) {
-                continue
-            }
-            if (type.tokens > remaining) {
-                truncated.push(type.name)
-                continue
-            }
-            included.push(type)
-            remaining -= type.tokens
-            queue.push(...type.referencedTypes)
+    const resolveExact = (token: string): ResolvedTarget | null => {
+        const key = token.toLowerCase()
+        const method = methodsById.get(key)
+        if (method) {
+            return { kind: 'method', key: `method:${key}`, method }
         }
-        return { included, truncated }
+        const type = typesByName.get(key)
+        if (type) {
+            return { kind: 'type', key: `type:${key}`, type }
+        }
+        const domainMethods = index.methods.filter((candidate) => candidate.id.toLowerCase().startsWith(`${key}.`))
+        if (domainMethods.length > 0) {
+            return { kind: 'domain', key: `domain:${key}`, domain: token, methods: domainMethods }
+        }
+        return null
     }
 
-    const renderTypeSection = (included: DiscoveryType[], truncated: string[]): string[] => {
-        const parts = included.map((type) => type.declaration)
-        if (truncated.length > 0) {
+    const toSection = (target: ResolvedTarget, sessionScopes: string[]): FetchSection => {
+        switch (target.kind) {
+            case 'type':
+                return {
+                    label: target.type.name,
+                    text: [target.type.declaration, referencesHint(target.type.referencedTypes)]
+                        .filter((part) => part.length > 0)
+                        .join('\n\n'),
+                    referencedTypes: target.type.referencedTypes,
+                }
+            case 'method':
+                return {
+                    label: target.method.id,
+                    text: [
+                        methodLine(target.method, sessionScopes),
+                        target.method.description,
+                        referencesHint(target.method.referencedTypes),
+                    ]
+                        .filter((part) => part.length > 0)
+                        .join('\n\n'),
+                    referencedTypes: target.method.referencedTypes,
+                }
+            case 'domain':
+                return {
+                    label: target.domain,
+                    text: target.methods.map((method) => methodLine(method, sessionScopes)).join('\n'),
+                    referencedTypes: [],
+                }
+        }
+    }
+
+    /**
+     * Assemble sections in request order under the char cap. The first section
+     * always ships (hard-truncated if it alone exceeds the cap, pointing at its
+     * referenced types); once a later section doesn't fit, it and everything
+     * after it are omitted by name so the agent can fetch them separately.
+     */
+    const renderFetch = (targets: ResolvedTarget[], sessionScopes: string[]): string => {
+        const seen = new Set<string>()
+        const sections: FetchSection[] = []
+        for (const target of targets) {
+            if (seen.has(target.key)) {
+                continue
+            }
+            seen.add(target.key)
+            sections.push(toSection(target, sessionScopes))
+        }
+
+        const parts: string[] = []
+        const omitted: string[] = []
+        let used = 0
+        for (const [i, section] of sections.entries()) {
+            if (omitted.length > 0) {
+                omitted.push(section.label)
+                continue
+            }
+            const cost = section.text.length + (parts.length > 0 ? 2 : 0)
+            if (used + cost <= TYPES_CHAR_LIMIT) {
+                parts.push(section.text)
+                used += cost
+                continue
+            }
+            if (i === 0) {
+                const refsNote =
+                    section.referencedTypes.length > 0
+                        ? ` — fetch its parts via the referenced types: ${section.referencedTypes.join(', ')}`
+                        : ''
+                parts.push(
+                    `${section.text.slice(0, TYPES_CHAR_LIMIT)}\n…[declaration truncated at ${TYPES_CHAR_LIMIT} chars${refsNote}]`
+                )
+                used = TYPES_CHAR_LIMIT
+            } else {
+                omitted.push(section.label)
+            }
+        }
+        if (omitted.length > 0) {
             parts.push(
-                truncated
-                    .map((name) => `Omitted (token budget): ${name} — run "types show ${name}" for the declaration`)
-                    .join('\n')
+                `Omitted (${TYPES_CHAR_LIMIT} char cap): ${omitted.join(', ')} — request them in a separate "types" call.`
             )
         }
-        return parts
+        return parts.join('\n\n')
+    }
+
+    const search = (query: string, sessionScopes: string[]): string => {
+        if (query.length > MAX_TYPES_PATTERN_LENGTH) {
+            throw new Error(
+                `Search pattern too long (${query.length} chars, max ${MAX_TYPES_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`
+            )
+        }
+        // The compiled regex carries no `g`/`y` flag, so it is stateless and
+        // safe to reuse across candidates.
+        const matcher = buildMatcher(query)
+        const methodMatches = index.methods.filter(
+            (method) =>
+                matcher(method.id) ||
+                matcher(method.signature) ||
+                matcher(method.title) ||
+                matcher(method.description) ||
+                method.referencedTypes.some(matcher)
+        )
+        const typeMatches = index.types.filter((type) => matcher(type.name)).map((type) => type.name)
+        if (methodMatches.length === 0 && typeMatches.length === 0) {
+            return `No SDK methods or types matched "${query}". Try a broader pattern, or "types <domain>" for a whole resource.`
+        }
+
+        const lines: string[] = []
+        const shown = methodMatches.slice(0, MAX_SEARCH_RESULTS)
+        const byCategory = new Map<string, DiscoveryMethod[]>()
+        for (const method of shown) {
+            const group = byCategory.get(method.category)
+            if (group) {
+                group.push(method)
+            } else {
+                byCategory.set(method.category, [method])
+            }
+        }
+        for (const [category, methods] of byCategory) {
+            lines.push(`${category}:`)
+            for (const method of methods) {
+                lines.push(`  ${methodLine(method, sessionScopes)}`)
+            }
+        }
+        if (methodMatches.length > shown.length) {
+            lines.push(
+                '',
+                `Showing ${shown.length} of ${methodMatches.length} matches — refine the query to see the rest.`
+            )
+        }
+        if (typeMatches.length > 0) {
+            const shownTypes = typeMatches.slice(0, MAX_SEARCH_RESULTS)
+            const more =
+                typeMatches.length > shownTypes.length ? `, … ${typeMatches.length - shownTypes.length} more` : ''
+            lines.push('', 'Types:', `  ${shownTypes.join(', ')}${more}`)
+        }
+        lines.push('', FETCH_HINT)
+        return lines.join('\n')
     }
 
     return {
-        search(query, sessionScopes) {
-            if (query.length > MAX_TYPES_PATTERN_LENGTH) {
-                throw new Error(
-                    `Search pattern too long (${query.length} chars, max ${MAX_TYPES_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`
-                )
-            }
-            // The compiled regex carries no `g`/`y` flag, so it is stateless and
-            // safe to reuse across candidates.
-            const matcher = buildMatcher(query)
-            const matches = index.methods.filter(
-                (method) =>
-                    matcher(method.id) ||
-                    matcher(method.signature) ||
-                    matcher(method.title) ||
-                    matcher(method.description) ||
-                    method.referencedTypes.some(matcher)
-            )
-            if (matches.length === 0) {
-                return `No SDK methods matched "${query}". Try a broader pattern, or "types show <domain>" for a whole resource.`
-            }
-
-            const shown = matches.slice(0, MAX_SEARCH_RESULTS)
-            const byCategory = new Map<string, DiscoveryMethod[]>()
-            for (const method of shown) {
-                const group = byCategory.get(method.category)
-                if (group) {
-                    group.push(method)
-                } else {
-                    byCategory.set(method.category, [method])
+        resolve(input, sessionScopes) {
+            const trimmed = input.trim()
+            // Compatibility with the retired `types show <targets>` sub-verb.
+            const effective = /^show\s+\S/i.test(trimmed) ? trimmed.replace(/^show\s+/i, '') : trimmed
+            const tokens = effective.split(/[\s,]+/).filter((token) => token.length > 0)
+            const resolved: ResolvedTarget[] = []
+            let allExact = tokens.length > 0
+            for (const token of tokens) {
+                const target = resolveExact(token)
+                if (!target) {
+                    allExact = false
+                    break
                 }
+                resolved.push(target)
             }
-
-            const lines: string[] = []
-            for (const [category, methods] of byCategory) {
-                lines.push(`${category}:`)
-                for (const method of methods) {
-                    lines.push(`  ${methodLine(method, sessionScopes)}`)
-                }
+            if (allExact) {
+                return renderFetch(resolved, sessionScopes)
             }
-            if (matches.length > shown.length) {
-                lines.push(
-                    '',
-                    `Showing ${shown.length} of ${matches.length} matches — refine the query to see the rest.`
-                )
-            }
-            lines.push('', SHOW_HINT)
-            return lines.join('\n')
-        },
-
-        show(target, sessionScopes) {
-            const key = target.toLowerCase()
-
-            const method = methodsById.get(key)
-            if (method) {
-                const header = methodLine(method, sessionScopes)
-                const headerTokens = Math.ceil((header.length + method.description.length) / 4)
-                const { included, truncated } = fillTypes(
-                    method.referencedTypes,
-                    Math.max(0, TYPES_SHOW_TOKEN_BUDGET - headerTokens)
-                )
-                return [header, method.description, ...renderTypeSection(included, truncated)]
-                    .filter((part) => part.length > 0)
-                    .join('\n\n')
-            }
-
-            const type = typesByName.get(key)
-            if (type) {
-                // The requested declaration always ships in full — the budget only
-                // constrains the related types pulled in around it.
-                const { included, truncated } = fillTypes(
-                    type.referencedTypes,
-                    Math.max(0, TYPES_SHOW_TOKEN_BUDGET - type.tokens)
-                )
-                return [type.declaration, ...renderTypeSection(included, truncated)].join('\n\n')
-            }
-
-            const domainMethods = index.methods.filter((candidate) => candidate.id.toLowerCase().startsWith(`${key}.`))
-            if (domainMethods.length > 0) {
-                const header = domainMethods.map((candidate) => methodLine(candidate, sessionScopes)).join('\n')
-                const headerTokens = Math.ceil(header.length / 4)
-                const seedRefs = domainMethods.flatMap((candidate) => candidate.referencedTypes)
-                const { included, truncated } = fillTypes(seedRefs, Math.max(0, TYPES_SHOW_TOKEN_BUDGET - headerTokens))
-                return [header, ...renderTypeSection(included, truncated)].join('\n\n')
-            }
-
-            throw new Error(`Unknown symbol "${target}". Run "types <query>" to search the SDK surface.`)
+            return search(effective, sessionScopes)
         },
     }
 }

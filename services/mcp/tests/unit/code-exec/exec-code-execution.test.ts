@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { createPlanTokenCodec, MemoryPlanStore } from '@/lib/code-exec'
 import { NonceLedger } from '@/lib/signed-state'
 import { checkScript } from '@/tools/code-exec/compile-gate'
-import type { DiscoveryIndex } from '@/tools/code-exec/discovery'
+import { type DiscoveryIndex, TYPES_CHAR_LIMIT } from '@/tools/code-exec/discovery'
 import { LocalVmExecutor } from '@/tools/code-exec/executor'
 import { createCodeExecutionRuntime, type CodeExecutionRuntime } from '@/tools/code-exec/runtime'
 import { createExecTool } from '@/tools/exec'
@@ -61,6 +61,12 @@ const DISCOVERY_FIXTURE: DiscoveryIndex = {
             declaration: 'export interface FeatureFlagsUpdateParams { id: number; active?: boolean }',
             referencedTypes: ['FeatureFlag'],
             tokens: 19,
+        },
+        {
+            name: 'GiantUnion',
+            declaration: `export type GiantUnion = ${'x'.repeat(TYPES_CHAR_LIMIT + 1_000)}`,
+            referencedTypes: ['FeatureFlag'],
+            tokens: Math.ceil((TYPES_CHAR_LIMIT + 1_000) / 4),
         },
     ],
 }
@@ -189,23 +195,88 @@ describe('exec code-execution verbs', () => {
             expect(result).not.toContain('annotations.create')
         })
 
-        it('show expands a type declaration and BFS-fills its referenced types', async () => {
+        it.each([
+            {
+                case: 'an exact type name returns only its declaration, references as a fetch hint',
+                command: 'types FeatureFlagsUpdateParams',
+                contains: [
+                    'export interface FeatureFlagsUpdateParams { id: number; active?: boolean }',
+                    'References — run "types FeatureFlag" for declarations',
+                ],
+                notContains: ['export interface FeatureFlag {'],
+            },
+            {
+                case: 'several exact names return each declaration',
+                command: 'types FeatureFlagsUpdateParams, FeatureFlag',
+                contains: [
+                    'export interface FeatureFlagsUpdateParams { id: number; active?: boolean }',
+                    'export interface FeatureFlag { id: number; key: string }',
+                ],
+                notContains: [],
+            },
+            {
+                case: 'an exact method id returns signature, description, and references',
+                command: 'types featureFlags.update',
+                contains: [
+                    'featureFlags.update(params: FeatureFlagsUpdateParams): Promise<FeatureFlag>',
+                    'Update a feature flag by id.',
+                    'References — run "types FeatureFlagsUpdateParams FeatureFlag" for declarations',
+                ],
+                notContains: ['export interface FeatureFlagsUpdateParams {'],
+            },
+            {
+                case: 'a bare domain lists method signatures without type bodies',
+                command: 'types featureFlags',
+                contains: ['featureFlags.update(params: FeatureFlagsUpdateParams): Promise<FeatureFlag>'],
+                notContains: ['export interface FeatureFlagsUpdateParams {'],
+            },
+            {
+                case: 'the retired "show" prefix still works as an alias',
+                command: 'types show FeatureFlag',
+                contains: ['export interface FeatureFlag { id: number; key: string }'],
+                notContains: [],
+            },
+        ])('fetch mode: $case', async ({ command, contains, notContains }) => {
             const harness = makeHarness()
-            const result = await runCommand(harness, 'types show FeatureFlagsUpdateParams')
-            expect(result).toContain('export interface FeatureFlagsUpdateParams { id: number; active?: boolean }')
+            const result = await runCommand(harness, command)
+            for (const expected of contains) {
+                expect(result).toContain(expected)
+            }
+            for (const unexpected of notContains) {
+                expect(result).not.toContain(unexpected)
+            }
+        })
+
+        it('an input with any non-exact token falls through to search as a whole', async () => {
+            const harness = makeHarness()
+            const result = await runCommand(harness, 'types NoSuchThing FeatureFlag')
+            expect(result).toContain('No SDK methods or types matched')
+        })
+
+        it('search results list matching type names for exact follow-up fetches', async () => {
+            const harness = makeHarness()
+            const result = await runCommand(harness, 'types Params')
+            expect(result).toContain('Types:')
+            expect(result).toContain('AnnotationsCreateParams')
+        })
+
+        it('hard-truncates an oversized declaration at the char cap, pointing at its referenced types', async () => {
+            const harness = makeHarness()
+            const result = await runCommand(harness, 'types GiantUnion')
+            expect(result.length).toBeLessThanOrEqual(TYPES_CHAR_LIMIT + 200)
+            expect(result).toContain(
+                `…[declaration truncated at ${TYPES_CHAR_LIMIT} chars — fetch its parts via the referenced types: FeatureFlag]`
+            )
+        })
+
+        it('omits declarations that exceed the cap, naming them in the hint', async () => {
+            const harness = makeHarness()
+            const result = await runCommand(harness, 'types FeatureFlag GiantUnion')
             expect(result).toContain('export interface FeatureFlag { id: number; key: string }')
-        })
-
-        it('show with a bare domain lists every method of the resource', async () => {
-            const harness = makeHarness()
-            const result = await runCommand(harness, 'types show featureFlags')
-            expect(result).toContain('featureFlags.update(params: FeatureFlagsUpdateParams): Promise<FeatureFlag>')
-            expect(result).toContain('export interface FeatureFlagsUpdateParams')
-        })
-
-        it('show rejects an unknown symbol with a search hint', async () => {
-            const harness = makeHarness()
-            await expect(runCommand(harness, 'types show NoSuchThing')).rejects.toThrow('Unknown symbol "NoSuchThing"')
+            expect(result).not.toContain('xxxx')
+            expect(result).toContain(
+                `Omitted (${TYPES_CHAR_LIMIT} char cap): GiantUnion — request them in a separate "types" call.`
+            )
         })
     })
 

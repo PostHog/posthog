@@ -581,16 +581,9 @@ export function createExecTool(
                         throw unknownCommandError(verb, false)
                     }
                     if (!rest) {
-                        throw new Error('Usage: types <query> | types show <symbol | domain.method | domain>')
+                        throw new Error('Usage: types <query | TypeName... | domain.method | domain>')
                     }
-                    const { verb: typesSubVerb, rest: showTarget } = parseCommand(rest)
-                    if (typesSubVerb === 'show') {
-                        if (!showTarget) {
-                            throw new Error('Usage: types show <symbol | domain.method | domain>')
-                        }
-                        return runtime.showTypes(showTarget)
-                    }
-                    return runtime.searchTypes(rest)
+                    return runtime.types(rest)
                 }
 
                 case 'run': {

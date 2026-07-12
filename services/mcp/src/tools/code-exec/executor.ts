@@ -11,7 +11,6 @@
  * production substrate is the Modal sandbox pool, a follow-up).
  */
 
-import { transform } from 'esbuild'
 import vm from 'node:vm'
 
 import * as sdk from '@posthog/sdk'
@@ -267,6 +266,10 @@ export class LocalVmExecutor implements SandboxExecutor {
 
     private async compile(source: string): Promise<string> {
         const cjsShaped = await rewriteModuleToCjs(source)
+        // Lazy like `typescript` above: esbuild is external to the Hono bundle
+        // (its API locates the binary via __filename, so it cannot be inlined)
+        // and only the dev/test execution path may load it.
+        const { transform } = await import('esbuild')
         // Only type stripping remains — the module syntax is already lowered.
         const result = await transform(cjsShaped, { loader: 'ts', format: 'cjs', target: 'es2022' })
         return result.code

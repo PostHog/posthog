@@ -7,9 +7,12 @@
  * Implementation: an in-memory `ts.LanguageService` whose virtual file system
  * holds the script and the bundled SDK `.d.ts` (from the generated `SDK_DTS`
  * artifact). Standard lib files are resolved from the installed `typescript`
- * package on disk via `ts.getDefaultLibFilePath` + `ts.sys` — that works under
- * vitest, tsx dev, and the Node runtime; the production Hono bundle never runs
- * the gate because the local sandbox executor refuses to construct outside
+ * package on disk via `ts.getDefaultLibFilePath` + `ts.sys` — which requires
+ * `typescript` to load from node_modules, never inlined into a bundle (it is
+ * external in the Hono esbuild config; inlining breaks its services internals
+ * and its `__filename`-relative lib resolution). node_modules is present under
+ * vitest and the dev Hono server; the production Hono image never runs the
+ * gate because the local sandbox executor refuses to construct outside
  * development/test (spec §3.3/§3.4 — the production substrate is the Modal
  * sandbox pool, a follow-up). The language service is cached at module level,
  * so warm checks only pay for re-checking the script file.

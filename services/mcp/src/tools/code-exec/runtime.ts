@@ -40,8 +40,7 @@ const DEFAULT_SCRIPT_TIMEOUT_MS = 30_000
 const REPLAN_HINT = 'Re-run the script with "run <source>" to get a fresh plan and confirm it again.'
 
 export interface CodeExecutionRuntime {
-    searchTypes(query: string): Promise<string>
-    showTypes(target: string): Promise<string>
+    types(input: string): Promise<string>
     run(source: string): Promise<string>
     apply(token: string): Promise<string>
 }
@@ -94,12 +93,8 @@ export function createCodeExecutionRuntime(deps: CodeExecutionRuntimeDeps): Code
     }
 
     return {
-        async searchTypes(query) {
-            return (await getDiscovery()).search(query, deps.sessionScopes)
-        },
-
-        async showTypes(target) {
-            return (await getDiscovery()).show(target, deps.sessionScopes)
+        async types(input) {
+            return (await getDiscovery()).resolve(input, deps.sessionScopes)
         },
 
         async run(source) {
@@ -108,7 +103,7 @@ export function createCodeExecutionRuntime(deps: CodeExecutionRuntimeDeps): Code
                 return JSON.stringify({
                     status: 'compile_error',
                     diagnostics: gate.diagnostics,
-                    hint: 'Fix the script and run it again. Use "types show <symbol>" to inspect SDK declarations.',
+                    hint: 'Fix the script and run it again. Use "types <symbol>" to inspect SDK declarations.',
                 })
             }
 
