@@ -6,6 +6,7 @@ from typing import Any, NoReturn, Optional
 
 from django.db.models import Prefetch
 
+import requests
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
@@ -53,6 +54,38 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.e
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
+
+# Transient transport failures (proxy / connect / read timeouts, connection resets) recover on the
+# next retry — unlike credential or config errors, which don't. GitHub App token refresh and the REST
+# sources make outbound `requests` calls through the egress transport, which re-raises these as-is;
+# `ProxyError` and the timeout subclasses inherit from these, so `isinstance` covers a proxy-connect
+# timeout wrapped in a `ProxyError`.
+_TRANSIENT_TRANSPORT_EXCEPTIONS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+)
+
+
+def _is_transient_transport_error(error: BaseException) -> bool:
+    """Whether an error is a transient network blip rather than a real credential/config failure.
+
+    Walks the ``__cause__`` / ``__context__`` chain because a source may wrap the underlying
+    transport error before it reaches the import error handler.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, _TRANSIENT_TRANSPORT_EXCEPTIONS):
+            return True
+        # Raw socket-level failures (`ConnectionResetError`, socket timeouts) that never got wrapped
+        # in a `requests` exception — builtin `ConnectionError` / `TimeoutError`, distinct from the
+        # `requests` classes above (which inherit from `OSError`, not these builtins).
+        if isinstance(current, (ConnectionError, TimeoutError)):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 @dataclasses.dataclass
@@ -323,6 +356,15 @@ async def _handle_import_error(
     )
     if is_non_retryable_error:
         await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+    elif _is_transient_transport_error(error):
+        # A transient transport blip (e.g. a proxy-connect timeout while refreshing a GitHub App
+        # token) is re-raised for Temporal to retry, and the sync self-recovers. Log at warning so
+        # it doesn't mint an error-tracking issue for a non-bug; genuine credential/config failures
+        # still fall through to aexception below and stay loud.
+        await logger.awarning(
+            "Transient transport error during import_data_activity - re-raising for retry: %s", error_msg
+        )
+        raise error
     else:
         await logger.aexception(error_msg)
         await logger.adebug("Error encountered during import_data_activity - re-raising")
