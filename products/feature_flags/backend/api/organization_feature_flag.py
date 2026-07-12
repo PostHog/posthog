@@ -26,6 +26,8 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from posthog.user_permissions import UserPermissions
 from posthog.utils import safe_int
 
+from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
+from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
@@ -1590,19 +1592,39 @@ class OrganizationFeatureFlagView(
                 )
                 continue
 
-            ScheduledChange.objects.create(
-                record_id=str(target_flag.id),
-                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
-                payload=updated_payload,
-                scheduled_at=schedule.scheduled_at,
-                is_recurring=schedule.is_recurring,
-                recurrence_interval=schedule.recurrence_interval,
-                end_date=schedule.end_date,
-                cron_expression=schedule.cron_expression,
-                timezone=schedule.timezone,
-                team=target_flag.team,
-                created_by=user,
-            )
+            # Gate the copied schedule against the target flag's policies, same as a directly
+            # created schedule — a copy that would enable/roll out a flag still needs approval.
+            # Gate the CR and create the bound row in one transaction: if the row insert fails after
+            # the CR is minted, the CR is orphaned and a later approval auto-applies it immediately,
+            # bypassing the schedule (the same invariant create() documents and wraps).
+            try:
+                with transaction.atomic():
+                    change_request = gate_scheduled_change(target_flag, updated_payload, user)
+                    ScheduledChange.objects.create(
+                        record_id=str(target_flag.id),
+                        model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                        payload=updated_payload,
+                        scheduled_at=schedule.scheduled_at,
+                        is_recurring=schedule.is_recurring,
+                        recurrence_interval=schedule.recurrence_interval,
+                        end_date=schedule.end_date,
+                        cron_expression=schedule.cron_expression,
+                        timezone=schedule.timezone,
+                        team=target_flag.team,
+                        created_by=user,
+                        change_request=change_request,
+                    )
+            except (PolicyConflict, ApprovalRequired):
+                # The copied change can't be gated with a fresh single CR on the target — it either
+                # matches multiple policies (PolicyConflict) or would bind an already-approved
+                # duplicate (ApprovalRequired). Skip it (fail closed) rather than copy it ungated or
+                # riding on an unrelated approval — mirroring the permission skip above, we don't
+                # fail the whole copy over one schedule.
+                logger.warning(
+                    "Skipping copy of scheduled change that cannot be independently gated on the target flag",
+                    target_flag_id=target_flag.id,
+                )
+                continue
 
         return list(dict.fromkeys(schedule_dependency_warnings))
 

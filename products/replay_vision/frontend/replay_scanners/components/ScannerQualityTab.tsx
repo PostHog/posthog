@@ -11,6 +11,7 @@ import {
 } from '@posthog/icons'
 import {
     LemonButton,
+    LemonInput,
     LemonModal,
     LemonSegmentedButton,
     LemonTable,
@@ -35,12 +36,21 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ObservationResultSummary } from '../../components/ObservationCard'
-import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
+import type {
+    FeedbackThemesApi,
+    PromptEvaluationResultApi,
+    ReplayObservationApi,
+    ReplayScannerPromptSuggestionApi,
+} from '../../generated/api.schemas'
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
-import { fillLabelDays } from '../../utils/labelStats'
+import { formatCredits } from '../../utils/credits'
+import { buildChartDayFormatter, fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
+import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
+import { OBSERVATION_CREDITS_BY_MODEL } from '../types'
 import { versionTag } from './ScannerObservationsTable'
 
 const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string }[] = [
@@ -208,21 +218,172 @@ function SuggestionMeta({ suggestion }: { suggestion: ReplayScannerPromptSuggest
     )
 }
 
+const EVALUATION_OUTCOME_TAGS: Record<string, { type: LemonTagType; label: string }> = {
+    kept: { type: 'success', label: 'Kept' },
+    fixed: { type: 'success', label: 'Fixed' },
+    regressed: { type: 'danger', label: 'Regressed' },
+    still_wrong: { type: 'danger', label: 'Still wrong' },
+    error: { type: 'muted', label: 'Error' },
+}
+
+/** Test-before-apply results: the suggested prompt re-run against rated sessions. */
+function SuggestionEvaluationPanel({
+    suggestion,
+}: {
+    suggestion: ReplayScannerPromptSuggestionApi
+}): JSX.Element | null {
+    const [detailsOpen, setDetailsOpen] = useState(false)
+    const evaluation = suggestion.evaluation
+    if (!evaluation) {
+        return null
+    }
+
+    if (evaluation.status === 'running') {
+        return (
+            <div className="border rounded p-3 flex items-center gap-2 text-sm text-muted">
+                <Spinner />
+                {/* The endpoint stamps the planned total upfront; the select activity replaces it with the real count. */}
+                {evaluation.total
+                    ? `Testing against rated sessions… ${evaluation.results.length} of ${evaluation.total} done`
+                    : 'Starting the test against your rated sessions…'}
+            </div>
+        )
+    }
+
+    if (evaluation.status === 'failed' && !evaluation.results.length) {
+        return (
+            <div className="border rounded p-3 text-sm text-muted">
+                The test didn't finish. Run it again to check this prompt against your rated sessions.
+            </div>
+        )
+    }
+
+    const summary = evaluation.summary ?? { kept: 0, regressed: 0, fixed: 0, still_wrong: 0, errors: 0 }
+    const downTotal = summary.fixed + summary.still_wrong
+    const upTotal = summary.kept + summary.regressed
+    // Only sessions that ran successfully were charged.
+    const chargedCount = evaluation.results.filter((result) => result.outcome !== 'error').length
+    return (
+        <div className="border rounded p-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-medium">Tested against {evaluation.results.length} rated sessions:</span>
+                {downTotal > 0 && (
+                    <Tooltip title="Rated-wrong sessions whose result changed under the suggested prompt">
+                        <LemonTag type={summary.fixed > 0 ? 'success' : 'muted'}>
+                            {summary.fixed}/{downTotal} wrong now different
+                        </LemonTag>
+                    </Tooltip>
+                )}
+                {upTotal > 0 && (
+                    <Tooltip title="Rated-right sessions whose result is unchanged under the suggested prompt">
+                        <LemonTag type={summary.regressed > 0 ? 'danger' : 'success'}>
+                            {summary.kept}/{upTotal} right unchanged
+                        </LemonTag>
+                    </Tooltip>
+                )}
+                {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
+                <Tooltip title="Only sessions that ran successfully count against the monthly Replay Vision quota">
+                    <span className="text-muted text-xs">
+                        Used {chargedCount} observation{chargedCount === 1 ? '' : 's'} of quota
+                    </span>
+                </Tooltip>
+            </div>
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                icon={detailsOpen ? <IconChevronDown /> : <IconChevronRight />}
+                onClick={() => setDetailsOpen(!detailsOpen)}
+                data-attr="vision-quality-evaluation-details-toggle"
+            >
+                Per-session results
+            </LemonButton>
+            {detailsOpen && (
+                <LemonTable
+                    size="small"
+                    columns={
+                        [
+                            {
+                                title: 'Outcome',
+                                key: 'outcome',
+                                render: (_, result) => (
+                                    <LemonTag type={EVALUATION_OUTCOME_TAGS[result.outcome]?.type ?? 'muted'}>
+                                        {EVALUATION_OUTCOME_TAGS[result.outcome]?.label ?? result.outcome}
+                                    </LemonTag>
+                                ),
+                            },
+                            {
+                                title: 'Session',
+                                key: 'session',
+                                render: (_, result) => (
+                                    <Link to={urls.replaySingle(result.session_id)} className="font-mono">
+                                        {result.session_id.slice(0, 8)}…
+                                    </Link>
+                                ),
+                            },
+                            {
+                                title: 'Team rating',
+                                key: 'rated',
+                                render: (_, result) => (result.rated_correct ? 'Right' : 'Wrong'),
+                            },
+                            {
+                                title: 'Current prompt',
+                                key: 'before',
+                                render: (_, result) => result.before ?? 'n/a',
+                            },
+                            {
+                                title: 'Suggested prompt',
+                                key: 'after',
+                                render: (_, result) =>
+                                    result.after ??
+                                    (result.error ? (
+                                        <span className="text-muted">Failed: {result.error.slice(0, 80)}</span>
+                                    ) : (
+                                        'n/a'
+                                    )),
+                            },
+                        ] as LemonTableColumns<PromptEvaluationResultApi>
+                    }
+                    dataSource={evaluation.results}
+                    rowKey="session_id"
+                    embedded
+                />
+            )}
+        </div>
+    )
+}
+
 function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = scannerQualityLogic({ scannerId })
     const {
         currentSuggestion,
         suggestionStale,
         ratedCount,
+        evaluationSessionCap,
+        plannedTestSessions,
         suggestionLoading,
         generating,
         applying,
         dismissing,
+        evaluating,
         suggestionHistory,
         suggestionHistoryLoading,
     } = useValues(logic)
-    const { generateSuggestion, applySuggestion, dismissSuggestion, loadSuggestionHistory } = useActions(logic)
+    const {
+        generateSuggestion,
+        applySuggestion,
+        dismissSuggestion,
+        evaluateSuggestion,
+        setTestSessionLimit,
+        loadSuggestionHistory,
+    } = useActions(logic)
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { quota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    // Only scanner types with a discrete outcome (verdict, tags) can be diffed against ratings.
+    const evaluationSupported = scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier'
+    // Each re-run is charged like a normal observation of the scanner's model.
+    const creditsPerTestSession = scanner ? (OBSERVATION_CREDITS_BY_MODEL[scanner.model] ?? 0) : 0
+    const plannedTestCredits = plannedTestSessions * creditsPerTestSession
     const [historyOpen, setHistoryOpen] = useState(false)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -249,7 +410,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
             <div className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="text-muted text-sm">
                     {ratedCount === 0
-                        ? 'Rate results below and PostHog AI will recommend prompt improvements here.'
+                        ? 'Rate results below to get AI-recommended prompt improvements here.'
                         : 'No recommendation yet for the current ratings.'}
                 </span>
                 <LemonButton
@@ -271,8 +432,8 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         body = (
             <div className="space-y-3">
                 <p className="text-sm m-0">
-                    Your scanner configuration looks good! PostHog AI reviewed the rated sessions and has no prompt
-                    changes to recommend.
+                    Your scanner configuration looks good! The AI reviewed the rated sessions and has no prompt changes
+                    to recommend.
                 </p>
                 {currentSuggestion.rationale && <p className="text-sm text-muted m-0">{currentSuggestion.rationale}</p>}
                 <SuggestionMeta suggestion={currentSuggestion} />
@@ -286,9 +447,32 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                     beforeLabel={`Current prompt (v${currentSuggestion.scanner_version})`}
                     isDarkModeOn={isDarkModeOn}
                 />
+                {currentSuggestion.status === 'pending' && <SuggestionEvaluationPanel suggestion={currentSuggestion} />}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
                     <div className="flex items-center gap-2">
+                        {currentSuggestion.status === 'pending' && evaluationSupported && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                loading={evaluating || currentSuggestion.evaluation?.status === 'running'}
+                                disabledReason={
+                                    editDisabledReason ??
+                                    (ratedCount === 0
+                                        ? 'Rate at least one result first'
+                                        : quota?.exhausted && quota.credit_limit !== null
+                                          ? `Monthly Replay Vision budget of ${formatCredits(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
+                                          : quota && quota.remaining !== null && plannedTestCredits > quota.remaining
+                                            ? `Only ${formatCredits(quota.remaining)} of budget left this month. Lower the test session count.`
+                                            : undefined)
+                                }
+                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session is charged like a normal observation. Pick how many below."
+                                onClick={() => evaluateSuggestion(currentSuggestion.id)}
+                                data-attr="vision-quality-evaluate-suggestion"
+                            >
+                                {currentSuggestion.evaluation ? 'Re-test' : 'Test against rated sessions'}
+                            </LemonButton>
+                        )}
                         {currentSuggestion.status === 'pending' && (
                             <LemonButton
                                 size="small"
@@ -316,6 +500,30 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                         )}
                     </div>
                 </div>
+                {currentSuggestion.status === 'pending' && evaluationSupported && plannedTestSessions > 0 && (
+                    <div className="flex items-center justify-end gap-1.5 text-xs text-muted">
+                        <span>Testing re-runs</span>
+                        <LemonInput
+                            type="number"
+                            size="xsmall"
+                            min={1}
+                            max={Math.min(evaluationSessionCap, ratedCount)}
+                            value={plannedTestSessions}
+                            onChange={(value) => setTestSessionLimit(value ?? null)}
+                            className="w-14"
+                            data-attr="vision-quality-test-session-limit"
+                        />
+                        <span>
+                            of your {Math.min(evaluationSessionCap, ratedCount)} most useful rated session
+                            {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, charging{' '}
+                            {formatCredits(plannedTestCredits)}
+                            {quota && quota.remaining !== null && quota.credit_limit !== null
+                                ? ` (${formatCredits(quota.remaining)} of ${formatCredits(quota.credit_limit)} left this month)`
+                                : ''}
+                            .
+                        </span>
+                    </div>
+                )}
             </div>
         )
     }
@@ -427,13 +635,6 @@ function VersionBadgeBridge({
 
 type ChartMode = 'session' | 'rating'
 
-// Full "MMM D" labels collide at 30 days and the chart drops the overlap, hiding dates.
-// Keep the month only where it anchors (first tick, month boundaries) so every day fits.
-function formatChartDay(label: string, index: number): string {
-    const day = label.split(' ')[1]
-    return index === 0 || day === '1' ? label : day
-}
-
 const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string }[] = [
     {
         value: 'session',
@@ -449,6 +650,7 @@ const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string }[]
 
 function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element {
     const { labelStats, labelStatsLoading } = useValues(scannerQualityLogic({ scannerId }))
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { setActiveTab } = useActions(replayScannerSceneLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     // buildTheme snapshots the current CSS vars, so rebuild when the app theme flips.
@@ -467,6 +669,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                 : null,
         [labelStats, mode]
     )
+    const formatChartDay = useMemo(() => buildChartDayFormatter(chart?.dates ?? []), [chart])
     // Prompt-version markers sit on calendar time, so they render under the dates in both views.
     const versionMarkers = useMemo(
         () =>
@@ -484,6 +687,12 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
         [labelStats, chart]
     )
     const totalRated = (labelStats?.up_total ?? 0) + (labelStats?.down_total ?? 0)
+    // Thumbs-up share per prompt version, from rated sessions only. The active version stays
+    // visible while unrated or unscanned, so a fresh prompt never implies the old one is live.
+    const versionAccuracy = useMemo(
+        () => versionAccuracyStrip(labelStats?.version_markers ?? [], scanner?.scanner_version),
+        [labelStats, scanner]
+    )
 
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
@@ -504,6 +713,30 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                     />
                 </div>
             </div>
+            {versionAccuracy.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-xs tabular-nums">
+                    {versionAccuracy.map((entry) => (
+                        <Tooltip
+                            key={entry.version}
+                            title={
+                                entry.pct !== null
+                                    ? `${entry.rated} rated of ${entry.scanned} scanned on v${entry.version}. Unrated sessions don't count toward the percentage.`
+                                    : entry.scanned > 0
+                                      ? `v${entry.version} has scanned ${entry.scanned} sessions but none are rated yet. Rate results below to compare it with earlier versions.`
+                                      : "This prompt version was applied but hasn't scanned any sessions yet, so it has no ratings or chart marker"
+                            }
+                        >
+                            <LemonTag type={entry.isCurrent ? 'highlight' : 'muted'}>
+                                {entry.pct !== null
+                                    ? `v${entry.version} · ${entry.pct}% thumbs up (${entry.rated})`
+                                    : entry.scanned > 0
+                                      ? `v${entry.version} · no ratings yet`
+                                      : `v${entry.version} · no scans yet`}
+                            </LemonTag>
+                        </Tooltip>
+                    ))}
+                </div>
+            )}
             {labelStatsLoading && !labelStats ? (
                 <div className="flex items-center justify-center py-6 text-muted">
                     <Spinner />
@@ -567,6 +800,65 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
     )
 }
 
+/** Recurring failure modes summarized from the team's written feedback, so raters know what to look for.
+ * Clicking a theme filters the results table below to the sessions behind it. */
+function FeedbackThemeChips({
+    scannerId,
+    feedbackThemes,
+}: {
+    scannerId: string
+    feedbackThemes: FeedbackThemesApi
+}): JSX.Element | null {
+    const { themeFilter } = useValues(scannerQualityLogic({ scannerId }))
+    const { setThemeFilter } = useActions(scannerQualityLogic({ scannerId }))
+    if (feedbackThemes.themes.length === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Tooltip title="Recurring failure modes summarized from your team's written feedback. They update with the prompt recommendation and also steer it.">
+                <span className="text-xs text-muted">Feedback themes:</span>
+            </Tooltip>
+            {feedbackThemes.themes.map((theme) => {
+                const isActive = themeFilter?.theme === theme.theme
+                const clickable = theme.sessions.length > 0
+                return (
+                    <Tooltip
+                        key={theme.theme}
+                        title={
+                            <div className="space-y-1">
+                                <div>
+                                    {theme.count} feedback comment{theme.count === 1 ? '' : 's'} describe this failure
+                                    mode. Watch for it when rating.
+                                    {clickable &&
+                                        (isActive
+                                            ? ' Click to stop filtering by it.'
+                                            : ' Click to filter the table to its sessions.')}
+                                </div>
+                                {/* Index keys: the list is static and never reordered, while two raters can write identical quotes. */}
+                                {theme.examples.map((example, index) => (
+                                    <div key={index} className="text-muted italic">
+                                        "{example}"
+                                    </div>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonTag
+                            type={isActive ? 'highlight' : 'muted'}
+                            onClick={clickable ? () => setThemeFilter(isActive ? null : theme) : undefined}
+                            forceClickable={clickable}
+                            data-attr="vision-quality-feedback-theme"
+                        >
+                            {theme.theme} · {theme.count}
+                        </LemonTag>
+                    </Tooltip>
+                )
+            })}
+        </div>
+    )
+}
+
 /**
  * The scanner's Quality tab: the current prompt recommendation (with history), quality over time,
  * and the results still awaiting a rating.
@@ -603,6 +895,21 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                 </Link>
             ),
             sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
+        },
+        {
+            title: 'Confidence',
+            key: 'confidence',
+            width: 110,
+            tooltip:
+                'How sure the scanner was of this result. Rating low-confidence sessions first teaches the prompt the most.',
+            render: (_, obs) => {
+                const confidence = readConfidence(obs)
+                if (confidence === null) {
+                    return <span className="text-muted">—</span>
+                }
+                return <span className="tabular-nums">{Math.round(confidence * 100)}%</span>
+            },
+            sorter: true,
         },
         {
             title: 'Scanner got it right?',
@@ -675,8 +982,8 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
     return (
         <div className="flex flex-col gap-6">
             <p className="text-muted m-0 max-w-2xl">
-                Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. PostHog AI
-                turns your team's ratings into the prompt recommendation below.
+                Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. Your team's
+                ratings power the AI prompt recommendation below.
             </p>
 
             <PromptRecommendationPanel scannerId={scannerId} />
@@ -702,6 +1009,9 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                         />
                     </div>
                 </div>
+                {scanner?.feedback_themes && (
+                    <FeedbackThemeChips scannerId={scannerId} feedbackThemes={scanner.feedback_themes} />
+                )}
                 <LemonTable
                     columns={columns}
                     dataSource={observations}

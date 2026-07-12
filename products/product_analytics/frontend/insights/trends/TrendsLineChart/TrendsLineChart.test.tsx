@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -13,9 +13,11 @@ import {
     chart,
     createInsightTooltipAccessor,
     getHogChart,
+    getQuerySource,
     legend,
     personsModal,
     renderInsight,
+    trendsSeries,
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
@@ -348,8 +350,13 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByLabelText(/chart with/i)
-            expect(getHogChart().xAxisLabel()).toBe('Signup date')
-            expect(getHogChart().yAxisLabel()).toBe('Unique users')
+            // Axis titles are a layout-dependent overlay that commits a tick after the
+            // chart's aria-label appears (like referenceLines/valueLabels below), so read
+            // them through waitFor rather than synchronously.
+            await waitFor(() => {
+                expect(getHogChart().xAxisLabel()).toBe('Signup date')
+                expect(getHogChart().yAxisLabel()).toBe('Unique users')
+            })
         })
     })
 
@@ -684,6 +691,66 @@ describe('TrendsLineChart', () => {
 
             expect(legendEl.textContent).toContain('Napped')
             expect(legendEl.querySelector('button')).not.toBeInTheDocument()
+        })
+    })
+
+    describe('drag-to-zoom', () => {
+        const totalLabels = trendsSeries.pageviews.labels.length
+        const zoomFlag = { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true }
+
+        async function getChartWrapper(): Promise<HTMLElement> {
+            const canvas = await screen.findByLabelText(/chart with/i)
+            return canvas.parentElement!
+        }
+
+        it('reports the dragged range as day strings to context.onDateRangeZoom', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
+            const wrapper = await getChartWrapper()
+
+            dragSelection(wrapper, 1, 3, totalLabels)
+
+            await waitFor(() => {
+                // Days, not the formatted axis labels ('Tue'/'Thu') the chart renders with.
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
+            })
+        })
+
+        it('reports a drag that stays within a single bucket as that bucket', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
+            const wrapper = await getChartWrapper()
+
+            // Both drag edges snap to the same label — the common case on sparse charts
+            // (e.g. a 3-bar monthly chart), where this used to be a silent no-op.
+            const step = dimensions.plotWidth / (totalLabels - 1)
+            const x = dimensions.plotLeft + step
+            const y = dimensions.plotTop + dimensions.plotHeight / 2
+            rawDrag(wrapper, { from: { x: x - 40, y }, to: { x: x + 40, y } })
+
+            await waitFor(() => {
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-11')
+            })
+        })
+
+        it('ignores drags when the drag-to-zoom flag is off', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom } })
+            const wrapper = await getChartWrapper()
+
+            dragSelection(wrapper, 1, 3, totalLabels)
+
+            // A regression dropping the flag gate would ship zoom to everyone.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
+
+        it('ignores drags when no context handler opts in', async () => {
+            renderInsight({ query: buildTrendsQuery(), featureFlags: zoomFlag })
+            const wrapper = await getChartWrapper()
+
+            dragSelection(wrapper, 1, 3, totalLabels)
+
+            expect(getQuerySource().dateRange).toBeUndefined()
         })
     })
 })

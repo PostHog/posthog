@@ -55,6 +55,12 @@ COMPARE_PERIOD_FIELD = "_period"
 COMPARE_PERIOD_CURRENT = "current"
 COMPARE_PERIOD_PREVIOUS = "previous"
 
+# TTL schedule for the native cost materialization: recent windows carry a short TTL so an hourly
+# refresh keeps them fresh; older windows are computed once. Kept as a module constant so the Dagster
+# warmer (products/marketing_analytics/dags/marketing_precompute.py) drives ensure_precomputed with the
+# SAME freshness the read path expects — a mismatch would warm jobs the read then treats as stale.
+COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+
 
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
     """Base class for marketing analytics query runners with shared functionality."""
@@ -244,7 +250,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             return None
 
-        ttl_seconds = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+        ttl_seconds = COSTS_PRECOMPUTE_TTL_SECONDS
         # Per source: read the native table when it materializes, otherwise keep that one source on the
         # live S3 union. A single unmaterializable/syncing source must not force every source back to S3.
         materialized_source_ids: list = []
@@ -922,19 +928,23 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
 
             # Get conversion goals and filter out invalid ones
-            conversion_goals = self._get_team_conversion_goals()
-            valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
-                conversion_goals
-            )
-            self._valid_conversion_goals_count = len(valid_conversion_goals)
+            with self.timings.measure("ma_get_conversion_goals"):
+                conversion_goals = self._get_team_conversion_goals()
+            with self.timings.measure("ma_filter_conversion_goals"):
+                valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
+                    conversion_goals
+                )
+                self._valid_conversion_goals_count = len(valid_conversion_goals)
 
             # Create processors only for valid conversion goals
-            processors = (
-                self._create_conversion_goal_processors(valid_conversion_goals) if valid_conversion_goals else []
-            )
+            with self.timings.measure("ma_create_conversion_processors"):
+                processors = (
+                    self._create_conversion_goal_processors(valid_conversion_goals) if valid_conversion_goals else []
+                )
 
             # Build the complete query with CTEs using AST
-            return self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
+            with self.timings.measure("ma_build_complete_query"):
+                return self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
 
     def _generate_aggregated_conversion_goals_cte(self, conversion_aggregator, date_range) -> Optional[ast.CTE]:
         """Generate aggregated conversion goals CTE without GROUP BY for aggregated queries"""

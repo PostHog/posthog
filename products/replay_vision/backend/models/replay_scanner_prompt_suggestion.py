@@ -49,6 +49,12 @@ class ReplayScannerPromptSuggestion(UUIDModel):
     applied_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
+    # Shape: prompt_evaluation.build_running_evaluation.
+    evaluation = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Test-before-apply results: the suggested prompt re-run against rated sessions.",
+    )
 
     def save(self, *args, **kwargs) -> None:
         # Tenant invariant: suggestion.team_id must match scanner.team_id.

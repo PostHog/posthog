@@ -41,6 +41,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
@@ -103,6 +104,9 @@ class Channel(TeamScopedRootMixin):
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+PR_READY_EMAIL_QUEUED_AT_STATE_KEY = "pr_ready_email_queued_at"
+PR_READY_EMAIL_SENT_AT_STATE_KEY = "pr_ready_email_sent_at"
+PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
@@ -394,6 +398,36 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             task.save(update_fields=["state", "updated_at"])
         self.state = state
 
+    @property
+    def pr_ready_email_sent_at(self) -> str | None:
+        return (self.state or {}).get(PR_READY_EMAIL_SENT_AT_STATE_KEY)
+
+    def mark_pr_ready_email_queued(self, pr_url: str, *, queued_at: datetime | None = None) -> bool:
+        """Record that this task's PR-ready email task was queued, preserving other state keys."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            if state.get(PR_READY_EMAIL_QUEUED_AT_STATE_KEY) or state.get(PR_READY_EMAIL_SENT_AT_STATE_KEY):
+                self.state = state
+                return False
+            state[PR_READY_EMAIL_QUEUED_AT_STATE_KEY] = (queued_at or django_timezone.now()).isoformat()
+            state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+        return True
+
+    def mark_pr_ready_email_sent(self, pr_url: str, *, sent_at: datetime | None = None) -> None:
+        """Record confirmed PR-ready email delivery, preserving other state keys."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            state[PR_READY_EMAIL_SENT_AT_STATE_KEY] = (sent_at or django_timezone.now()).isoformat()
+            state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = django_timezone.now()
@@ -432,6 +466,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         wizard_config: dict | None = None,
+        wizard_head_branch: str | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
@@ -599,6 +634,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             # Wizard runs must boot the agent only after the wizard step.
             extra_state["overlap_clone_boot_enabled"] = False
 
+        # Server-generated head branch the agent is instructed to push to, so the GitHub PR
+        # webhook can bind the opened PR back to this run (webhooks.find_task_run). Kept out of
+        # TaskRun.branch, which means "branch to check out at provisioning" — not "branch the
+        # agent will create".
+        if wizard_head_branch:
+            extra_state["wizard_head_branch"] = wizard_head_branch
+
         # The first message handed to the agent once its server is ready (forward_pending_user_message
         # reads it from run state). Without it a background run boots the agent idle — it never gets a
         # prompt and just sits there while relay_sandbox_events waits for events that never come.
@@ -688,6 +730,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
+        wizard_head_branch: str | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
@@ -718,6 +761,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
             wizard_config=wizard_config,
+            wizard_head_branch=wizard_head_branch,
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
@@ -1018,6 +1062,13 @@ class TaskRun(models.Model):
                 name="task_run_output_pr_url_idx",
                 condition=models.Q(output__pr_url__isnull=False),
             ),
+            # Same shape for the wizard-run webhook leg `filter(state__wizard_head_branch=...)`;
+            # only wizard runs carry the key, so the index stays tiny.
+            models.Index(
+                KeyTransform("wizard_head_branch", "state"),
+                name="task_run_wizard_branch_idx",
+                condition=models.Q(state__wizard_head_branch__isnull=False),
+            ),
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).
             models.Index(fields=["created_at"], name="task_run_created_at_idx"),
@@ -1287,6 +1338,40 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def effective_rtk(self) -> bool | None:
+        """rtk posture for analytics: the launch-persisted effective value, falling
+        back to the user's explicit override for runs that never launched."""
+        state = self.state if isinstance(self.state, dict) else {}
+        rtk = state.get("rtk_effective", state.get("rtk_enabled"))
+        return rtk if isinstance(rtk, bool) else None
+
+    def _analytics_usage_properties(self) -> dict:
+        """Token usage and rtk posture for analytics events.
+
+        The agent-server merges cumulative usage into ``state.token_usage`` as turns
+        settle.
+        """
+        props: dict = {}
+        state = self.state if isinstance(self.state, dict) else {}
+        usage = state.get("token_usage")
+        if isinstance(usage, dict):
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "thought_tokens",
+                "total_tokens",
+                "turns",
+            ):
+                value = usage.get(key)
+                if isinstance(value, int | float) and not isinstance(value, bool):
+                    props["usage_turns" if key == "turns" else key] = value
+        rtk = self.effective_rtk()
+        if rtk is not None:
+            props["rtk_enabled"] = rtk
+        return props
+
     def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:
             distinct_id = (
@@ -1303,7 +1388,12 @@ class TaskRun(models.Model):
                 "title": self.task.title,
                 "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "environment": self.environment,
+                # The bare `environment` property gets clobbered by the analytics
+                # client's deployment-region super-property, so ship the run's
+                # local/cloud value under an unclobbered name too.
+                "run_environment": self.environment,
                 "mode": self.mode,
+                **self._analytics_usage_properties(),
             }
             if properties:
                 all_properties.update(properties)
@@ -1325,16 +1415,24 @@ class TaskRun(models.Model):
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
 
-    def mark_completed(self):
-        """Mark the progress as completed."""
+    def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
+        """Mark the progress as completed.
+
+        ``notify=False`` skips the push notification — for janitor-style finalization of a run
+        the user is no longer watching, where a "finished" ping long after the fact is noise.
+        ``analytics_properties`` are merged into the ``task_run_completed`` capture so swept
+        completions stay distinguishable from organic ones.
+        """
         self.status = self.Status.COMPLETED
         self.completed_at = django_timezone.now()
         self.save(update_fields=["status", "completed_at"])
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
-            {"duration_seconds": self._duration_seconds()},
+            {"duration_seconds": self._duration_seconds(), **(analytics_properties or {})},
         )
+        if not notify:
+            return
         from products.tasks.backend.push_dispatcher import notify_task_run_completed
 
         notify_task_run_completed(self)
@@ -1353,7 +1451,7 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def mark_failed(self, error: str):
+    def mark_failed(self, error: str, error_type: str | None = None) -> None:
         """Mark the progress as failed with an error message."""
         self.status = self.Status.FAILED
         self.error_message = error
@@ -1363,7 +1461,8 @@ class TaskRun(models.Model):
         self.capture_event(
             "task_run_failed",
             {
-                "error_message": error[:500],
+                "error_message": truncate_error_message(error),
+                "error_type": error_type or "unspecified",
                 "duration_seconds": self._duration_seconds(),
             },
         )
@@ -1424,6 +1523,18 @@ class TaskRun(models.Model):
         backend decides grouping granularity by picking a phase id (e.g.
         `"setup"`, `"pr_create"`).
         """
+        event = self.build_progress_event(step, status, label, group, detail)
+        self.append_log([event])
+        self.publish_stream_event(event)
+
+    def build_progress_event(
+        self,
+        step: str,
+        status: str,
+        label: str,
+        group: str,
+        detail: Optional[str] = None,
+    ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "sessionId": str(self.id),
             "step": step,
@@ -1433,7 +1544,7 @@ class TaskRun(models.Model):
         }
         if detail is not None:
             params["detail"] = detail
-        event = {
+        return {
             "type": "notification",
             "timestamp": django_timezone.now().isoformat(),
             "notification": {
@@ -1442,8 +1553,6 @@ class TaskRun(models.Model):
                 "params": params,
             },
         }
-        self.append_log([event])
-        self.publish_stream_event(event)
 
     def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
         """Emit sandbox execution output as ACP notification."""
@@ -1470,6 +1579,62 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class TaskArtifact(TeamScopedRootMixin, UUIDModel):
+    class ArtifactType(models.TextChoices):
+        SLACK_MESSAGE = "slack_message", "Slack message"
+        SLACK_CANVAS = "slack_canvas", "Slack canvas"
+        DOCUMENT = "document", "Document"
+        SPREADSHEET = "spreadsheet", "Spreadsheet"
+        DASHBOARD = "dashboard", "Dashboard"
+        FILE = "file", "File"
+        GITHUB_PR = "github_pr", "GitHub PR"
+
+    class Adapter(models.TextChoices):
+        SLACK_MESSAGE = "slack_message", "Slack message"
+        SLACK_CANVAS = "slack_canvas", "Slack canvas"
+        SLACK_FILE = "slack_file", "Slack file"
+        DOCUMENT_CONNECTOR = "document_connector", "Document connector"
+        GITHUB_PR = "github_pr", "GitHub PR"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        FAILED = "failed", "Failed"
+
+    # App-level scoping is enforced by TeamScopedRootMixin; avoid locking the hot Team/User tables.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="living_artifacts")
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="living_artifacts")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    name = models.CharField(max_length=255)
+    artifact_type = models.CharField(max_length=32, choices=ArtifactType)
+    adapter = models.CharField(max_length=32, choices=Adapter)
+    status = models.CharField(max_length=16, choices=Status, default=Status.ACTIVE, db_default=Status.ACTIVE)
+    location = models.JSONField(
+        default=dict, db_default=models.Value("{}"), help_text="Adapter-specific location data."
+    )
+    metadata = models.JSONField(
+        default=dict, db_default=models.Value("{}"), help_text="Adapter-specific artifact metadata."
+    )
+    versions = models.JSONField(
+        default=list, db_default=models.Value("[]"), help_text="Chronological artifact versions."
+    )
+    current_version = models.PositiveIntegerField(default=1, db_default=1)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_artifact"
+        indexes = [
+            models.Index(fields=["team", "task", "-updated_at"], name="task_artifact_team_task_idx"),
+            models.Index(fields=["team", "task_run", "-updated_at"], name="task_artifact_team_run_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.artifact_type})"
 
 
 class SandboxSnapshot(UUIDModel):

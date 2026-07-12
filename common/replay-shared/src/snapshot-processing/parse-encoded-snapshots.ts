@@ -110,7 +110,9 @@ export const parseEncodedSnapshots = async (
                     error: error instanceof Error ? error.message : 'Unknown error',
                     feature: 'session-recording-client-side-decompression',
                 })
-                return []
+                // Rethrow so the source load fails and retries/errors: returning [] would record a corrupt
+                // source as successfully-fetched-but-empty, leaving the player buffering with no error.
+                throw error
             }
         }
 
@@ -139,7 +141,8 @@ export const parseEncodedSnapshots = async (
                     decodeError: decodeError instanceof Error ? decodeError.message : 'Unknown error',
                     feature: 'session-recording-client-side-decompression',
                 })
-                return []
+                // Rethrow the original decompression error (see length-prefixed path above).
+                throw error
             }
         }
     }

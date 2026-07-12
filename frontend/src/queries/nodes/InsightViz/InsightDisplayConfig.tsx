@@ -7,9 +7,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
@@ -50,9 +49,6 @@ export function InsightDisplayConfig(): JSX.Element {
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const funnelsCompareEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]
-
     const isMetric = display === ChartDisplayType.Metric
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (compare, smoothing, multiple axes, alert/annotation overlays, statistical analysis).
@@ -66,7 +62,7 @@ export function InsightDisplayConfig(): JSX.Element {
             !isSlopeGraph) ||
         isStickiness ||
         isWebAnalyticsInsightQuery(querySource) ||
-        (funnelsCompareEnabled && isFunnels)
+        isFunnels
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||

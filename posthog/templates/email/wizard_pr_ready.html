@@ -1,0 +1,27 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block preheader %}Your pull request is ready{% endblock %}
+{% block heading %}Your pull request is ready{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    Hey{% if first_name %} {{ first_name }}{% endif %},
+</p>
+<p>
+    The wizard set up PostHog in <strong>{{ repository }}</strong> and opened a pull request for
+    <strong>{{ project_name }}</strong>{% if organization_name %} in <strong>{{ organization_name }}</strong>{% endif %}.
+</p>
+{% if branch_name %}
+<p>
+    Branch: <strong>{{ branch_name }}</strong>
+</p>
+{% endif %}
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ pr_url }}">Review the pull request</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ pr_url }}">{{ pr_url }}</a>
+    </p>
+</div>
+{% endblock %}

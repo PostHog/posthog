@@ -47,6 +47,8 @@ from posthog.models.integration import (
     S3CompatibleIntegration,
     S3CredentialIntegrationError,
     SlackIntegration,
+    SnowflakeIntegration,
+    SnowflakeIntegrationError,
     invalidate_github_repository_caches_for_installation,
 )
 from posthog.models.organization import Organization
@@ -64,6 +66,13 @@ def get_db_field_value(field, model_id):
 def update_db_field_value(field, model_id, value):
     cursor = connection.cursor()
     cursor.execute(f"update posthog_integration set {field}='{value}' where id='{model_id}';")
+
+
+def test_slack_oauth_scope_includes_canvas_scope_for_local_installs():
+    from posthog.models.integration import POSTHOG_SLACK_SCOPE
+
+    assert "canvases:write" in set(POSTHOG_SLACK_SCOPE.split(","))
+    assert "files:write" in set(POSTHOG_SLACK_SCOPE.split(","))
 
 
 class TestIntegrationModel(BaseTest):
@@ -470,6 +479,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "client_secret": "hubspot-client-secret",
                 "refresh_token": "REFRESH",
             },
+            timeout=10,
         )
 
         assert integration.config["expires_in"] == 1000
@@ -2243,6 +2253,84 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
             GitHubIntegration(integration)._gh_api_get("repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
 
 
+class TestGitHubIntegrationGraphQL(BaseTest):
+    def _create_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            sensitive_config={"access_token": "ACCESS_TOKEN"},
+        )
+
+    @staticmethod
+    def _graphql_response(body: dict) -> MagicMock:
+        # GitHub returns transient GraphQL server errors as an HTTP 200 with an ``errors`` body,
+        # so the retry decision hinges on the body, not the status code.
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = body
+        return resp
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_retries_transient_server_error_and_returns_data(self, _mock_expired, mock_request):
+        # A 200-with-`errors` "Something went wrong" server error must be retried, not raised —
+        # otherwise a transient GitHub blip permanently kills the in-flight follow-up run.
+        transient = self._graphql_response(
+            {"data": None, "errors": [{"message": "Something went wrong while executing your query. (abc123)"}]}
+        )
+        ok = self._graphql_response({"data": {"repository": {"name": "posthog"}}})
+        mock_request.side_effect = [transient, ok]
+
+        github = GitHubIntegration(self._create_integration())
+        data = github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert data == {"repository": {"name": "posthog"}}
+        assert mock_request.call_count == 2
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_gives_up_after_exhausting_transient_retries(self, _mock_expired, mock_request):
+        # Guards against both a run-killing single attempt and an unbounded retry loop.
+        transient = self._graphql_response(
+            {"data": None, "errors": [{"type": "SERVICE_UNAVAILABLE", "message": "unavailable"}]}
+        )
+        mock_request.return_value = transient
+
+        github = GitHubIntegration(self._create_integration())
+        with pytest.raises(GitHubIntegrationError):
+            github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert mock_request.call_count == GitHubIntegration._GRAPHQL_TRANSIENT_ATTEMPTS
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_does_not_retry_deterministic_error(self, _mock_expired, mock_request):
+        # A deterministic error (bad query, missing field, permission) will never succeed on
+        # retry, so it must raise on the first attempt rather than burn the retry budget.
+        mock_request.return_value = self._graphql_response(
+            {"data": None, "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
+        )
+
+        github = GitHubIntegration(self._create_integration())
+        with pytest.raises(GitHubIntegrationError):
+            github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert mock_request.call_count == 1
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_returns_partial_data_with_field_errors(self, _mock_expired, mock_request):
+        # When GitHub returns usable data alongside field-level errors, keep the data rather
+        # than treating the response as a failure.
+        mock_request.return_value = self._graphql_response(
+            {"data": {"repository": {"name": "posthog"}}, "errors": [{"message": "field-level error"}]}
+        )
+
+        github = GitHubIntegration(self._create_integration())
+        data = github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert data == {"repository": {"name": "posthog"}}
+        assert mock_request.call_count == 1
+
+
 class TestDatabricksIntegrationModel(BaseTest):
     @patch("posthog.models.integration.is_url_allowed", return_value=(True, None))
     def test_integration_from_config_with_valid_config(self, mock_is_url_allowed):
@@ -2426,6 +2514,165 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         )
         with pytest.raises(S3CredentialIntegrationError, match="missing required field: 'endpoint_url'"):
             S3CompatibleIntegration(integration)
+
+
+class TestSnowflakeIntegrationModel(BaseTest):
+    def test_integration_from_config_with_password_auth(self):
+        integration = SnowflakeIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-snowflake",
+            account="myorg-myaccount",
+            user="posthog_svc",
+            authentication_type="password",
+            password="secret",
+            created_by=self.user,
+        )
+        assert integration.kind == Integration.IntegrationKind.SNOWFLAKE
+        # The identifier is the user-supplied name, never a credential.
+        assert integration.integration_id == "prod-snowflake"
+        # account, user and authentication_type are non-sensitive and live in config.
+        assert integration.config == {
+            "name": "prod-snowflake",
+            "account": "myorg-myaccount",
+            "user": "posthog_svc",
+            "authentication_type": "password",
+        }
+        assert integration.sensitive_config == {"password": "secret"}
+        wrapped = SnowflakeIntegration(integration)
+        assert wrapped.password == "secret"
+        assert wrapped.private_key is None
+        # display_name surfaces auth type and account so users can tell integrations apart.
+        assert integration.display_name == "prod-snowflake (account: myorg-myaccount, password auth)"
+
+    def test_integration_from_config_with_keypair_auth(self):
+        integration = SnowflakeIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-snowflake",
+            account="myorg-myaccount",
+            user="posthog_svc",
+            authentication_type="keypair",
+            private_key="-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+            private_key_passphrase="phrase",
+            created_by=self.user,
+        )
+        assert integration.config["authentication_type"] == "keypair"
+        assert integration.sensitive_config == {
+            "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+            "private_key_passphrase": "phrase",
+        }
+        # A password from a switched auth mode must never linger alongside the key-pair material.
+        assert "password" not in integration.sensitive_config
+        wrapped = SnowflakeIntegration(integration)
+        assert wrapped.private_key == "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----"
+        assert wrapped.private_key_passphrase == "phrase"
+
+    def test_integration_from_config_keypair_without_passphrase(self):
+        integration = SnowflakeIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-snowflake",
+            account="myorg-myaccount",
+            user="posthog_svc",
+            authentication_type="keypair",
+            private_key="-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+        )
+        assert integration.sensitive_config == {
+            "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----"
+        }
+
+    @parameterized.expand(
+        [
+            ("missing_name", "", "myorg-myaccount", "posthog_svc"),
+            ("missing_account", "prod-snowflake", "", "posthog_svc"),
+            ("missing_user", "prod-snowflake", "myorg-myaccount", ""),
+        ]
+    )
+    def test_integration_from_config_requires_name_account_user(self, _name, name, account, user):
+        with pytest.raises(SnowflakeIntegrationError, match="Name, account, and user must be provided"):
+            SnowflakeIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name=name,
+                account=account,
+                user=user,
+                authentication_type="password",
+                password="secret",
+            )
+
+    @parameterized.expand(
+        [
+            ("password_missing_password", "password", {}, "Password is required"),
+            ("keypair_missing_private_key", "keypair", {}, "Private key is required"),
+            ("invalid_auth_type", "oauth", {"password": "secret"}, "Invalid authentication type: oauth"),
+        ]
+    )
+    def test_integration_from_config_rejects_invalid_auth(self, _name, authentication_type, credentials, expected):
+        with pytest.raises(SnowflakeIntegrationError, match=expected):
+            SnowflakeIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name="prod-snowflake",
+                account="myorg-myaccount",
+                user="posthog_svc",
+                authentication_type=authentication_type,
+                **credentials,
+            )
+
+    def test_integration_from_config_rejects_duplicate_name(self):
+        SnowflakeIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-snowflake",
+            account="myorg-myaccount",
+            user="posthog_svc",
+            authentication_type="password",
+            password="secret",
+        )
+        with pytest.raises(SnowflakeIntegrationError, match="An integration named 'prod-snowflake' already exists"):
+            SnowflakeIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name="prod-snowflake",
+                account="other-account",
+                user="other_user",
+                authentication_type="password",
+                password="other-secret",
+            )
+        assert Integration.objects.filter(team=self.team, integration_id="prod-snowflake").count() == 1
+
+    @parameterized.expand(
+        [
+            ("simple", "myaccount"),
+            ("org_account", "myorg-myaccount"),
+            ("legacy_locator", "xy12345.us-east-1.aws"),
+        ]
+    )
+    def test_validate_account_accepts_valid_identifiers(self, _name, account):
+        SnowflakeIntegration.validate_account(account)  # must not raise
+
+    @parameterized.expand(
+        [
+            ("full_url", "https://myaccount.snowflakecomputing.com"),
+            ("with_path", "myaccount/foo"),
+            ("with_at", "user@myaccount"),
+            ("with_colon", "myaccount:443"),
+            ("with_fragment", "myaccount#"),
+            ("with_whitespace", "my account"),
+            ("empty", ""),
+        ]
+    )
+    def test_validate_account_rejects_malformed_identifiers(self, _name, account):
+        with pytest.raises(SnowflakeIntegrationError, match="invalid account identifier"):
+            SnowflakeIntegration.validate_account(account)
+
+    def test_wrapping_wrong_kind_raises(self):
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.AWS_S3, integration_id="x"
+        )
+        with pytest.raises(SnowflakeIntegrationError, match="is not a Snowflake integration"):
+            SnowflakeIntegration(integration)
+
+    def test_wrapping_missing_config_raises(self):
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SNOWFLAKE, integration_id="x", config={}
+        )
+        with pytest.raises(SnowflakeIntegrationError, match="missing"):
+            SnowflakeIntegration(integration)
 
 
 class TestGoogleCloudServiceAccountIntegration(BaseTest):
@@ -2671,7 +2918,8 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             created_by=self.user,
         )
 
-        IntegrationViewSet().perform_destroy(integration)
+        with self.captureOnCommitCallbacks(execute=True):
+            IntegrationViewSet().perform_destroy(integration)
 
         mock_delete_identity.assert_called_once_with("partner.com")
         assert not Integration.objects.filter(pk=integration.pk).exists()
@@ -2698,7 +2946,8 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             created_by=self.user,
         )
 
-        IntegrationViewSet().perform_destroy(integration)
+        with self.captureOnCommitCallbacks(execute=True):
+            IntegrationViewSet().perform_destroy(integration)
 
         assert mock_delete_identity.call_count == 0
 
@@ -2741,7 +2990,8 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             created_by=self.user,
         )
         with patch("products.workflows.backend.providers.SESProvider.delete_identity") as mock_delete:
-            IntegrationViewSet().perform_destroy(integration_a)
+            with self.captureOnCommitCallbacks(execute=True):
+                IntegrationViewSet().perform_destroy(integration_a)
             mock_delete.assert_called_once_with("partner.com")
 
         integration_b = EmailIntegration.create_native_integration(
@@ -2771,6 +3021,38 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             provider._identity_arn("other.com")
 
         assert provider.sts_client.get_caller_identity.call_count == 1
+
+
+class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
+    def _create_email_integration(self, email: str, team_id: int, organization_id: str) -> Integration:
+        with patch("products.workflows.backend.providers.SESProvider.create_email_domain"):
+            return EmailIntegration.create_native_integration(
+                {"email": email, "name": "Test"},
+                team_id=team_id,
+                organization_id=organization_id,
+                created_by=self.user,
+            )
+
+    @patch("products.workflows.backend.providers.SESProvider.delete_identity")
+    def test_team_cascade_delete_cleans_up_ses_identity(self, mock_delete_identity):
+        team = Team.objects.create(organization=self.organization, name="doomed team")
+        self._create_email_integration("owner@partner.com", team.id, str(self.organization.id))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            team.delete()
+
+        mock_delete_identity.assert_called_once_with("partner.com")
+
+    @patch("products.workflows.backend.providers.SESProvider.delete_identity")
+    def test_cascade_delete_skips_ses_cleanup_while_domain_still_in_use(self, mock_delete_identity):
+        team = Team.objects.create(organization=self.organization, name="doomed team")
+        self._create_email_integration("owner@partner.com", team.id, str(self.organization.id))
+        self._create_email_integration("sibling@partner.com", self.team.id, str(self.organization.id))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            team.delete()
+
+        mock_delete_identity.assert_not_called()
 
 
 class TestGitLabIntegrationSSRFProtection:

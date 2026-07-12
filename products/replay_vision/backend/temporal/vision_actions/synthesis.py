@@ -82,9 +82,9 @@ _SYSTEM_PROMPT = (
 
 _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s*(.+?)\s*#*$", re.MULTILINE)
 _MARKDOWN_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
-# `[obs N]` citation markers the model emits (see `_fetch_observations`); the in-app view resolves them to
-# observation links, Slack drops them.
-_OBS_CITATION_RE = re.compile(r"\s*\[obs \d+\]")
+# `[obs N]` citation markers the model emits (see `_fetch_observations`); the in-app view and the Slack pass
+# both resolve them to observation links. The captured group is the 1-based observation number.
+_OBS_CITATION_RE = re.compile(r"\[obs (\d+)\]")
 # Cap adjacent citations on the stored report so an over-cited theme renders a representative handful, not a
 # wall of links. Cross-section variety stays the prompt's job.
 _MAX_CITATIONS_PER_RUN = 6
@@ -158,7 +158,7 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
     markdown = strip_external_links_markdown(
         _summary_header(action, batch.window_start, len(batch.lines), batch.window_total) + markdown
     )
-    slack_text = _markdown_to_slack(markdown)
+    slack_text = _markdown_to_slack(markdown, team_id=team.id, observation_ids=batch.observation_ids)
 
     run.synthesized_markdown = markdown
     run.output = {"slack": slack_text}
@@ -445,10 +445,28 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
     return (response.choices[0].message.content or "").strip()
 
 
-def _markdown_to_slack(markdown: str) -> str:
-    """Light Markdown→Slack-mrkdwn pass: headings and **bold** become *bold*. Truncates long reports."""
-    # Drop `[obs N]` markers — Slack can't resolve them to links yet; `synthesized_markdown` keeps them for in-app.
-    text = _OBS_CITATION_RE.sub("", markdown)
+def _observation_url(team_id: int, observation_id: str) -> str:
+    return f"{settings.SITE_URL}/project/{team_id}/replay-vision/observations/{observation_id}"
+
+
+def _citations_to_slack_links(markdown: str, team_id: int, observation_ids: list[str]) -> str:
+    """Resolve each `[obs N]` citation into a Slack `<url|[N]>` link to that observation; drop any that don't
+    resolve (an out-of-range or hallucinated reference) so no bare label lingers. These links are added after
+    `strip_external_links_markdown` has already run, so the observation URLs aren't defanged."""
+
+    def _link(match: "re.Match[str]") -> str:
+        n = int(match.group(1))
+        if 1 <= n <= len(observation_ids):
+            return f"<{_observation_url(team_id, observation_ids[n - 1])}|[{n}]>"
+        return ""
+
+    return _OBS_CITATION_RE.sub(_link, markdown)
+
+
+def _markdown_to_slack(markdown: str, *, team_id: int, observation_ids: list[str]) -> str:
+    """Light Markdown→Slack-mrkdwn pass: headings and **bold** become *bold*, and `[obs N]` citations become
+    `[N]` links to each observation. Truncates long reports."""
+    text = _citations_to_slack_links(markdown, team_id, observation_ids)
     text = _MARKDOWN_HEADING_RE.sub(lambda m: f"*{m.group(1)}*", text)
     text = _MARKDOWN_BOLD_RE.sub(lambda m: f"*{m.group(1)}*", text)
     if len(text) > SLACK_TEXT_MAX:

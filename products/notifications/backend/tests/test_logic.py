@@ -399,14 +399,14 @@ class TestPublishResourceEdited(BaseTest):
     @patch("products.notifications.backend.logic.get_producer")
     @patch.object(RecipientsResolver, "filter_by_access_control")
     def test_skips_access_control_filtering_for_non_ac_resource(self, mock_ac_filter, mock_get_producer, mock_ff):
-        # hog_flow is not an access-controlled resource type, so recipients are not AC-filtered.
+        # annotation is not an access-controlled resource type, so recipients are not AC-filtered.
         with self.captureOnCommitCallbacks(execute=True):
             publish_resource_edited(
                 team=self.team,
-                resource_type="HogFlow",
-                resource_id="flow-123",
+                resource_type="Annotation",
+                resource_id="annotation-123",
                 updated_at="2026-06-16T00:00:00+00:00",
-                ac_resource_type="hog_flow",
+                ac_resource_type="annotation",
             )
 
         mock_ac_filter.assert_not_called()

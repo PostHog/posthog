@@ -20,6 +20,9 @@ from posthog.models import Team
 
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+    PermanentBatchApplyError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import batch_kind
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PendingBatch,
@@ -230,7 +233,7 @@ def _backfill_chunk_paths(batch: PendingBatch) -> list[str]:
     except ValueError as e:
         # Falling back to s3_path would silently apply only the chunk's first
         # file; a malformed synthetic row must fail loudly instead.
-        raise ValueError(f"backfill batch {batch.id}: {e}") from e
+        raise PermanentBatchApplyError(f"backfill batch {batch.id}: {e}") from e
 
 
 def _read_parquet_expr(paths: list[str], *, union_by_name: bool = False) -> sql.Composable:
@@ -266,7 +269,7 @@ def _process_batch(
     )
 
     if batch.sync_type == "cdc":
-        raise ValueError("Duckgres batch sink does not support CDC batches yet")
+        raise PermanentBatchApplyError("Duckgres batch sink does not support CDC batches yet")
 
     _ensure_duckgres_apply_table(conn, duckgres_schema)
     if batch.batch_index == 0 and not batch.is_final_batch:
@@ -353,7 +356,7 @@ def _process_backfill_batch(
                 mark_primed,
             )
 
-            mark_primed(batch.schema_id, chunks_applied=chunk_count)
+            mark_primed(batch.schema_id, run_uuid=batch.run_uuid, chunks_applied=chunk_count)
         return
 
     chunk_paths = _backfill_chunk_paths(batch)
@@ -422,7 +425,7 @@ def _process_backfill_batch(
             mark_primed,
         )
 
-        mark_primed(batch.schema_id, chunks_applied=chunk_count)
+        mark_primed(batch.schema_id, run_uuid=batch.run_uuid, chunks_applied=chunk_count)
         logger.info(
             "duckgres_backfill_swapped",
             team_id=batch.team_id,
@@ -478,13 +481,13 @@ def _plan_batch_operation(
 
         primary_keys = _primary_keys(batch)
         if not primary_keys:
-            raise ValueError("Duckgres incremental batches require primary keys")
+            raise PermanentBatchApplyError("Duckgres incremental batches require primary keys")
         return BatchApplyOperation(kind="merge", ensure_target_columns=True, primary_keys=primary_keys)
 
     if batch.sync_type in ("full_refresh", "append"):
         return BatchApplyOperation(kind="insert", ensure_target_columns=True)
 
-    raise ValueError(f"Unsupported Duckgres sync type: {batch.sync_type}")
+    raise PermanentBatchApplyError(f"Unsupported Duckgres sync type: {batch.sync_type}")
 
 
 def _table_exists(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str) -> bool:
@@ -670,10 +673,10 @@ def _apply_batch_operation(
         return
     if operation.kind == "merge":
         if operation.primary_keys is None:
-            raise ValueError("Duckgres merge operation requires primary keys")
+            raise PermanentBatchApplyError("Duckgres merge operation requires primary keys")
         _merge_batch(conn, duckgres_schema, duckgres_table, paths, columns, operation.primary_keys)
         return
-    raise ValueError(f"Unsupported Duckgres apply operation: {operation.kind}")
+    raise PermanentBatchApplyError(f"Unsupported Duckgres apply operation: {operation.kind}")
 
 
 def _insert_batch(
@@ -709,7 +712,7 @@ def _merge_batch(
     normalized_primary_keys = [NamingConvention.normalize_identifier(key) for key in primary_keys]
     missing_keys = [key for key in normalized_primary_keys if key not in columns]
     if missing_keys:
-        raise ValueError(f"Duckgres incremental batch missing primary keys: {missing_keys}")
+        raise PermanentBatchApplyError(f"Duckgres incremental batch missing primary keys: {missing_keys}")
 
     update_columns = [column for column in columns if column not in normalized_primary_keys]
     if not update_columns:

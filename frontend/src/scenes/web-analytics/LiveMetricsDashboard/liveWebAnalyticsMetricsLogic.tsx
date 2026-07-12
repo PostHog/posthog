@@ -16,6 +16,7 @@ import { ProductTab } from 'scenes/web-analytics/common'
 import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
+import type { DisposablesManager } from '~/kea-disposables'
 import { performQuery } from '~/queries/query'
 import {
     HogQLQuery,
@@ -393,10 +394,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             cache.batch = []
             cache.geoBatch = []
             stopFlushInterval(cache as FlushCache)
-            if (cache.liveUserCountInterval) {
-                clearInterval(cache.liveUserCountInterval)
-                cache.liveUserCountInterval = null
-            }
+            cache.disposables.dispose('liveUserCountInterval')
         },
         resumeStream: () => {
             if (cache.hasInitialized) {
@@ -406,12 +404,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 })
             }
             startFlushInterval(cache as FlushCache, actions as FlushActions)
-            if (!cache.liveUserCountInterval) {
-                // Drives the "Users online" count so users drop off within ~5s of leaving the 60s window
-                cache.liveUserCountInterval = setInterval(() => {
-                    actions.tickLiveUserCount()
-                }, 5000)
-            }
+            startLiveUserCountInterval(cache as FlushCache, actions as FlushActions)
             actions.loadInitialData()
         },
         loadInitialData: async () => {
@@ -580,30 +573,24 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
             // Ensures that our graph continues to update and old data "falls off"
             // even if new events aren't coming in
-            const scheduleNextTick = (): void => {
-                const now = Date.now()
-                const msUntilNextMinute = 60000 - (now % 60000)
-                cache.minuteTickTimeout = setTimeout(() => {
-                    actions.tickCurrentMinute()
-                    scheduleNextTick()
-                }, msUntilNextMinute)
-            }
-            scheduleNextTick()
-            cache.liveUserCountInterval = setInterval(() => {
-                actions.tickLiveUserCount()
-            }, 5000)
+            cache.disposables.add(() => {
+                let minuteTickTimeout: ReturnType<typeof setTimeout>
+                const scheduleNextTick = (): void => {
+                    const now = Date.now()
+                    const msUntilNextMinute = 60000 - (now % 60000)
+                    minuteTickTimeout = setTimeout(() => {
+                        actions.tickCurrentMinute()
+                        scheduleNextTick()
+                    }, msUntilNextMinute)
+                }
+                scheduleNextTick()
+                return () => clearTimeout(minuteTickTimeout)
+            }, 'minuteTick')
+            startLiveUserCountInterval(cache as FlushCache, actions as FlushActions)
         },
         beforeUnmount: () => {
             cache.eventsConnection?.abort()
             cache.geoConnection?.abort()
-            stopFlushInterval(cache as FlushCache)
-            if (cache.minuteTickTimeout) {
-                clearTimeout(cache.minuteTickTimeout)
-            }
-            if (cache.liveUserCountInterval) {
-                clearInterval(cache.liveUserCountInterval)
-                cache.liveUserCountInterval = null
-            }
         },
     })),
 ])
@@ -612,19 +599,25 @@ interface FlushCache {
     batch: LiveEvent[]
     geoBatch: LiveGeoEvent[]
     newerThan: Date
-    flushInterval: ReturnType<typeof setInterval> | null
+    disposables: DisposablesManager
 }
 
 interface FlushActions {
     addEvents: (events: LiveEvent[], newerThan: Date) => void
     addGeoEvents: (events: LiveGeoEvent[]) => void
+    tickLiveUserCount: () => void
 }
 
 const stopFlushInterval = (cache: FlushCache): void => {
-    if (cache.flushInterval) {
-        clearInterval(cache.flushInterval)
-        cache.flushInterval = null
-    }
+    cache.disposables.dispose('flushInterval')
+}
+
+// Drives the "Users online" count so users drop off within ~5s of leaving the 60s window
+const startLiveUserCountInterval = (cache: FlushCache, actions: FlushActions): void => {
+    cache.disposables.add(() => {
+        const intervalId = setInterval(() => actions.tickLiveUserCount(), 5000)
+        return () => clearInterval(intervalId)
+    }, 'liveUserCountInterval')
 }
 
 // Translates the canonical filter list into repeated `?property=key=value` query params
@@ -648,19 +641,19 @@ export const appendFilterParams = (url: URL, filters: WebAnalyticsPropertyFilter
 // Flush both event and geo batches on a fixed interval
 // to cap kea dispatches at a predictable rate regardless of event volume
 const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
-    if (cache.flushInterval) {
-        return
-    }
-    cache.flushInterval = setInterval(() => {
-        if (cache.batch.length > 0) {
-            actions.addEvents(cache.batch, cache.newerThan)
-            cache.batch = []
-        }
-        if (cache.geoBatch.length > 0) {
-            actions.addGeoEvents(cache.geoBatch)
-            cache.geoBatch = []
-        }
-    }, FLUSH_INTERVAL_MS)
+    cache.disposables.add(() => {
+        const intervalId = setInterval(() => {
+            if (cache.batch.length > 0) {
+                actions.addEvents(cache.batch, cache.newerThan)
+                cache.batch = []
+            }
+            if (cache.geoBatch.length > 0) {
+                actions.addGeoEvents(cache.geoBatch)
+                cache.geoBatch = []
+            }
+        }, FLUSH_INTERVAL_MS)
+        return () => clearInterval(intervalId)
+    }, 'flushInterval')
 }
 
 const loadQueryData = async ({
