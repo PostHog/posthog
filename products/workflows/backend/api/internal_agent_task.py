@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import WorkflowsTasksAPIAuthentication
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Team, User
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -35,14 +35,11 @@ def _resolve_task_user(team: Team, hog_flow: HogFlow) -> User | None:
     privileged identity (e.g. an org admin) would be silent escalation."""
     if not hog_flow.created_by_id:
         return None
-    is_member = OrganizationMembership.objects.filter(
-        organization_id=team.organization_id,
-        user_id=hog_flow.created_by_id,
-        user__is_active=True,
-    ).exists()
-    if not is_member:
-        return None
-    return User.objects.filter(id=hog_flow.created_by_id).first()
+    return User.objects.filter(
+        id=hog_flow.created_by_id,
+        is_active=True,
+        organization_membership__organization_id=team.organization_id,
+    ).first()
 
 
 def _agent_task_step_enabled(team: Team) -> bool:
@@ -118,9 +115,8 @@ class InternalWorkflowsAgentTaskViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             )
 
         title = (request.data.get("title") or "Workflow task")[:MAX_TITLE_LENGTH]
-        repository = (request.data.get("repository") or None) and str(request.data.get("repository"))[
-            :MAX_REPOSITORY_LENGTH
-        ]
+        repository = request.data.get("repository")
+        repository = str(repository)[:MAX_REPOSITORY_LENGTH] if repository else None
 
         try:
             created = tasks_facade.create_and_run_task(

@@ -4,7 +4,7 @@ import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { logger, serializeError } from '~/common/utils/logger'
 
-import { AgentTaskService } from '../agent-task.service'
+import { AgentTaskService, TERMINAL_TASK_STATUSES } from '../agent-task.service'
 import { findContinueAction, findNextAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
@@ -31,8 +31,6 @@ export const counterAgentTaskPollAdvance = new Counter({
 })
 
 type AgentTaskAction = Extract<HogFlowAction, { type: 'agent_task' }>
-
-const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 
 export class AgentTaskHandler implements ActionHandler {
     constructor(private agentTaskService: AgentTaskService) {}
@@ -92,7 +90,7 @@ export class AgentTaskHandler implements ActionHandler {
             })
             return this.park(invocation, config)
         }
-        if (TERMINAL_STATUSES.has(status.status)) {
+        if (TERMINAL_TASK_STATUSES.has(status.status)) {
             counterAgentTaskPollAdvance.inc()
             currentAction.agentTaskState = undefined
             return this.advance(invocation, status.status, status.output)

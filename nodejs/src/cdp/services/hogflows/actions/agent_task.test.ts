@@ -83,35 +83,19 @@ describe('action.agent_task', () => {
         expect(result.nextAction).toBeUndefined()
     })
 
-    it('advances down the branch edge with the output when woken by a successful completion', async () => {
-        invocation.state.currentAction!.agentTaskState = {
-            taskRunId: 'run-1',
-            completed: true,
-            status: 'completed',
-            output: { pr_url: 'https://github.com/x/y/pull/1' },
-        }
+    it.each([
+        ['completed', 'on_success', { pr_url: 'https://github.com/x/y/pull/1' }],
+        ['failed', 'on_timeout', null],
+    ])('routes a %s completion wake to the %s edge', async (status, edgeId, output) => {
+        invocation.state.currentAction!.agentTaskState = { taskRunId: 'run-1', completed: true, status, output }
 
         const result = await execute()
 
         expect(service.getAgentTaskStatus).not.toHaveBeenCalled()
-        expect(result.nextAction?.id).toBe('on_success')
-        expect(result.result).toEqual({ status: 'completed', output: { pr_url: 'https://github.com/x/y/pull/1' } })
+        expect(result.nextAction?.id).toBe(edgeId)
+        expect(result.result).toEqual({ status, output })
         // Consumed, so a later resume can't re-fire it.
         expect(invocation.state.currentAction!.agentTaskState).toBeUndefined()
-    })
-
-    it('advances down the continue edge when woken by a failed completion', async () => {
-        invocation.state.currentAction!.agentTaskState = {
-            taskRunId: 'run-1',
-            completed: true,
-            status: 'failed',
-            output: null,
-        }
-
-        const result = await execute()
-
-        expect(result.nextAction?.id).toBe('on_timeout')
-        expect(result.result).toEqual({ status: 'failed', output: null })
     })
 
     it('re-parks when a poll wake finds the task still running', async () => {

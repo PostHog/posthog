@@ -14,6 +14,7 @@ import { UUIDT } from '~/common/utils/utils'
 
 import { ClickHousePerson, HealthCheckResult, PluginsServerConfig, RawClickHouseEvent, Team } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
+import { TASK_COMPLETION_EVENT, TERMINAL_TASK_STATUSES } from '../services/hogflows/agent-task.service'
 import {
     hasEventOrActionTarget,
     matchesWaitUntilCondition,
@@ -111,11 +112,6 @@ type AgentTaskCompletion = {
     status: string
     output: unknown
 }
-
-// The internal event a terminal task run emits to wake a parked agent_task step. Terminal status
-// ('completed' | 'failed' | 'cancelled') is carried as the `status` property.
-const TASK_COMPLETION_EVENT = '$task_run_completed'
-const TASK_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 
 // Payload for capturedEventsService.queueEvent — a resolved PostHog capture event minus the token.
 type CapturedConversionEvent = { team_id: number } & Omit<InternalCaptureEvent, 'team_token'>
@@ -217,16 +213,27 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // cdp-events). Only flows with a wait_until_condition step or an event-based conversion
         // goal can ever be woken; scoping to them keeps the function_id list in findParkedJobs
         // small and skips cyclotron entirely when a batch has none.
-        // agent_task flows are only actionable when the batch actually carries a task completion —
-        // otherwise a team's agent_task flow would drag every internal event through cyclotron lookups.
-        const batchHasTaskCompletion =
-            source === 'internal_events' && invocationGlobals.some((g) => g.event.event === TASK_COMPLETION_EVENT)
+        // agent_task steps wake on $task_run_completed internal events. Extract each completion once
+        // per batch (pure per-event work reused across candidates below) and record which teams
+        // actually carry one, so a team's agent_task flows only enter the cyclotron lookup when that
+        // team has a completion in this batch — not on every unrelated internal event.
+        const agentTaskCompletionByGlobals = new Map<HogFunctionInvocationGlobals, AgentTaskCompletion>()
+        const completionTeamIds = new Set<number>()
+        if (source === 'internal_events') {
+            for (const g of invocationGlobals) {
+                const completion = extractAgentTaskCompletion(g.event)
+                if (completion) {
+                    agentTaskCompletionByGlobals.set(g, completion)
+                    completionTeamIds.add(g.project.id)
+                }
+            }
+        }
 
         const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
         const hogflows: Record<string, HogFlow> = {}
         for (const flows of Object.values(hogFlowsByTeam)) {
             for (const flow of flows) {
-                if (hasWaitUntilOrConversion(flow) || (batchHasTaskCompletion && hasAgentTask(flow))) {
+                if (isWakeEligible(flow, completionTeamIds.has(flow.team_id))) {
                     hogflows[flow.id] = flow
                 }
             }
@@ -288,11 +295,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             let agentTaskCompletions: AgentTaskCompletion[] | undefined
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
-                // agent_task steps wake on a $task_run_completed internal event, not on filter bytecode.
-                // Collect every completion in the batch — the parked job's stored task run id picks the
-                // right one in applyMatchToState (several tasks for one person can finish together).
+                // Collect the batch's task completions for this candidate; the parked job's stored task
+                // run id picks the right one in applyMatchToState (see the MatchedJob field comment).
                 if (action?.type === 'agent_task') {
-                    const completion = extractAgentTaskCompletion(globals.event)
+                    const completion = agentTaskCompletionByGlobals.get(globals)
                     if (completion) {
                         ;(agentTaskCompletions ??= []).push(completion)
                     }
@@ -650,11 +656,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     // Task completions can also wake agent_task steps; every other internal event only
                     // matters to wait/conversion flows, so agent_task flows don't broaden the gate for them.
                     const isTaskCompletion = parsed.event.event === TASK_COMPLETION_EVENT
-                    if (
-                        !teamHogFlows.some(
-                            (flow) => hasWaitUntilOrConversion(flow) || (isTaskCompletion && hasAgentTask(flow))
-                        )
-                    ) {
+                    if (!teamHogFlows.some((flow) => isWakeEligible(flow, isTaskCompletion))) {
                         counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
                         return
                     }
@@ -799,6 +801,13 @@ function hasAgentTask(hogflow: HogFlow): boolean {
     return hogflow.actions.some((a: HogFlowAction) => a.type === 'agent_task')
 }
 
+// Whether a batch from the current stream can wake this flow: a wait/conversion flow is always
+// eligible; an agent_task flow only when the batch carries a $task_run_completed for its team.
+// Single source of truth for both the per-event parse gate and the per-batch flow scoping.
+function isWakeEligible(hogflow: HogFlow, hasTaskCompletion: boolean): boolean {
+    return hasWaitUntilOrConversion(hogflow) || (hasTaskCompletion && hasAgentTask(hogflow))
+}
+
 // A $task_run_completed internal event carries the run id, terminal status and structured output as
 // properties. Returns the completion payload when the event is a well-formed one, else undefined —
 // a malformed status is dropped (fail closed) so the poll backstop resolves the authoritative state
@@ -813,7 +822,7 @@ function extractAgentTaskCompletion(event: HogFunctionInvocationGlobals['event']
         typeof taskRunId !== 'string' ||
         !taskRunId ||
         typeof status !== 'string' ||
-        !TASK_TERMINAL_STATUSES.has(status)
+        !TERMINAL_TASK_STATUSES.has(status)
     ) {
         return undefined
     }
@@ -942,19 +951,13 @@ function applyMatchToState(stateBuffer: Buffer, m: MatchedJob): MatchOutcome | n
         // A $task_run_completed event resumes a parked agent_task step, but only the job whose stored
         // task run id matches one of the batch's completions — jobs that merely share the distinct_id
         // are left parked.
-        if (m.agentTaskCompletions) {
-            const agentTaskState = updatedState.currentAction?.agentTaskState
-            const completion =
-                agentTaskState && !agentTaskState.completed
-                    ? m.agentTaskCompletions.find((c) => c.taskRunId === agentTaskState.taskRunId)
-                    : undefined
-            if (agentTaskState && completion) {
-                updatedState.currentAction!.agentTaskState = {
-                    ...agentTaskState,
-                    completed: true,
-                    status: completion.status,
-                    output: completion.output,
-                }
+        const agentTaskState = updatedState.currentAction?.agentTaskState
+        if (m.agentTaskCompletions && agentTaskState && !agentTaskState.completed) {
+            const completion = m.agentTaskCompletions.find((c) => c.taskRunId === agentTaskState.taskRunId)
+            if (completion) {
+                agentTaskState.completed = true
+                agentTaskState.status = completion.status
+                agentTaskState.output = completion.output
                 changed = true
                 wake = true
             }
