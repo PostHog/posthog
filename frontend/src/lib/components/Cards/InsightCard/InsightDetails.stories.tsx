@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { QueryBasedInsightModel } from '~/types'
+import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
+import { PropertyFilterType, PropertyOperator, QueryBasedInsightModel } from '~/types'
 
 import __dataTableEvents from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import __dataTableHogQL from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -19,17 +20,28 @@ import __trendsWorldMap from '../../../../mocks/fixtures/api/projects/team_id/in
 import __userPaths from '../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 import { InsightDetails as InsightDetailsComponent } from './InsightDetails'
 
-type Story = StoryObj<{ insight: QueryBasedInsightModel }>
-const meta: Meta<{ insight: QueryBasedInsightModel }> = {
+interface StoryArgs {
+    insight: QueryBasedInsightModel
+    filtersOverride?: DashboardFilter
+    tileFiltersOverride?: TileFilters | null
+}
+
+type Story = StoryObj<StoryArgs>
+const meta: Meta<StoryArgs> = {
     title: 'Components/Cards/Insight Details',
     component: InsightDetailsComponent as any,
     parameters: {
         mockDate: '2025-12-10',
     },
-    render: ({ insight }) => {
+    render: ({ insight, filtersOverride, tileFiltersOverride }) => {
         return (
             <div className="bg-surface-primary w-[24rem] p-4 rounded">
-                <InsightDetailsComponent query={insight.query} footerInfo={insight} />
+                <InsightDetailsComponent
+                    query={insight.query}
+                    footerInfo={insight}
+                    filtersOverride={filtersOverride}
+                    tileFiltersOverride={tileFiltersOverride}
+                />
             </div>
         )
     },
@@ -117,5 +129,40 @@ export const DataVisualizationHogQLQuery: Story = {
 export const DataTableEventsQuery: Story = {
     args: {
         insight: __dataTableEvents as any,
+    },
+}
+
+export const DashboardFilterOverrides: Story = {
+    args: {
+        insight: __trendsLine as any,
+        filtersOverride: {
+            date_from: '-30d',
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Exact,
+                    value: ['Chrome'],
+                },
+            ],
+            breakdown_filter: { breakdown: '$os', breakdown_type: 'event' },
+        },
+    },
+}
+
+export const TileFilterOverrides: Story = {
+    args: {
+        insight: __trendsLine as any,
+        tileFiltersOverride: {
+            date_from: '-7d',
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$geoip_country_name',
+                    operator: PropertyOperator.Exact,
+                    value: ['United States'],
+                },
+            ],
+        },
     },
 }
