@@ -19,3 +19,16 @@ export class ToolbarRequestError extends Error {
         this.status = status
     }
 }
+
+/**
+ * Preferred over a bare `instanceof` check: on customer pages the error can cross
+ * realm/bundle boundaries (duplicate toolbar bundles, page wrappers around fetch/DOM
+ * APIs), where class identity is lost. Fall back to the `name` tag so a tagged request
+ * failure is never misclassified as a genuine bug.
+ */
+export function isToolbarRequestError(error: unknown): boolean {
+    if (error instanceof ToolbarRequestError) {
+        return true
+    }
+    return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'ToolbarRequestError'
+}

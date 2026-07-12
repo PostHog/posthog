@@ -8,7 +8,7 @@ import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ToolbarRequestError } from '~/toolbar/toolbarRequestError'
+import { isToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
 import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
@@ -247,7 +247,7 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
                 toolbarLogger.warn('field-notes', 'Failed to capture screenshot')
                 // A failed upload request (ToolbarRequestError) is expected; only a bug in
                 // the screenshot capture itself is worth an exception.
-                if (!(e instanceof ToolbarRequestError)) {
+                if (!isToolbarRequestError(e)) {
                     captureToolbarException(e, 'field_note_screenshot')
                 }
             }

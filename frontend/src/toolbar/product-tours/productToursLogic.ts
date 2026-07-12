@@ -23,7 +23,7 @@ import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ToolbarRequestError } from '~/toolbar/toolbarRequestError'
+import { ToolbarRequestError, isToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { ElementRect } from '~/toolbar/types'
 import { urls } from '~/toolbar/urls'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
@@ -478,7 +478,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 toolbarLogger.warn('product_tours', 'Failed to capture element screenshot')
                 // A failed upload request (ToolbarRequestError) is expected; only a bug in
                 // the screenshot capture itself is worth an exception.
-                if (!(e instanceof ToolbarRequestError)) {
+                if (!isToolbarRequestError(e)) {
                     captureToolbarException(e, 'product_tour_screenshot')
                 }
                 return null

@@ -18,7 +18,7 @@ import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
 import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
-import { ToolbarRequestError } from '~/toolbar/toolbarRequestError'
+import { isToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { safeFetch } from '~/toolbar/utils'
 import { ToolbarParams } from '~/types'
 
@@ -54,7 +54,7 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
                 // Loaders throw ToolbarRequestError to drive their *Failure actions on
                 // expected request failures (4xx/5xx/network) - those are logged above but
                 // must not pollute error tracking. Anything else is a genuine toolbar bug.
-                if (!(error instanceof ToolbarRequestError)) {
+                if (!isToolbarRequestError(error)) {
                     captureToolbarException(error, 'kea_loader', {
                         reducer_key: reducerKey,
                         action_key: actionKey,

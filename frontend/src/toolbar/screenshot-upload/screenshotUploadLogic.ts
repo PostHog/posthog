@@ -91,7 +91,13 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
                         return null
                     }
 
-                    const blob = await safeFetch(previewUrl).then((r) => r.blob())
+                    // safeFetch can hand back a synthetic 502 JSON response (customer fetch
+                    // wrapper) - never upload that body as the screenshot.
+                    const previewResponse = await safeFetch(previewUrl)
+                    if (!previewResponse.ok) {
+                        throw new ToolbarRequestError('Failed to read screenshot preview', previewResponse.status)
+                    }
+                    const blob = await previewResponse.blob()
                     const { mediaId } = await uploadScreenshot(blob)
                     breakpoint()
 

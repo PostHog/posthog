@@ -2,7 +2,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ToolbarRequestError } from '~/toolbar/toolbarRequestError'
+import { ToolbarRequestError, isToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { asNonEmptyString, safeFetch } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from './toolbarConfigLogic'
@@ -124,7 +124,7 @@ export async function withTokenRefresh(
         toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
         // Failed refreshes are expected request outcomes (ToolbarRequestError) - only a
         // genuine bug in the refresh/retry code itself is worth an exception.
-        if (!(e instanceof ToolbarRequestError)) {
+        if (!isToolbarRequestError(e)) {
             captureToolbarException(e, 'token_refresh_retry')
         }
         lemonToast.error('Please re-authenticate to continue using the toolbar.')
