@@ -44,8 +44,10 @@ pub fn is_image_ref(s: &str) -> bool {
 /// under the broker's 1 MB default. Bigger images stay on the inline blur path.
 pub const MAX_IMAGE_BYTES: usize = 900 * 1024;
 /// Per-message caps bound what one payload can pin in memory and fan out onto the scrub topic;
-/// images past them stay on the inline blur path.
-pub const MAX_IMAGES_PER_MESSAGE: usize = 64;
+/// images past them stay on the inline blur path. The count cap is sized so the byte cap is the
+/// binding constraint for realistic payloads (only sub-32 KB average images can hit it first) —
+/// an image-heavy but ordinary snapshot should never fall back on count alone.
+pub const MAX_IMAGES_PER_MESSAGE: usize = 256;
 pub const MAX_TOTAL_BYTES_PER_MESSAGE: usize = 8 * 1024 * 1024;
 
 /// Enables collection for one anonymize call.
@@ -117,6 +119,29 @@ impl ImageCollector {
     }
 }
 
+/// Raster subtypes preserved on a collected canvas blob's `type` field — downstream replay
+/// reassembly uses it as the format hint for the image behind the ref. Anything else (unknown
+/// subtypes, parameters — where client-controlled text could ride through unscrubbed) normalizes
+/// to `image/png`. Exact matches only: the old blur path re-encoded and overwrote this field, so
+/// no client string ever survived; the ref path must not weaken that.
+const COLLECTED_MIME_ALLOWLIST: &[&str] = &[
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/avif",
+];
+
+pub fn normalize_collected_mime(mime: &str) -> &'static str {
+    let lower = mime.trim().to_ascii_lowercase();
+    COLLECTED_MIME_ALLOWLIST
+        .iter()
+        .find(|allowed| **allowed == lower)
+        .copied()
+        .unwrap_or("image/png")
+}
+
 /// Decode the collectable payload of an image data URI. `None` (not collectable) for anything but
 /// a base64 raster image: SVG is a text format whose PII must stay on the inline scrub path, and
 /// non-base64 payloads mirror `blur_image_data_uri`'s refusal. MIME types are case-insensitive,
@@ -129,6 +154,12 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
         return None;
     }
     if meta.starts_with("image/svg") {
+        return None;
+    }
+    // An encoded payload that can't decode under the per-image cap would be decoded here only to
+    // be rejected by `collect` (and then decoded again by the blur fallback) — bail on the
+    // encoded length instead.
+    if payload.len() > MAX_IMAGE_BYTES.div_ceil(3) * 4 {
         return None;
     }
     base64::engine::general_purpose::STANDARD
@@ -220,6 +251,31 @@ mod tests {
             collectable_data_uri_bytes("data:image/png;base64,aGVsbG8=").as_deref(),
             Some(b"hello".as_slice())
         );
+    }
+
+    #[test]
+    fn collectable_rejects_oversized_encoded_payload_without_decoding() {
+        // 4/3 * MAX_IMAGE_BYTES encoded chars is the fit boundary; one full quartet past it means
+        // the decoded bytes cannot fit, so it must bail before paying the decode.
+        let over = "A".repeat(MAX_IMAGE_BYTES.div_ceil(3) * 4 + 4);
+        assert!(collectable_data_uri_bytes(&format!("data:image/png;base64,{over}")).is_none());
+    }
+
+    #[test]
+    fn collected_mime_normalizes_to_the_allowlist() {
+        assert_eq!(normalize_collected_mime("image/jpeg"), "image/jpeg");
+        assert_eq!(normalize_collected_mime("IMAGE/WebP"), "image/webp");
+        assert_eq!(normalize_collected_mime(" image/png "), "image/png");
+        // Parameters and unknown subtypes are exactly where client text could ride through.
+        assert_eq!(
+            normalize_collected_mime("image/png;evil=payload"),
+            "image/png"
+        );
+        assert_eq!(
+            normalize_collected_mime("image/x-arbitrary-client-text"),
+            "image/png"
+        );
+        assert_eq!(normalize_collected_mime("image/svg+xml"), "image/png");
     }
 
     #[test]

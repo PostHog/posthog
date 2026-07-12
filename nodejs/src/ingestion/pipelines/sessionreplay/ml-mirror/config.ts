@@ -23,7 +23,11 @@ export type MlMirrorConfig = {
     /** Row cap that forces a flush before the interval elapses (bounds the sink's memory). */
     SESSION_RECORDING_ML_PARQUET_MAX_ROWS: number
 
-    /** Produce collected original images to the scrub topic (requires the scrub consumer lane to be live). */
+    /**
+     * Produce collected original images to the scrub topic. Enabling changes the mirrored JSONL
+     * shape: image fields carry `image:<pseudoTeam>:<hash>` refs instead of blurred data URIs, so
+     * both the scrub consumer lane AND ref-aware downstream readers must be live first.
+     */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
