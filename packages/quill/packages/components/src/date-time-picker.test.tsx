@@ -76,4 +76,62 @@ describe('DateTimePicker', () => {
         expect(applied.end).toEqual(new Date(2022, 11, 31, 23, 59, 59))
         expect(applied.range).toBe(lastMonth)
     })
+
+    it('presetsFirst: a preset click applies immediately without the Apply button', async () => {
+        const onApply = jest.fn()
+        const lastMonth: DateTimeRange = {
+            id: 1,
+            name: 'Last month',
+            rangeSetter: () => new Date(2022, 11, 1),
+            endSetter: () => new Date(2022, 11, 31, 23, 59, 59),
+        }
+        render(<DateTimePicker value={VALUE} maxDate={MAX} onApply={onApply} ranges={[lastMonth]} presetsFirst />)
+
+        await userEvent.click(screen.getByTitle('Last month'))
+
+        expect(onApply).toHaveBeenCalledTimes(1)
+        const applied = onApply.mock.calls[0][0]
+        expect(applied.start).toEqual(new Date(2022, 11, 1))
+        expect(applied.end).toEqual(new Date(2022, 11, 31, 23, 59, 59))
+        expect(applied.range).toBe(lastMonth)
+    })
+
+    it('presetsFirst: the calendar is collapsed until Custom range, Cancel collapses it back, footerExtra persists', async () => {
+        const ranges: DateTimeRange[] = [{ id: 1, name: 'This month', rangeSetter: (d) => d }]
+        const presetValue = { start: VALUE.start, end: VALUE.end, range: ranges[0] }
+        render(
+            <DateTimePicker
+                value={presetValue}
+                maxDate={MAX}
+                onApply={jest.fn()}
+                ranges={ranges}
+                presetsFirst
+                footerExtra={<span>Exclusions</span>}
+            />
+        )
+
+        expect(screen.queryByLabelText('Apply date range')).toBeNull()
+        expect(screen.getByText('Exclusions')).toBeTruthy()
+
+        await userEvent.click(screen.getByText('Custom range…'))
+        expect(screen.getByLabelText('Apply date range')).toBeTruthy()
+        expect(screen.getByText('Exclusions')).toBeTruthy()
+
+        await userEvent.click(screen.getByLabelText('Cancel'))
+        expect(screen.queryByLabelText('Apply date range')).toBeNull()
+    })
+
+    it('presetsFirst: opens expanded when the value is a custom range', () => {
+        render(
+            <DateTimePicker
+                value={VALUE}
+                maxDate={MAX}
+                onApply={jest.fn()}
+                ranges={[{ id: 1, name: 'This month', rangeSetter: (d) => d }]}
+                presetsFirst
+            />
+        )
+
+        expect(screen.getByLabelText('Apply date range')).toBeTruthy()
+    })
 })

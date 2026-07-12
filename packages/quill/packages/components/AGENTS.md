@@ -66,6 +66,9 @@ Rules:
 - `minDate`/`maxDate` are day-granular; time inputs are independent of those bounds.
 - `weekStartsOn` affects the calendar grid only, not quick-range math.
 - Embedding in a host surface (e.g. inside a popover with the host's own sections): `showHeader={false}` drops the caps header band, `showTime={false}` switches to day-granular mode (no time segments, no "Now", date-only footer readout) — pair with a `className` that strips the card chrome (`shadow-none ring-0`).
+- `presetsFirst` renders the quick ranges as a left-hand vertical list that applies immediately on click (`onApply` fires with the computed range — no staging); the calendar with its staged Apply flow is revealed in place by a built-in "Custom range…" row (Cancel collapses back). Opens on the calendar when `value.range` is `CUSTOM_RANGE`. Ignored in `compact`. The picker never interprets what a preset means — hosts map the applied `range` back to their own vocabulary (e.g. relative date strings) by its `id`.
+- `footerExtra` pins host content in the actions bar next to the readout (e.g. an exclusions control); in collapsed `presetsFirst` it renders as the sole footer row. The footer's date readout hides at `lg` where the inputs row shows the same staged range.
+- When hosting the picker in a quill `Popover` in `presetsFirst` mode, pass `collisionAvoidance={{ align: 'none' }}` on the `PopoverContent` so the surface stays pinned when the calendar expands instead of re-shifting (which would move the preset list under the user's cursor).
 
 ## DatePicker
 

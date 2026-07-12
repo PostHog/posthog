@@ -13,7 +13,7 @@ import {
 import { Clock } from 'lucide-react'
 import * as React from 'react'
 
-import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
+import { Button, Label, Popover, PopoverContent, PopoverTrigger, Separator, Switch, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
 import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 import { DateTimePicker, type DateTimeValue } from './date-time-picker'
@@ -214,5 +214,161 @@ export const NarrowContainer: Story = {
     render: () => {
         const [value, setValue] = React.useState<DateTimeValue>(initialValue)
         return <DateTimePicker value={value} onApply={setValue} compact />
+    },
+}
+
+const analyticsRanges: DateTimeRange[] = [
+    { id: 1, name: 'Today', rangeSetter: (d) => d },
+    { id: 2, name: 'Last 7 days', rangeSetter: (d) => subDays(d, 7) },
+    { id: 3, name: 'Last 30 days', rangeSetter: (d) => subDays(d, 30) },
+    { id: 4, name: 'Last 90 days', rangeSetter: (d) => subDays(d, 90) },
+    { id: 5, name: 'This month', rangeSetter: (d) => startOfMonth(d) },
+    { id: 6, name: 'Last month', rangeSetter: (d) => startOfMonth(subMonths(d, 1)), endSetter: (d) => endOfMonth(subMonths(d, 1)) },
+    { id: 7, name: 'Year to date', rangeSetter: (d) => startOfYear(d) },
+]
+
+// An exclusions control for the footerExtra slot: a small link opening a panel with an
+// incomplete-period toggle and exclude-day chips. Host-supplied; the picker only provides the slot.
+function ExcludeControlDemo(): React.ReactElement {
+    const [excludedDays, setExcludedDays] = React.useState<string[]>([])
+    const [excludeIncomplete, setExcludeIncomplete] = React.useState(false)
+    const [openPanel, setOpenPanel] = React.useState(false)
+    const rootRef = React.useRef<HTMLDivElement>(null)
+    React.useEffect(() => {
+        if (!openPanel) {
+            return
+        }
+        const onPointerDown = (event: PointerEvent): void => {
+            if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+                setOpenPanel(false)
+            }
+        }
+        document.addEventListener('pointerdown', onPointerDown)
+        return () => document.removeEventListener('pointerdown', onPointerDown)
+    }, [openPanel])
+    const labels: Record<string, string> = { 1: 'M', 2: 'T', 3: 'W', 4: 'T', 5: 'F', 6: 'S', 7: 'S' }
+    const sorted = [...excludedDays].sort().join(',')
+    const parts: string[] = []
+    if (excludedDays.length > 0) {
+        parts.push(sorted === '6,7' ? 'weekends' : sorted === '1,2,3,4,5' ? 'weekdays' : `${excludedDays.length} days`)
+    }
+    if (excludeIncomplete) {
+        parts.push('incomplete')
+    }
+    return (
+        <div className="relative" ref={rootRef}>
+            <Button variant="link" size="xs" aria-expanded={openPanel} onClick={() => setOpenPanel((prev) => !prev)}>
+                {parts.length > 0 ? `Excluding ${parts.join(', ')}` : '+ Exclude'}
+            </Button>
+            {openPanel && (
+                <div className="bg-card absolute bottom-full left-0 z-10 mb-1 flex w-64 flex-col rounded-md border shadow-md">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                        <Label htmlFor="story-exclude-incomplete">Incomplete period</Label>
+                        <Switch
+                            id="story-exclude-incomplete"
+                            size="sm"
+                            checked={excludeIncomplete}
+                            onCheckedChange={setExcludeIncomplete}
+                        />
+                    </div>
+                    <Separator />
+                    <div className="flex flex-col gap-2 px-3 py-2.5">
+                        <ToggleGroup
+                            multiple
+                            size="sm"
+                            className="w-full"
+                            value={excludedDays}
+                            onValueChange={setExcludedDays}
+                        >
+                            {Object.keys(labels).map((day) => (
+                                <ToggleGroupItem key={day} value={day} className="flex-1">
+                                    {labels[day]}
+                                </ToggleGroupItem>
+                            ))}
+                        </ToggleGroup>
+                        <div className="flex items-center justify-center gap-3">
+                            <Button variant="link" size="xs" onClick={() => setExcludedDays(['6', '7'])}>
+                                Weekends
+                            </Button>
+                            <Button variant="link" size="xs" onClick={() => setExcludedDays(['1', '2', '3', '4', '5'])}>
+                                Weekdays
+                            </Button>
+                            <Button variant="link" size="xs" onClick={() => setExcludedDays([])}>
+                                Clear
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
+export const PresetsFirst: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>({
+            start: subDays(new Date(), 7),
+            end: new Date(),
+            range: analyticsRanges.find((r) => r.name === 'Last 7 days')!,
+        })
+        return <DateTimePicker value={value} onApply={setValue} ranges={analyticsRanges} presetsFirst showTime={false} />
+    },
+}
+
+export const PresetsFirstWithExclusions: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>({
+            start: subDays(new Date(), 7),
+            end: new Date(),
+            range: analyticsRanges.find((r) => r.name === 'Last 7 days')!,
+        })
+        return (
+            <DateTimePicker
+                value={value}
+                onApply={setValue}
+                ranges={analyticsRanges}
+                presetsFirst
+                showTime={false}
+                footerExtra={<ExcludeControlDemo />}
+            />
+        )
+    },
+}
+
+export const PresetsFirstInPopover: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>({
+            start: subDays(new Date(), 7),
+            end: new Date(),
+            range: analyticsRanges.find((r) => r.name === 'Last 7 days')!,
+        })
+        const [open, setOpen] = React.useState(false)
+        return (
+            <div className="h-120">
+                <Popover open={open} onOpenChange={setOpen}>
+                    <PopoverTrigger render={<Button variant="outline">{formatTriggerLabel(value)}</Button>} />
+                    <PopoverContent
+                        align="start"
+                        collisionAvoidance={{ align: 'none' }}
+                        className="w-auto overflow-hidden border-none p-0 shadow-none ring-0"
+                    >
+                        <DateTimePicker
+                            value={value}
+                            onApply={(next) => {
+                                setValue(next)
+                                setOpen(false)
+                            }}
+                            ranges={analyticsRanges}
+                            presetsFirst
+                            showTime={false}
+                            footerExtra={<ExcludeControlDemo />}
+                        />
+                    </PopoverContent>
+                </Popover>
+            </div>
+        )
     },
 }
