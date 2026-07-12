@@ -140,9 +140,11 @@ const config: Config = {
     // Faking queueMicrotask starves the web-streams pump that MSW v2 response bodies ride on:
     // each pump microtask lands in the fake queue and respawns the next one, so any
     // advanceTimersByTimeAsync allocates unboundedly until the worker OOMs. Keep microtasks real.
+    // setImmediate drives MSW v2's interceptor response pump the same way — faking it deadlocks
+    // any test that awaits a mocked request under fake timers (upstream stance: mswjs/msw#1830).
     // Merged into per-test `jest.useFakeTimers({...})` configs unless they pass their own doNotFake.
     fakeTimers: {
-        doNotFake: ['queueMicrotask'],
+        doNotFake: ['queueMicrotask', 'setImmediate'],
     },
 
     // Force coverage collection from ignored files using an array of glob patterns

@@ -4,8 +4,8 @@ import { useActions, useValues } from 'kea'
 
 import { BaseIcon, IconCheck } from '@posthog/icons'
 
+import { SettingsBar, SettingsMenu, SettingsToggle } from 'lib/components/PanelSettings/PanelSettings'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
