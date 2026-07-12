@@ -23,7 +23,7 @@ export function InstallProgressCard(): JSX.Element | null {
                     <h2 className="text-lg font-semibold mb-1">We're setting up PostHog in your repo</h2>
                     <p className="text-sm text-muted m-0">
                         A pull request that wires up PostHog is being prepared in the background. Follow its progress in
-                        the setup panel in the bottom-right corner — it'll link the pull request as soon as it's open.
+                        the setup panel in the bottom-right corner - it'll link the pull request as soon as it's open.
                     </p>
                 </div>
             </div>
