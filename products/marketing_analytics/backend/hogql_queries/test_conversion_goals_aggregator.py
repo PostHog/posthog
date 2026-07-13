@@ -24,6 +24,10 @@ from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    LazyComputationTable,
+)
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
 from .conversion_goal_processor import ConversionGoalProcessor
@@ -624,3 +628,22 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert "Holiday Promo" in sql_string, "SQL should contain mapped campaign name"
         assert "spring_sale_2024" in sql_string, "SQL should contain original campaign name in mapping"
         assert "holiday_campaign" in sql_string, "SQL should contain original campaign name in mapping"
+
+    def test_touchpoints_precompute_materialized_once_across_goals(self):
+        processors = [
+            self._create_test_processor(self._create_test_conversion_goal("goal1", "Sign Ups"), 0),
+            self._create_test_processor(self._create_test_conversion_goal("goal2", "Purchases"), 1),
+        ]
+        aggregator = ConversionGoalsAggregator(processors, self.config)
+
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.ensure_precomputed",
+            side_effect=lambda **kwargs: LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
+        ) as ensure:
+            aggregator.generate_unified_cte(self.date_range, self._create_mock_additional_conditions_getter())
+
+        tables = [call.kwargs["table"] for call in ensure.call_args_list]
+        # Touchpoints are config-agnostic, so both goals share one materialization. Conversions embed the
+        # goal, so each keeps its own — sharing those would serve one goal's conversions for the other.
+        assert tables.count(LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED) == 1
+        assert tables.count(LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED) == len(processors)
