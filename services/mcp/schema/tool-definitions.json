@@ -21,7 +21,6 @@
         "title": "Submit PostHog feedback",
         "required_scopes": [],
         "always_available": true,
-        "feature_flag": "mcp-feedback-tool",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

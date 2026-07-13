@@ -7,7 +7,6 @@ import {
     type QueryToolInfo,
     type ToolInfo,
 } from '@/lib/instructions'
-import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
@@ -33,9 +32,6 @@ export interface InstructionsContext {
     metadata?: string | undefined
     tools?: ToolInfo[] | undefined
     queryTools?: QueryToolInfo[] | undefined
-    /** Resolved tool feature flags from `resolveToolFeatureFlags`. Used to gate
-     *  prompt sections whose corresponding tool is flag-gated. */
-    featureFlags?: EvaluatedFlags | undefined
     /** Whether `render-ui` is actually available to this client (i.e. the client is
      *  an MCP Apps host). Gates the CLI rendering section so it never reaches clients —
      *  like Claude Code — that can't mount the iframe. */
@@ -59,7 +55,7 @@ export class InstructionsFormatter {
                 SCHEMA_WORKFLOW,
                 ENV_CONTEXT,
                 URL_PATTERNS,
-                ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
+                AGENT_FEEDBACK,
                 EXAMPLES,
             ],
             ctx,
@@ -114,14 +110,13 @@ export class InstructionsFormatter {
             SCHEMA_WORKFLOW,
             ENV_CONTEXT,
             URL_PATTERNS,
-            ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
+            AGENT_FEEDBACK,
             EXAMPLES,
         ]
         const renderCtx: InstructionsContext = opts.stripEnvContext
             ? {
                   guidelines: ctx.guidelines,
                   queryTools: ctx.queryTools,
-                  featureFlags: ctx.featureFlags,
                   ...(opts.keepEnvContext ? { metadata: ctx.metadata, groupTypes: ctx.groupTypes } : {}),
               }
             : { ...ctx, tools: undefined }
@@ -130,13 +125,6 @@ export class InstructionsFormatter {
         // agents still discover domains at runtime via the `search` command, and
         // `instructions`-honoring clients keep the compact domain index there.
         return this.compose(sections, renderCtx, { compact: false })
-    }
-
-    /** The agent-feedback section is only useful when the `agent-feedback` tool
-     *  is reachable, which is governed by the `mcp-feedback-tool` flag evaluated
-     *  in `resolveToolFeatureFlags`. */
-    private agentFeedbackEnabled(featureFlags: EvaluatedFlags | undefined): boolean {
-        return featureFlags?.['mcp-feedback-tool'] === true
     }
 
     private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {

@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     MySQLImplementation,
     _build_query,
     _is_bad_plan_error,
+    _is_transient_connect_dns_failure,
     _is_transient_connect_drop,
     _is_transient_connect_timeout,
     _is_transient_packet_sequence_error,
@@ -951,6 +952,43 @@ class TestIsTransientConnectTimeout:
         assert not _is_transient_connect_timeout(pymysql.err.OperationalError())
 
 
+class TestIsTransientConnectDnsFailure:
+    def test_matches_temporary_name_resolution_failure(self):
+        # glibc EAI_AGAIN — a transient resolver blip that a fresh attempt recovers from, so it must
+        # be retried in-process rather than surfacing as the non-retryable "Can't connect" config error.
+        assert _is_transient_connect_dns_failure(
+            pymysql.err.OperationalError(
+                2003,
+                "Can't connect to MySQL server on 'db.example.com' ([Errno -3] Temporary failure in name resolution)",
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # EAI_NONAME — the host genuinely doesn't resolve; a deterministic config error that must
+            # stay non-retryable rather than being absorbed as a transient blip here.
+            "Can't connect to MySQL server on 'nope.example.com' ([Errno -2] Name or service not known)",
+            "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)",
+        ],
+    )
+    def test_does_not_match_permanent_connect_errors(self, message):
+        assert not _is_transient_connect_dns_failure(pymysql.err.OperationalError(2003, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2013, "Lost connection to MySQL server during query"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_dns_failure(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_dns_failure(pymysql.err.OperationalError())
+
+
 class TestIsTransientPacketSequenceError:
     @pytest.mark.parametrize(
         "message",
@@ -1067,6 +1105,28 @@ class TestConnectTransientRetry:
             "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=[
                 pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'host' (timed out)"),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_dns_temporary_failure_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    2003,
+                    "Can't connect to MySQL server on 'db.example.com' "
+                    "([Errno -3] Temporary failure in name resolution)",
+                ),
                 conn,
             ],
         )

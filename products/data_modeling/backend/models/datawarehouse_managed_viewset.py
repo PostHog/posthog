@@ -152,7 +152,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
                 # Do NOT use get_columns because it runs the query, and these are possibly heavy
                 saved_query.query = view.query
-                saved_query.columns = view.columns
+                saved_query.set_columns(view.columns)
                 saved_query.external_tables = external_tables_by_view[view.name]
                 saved_query.is_materialized = view.materialized
                 # A non-materialized view is computed at query time — no sync schedule, and it never

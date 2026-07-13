@@ -787,6 +787,8 @@ class ExternalDataSourceType(models.TextChoices):
     TERRAAPI = "TerraApi", "TerraApi"
     TRIGGERDEV = "TriggerDev", "TriggerDev"
     TURSO = "Turso", "Turso"
+    SINGULAR = "Singular", "Singular"
+    SWONKIE = "Swonkie", "Swonkie"
     TWELVELABS = "TwelveLabs", "TwelveLabs"
     TWENTY = "Twenty", "Twenty"
     UNSTRUCTURED = "Unstructured", "Unstructured"
@@ -805,6 +807,7 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.POSTGRES: "postgres",
     ExternalDataSourceType.MYSQL: "mysql",
     ExternalDataSourceType.SNOWFLAKE: "snowflake",
+    ExternalDataSourceType.REDSHIFT: "redshift",
 }
 
 
