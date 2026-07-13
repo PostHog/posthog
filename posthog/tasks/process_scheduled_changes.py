@@ -386,8 +386,11 @@ def process_scheduled_changes() -> None:
                     # integrity issue, and should stay visible in error tracking.
                     if orphaned_target:
                         logger.info(
-                            "Scheduled change skipped: target record no longer exists",
+                            "Scheduled change skipped: target record not found",
                             scheduled_change_id=scheduled_change.id,
+                            model_name=scheduled_change.model_name,
+                            record_id=scheduled_change.record_id,
+                            team_id=scheduled_change.team_id,
                             error=str(e),
                             error_type=e.__class__.__name__,
                         )
