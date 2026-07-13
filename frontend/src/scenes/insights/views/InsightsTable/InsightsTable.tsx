@@ -30,7 +30,7 @@ import {
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
-import { SeriesColumnItem } from './columns/SeriesColumn'
+import { SeriesColumnItem, formatCompareLabel } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
@@ -185,6 +185,7 @@ export function InsightsTable({
                     item={item}
                     formatItemBreakdownLabel={formatItemBreakdownLabel!}
                     breakdownFilter={breakdownFilter}
+                    compareValue={item.compare && !isCompareTable ? formatCompareLabel(item) : undefined}
                 />
             ) : (
                 <SeriesColumnItem
