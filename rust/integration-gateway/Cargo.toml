@@ -1,0 +1,37 @@
+[package]
+name = "integration-gateway"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# integration-gateway: read-only credential-fetch service (PR 1). See
+# docs/internal/integration-gateway-plan.md. Decrypts posthog_integration.sensitive_config
+# on behalf of callers behind a scoped-JWT auth boundary + audit trail. Django still owns
+# writes/refresh; this service never writes. Token refresh arrives in PR 2 (feature-flagged).
+
+[dependencies]
+async-trait = { workspace = true }
+axum = { workspace = true }
+base64 = { workspace = true }
+envconfig = { workspace = true }
+fernet = { workspace = true }
+jsonwebtoken = "8.3"
+moka = { workspace = true }
+pbkdf2 = "0.12"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+sqlx = { workspace = true, features = ["json"] }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+uuid = { workspace = true }
+
+lifecycle = { path = "../common/lifecycle" }
+common-alloc = { path = "../common/alloc" }
+common-metrics = { path = "../common/metrics" }
+serve-metrics = { path = "../common/serve_metrics" }
+
+[lints]
+workspace = true
