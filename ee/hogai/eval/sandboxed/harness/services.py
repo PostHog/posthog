@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import shutil
 import logging
 import subprocess
 from collections.abc import Callable
@@ -14,7 +15,8 @@ from products.tasks.backend.facade.agents import ENV_LOCAL_SKILLS_HOST_PATH, Loc
 
 from ee.hogai.eval.sandboxed.long_lived_subprocess import LongLivedSubprocessManager, SubprocessStartupError
 
-from .ports import LLM_GATEWAY_PORT, MCP_PORT
+from .ports import LLM_GATEWAY_PORT, MCP_PORT, PERSONHOG_REPLICA_PORT, PERSONHOG_ROUTER_PORT
+from .providers import PreflightError
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +131,119 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
     )
 
     logger.info("MCP server ready on port %d", MCP_PORT)
+    return stop
+
+
+def _personhog_target_dir(rust_dir: Path) -> Path:
+    """Resolve where cargo drops the debug binaries.
+
+    Defaults to ``rust/target``, but the flox dev shell exports
+    ``CARGO_TARGET_DIR`` to a shared out-of-tree location, so honor it — otherwise
+    the build lands there while we look under ``rust/target`` and never find it.
+    """
+    override = os.environ.get("CARGO_TARGET_DIR")
+    return Path(override) if override else rust_dir / "target"
+
+
+def ensure_personhog_binaries() -> None:
+    """Build the personhog binaries the harness runs for person/group reads.
+
+    The query API reads persons and groups exclusively through personhog (there is
+    no ORM fallback), so the harness stands up ``personhog-replica`` +
+    ``personhog-router`` from ``rust/`` against the test persons DB. Building here,
+    during preflight, keeps the slow first compile off the async run path.
+    """
+    if shutil.which("cargo") is None:
+        raise PreflightError(
+            "`cargo` not found on PATH. The query API reads persons/groups through personhog, "
+            "which the harness builds from rust/. Enter the flox dev shell or install the Rust toolchain."
+        )
+
+    rust_dir = Path(settings.BASE_DIR) / "rust"
+    logger.info(
+        "Building personhog binaries (first build can take several minutes; later builds are incremental no-ops)"
+    )
+    result = subprocess.run(
+        ["cargo", "build", "-p", "personhog-replica", "-p", "personhog-router"],
+        cwd=rust_dir,
+        capture_output=True,
+        text=True,
+        # The first build compiles the whole dependency tree; only later builds are
+        # incremental no-ops. Keep the ceiling well clear of a cold compile.
+        timeout=20 * 60,
+    )
+    if result.returncode != 0:
+        output = (result.stdout or "") + (result.stderr or "")
+        tail = "\n".join(output.splitlines()[-30:])
+        raise PreflightError(f"Failed to build personhog binaries (cargo exit {result.returncode}):\n{tail}")
+
+
+def start_personhog() -> Callable[[], None]:
+    """Start personhog-replica + personhog-router against the test persons DB.
+
+    Django reads persons/groups only through personhog (no ORM fallback), so
+    ``/query`` scorers read 0 unless the router is up and ``PERSONHOG_ADDR`` points
+    at it. Both run as raw debug binaries — the read path needs no etcd, config
+    server, or leader election (the router defaults to ``router_mode=replica``).
+    """
+    persons_url = os.environ.get("PERSONS_DB_WRITER_URL")
+    if not persons_url:
+        raise SubprocessStartupError(
+            "PERSONS_DB_WRITER_URL is unset. personhog reads the seeded persons DB from it; "
+            "start_personhog() must run after EvalDatabase.setup() has provisioned the test persons DB."
+        )
+
+    rust_dir = Path(settings.BASE_DIR) / "rust"
+    target_dir = _personhog_target_dir(rust_dir)
+    replica_bin = target_dir / "debug" / "personhog-replica"
+    router_bin = target_dir / "debug" / "personhog-router"
+
+    # METRICS_PORT=0 binds the Prometheus listener to an OS-assigned ephemeral port,
+    # so the harness never collides with a dev stack's 9100/9101.
+    logger.info("Starting personhog-replica on port %d", PERSONHOG_REPLICA_PORT)
+    _, stop_replica = LONG_LIVED_SUBPROCESSES.start(
+        name="personhog-replica",
+        port=PERSONHOG_REPLICA_PORT,
+        cmd=[str(replica_bin)],
+        cwd=rust_dir,
+        env={
+            **os.environ,
+            "PRIMARY_DATABASE_URL": persons_url,
+            "GRPC_ADDRESS": f"127.0.0.1:{PERSONHOG_REPLICA_PORT}",
+            "METRICS_PORT": "0",
+            "RUST_LOG": "info",
+        },
+        log_prefix="personhog-replica",
+    )
+
+    logger.info("Starting personhog-router on port %d", PERSONHOG_ROUTER_PORT)
+    try:
+        _, stop_router = LONG_LIVED_SUBPROCESSES.start(
+            name="personhog-router",
+            port=PERSONHOG_ROUTER_PORT,
+            cmd=[str(router_bin)],
+            cwd=rust_dir,
+            env={
+                **os.environ,
+                "REPLICA_URL": f"http://127.0.0.1:{PERSONHOG_REPLICA_PORT}",
+                "GRPC_ADDRESS": f"127.0.0.1:{PERSONHOG_ROUTER_PORT}",
+                "METRICS_PORT": "0",
+                "RUST_LOG": "info",
+            },
+            log_prefix="personhog-router",
+        )
+    except Exception:
+        stop_replica()
+        raise
+
+    logger.info("personhog ready (router on port %d)", PERSONHOG_ROUTER_PORT)
+
+    def stop() -> None:
+        try:
+            stop_router()
+        finally:
+            stop_replica()
+
     return stop
 
 
