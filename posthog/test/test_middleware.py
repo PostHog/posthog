@@ -831,6 +831,15 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
         assert response.status_code == 200
 
+    def test_reimpersonating_same_user_read_write_clears_read_only(self):
+        self.login_as_other_user_read_only()
+        assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is True
+
+        # Re-impersonating the same user reuses the session (Django only flushes on a user change),
+        # so the start must clear the prior read-only flag instead of silently forcing read-only.
+        self.login_as_other_user()
+        assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is False
+
     @parameterized.expand(
         [
             ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),

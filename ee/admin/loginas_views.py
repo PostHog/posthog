@@ -52,6 +52,10 @@ def loginas_user(request, user_id):
         is_read_only = request.POST.get("read_only") != "false"
         if is_read_only:
             request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
+        elif IMPERSONATION_READ_ONLY_SESSION_KEY in request.session:
+            # Re-impersonating the same user keeps the existing session (Django only flushes on a
+            # user change), so clear a prior read-only flag to honor the mode requested here.
+            del request.session[IMPERSONATION_READ_ONLY_SESSION_KEY]
 
         # Persist the reason server-side so it survives both Django-admin and in-app starts,
         # and can be surfaced to the frontend (autofill) and the activity log.
