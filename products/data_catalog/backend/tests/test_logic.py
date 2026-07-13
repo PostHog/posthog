@@ -312,11 +312,26 @@ class TestUpdateResetsApproval(BaseTest):
         assert updated.status == MetricStatus.PROPOSED
         assert updated.approved_by_id is None
 
-    def test_non_definition_edit_keeps_approval(self) -> None:
+    def test_cosmetic_edit_keeps_approval(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
         approve_metric(metric, self.user)
         updated = update_metric(metric, team=self.team, user=self.user, display_name="MRR")
         assert updated.status == MetricStatus.APPROVED
+
+    @parameterized.expand(
+        [
+            ("description", {"description": "a materially different meaning"}),
+            ("unit", {"unit": "percent"}),
+        ]
+    )
+    def test_semantic_edit_resets_approval(self, _name: str, edit: dict) -> None:
+        # description and unit carry the metric's reviewed meaning (for a definition-less metric the
+        # description *is* the definition), so editing them with catalog write access must re-open review.
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", unit="usd")
+        approve_metric(metric, self.user)
+        updated = update_metric(metric, team=self.team, user=self.user, **edit)
+        assert updated.status == MetricStatus.PROPOSED
+        assert updated.approved_by_id is None
 
     def test_refine_definition_resets_approval(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
@@ -325,11 +340,20 @@ class TestUpdateResetsApproval(BaseTest):
         assert refined.status == MetricStatus.PROPOSED
         assert refined.approved_by_id is None
 
-    def test_refine_without_definition_change_keeps_approval(self) -> None:
+    def test_refine_cosmetic_change_keeps_approval(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
         approve_metric(metric, self.user)
-        refined = upsert_metric(team=self.team, user=self.user, name="mrr", description="clarified")
+        refined = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", display_name="MRR")
         assert refined.status == MetricStatus.APPROVED
+
+    def test_refine_description_change_resets_approval(self) -> None:
+        # A refine that omits the definition but rewrites the description changes what a
+        # definition-less metric means, so its approval must not carry over.
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d")
+        approve_metric(metric, self.user)
+        refined = upsert_metric(team=self.team, user=self.user, name="mrr", description="a different meaning")
+        assert refined.status == MetricStatus.PROPOSED
+        assert refined.approved_by_id is None
 
     def test_stale_update_after_approve_still_resets_approval(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)

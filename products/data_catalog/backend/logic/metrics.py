@@ -43,6 +43,11 @@ _UNSET = _Unset()
 # The columns _reset_to_proposed touches, so a lifecycle reset can be scoped into update_fields.
 _APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
 
+# Fields that carry the metric's reviewed meaning: editing any of them invalidates a prior approval.
+# The definition is compared by canonical hash separately; these are compared by value. display_name
+# (a cosmetic label), owner, and provenance metadata are not part of what a reviewer blessed.
+_APPROVAL_RELEVANT_FIELDS = frozenset({"description", "unit"})
+
 
 def _capture(user: Optional[User], team: Team, event: str, metric: Metric) -> None:
     if user is None:
@@ -143,14 +148,28 @@ def _definition_hash(definition: Optional[dict]) -> Optional[str]:
     return canonical_query_hash(definition) if definition else None
 
 
+def _invalidates_approval(metric: Metric, fields: dict) -> bool:
+    """True if this write changes the metric's reviewed meaning (definition, description, or unit).
+
+    Compares the incoming ``fields`` against ``metric``'s current (pre-mutation) values. For a
+    definition-less metric the description is the entire meaningful definition, so a description or
+    unit edit — reachable with catalog write access alone — must reset approval just as a definition
+    edit does.
+    """
+    if "definition" in fields and _definition_hash(fields["definition"]) != _definition_hash(metric.definition):
+        return True
+    return any(key in fields and fields[key] != getattr(metric, key) for key in _APPROVAL_RELEVANT_FIELDS)
+
+
 def _resurrect_or_refine(metric: Metric, fields: dict) -> None:
     if metric.deleted:
         metric.deleted = False
         metric.deleted_at = None
         _reset_to_proposed(metric)
-    elif "definition" in fields and _definition_hash(fields["definition"]) != _definition_hash(metric.definition):
-        # Refining an approved metric's definition changes what it computes; its review no longer
-        # holds, so drop back to proposed (matching update_metric's PATCH behavior).
+    elif _invalidates_approval(metric, fields):
+        # Refining an approved metric's meaning (definition, description, or unit) changes what it
+        # computes or how it reads; its review no longer holds, so drop back to proposed (matching
+        # update_metric's PATCH behavior).
         _reset_to_proposed(metric)
     for key, value in fields.items():
         setattr(metric, key, value)
@@ -246,14 +265,14 @@ def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields)
 
     with team_scope(team.id), transaction.atomic():
         metric = Metric.objects.for_team(team.id).select_for_update().get(pk=metric.pk)
-        old_definition_hash = _definition_hash(metric.definition)
+        approval_invalidated = _invalidates_approval(metric, fields)
 
         for key, value in fields.items():
             setattr(metric, key, value)
 
         changed_fields = set(fields.keys())
-        if _definition_hash(metric.definition) != old_definition_hash and metric.status == MetricStatus.APPROVED:
-            # The definition now computes something different, so its approval no longer holds.
+        if approval_invalidated and metric.status == MetricStatus.APPROVED:
+            # The edit changed what the metric means, so its approval no longer holds.
             _reset_to_proposed(metric)
             changed_fields |= _APPROVAL_FIELDS
 
