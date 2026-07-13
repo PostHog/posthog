@@ -3,12 +3,14 @@
 ``GET /repos/{repo}/actions/jobs/{job_id}/logs`` 302-redirects to a short-lived
 ``githubusercontent.com`` archive (plain text, can be MBs). The host is fixed and trusted, so
 following the redirect is fine (no SSRF surface). Rate limits surface as ``GitHubRateLimitError`` so
-the Temporal retry honors the reset.
+the Temporal retry honors the reset; a transient 5xx from the archive backend (notably the Azure blob
+``503 Egress is over the account limit``) surfaces as ``GitHubServerError`` so the retry backs off
+without the blip being reported to error tracking as a defect.
 """
 
 import contextlib
 
-from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.github.transport import github_request, raise_if_github_rate_limited, raise_if_github_server_error
 from posthog.models.integration import _is_safe_github_repo_path
 
 _GITHUB_API = "https://api.github.com"
@@ -45,6 +47,10 @@ def fetch_job_log(
         raise_if_github_rate_limited(response)
         if response.status_code == 404:
             return None
+        # A transient 5xx from the archive backend (e.g. Azure blob "503 Egress is over the account
+        # limit") is a retryable GitHub-side blip, not a defect — raise a non-captured, retryable
+        # error so Temporal backs off instead of reporting an HTTPError to error tracking.
+        raise_if_github_server_error(response)
         response.raise_for_status()
         head = bytearray()
         tail = bytearray()

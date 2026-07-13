@@ -2,7 +2,7 @@ import pytest
 
 import requests
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubRateLimitError, GitHubServerError
 
 from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_job_log
 
@@ -29,10 +29,27 @@ def test_raises_on_rate_limit(requests_mock):
         fetch_job_log("PostHog/posthog", 123, "tok")
 
 
-def test_raises_on_unexpected_error(requests_mock):
-    # A genuine non-rate-limit failure (e.g. 500) must propagate so the activity retries, not be
-    # silently returned as log content.
-    requests_mock.get(_URL, status_code=500, text="boom")
+@pytest.mark.parametrize(
+    "status_code,body",
+    [
+        (503, "Egress is over the account limit"),  # the Azure blob backend throttle we saw
+        (500, "boom"),
+        (502, "bad gateway"),
+    ],
+)
+def test_raises_retryable_on_transient_server_error(requests_mock, status_code, body):
+    # A transient 5xx from the archive backend is a retryable GitHub-side blip, so it must surface as
+    # GitHubServerError (which the Temporal interceptor skips) rather than a plain HTTPError that gets
+    # reported to error tracking as a defect.
+    requests_mock.get(_URL, status_code=status_code, text=body)
+    with pytest.raises(GitHubServerError):
+        fetch_job_log("PostHog/posthog", 123, "tok")
+
+
+def test_raises_httperror_on_non_transient_error(requests_mock):
+    # A genuine non-retryable failure (e.g. a 403 that isn't a rate limit — access revoked) must still
+    # propagate as HTTPError, not be swallowed as a retryable blip or returned as log content.
+    requests_mock.get(_URL, status_code=403, text="Forbidden")
     with pytest.raises(requests.HTTPError):
         fetch_job_log("PostHog/posthog", 123, "tok")
 

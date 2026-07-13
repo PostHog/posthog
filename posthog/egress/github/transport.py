@@ -18,7 +18,7 @@ import requests
 from posthog.egress.github.limiter import classify_github_resource, consume_github_installation_sync
 from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
+from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient, RetryableEgressError
 
 # The GitHub REST API version we pin every request to. Lives here (not integration.py) so the egress
 # layer stays free of any posthog.models import; integration.py imports it back from here.
@@ -42,6 +42,37 @@ class GitHubRateLimitError(Exception):
         super().__init__(message)
         self.reset_at = reset_at
         self.retry_after = retry_after
+
+
+class GitHubServerError(RetryableEgressError):
+    """GitHub served a transient server-side 5xx — most often the job-log archive download, whose 302
+    to Azure blob storage replies ``503 Egress is over the account limit`` when GitHub's backend is
+    throttling. GitHub-side and transient like :class:`GitHubRateLimitError`, but it subclasses
+    :class:`RetryableEgressError` so a Temporal activity retries on backoff (the interceptor skips the
+    family) instead of the blip surfacing to error tracking as a defect. ``retry_after`` (seconds)
+    carries GitHub's ``Retry-After`` hint when present."""
+
+    def __init__(self, message: str, retry_after: int | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def raise_if_github_server_error(response: requests.Response) -> None:
+    """Raise :class:`GitHubServerError` on a transient GitHub-side 5xx (status >= 500). The canonical
+    case is the log-archive download 302-redirecting to Azure blob storage, which returns
+    ``503 Egress is over the account limit`` when GitHub's backend throttles egress — a retryable blip,
+    not a defect. Safe to call after any GitHub response; a non-5xx is a no-op. Call it before
+    ``raise_for_status`` so a transient 5xx doesn't surface as a plain ``HTTPError``."""
+    if response.status_code < 500:
+        return
+    retry_after: int | None = None
+    val = response.headers.get("retry-after")
+    if val:
+        try:
+            retry_after = int(val)
+        except (ValueError, TypeError):
+            retry_after = None
+    raise GitHubServerError(f"GitHub returned a transient {response.status_code} server error", retry_after=retry_after)
 
 
 def raise_if_github_rate_limited(response: requests.Response) -> None:

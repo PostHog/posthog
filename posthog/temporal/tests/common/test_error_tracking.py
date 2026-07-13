@@ -14,7 +14,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubServerError
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 
 
@@ -103,12 +103,30 @@ async def egress_backpressure_activity(inputs: OptionallyFailingInputs) -> None:
     raise GitHubEgressBudgetExhausted("GitHub egress budget exhausted for installation 123; deferring")
 
 
+@activity.defn
+async def egress_server_error_activity(inputs: OptionallyFailingInputs) -> None:
+    raise GitHubServerError("GitHub returned a transient 503 server error")
+
+
 @workflow.defn
 class EgressBackpressureActivityWorkflow:
     @workflow.run
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             egress_backpressure_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@workflow.defn
+class EgressServerErrorActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            egress_server_error_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -225,11 +243,18 @@ async def test_cancellation_is_not_captured(temporal_client: Client):
         mock_ph_capture.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "workflow_cls,activity_fn",
+    [
+        (EgressBackpressureActivityWorkflow, egress_backpressure_activity),
+        (EgressServerErrorActivityWorkflow, egress_server_error_activity),
+    ],
+)
 @pytest.mark.asyncio
-async def test_egress_backpressure_is_not_captured(temporal_client: Client):
-    """An egress-budget backpressure error (our own limiter shedding a deferrable call so Temporal
-    retries later) is expected control flow, not a defect, so the interceptor must re-raise it
-    without reporting it to error tracking."""
+async def test_retryable_egress_error_is_not_captured(temporal_client: Client, workflow_cls, activity_fn):
+    """A retryable egress error — our own limiter shedding a deferrable call, or a provider's transient
+    server-side blip (GitHub's "503 Egress is over the account limit") — is expected control flow, not
+    a defect, so the interceptor must re-raise it without reporting it to error tracking."""
     task_queue = "TEST-TASK-QUEUE"
     workflow_id = str(uuid.uuid4())
 
@@ -237,14 +262,14 @@ async def test_egress_backpressure_is_not_captured(temporal_client: Client):
         async with Worker(
             temporal_client,
             task_queue=task_queue,
-            workflows=[EgressBackpressureActivityWorkflow],
-            activities=[egress_backpressure_activity],
+            workflows=[workflow_cls],
+            activities=[activity_fn],
             interceptors=[PostHogClientInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
-                    "EgressBackpressureActivityWorkflow",
+                    workflow_cls.__name__,
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,
