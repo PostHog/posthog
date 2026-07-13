@@ -43,7 +43,7 @@ from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.permissions import (
@@ -752,7 +752,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         allow_null=True,
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
-            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. "
+            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, "
+            "`wizard` for the setup wizard (derived server-side from the wizard's user agent). "
             "Ignored on update."
         ),
     )
@@ -1261,7 +1262,10 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         choices=ExternalDataSource.CreatedVia.values,
         required=False,
         default=ExternalDataSource.CreatedVia.API,
-        help_text="Where the request came from",
+        help_text=(
+            "Where the request came from: `web` for the in-app UI, `api` for direct API callers, "
+            "`mcp` for agent/MCP tool calls, `wizard` for the setup wizard. Defaults to `api`."
+        ),
     )
     direct_query_enabled = serializers.BooleanField(
         required=False,
@@ -1859,6 +1863,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # full config + credential gate (including the SSRF host check) before discovering schemas.
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
+
+        # The setup wizard drives creation through the MCP tools, which inject `created_via=mcp`
+        # before the request reaches us — the agent can't set the field itself. Upgrade that
+        # machine-injected value to `wizard` when the transport identifies the wizard, so wizard
+        # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
+        if created_via == ExternalDataSource.CreatedVia.MCP and get_event_source(request) == EventSource.WIZARD:
+            created_via = ExternalDataSource.CreatedVia.WIZARD
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
         is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
@@ -2442,9 +2453,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             managed_viewset.sync_views()
             ensure_person_join(self.team.pk, new_source_model.prefix)
 
-        # `source` (web/api/mcp) is derived from the request by report_user_action; `created_via`
-        # is the caller's explicit intent. They usually agree but are kept separate so a transport
-        # change (e.g. a new wrapper UA) doesn't silently rewrite historical attribution.
+        # `source` (web/api/mcp/wizard) is derived from the request by report_user_action; `created_via`
+        # is the caller's explicit intent (with one exception: the machine-injected `mcp` is upgraded
+        # to `wizard` above when the transport identifies the wizard). They usually agree but are kept
+        # separate so a transport change (e.g. a new wrapper UA) doesn't silently rewrite historical
+        # attribution.
         report_user_action(
             cast(User, request.user),
             "data warehouse source created",
