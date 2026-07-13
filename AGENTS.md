@@ -1,9 +1,5 @@
 # PostHog Development Guide
 
-## General guidelines
-
-- Avoid em-dashes like the plague
-
 ## Codebase Structure
 
 - Key entry points: `posthog/api/__init__.py` (API URL routing skeleton; products register their own routes in `products/<name>/backend/routes.py` via `register_routes(routers)`), `posthog/settings/web.py` (Django settings, INSTALLED_APPS), `products/` (product apps)
@@ -66,6 +62,8 @@ Examples:
 Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
+
+**Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
 
 ### Rules
 
@@ -165,7 +163,16 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
 - Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
-- When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
+
+## User-facing copy
+
+For any text a person reads (UI labels, tooltips, empty/error states, notifications, docs, support replies). When unsure whether copy reads well, ask a human.
+
+- Sentence case, not Title Case: capitalize only the first word and proper nouns ('Product analytics', 'Save as view').
+- Avoid the tells of AI-generated text: em dashes (—), "not just X, but Y", rule-of-three padding, hedging preambles. Write like a person typed it; if you can't tell, ask a human.
+- Plain language, no jargon. Use the labels users see, not internal names (`surveyPopupDelaySeconds` becomes "Delay the survey popup").
+- Be direct and friendly: short sentences, consistent tone across surfaces.
+- Errors and empty states guide, don't dead-end: say what happened and the next action.
 
 ## Agent automation
 
@@ -196,4 +203,5 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
+- `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy

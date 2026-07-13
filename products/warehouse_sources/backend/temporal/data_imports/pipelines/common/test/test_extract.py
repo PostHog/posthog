@@ -164,6 +164,28 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is True
 
+    def test_revive_marker_resets_readable_table(self, team):
+        # A hollow table — log opens fine but references data files gone from S3 — is invisible to
+        # is_table_corrupted; the repartition scan marks it instead. The marker alone must trigger the
+        # reset + non-billable rebuild and be cleared so the revive can't loop.
+        schema, job = self._schema_and_job(team)
+        schema.sync_type_config = {
+            "delta_revive_required": {"reason": "repartition_scan_missing_data_file", "missing_path": "x/p.parquet"}
+        }
+        schema.save(update_fields=["sync_type_config"])
+        helper = MagicMock(is_table_corrupted=AsyncMock(return_value=False), reset_table=AsyncMock())
+
+        with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+
+        assert result is True
+        helper.reset_table.assert_awaited_once()
+        job.refresh_from_db()
+        assert job.billable is False
+        schema.refresh_from_db()
+        assert "delta_revive_required" not in schema.sync_type_config
+        assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
+
     def test_corrupt_table_with_ready_swap_is_salvaged(self, team):
         # A corrupt table whose interrupted repartition swap left a `ready` temp table is finished from temp
         # rather than reset — the customer's data is recovered without a rebuild, so reset_table never runs

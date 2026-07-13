@@ -395,7 +395,7 @@ jobs:
 
             - name: Check for changes that affect error tracking temporal worker
               id: check_changes_error_tracking_temporal_worker
-              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              uses: ./.github/actions/paths-filter
               with:
                   filters: |
                       changed:
@@ -645,8 +645,8 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
-            - name: Check for changes that affect temporal workers (dorny)
-              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - name: Check for changes that affect temporal workers
+              uses: ./.github/actions/paths-filter
               id: check_temporal_worker_changes
               with:
                   filters: |

@@ -143,9 +143,16 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
+    // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
+    // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
+    // the topic env is set is a no-op — see effectivePersonMergeEventsEnabled.
     PERSON_MERGE_EVENTS_ENABLED: boolean
     // Must equal the person_merge_events topic partition count and the Rust COHORT_PARTITION_COUNT.
     PERSON_MERGE_EVENTS_PARTITION_COUNT: number
+    // Which teams to emit person_merge_events for: comma-separated team IDs, or '*' for all teams.
+    // Defaults to team 2 only. Unlike the Rust REALTIME_COHORT_TEAM_ALLOWLIST, an empty value here
+    // means "no teams", not "all teams"; use '*' to open the gate.
+    PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
@@ -258,6 +265,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
+        PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,

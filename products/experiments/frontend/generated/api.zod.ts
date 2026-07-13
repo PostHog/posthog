@@ -866,11 +866,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -913,22 +913,22 @@ export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsCreateExposureCohortForExperimentCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -1024,11 +1024,11 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
     .describe('Request body for triggering a metrics recalculation.')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
