@@ -13,8 +13,9 @@ so the UI hides the cost cards instead of erroring.
 
 import json
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from posthog.hogql import ast
 
@@ -45,6 +46,8 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     date_to_filter_clause,
     run_scope_filter_clause,
 )
+
+_K = TypeVar("_K")
 
 # Pre-aggregated per (workflow, run, attempt, runner-label) — a raw per-job SELECT has no LIMIT, so HogQL
 # caps it at DEFAULT_RETURNED_ROWS (100) and silently drops the rest, undercounting any PR with >100 jobs.
@@ -164,10 +167,7 @@ def query_pr_list_costs(
         query_type="engineering_analytics.pr_list_costs",
         placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
     )
-    by_pr: dict[tuple[str, str, int], list[JobGroup]] = defaultdict(list)
-    for repo_owner, repo_name, pr_number, labels, finished, elapsed, unfinished in response.results or []:
-        by_pr[(repo_owner, repo_name, int(pr_number))].append(_job_group(labels, finished, elapsed, unfinished))
-    return {key: aggregate_job_groups(groups) for key, groups in by_pr.items()}
+    return _aggregate_rows_by(response.results, lambda row: (row[0], row[1], int(row[2])))
 
 
 # Per-workflow billable cost over a window (Workflows tab). Same grouped rollup shape as the PR list,
@@ -214,10 +214,7 @@ def query_workflow_window_costs(
         .replace("__RUN_SCOPE__", run_scope_clause)
     )
     response = curated.run(sql, query_type="engineering_analytics.workflow_window_costs", placeholders=placeholders)
-    by_workflow: dict[str, list[JobGroup]] = defaultdict(list)
-    for workflow_name, labels, finished, elapsed, unfinished in response.results or []:
-        by_workflow[workflow_name or ""].append(_job_group(labels, finished, elapsed, unfinished))
-    return {workflow: aggregate_job_groups(groups) for workflow, groups in by_workflow.items()}
+    return _aggregate_rows_by(response.results, lambda row: row[0] or "")
 
 
 # One author's CI spend split by workflow (the author page's "where their CI minutes go"). Runs are
@@ -271,10 +268,8 @@ def query_author_workflow_costs(
         .replace("__DATE_TO__", date_to_clause)
     )
     response = curated.run(sql, query_type="engineering_analytics.author_workflow_costs", placeholders=placeholders)
-    by_workflow: dict[str, list[JobGroup]] = defaultdict(list)
-    for workflow_name, labels, finished, elapsed, unfinished in response.results or []:
-        by_workflow[workflow_name or ""].append(_job_group(labels, finished, elapsed, unfinished))
-    costs = [_to_workflow_cost(workflow, aggregate_job_groups(groups)) for workflow, groups in by_workflow.items()]
+    by_workflow = _aggregate_rows_by(response.results, lambda row: row[0] or "")
+    costs = [_to_workflow_cost(workflow, aggregate) for workflow, aggregate in by_workflow.items()]
     return sorted(costs, key=lambda cost: (cost.estimated_cost_usd or 0.0, cost.billable_minutes), reverse=True)
 
 
@@ -428,12 +423,11 @@ def query_cost_per_merge_series(
     cost_response = curated.run(
         cost_sql, query_type="engineering_analytics.cost_per_merge_cost", placeholders=placeholders
     )
-    groups_by_bucket: dict[datetime, list[JobGroup]] = defaultdict(list)
-    for bucket_start, labels, finished, elapsed, unfinished in cost_response.results or []:
-        key = normalize_bucket(bucket_start, granularity)
-        groups_by_bucket[key].append(_job_group(labels, finished, elapsed, unfinished))
     cost_by_bucket = {
-        bucket: aggregate_job_groups(groups).estimated_cost_usd for bucket, groups in groups_by_bucket.items()
+        bucket: aggregate.estimated_cost_usd
+        for bucket, aggregate in _aggregate_rows_by(
+            cost_response.results, lambda row: normalize_bucket(row[0], granularity)
+        ).items()
     }
 
     merges_sql = (
@@ -536,7 +530,8 @@ def query_workflow_runner_costs(
             WorkflowRunnerCost(
                 provider=provider,
                 runner_label=label,
-                job_count=sum(finished + unfinished for _, finished, _, unfinished in groups),
+                # Every job lands in exactly one aggregate bucket, so their sum is the group's job count.
+                job_count=aggregate.costed_jobs + aggregate.unsettled_jobs + aggregate.excluded_jobs,
                 billable_minutes=aggregate.billable_seconds / 60,
                 estimated_cost_usd=aggregate.estimated_cost_usd,
             )
@@ -547,6 +542,15 @@ def query_workflow_runner_costs(
 def _job_group(labels_raw: Any, finished: Any, elapsed: Any, unfinished: Any) -> JobGroup:
     """One SQL result row's (labels JSON, finished, elapsed, unfinished) as a typed JobGroup."""
     return (_parse_labels(labels_raw), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
+
+
+def _aggregate_rows_by(rows: list[Any] | None, key: Callable[[Any], _K]) -> dict[_K, PRCostAggregate]:
+    """Group result rows ending in (labels, finished, elapsed, unfinished) by ``key`` and roll each
+    group's job cost up — the accumulate-then-aggregate step every windowed cost query shares."""
+    grouped: defaultdict[_K, list[JobGroup]] = defaultdict(list)
+    for row in rows or []:
+        grouped[key(row)].append(_job_group(*row[-4:]))
+    return {group_key: aggregate_job_groups(groups) for group_key, groups in grouped.items()}
 
 
 def _to_run_cost(run_id: int, run_attempt: int, aggregate: PRCostAggregate) -> RunCost:

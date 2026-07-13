@@ -56,20 +56,19 @@ async function api(action, params = {}) {
     }
     const res = await fetch(url, { headers: { Authorization: `Bearer ${API_KEY}` } })
     const body = await res.text()
+    const fail = (detail) => {
+        throw Object.assign(new Error(`${action} -> ${res.status}: ${detail}`), { status: res.status })
+    }
     let parsed
     try {
         parsed = JSON.parse(body)
     } catch {
         // A 200 with a non-JSON body (proxy interstitial, maintenance HTML) is still a failure.
-        const error = new Error(`${action} -> ${res.status}: non-JSON response (${body.slice(0, 120)})`)
-        error.status = res.status
-        throw error
+        fail(`non-JSON response (${body.slice(0, 120)})`)
     }
     if (!res.ok) {
         // The endpoint 400s with a clear `detail` when no GitHub source is connected.
-        const error = new Error(`${action} -> ${res.status}: ${parsed.detail || body}`)
-        error.status = res.status
-        throw error
+        fail(parsed.detail || body)
     }
     return parsed
 }

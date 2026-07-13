@@ -135,6 +135,11 @@ def runner_descriptor(labels: list[str]) -> tuple[str, str]:
     return "self_hosted", tier.os.value
 
 
+def _tier_cost_usd(tier: RunnerTier, elapsed_seconds: float) -> float:
+    """The Depot rate model in one place: billed minutes x list rate x tier multiplier."""
+    return (elapsed_seconds / 60) * REFERENCE_RATE_USD_PER_MIN * billing_multiplier(tier)
+
+
 def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> float | None:
     """Estimated Depot dollar cost for one job, or ``None`` when no honest figure exists.
 
@@ -153,7 +158,7 @@ def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> f
         return None
     if elapsed_seconds <= 0:
         return 0.0
-    return (elapsed_seconds / 60) * REFERENCE_RATE_USD_PER_MIN * billing_multiplier(tier)
+    return _tier_cost_usd(tier, elapsed_seconds)
 
 
 @dataclass(frozen=True)
@@ -205,7 +210,7 @@ def aggregate_job_groups(groups: Iterable[JobGroup]) -> PRCostAggregate:
             continue
         elapsed = max(0.0, elapsed_total)
         billable_seconds += elapsed
-        total_cost += (elapsed / 60) * REFERENCE_RATE_USD_PER_MIN * billing_multiplier(tier)
+        total_cost += _tier_cost_usd(tier, elapsed)
         costed += finished
     return PRCostAggregate(
         billable_seconds=billable_seconds,
