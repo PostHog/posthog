@@ -1,12 +1,14 @@
 import csv
+import sys
 import time
-from datetime import datetime
+import subprocess
 from io import StringIO
 from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
 from uuid import UUID
 
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 from clickhouse_driver.errors import ServerException as ClickHouseServerException
@@ -33,16 +35,6 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.facade.sources import (
-    DIRECT_MYSQL_SCHEMA_OPTION,
-    DIRECT_MYSQL_TABLE_OPTION,
-    DIRECT_POSTGRES_CATALOG_OPTION,
-    DIRECT_POSTGRES_SCHEMA_OPTION,
-    DIRECT_POSTGRES_TABLE_OPTION,
-    DIRECT_SNOWFLAKE_CATALOG_OPTION,
-    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
-    DIRECT_SNOWFLAKE_TABLE_OPTION,
-)
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -103,6 +95,46 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
+
+# chdb has no query timeout, and a stalled S3 read can wedge a web worker indefinitely
+# (each request also pins ~300MB of RSS for the embedded ClickHouse). Running it in a
+# subprocess lets us kill it and degrade to the ClickHouse-cluster fallback.
+CHDB_QUERY_TIMEOUT_SECONDS = 30.0
+
+_CHDB_SUBPROCESS_SCRIPT = """
+import sys
+
+try:
+    import chdb
+
+    result = chdb.query(sys.stdin.read(), output_format="CSV")
+except Exception as e:
+    sys.stderr.write(str(e))
+    sys.exit(1)
+
+sys.stdout.write(str(result))
+"""
+
+
+def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> str:
+    # The query is passed over stdin because it embeds S3 credentials — argv is world-readable.
+    # Errors are re-raised as RuntimeError with chdb's message preserved so callers'
+    # error classification (e.g. _is_suppressed_chdb_error) behaves as if chdb ran in-process.
+    try:
+        process = subprocess.run(
+            [sys.executable, "-c", _CHDB_SUBPROCESS_SCRIPT],
+            input=query,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"chdb query timed out after {timeout}s")
+
+    if process.returncode != 0:
+        raise RuntimeError(process.stderr.strip() or f"chdb subprocess exited with code {process.returncode}")
+
+    return process.stdout
 
 
 class DataWarehouseTableQuerySet(models.QuerySet["DataWarehouseTable"]):
@@ -191,7 +223,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             join.soft_delete()
 
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.save()
 
     def table_name_without_prefix(self) -> str:
@@ -275,8 +307,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableIntrospectedColumns:
-        import chdb  # noqa: PLC0415 - embedded ClickHouse; deferred so this model module stays off the startup path
-
         result: list[tuple[str, ...]] | None = None
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
@@ -306,8 +336,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 chdb_query = (
                     f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
                 )
-            chdb_result = chdb.query(chdb_query, output_format="CSV")
-            reader = csv.reader(StringIO(str(chdb_result)))
+            chdb_result = run_chdb_query(chdb_query)
+            reader = csv.reader(StringIO(chdb_result))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
             if self._is_suppressed_chdb_error(chdb_error):
@@ -404,8 +434,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return None
 
     def get_count(self, safe_expose_ch_error=True) -> int:
-        import chdb  # noqa: PLC0415 - embedded ClickHouse; deferred so this model module stays off the startup path
-
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
@@ -425,8 +453,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # chdb doesn't support parameterized queries
             chdb_query = f"SELECT count() FROM {s3_table_func}" % quoted_placeholders
 
-            chdb_result = chdb.query(chdb_query, output_format="CSV")
-            reader = csv.reader(StringIO(str(chdb_result)))
+            chdb_result = run_chdb_query(chdb_query)
+            reader = csv.reader(StringIO(chdb_result))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
             capture_exception(chdb_error)
@@ -515,6 +543,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
     ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable:
+        # Deferred: importing data_warehouse's facade at module scope creates an import cycle
+        # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
+        # These direct-query option keys are only needed here, at query-build time.
+        from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
+            DIRECT_MYSQL_SCHEMA_OPTION,
+            DIRECT_MYSQL_TABLE_OPTION,
+            DIRECT_POSTGRES_CATALOG_OPTION,
+            DIRECT_POSTGRES_SCHEMA_OPTION,
+            DIRECT_POSTGRES_TABLE_OPTION,
+            DIRECT_SNOWFLAKE_CATALOG_OPTION,
+            DIRECT_SNOWFLAKE_SCHEMA_OPTION,
+            DIRECT_SNOWFLAKE_TABLE_OPTION,
+        )
+
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}

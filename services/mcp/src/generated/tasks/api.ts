@@ -33,6 +33,7 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.\n\n* `true` - true\n* `false` - false\n* `all` - all"
         ),
+    channel: zod.string().optional().describe("Filter tasks to a channel's feed."),
     created_by: zod.number().optional().describe('Filter by creator user ID'),
     internal: zod
         .enum(['true', 'false', 'all'])

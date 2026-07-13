@@ -73,7 +73,7 @@ export const ProxyRecordsDiagnoseCreateParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Retry provisioning of a reverse proxy. Available for any proxy that isn't currently being provisioned or deleted (i.e. not in 'waiting', 'issuing', or 'deleting' status). This includes 'valid' proxies whose diagnostics detected drift (e.g. the Cloudflare custom hostname went missing). Resets the proxy to 'waiting' status and restarts the provisioning workflow.
+ * Retry provisioning a failed reverse proxy. Only available for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' status and restarts the provisioning workflow.
  */
 export const ProxyRecordsRetryCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this proxy record.'),

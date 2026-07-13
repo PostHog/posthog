@@ -201,6 +201,8 @@ export interface ApprovalStore {
     countQueuedByTeam(teamId: number): Promise<number>
     /** Count `queued` rows for one application — drives the per-agent badge. */
     countQueuedByApplication(applicationId: string): Promise<number>
+    /** Count `queued` rows for one session — drives the per-session open-approvals cap. */
+    countQueuedBySession(sessionId: string): Promise<number>
 }
 
 /**

@@ -76,6 +76,10 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     def _slice_count(self) -> int:
         return _env("LOGS_PATTERNS_SLICE_COUNT", 12, int)
 
+    @cached_property
+    def _sparkline_bucket_count(self) -> int:
+        return _env("LOGS_PATTERNS_SPARKLINE_BUCKETS", 24, int)
+
     def validate_query_runner_access(self, user: "User") -> bool:
         # Defensive: this runner is invoked directly via the logs API, never through the generic
         # /api/projects/:id/query/ endpoint. Mirror LogsQueryRunner and refuse user-initiated
@@ -109,7 +113,17 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             )
             for row in response.results
         ]
-        patterns = mine_patterns(samples)
+        # Sparkline buckets: when the scan is slice-bounded the slices ARE the buckets — they're
+        # evenly spaced by construction and rows between them were never eligible, so uniform
+        # buckets would render misleading zeros in the gaps. Unsliced windows bucket uniformly.
+        buckets = (
+            slices
+            if slices is not None
+            else _uniform_buckets(
+                self.query_date_range.date_from(), self.query_date_range.date_to(), self._sparkline_bucket_count
+            )
+        )
+        patterns = mine_patterns(samples, buckets=buckets)
         # `sampled` mirrors the exact condition `_serialize` uses to extrapolate: it's True
         # whenever fewer rows were scanned than the window held (hash-mod sampling OR time-slice
         # bounding), so the flag can never diverge from whether the reported counts are estimates.
@@ -121,6 +135,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 "total_count": total,
                 "sampled": scanned < total,
                 "sample_coverage_pct": round(pool / total * 100, 2) if total else 100.0,
+                "sparkline_buckets": [{"start": start.isoformat(), "end": end.isoformat()} for start, end in buckets],
             }
         )
 
@@ -243,6 +258,12 @@ def _time_slices(
     return slices
 
 
+def _uniform_buckets(date_from: dt.datetime, date_to: dt.datetime, count: int) -> list[_TimeSlice]:
+    count = max(1, count)
+    step = (date_to - date_from) / count
+    return [(date_from + step * i, date_from + step * (i + 1)) for i in range(count)]
+
+
 def _sample_divisor(total: int, sample_limit: int) -> int:
     # Round up so total / divisor <= sample_limit: the hash-modulo predicate alone bounds the
     # sample and LIMIT never truncates the subset in (biased) read order.
@@ -268,6 +289,20 @@ def _serialize(pattern: MinedPattern, *, total_count: int, scanned_count: int) -
         "estimated_error_count": estimate(pattern.error_count),
         "first_seen": pattern.first_seen.isoformat(),
         "last_seen": pattern.last_seen.isoformat(),
-        "examples": pattern.examples,
+        "examples": [
+            {
+                "body": example.body,
+                "severity_text": example.severity_text,
+                "service_name": example.service_name,
+                "timestamp": example.timestamp.isoformat(),
+            }
+            for example in pattern.examples
+        ],
         "services": pattern.services,
+        "sparkline": [estimate(c) for c in pattern.bucket_counts],
+        # Raw sample counts: severity dominance is a proportion, which is scale-invariant,
+        # so extrapolating the map would add payload without changing what it says.
+        "severity_counts": pattern.severity_counts,
+        "match_regex": pattern.match_regex,
+        "match_literal": pattern.match_literal,
     }

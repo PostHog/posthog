@@ -28,8 +28,10 @@ import json
 import uuid
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from zoneinfo import ZoneInfo
+
+from django.apps import apps
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
@@ -39,8 +41,13 @@ from posthog.models.person.sql import INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import INSERT_SINGLE_SESSION_REPLAY
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
+
+if TYPE_CHECKING:
+    from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+else:
+    ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
+    ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
 logger = logging.getLogger(__name__)
 

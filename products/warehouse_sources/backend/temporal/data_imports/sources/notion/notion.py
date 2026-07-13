@@ -1,3 +1,4 @@
+import time
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Literal, Optional
@@ -27,10 +28,20 @@ NOTION_VERSION = "2025-09-03"
 CHUNK_SIZE = 2000
 CHUNK_SIZE_BYTES = 100 * 1024 * 1024
 
-# Bounds for the fan-out streams (blocks/comments). Notion is rate limited to ~3 req/s, so deep
-# recursion and unbounded child pagination would make syncs prohibitively slow.
-MAX_BLOCK_DEPTH = 2
+# Bounds for the fan-out streams (blocks/comments). Notion block trees are finite and acyclic, so
+# this cap is not needed for termination — it is a backstop against pathological/cyclic data. It is
+# set high enough that all real content (deeply nested toggles, lists, sub-pages) syncs: a low cap
+# silently dropped everything below it. When the cap is actually reached we log a warning so the
+# truncation is observable rather than silent. Deep recursion is affordable now that the blocks
+# stream resumes across retries and paces itself under Notion's rate limit.
+MAX_BLOCK_DEPTH = 30
 MAX_CHILD_PAGES_PER_PARENT = 50
+
+# Notion enforces an average of ~3 requests/second per integration. Pacing requests to this minimum
+# interval keeps us under the cap proactively, avoiding the retry churn that reacting to 429s alone
+# produces (each 429 burns an attempt and can extend Notion's penalty window).
+NOTION_MAX_REQUESTS_PER_SECOND = 3.0
+NOTION_MIN_REQUEST_INTERVAL_SECONDS = 1.0 / NOTION_MAX_REQUESTS_PER_SECOND
 
 MAX_RETRY_WAIT_SECONDS = 30.0
 # Notion can ask us to back off for several minutes via Retry-After under sustained load (values
@@ -63,7 +74,31 @@ class NotionBadRequestError(Exception):
 
 @dataclasses.dataclass
 class NotionResumeConfig:
-    next_cursor: str
+    # Cursor-paginated streams (search, users) persist the next page cursor.
+    next_cursor: str | None = None
+    # The blocks fan-out persists its queue of pages still to process, head first. The head is the
+    # page currently in progress: a retry re-processes it in full (blocks already written are deduped
+    # on the primary key at merge) and continues with the rest, instead of restarting from page one.
+    remaining_page_ids: list[str] | None = None
+
+
+class _RateLimiter:
+    """Proactive throttle keeping requests under Notion's average rate limit.
+
+    Requests within a stream are issued serially by a single generator, so tracking one last-request
+    timestamp and sleeping to maintain a minimum interval is enough to pace the whole run.
+    """
+
+    def __init__(self, min_interval_seconds: float) -> None:
+        self._min_interval = min_interval_seconds
+        self._last_request_at: float | None = None
+
+    def wait(self) -> None:
+        if self._last_request_at is not None:
+            sleep_for = self._min_interval - (time.monotonic() - self._last_request_at)
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+        self._last_request_at = time.monotonic()
 
 
 def _get_headers(token: str) -> dict[str, str]:
@@ -125,7 +160,11 @@ def _request(
     *,
     json_body: Optional[dict[str, Any]] = None,
     params: Optional[dict[str, Any]] = None,
+    throttle: Optional["_RateLimiter"] = None,
 ) -> dict[str, Any]:
+    if throttle is not None:
+        throttle.wait()
+
     url = f"{NOTION_BASE_URL}{path}"
     response = session.request(method, url, json=json_body, params=params, timeout=60)
 
@@ -189,6 +228,7 @@ def _search_stream(
     config: NotionEndpointConfig,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    throttle: Optional["_RateLimiter"] = None,
 ) -> Iterator[Any]:
     assert config.object_filter is not None
     batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
@@ -197,7 +237,14 @@ def _search_stream(
     cursor = resume.next_cursor if resume is not None else None
 
     while True:
-        data = _request(session, "POST", "/v1/search", logger, json_body=_search_body(config.object_filter, cursor))
+        data = _request(
+            session,
+            "POST",
+            "/v1/search",
+            logger,
+            json_body=_search_body(config.object_filter, cursor),
+            throttle=throttle,
+        )
         results = data.get("results", [])
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
@@ -221,6 +268,7 @@ def _users_stream(
     session: requests.Session,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    throttle: Optional["_RateLimiter"] = None,
 ) -> Iterator[Any]:
     batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
 
@@ -232,7 +280,7 @@ def _users_stream(
         if cursor:
             params["start_cursor"] = cursor
 
-        data = _request(session, "GET", "/v1/users", logger, params=params)
+        data = _request(session, "GET", "/v1/users", logger, params=params, throttle=throttle)
         results = data.get("results", [])
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
@@ -252,10 +300,14 @@ def _users_stream(
         yield batcher.get_table()
 
 
-def _iter_page_ids(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[str]:
+def _iter_page_ids(
+    session: requests.Session, logger: FilteringBoundLogger, throttle: Optional["_RateLimiter"] = None
+) -> Iterator[str]:
     cursor: str | None = None
     while True:
-        data = _request(session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor))
+        data = _request(
+            session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor), throttle=throttle
+        )
         for item in data.get("results", []):
             # "id" is the primary key driving the blocks/comments fan-out; access it directly so a
             # malformed response missing it surfaces loudly instead of silently dropping the page.
@@ -271,6 +323,7 @@ def _iter_block_children(
     page_id: str,
     logger: FilteringBoundLogger,
     depth: int,
+    throttle: Optional["_RateLimiter"] = None,
 ) -> Iterator[dict[str, Any]]:
     cursor: str | None = None
     pages_fetched = 0
@@ -280,7 +333,7 @@ def _iter_block_children(
             params["start_cursor"] = cursor
 
         try:
-            data = _request(session, "GET", f"/v1/blocks/{block_id}/children", logger, params=params)
+            data = _request(session, "GET", f"/v1/blocks/{block_id}/children", logger, params=params, throttle=throttle)
         except NotionNotFoundError:
             logger.warning(
                 "Notion: skipping missing or unshared block while fetching children",
@@ -299,8 +352,18 @@ def _iter_block_children(
         for block in data.get("results", []):
             block["_page_id"] = page_id
             yield block
-            if block.get("has_children") and depth < MAX_BLOCK_DEPTH:
-                yield from _iter_block_children(session, block["id"], page_id, logger, depth + 1)
+            if block.get("has_children"):
+                if depth < MAX_BLOCK_DEPTH:
+                    yield from _iter_block_children(session, block["id"], page_id, logger, depth + 1, throttle)
+                else:
+                    # Truncation at the depth backstop must be observable, not silent: without this the
+                    # sync reports success while quietly leaving every block below this one behind.
+                    logger.warning(
+                        "Notion: block nesting exceeds max depth; deeper blocks were not synced",
+                        page_id=page_id,
+                        block_id=block["id"],
+                        max_depth=MAX_BLOCK_DEPTH,
+                    )
 
         pages_fetched += 1
         if not data.get("has_more") or not data.get("next_cursor"):
@@ -316,23 +379,47 @@ def _iter_block_children(
         cursor = data["next_cursor"]
 
 
-def _blocks_stream(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[Any]:
+def _blocks_stream(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    throttle: Optional["_RateLimiter"] = None,
+) -> Iterator[Any]:
     batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
 
-    for page_id in _iter_page_ids(session, logger):
-        for block in _iter_block_children(session, page_id, page_id, logger, 0):
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.remaining_page_ids is not None:
+        # Resume the fan-out from the persisted queue rather than re-enumerating every page.
+        page_ids = list(resume.remaining_page_ids)
+        logger.debug(f"Notion: resuming blocks fan-out with {len(page_ids)} page(s) remaining")
+    else:
+        # Materialize the full set of page IDs up front so the fan-out position can be persisted as a
+        # shrinking queue (a crash during this initial enumeration restarts it, like other sources).
+        page_ids = list(_iter_page_ids(session, logger, throttle))
+
+    while page_ids:
+        page_id = page_ids[0]
+        remaining = page_ids[1:]
+        for block in _iter_block_children(session, page_id, page_id, logger, 0, throttle):
             batcher.batch(block)
             if batcher.should_yield():
                 yield batcher.get_table()
+                # Keep the in-progress page at the head: yielding flushes every buffered block from
+                # already-finished pages, so only this page and the untouched rest can still be lost
+                # on a crash. A retry re-fetches this page's blocks (deduped on merge), losing nothing.
+                resumable_source_manager.save_state(NotionResumeConfig(remaining_page_ids=[page_id, *remaining]))
+        page_ids = remaining
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
 
 
-def _comments_stream(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[Any]:
+def _comments_stream(
+    session: requests.Session, logger: FilteringBoundLogger, throttle: Optional["_RateLimiter"] = None
+) -> Iterator[Any]:
     batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
 
-    for page_id in _iter_page_ids(session, logger):
+    for page_id in _iter_page_ids(session, logger, throttle):
         cursor: str | None = None
         pages_fetched = 0
         while True:
@@ -341,7 +428,7 @@ def _comments_stream(session: requests.Session, logger: FilteringBoundLogger) ->
                 params["start_cursor"] = cursor
 
             try:
-                data = _request(session, "GET", "/v1/comments", logger, params=params)
+                data = _request(session, "GET", "/v1/comments", logger, params=params, throttle=throttle)
             except NotionNotFoundError:
                 logger.warning(
                     "Notion: skipping comments for missing or unshared page",
@@ -385,15 +472,16 @@ def get_rows(
 ) -> Iterator[Any]:
     config = NOTION_ENDPOINTS[endpoint]
     session = _build_session(token)
+    throttle = _RateLimiter(NOTION_MIN_REQUEST_INTERVAL_SECONDS)
 
     if config.stream_type == "search":
-        yield from _search_stream(session, config, logger, resumable_source_manager)
+        yield from _search_stream(session, config, logger, resumable_source_manager, throttle)
     elif config.stream_type == "users":
-        yield from _users_stream(session, logger, resumable_source_manager)
+        yield from _users_stream(session, logger, resumable_source_manager, throttle)
     elif config.stream_type == "blocks":
-        yield from _blocks_stream(session, logger)
+        yield from _blocks_stream(session, logger, resumable_source_manager, throttle)
     elif config.stream_type == "comments":
-        yield from _comments_stream(session, logger)
+        yield from _comments_stream(session, logger, throttle)
     else:
         raise ValueError(f"Unknown Notion stream type: {config.stream_type}")
 

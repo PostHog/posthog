@@ -6,6 +6,8 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { DESKTOP_SCHEME } from './desktopScheme'
+
 export interface CodeCanvasLinkProps {
     channelId: string
     dashboardId: string
@@ -18,13 +20,6 @@ export const scene: SceneExport<CodeCanvasLinkProps> = {
         dashboardId: dashboardId ?? '',
     }),
 }
-
-// The desktop app registers a different custom scheme per build: production
-// installs use `posthog-code://`, local dev builds use `posthog-code-dev://`.
-// A dev frontend (./bin/start) is exactly when you're testing against a dev
-// desktop build, so target that scheme there. Build-time constant, so it never
-// flips after mount and double-fires.
-const DESKTOP_SCHEME = process.env.NODE_ENV === 'development' ? 'posthog-code-dev' : 'posthog-code'
 
 function canvasDeepLink(channelId: string, dashboardId: string): string {
     return `${DESKTOP_SCHEME}://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`

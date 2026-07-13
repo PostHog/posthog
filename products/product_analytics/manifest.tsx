@@ -1,6 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +16,8 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+
+import { AlertType } from 'products/alerts/frontend/types'
 
 import {
     DashboardType,
@@ -47,9 +48,10 @@ export const manifest: ProductManifest = {
                 return urls.sqlEditor({ query: query.query })
             }
 
-            // Redirect DataNode and DataViz queries with HogQL source to SQL editor
+            // Redirect DataNode and DataViz queries with HogQL source to SQL editor,
+            // passing the whole node so display/chartSettings/filters survive the trip
             if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-                return urls.sqlEditor({ query: query.source.query })
+                return urls.sqlEditor({ query })
             }
 
             return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {

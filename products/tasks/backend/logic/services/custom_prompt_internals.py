@@ -96,10 +96,10 @@ class CustomPromptSandboxContext:
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
     runtime_adapter: str | None = None
-    """The agent runtime that serves ``model`` (``"claude"`` → Anthropic, ``"codex"`` → OpenAI).
-    Set it alongside a non-default ``model``: the agent server derives the provider from the runtime,
-    so a model handed over with no runtime can't be routed and falls back to the server default.
-    ``None`` keeps the agent server's default runtime (only valid when ``model`` is also ``None``)."""
+    """The harness serving ``model`` (``"claude"`` | ``"codex"``); the agent server derives the
+    provider from it, so a pinned model must ship with its matching runtime. ``None`` = default."""
+    reasoning_effort: str | None = None
+    """Agent reasoning effort (``"low"``…``"max"``); valid values depend on runtime+model."""
     sandbox_resources: SandboxResources | None = None
     """Override the sandbox's compute (CPU / memory). Unset fields keep the
     SandboxConfig defaults (4 cores / 16 GB)."""
@@ -149,6 +149,7 @@ async def create_task_and_trigger(
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
         runtime_adapter=context.runtime_adapter,
+        reasoning_effort=context.reasoning_effort,
         internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,

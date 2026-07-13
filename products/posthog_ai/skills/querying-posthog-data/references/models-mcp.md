@@ -128,6 +128,7 @@ FROM (
             h = 'openai-mcp responses api', 'OpenAI Responses API',
             startsWith(h, 'openai-mcp'), 'OpenAI',
             startsWith(h, 'codex'), 'OpenAI Codex',
+            startsWith(h, 'grok'), 'Grok',
             startsWith(h, 'cursor'), 'Cursor',
             startsWith(h, 'visual studio code'), 'VS Code',
             h = 'windsurf', 'Windsurf',
@@ -159,6 +160,11 @@ FROM (
                         NULL
                     ),
                     if(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',
+                       trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
+                       NULL),
+                    -- grok.com Connectors carries `grok-` only in the UA; its clientInfo.name
+                    -- is the generic "connectors-manager", so promote the grok UA above it.
+                    if(startsWith(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')), 'grok'),
                        trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
                        NULL),
                     nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),

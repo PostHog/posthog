@@ -8,7 +8,7 @@ from urllib.parse import quote, urljoin
 import structlog
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
-from requests.exceptions import HTTPError, RequestException
+from requests.exceptions import HTTPError, JSONDecodeError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -416,7 +416,22 @@ def _iter_issue_tag_values_rows(
                         )
                         break
                     raise
-                rows = response.json()
+
+                try:
+                    rows = response.json()
+                except JSONDecodeError:
+                    # Sentry occasionally returns a 2xx with an empty/unparseable
+                    # body for a single (issue, tag) values page. Skip this tag's
+                    # remaining values rather than crashing the whole sync — same
+                    # graceful-skip as the persistent 5xx case above.
+                    logger.warning(
+                        "sentry_source.issue_tag_values_invalid_json_skipped",
+                        organization_slug=organization_slug,
+                        issue_id=issue_id,
+                        tag_key=tag_key,
+                        status_code=response.status_code,
+                    )
+                    break
 
                 should_stop = False
                 for row in rows:

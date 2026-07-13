@@ -155,6 +155,7 @@ export function Group(): JSX.Element {
                                 onEdit={editProperty}
                                 onDelete={deleteProperty}
                                 searchable
+                                collapsible
                             />
                         ),
                     },

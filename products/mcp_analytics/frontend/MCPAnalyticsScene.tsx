@@ -13,11 +13,13 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { askPostHogAI } from './askPostHogAI'
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
+import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { MCPAnalyticsLoading, MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
+import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 
@@ -26,7 +28,7 @@ export const scene: SceneExport = {
     logic: mcpAnalyticsSceneLogic,
 }
 
-const DEFAULT_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
+const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
 export function MCPAnalyticsScene(): JSX.Element {
     return (
@@ -39,16 +41,31 @@ export function MCPAnalyticsScene(): JSX.Element {
 function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
-    const { onboardingState, signals } = useValues(mcpAnalyticsOnboardingLogic)
+    const { onboardingState, signals, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
+
+    // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
+    const { search: _search, ...sharedParams } = searchParams
+
+    const activityTab: LemonTab<MCPAnalyticsTab> = {
+        key: 'activity',
+        label: 'Activity',
+        content: <MCPAnalyticsActivityDashboard />,
+        link: combineUrl(urls.mcpAnalyticsActivity(), sharedParams).url,
+        'data-attr': 'mcp-analytics-activity-tab',
+    }
+    const dashboardTab: LemonTab<MCPAnalyticsTab> = {
+        key: 'dashboard',
+        label: 'Dashboard',
+        content: <MCPAnalyticsDashboard />,
+        link: combineUrl(urls.mcpAnalyticsDashboard(), sharedParams).url,
+        'data-attr': 'mcp-analytics-dashboard-tab',
+    }
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
-        {
-            key: 'dashboard',
-            label: 'Dashboard',
-            content: <MCPAnalyticsDashboard />,
-            link: combineUrl(urls.mcpAnalyticsDashboard(), searchParams).url,
-            'data-attr': 'mcp-analytics-dashboard-tab',
-        },
+        // The default landing tab leads: Activity while the project is low-volume,
+        // Dashboard once it graduates — matching the landing redirect so the first
+        // tab is always the one you arrive on.
+        ...(dashboardStage === 'activity' ? [activityTab, dashboardTab] : [dashboardTab, activityTab]),
         {
             key: 'sessions',
             label: 'Sessions',
@@ -60,20 +77,21 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             key: 'tool-quality',
             label: 'Tool quality',
             content: <MCPAnalyticsToolQuality />,
-            link: combineUrl(urls.mcpAnalyticsToolQuality(), searchParams).url,
+            link: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
             'data-attr': 'mcp-analytics-tool-quality-tab',
         },
         {
             key: 'intent-clustering',
             label: 'Intent clustering',
             content: <MCPAnalyticsClustering />,
-            link: combineUrl(urls.mcpAnalyticsIntentClustering(), searchParams).url,
+            link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
             'data-attr': 'mcp-analytics-intent-clustering-tab',
         },
     ]
 
     return (
         <SceneContent>
+            <MCPAnalyticsSceneMenuBar />
             <SceneTitleSection
                 name="MCP analytics"
                 description={onboardingState === 'onboarded' ? TAB_DESCRIPTIONS[activeTab] : null}
@@ -91,7 +109,7 @@ function MCPAnalyticsSceneContent(): JSX.Element {
                                 Ask PostHog AI
                             </LemonButton>
                         )}
-                        <LemonButton to={DEFAULT_DOCS_URL} type="secondary" targetBlank size="small">
+                        <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
                             Documentation
                         </LemonButton>
                     </>

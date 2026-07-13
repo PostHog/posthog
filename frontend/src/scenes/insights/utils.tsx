@@ -252,13 +252,14 @@ export function formatAggregationValue(
     return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
-// NB! Sync this with breakdown_values.py
+// NB! Sync this with breakdown_values.py and hogql_queries/insights/utils/breakdowns.py
 export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
 export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
 export const BREAKDOWN_OTHER_DISPLAY = 'Other (i.e. all remaining values)'
 export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
 export const BREAKDOWN_NULL_DISPLAY = 'None (i.e. no value)'
+export const BREAKDOWN_BASELINE_STRING_LABEL = '$$_posthog_breakdown_baseline_$$'
 
 export function isOtherBreakdown(breakdown_value: string | number | bigint | null | undefined | ReactNode): boolean {
     return (
@@ -625,7 +626,7 @@ export function getFunnelDatasetPosition(
         return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : (dataset.order ?? 0)
     }
 
-    return dataset?.breakdownIndex ?? 0
+    return dataset?.colorIndex ?? dataset?.breakdownIndex ?? 0
 }
 
 export function getTrendResultCustomizationKey(

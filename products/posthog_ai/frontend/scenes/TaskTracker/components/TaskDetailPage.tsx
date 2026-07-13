@@ -51,6 +51,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                     size="small"
                     icon={<IconExternal />}
                     onClick={() => window.open(`posthog-code://task/${task.id}`, '_blank')}
+                    className="hidden lg:inline-flex"
                 >
                     Open in PostHog Code
                 </LemonButton>

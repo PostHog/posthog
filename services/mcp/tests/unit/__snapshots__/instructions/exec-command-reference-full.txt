@@ -5,7 +5,7 @@ tools — list available tool names
 search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
 info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
 schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
-call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts. --confirm is required by the CLI for destructive tools.)
+call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of optimized output in supported tools. Use raw JSON for scripts. --confirm is required by the CLI for destructive tools.)
 ```
 
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
@@ -62,15 +62,6 @@ Assistant: Now I have both schemas. Let me start by searching for existing reven
 [Makes call commands with correct parameters]
 </example>
 
-<example>
-User: Find events related to onboarding
-Assistant: Let me find the data schema tool.
-[Runs posthog:exec({ "command": "search read-data" })]
-[Runs posthog:exec({ "command": "info read-data-schema" })]
-Assistant: Now I can list events and pick the onboarding-related ones.
-[Runs posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" })]
-</example>
-
 **INCORRECT usage patterns — NEVER do this:**
 
 <bad-example>
@@ -95,13 +86,7 @@ You MUST follow the hint and run `schema` before constructing the series field.
 <bad-example>
 User: query pageviews for the last 7 days
 Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "$pageview"` from the prompt]
-WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Canonical-looking events still need confirmation per team.
-</bad-example>
-
-<bad-example>
-User: show me the file downloads trend for the last 7 days
-Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "downloaded_file"` inferred from the wording]
-WRONG — the real event might be `file_downloaded`, `download_completed`, or not captured. Confirm with `read-data-schema` before querying.
+WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Never query an event name taken or inferred from the prompt — canonical-looking (`$pageview`) or guessed (`downloaded_file`) names still need per-team confirmation.
 </bad-example>
 
 **Handling errors:**
@@ -124,12 +109,6 @@ Assistant: <concise summary of the results>, then renders it so the user can ver
 
 <bad-example>
 User: How is the "File engagement boost" experiment going?
-Assistant: [Calls render-ui with a guessed id before running any exec command]
-WRONG — run exec first to resolve the real id and read the results; render-ui is not a discovery tool.
-</bad-example>
-
-<bad-example>
-User: How is the "File engagement boost" experiment going?
 Assistant: [Reads the results via exec, then replies with a long text-only breakdown of every metric and never calls render-ui]
 WRONG — the answer centers on a single experiment, which has a UI app (`experiment-get` is in `render-ui`'s enum). Render it with render-ui so the user can see and verify the results, then add your summary. Strongly prefer render-and-summarize over a text dump alone.
 </bad-example>
@@ -138,30 +117,9 @@ WRONG — the answer centers on a single experiment, which has a UI app (`experi
 
 You work in the user's project and have access to two groups of data: customer data collected via the SDK, and data created directly in PostHog by the user.
 
-Collected data is used for analytics and has the following types:
+Collected data (used for analytics): events (recorded from SDKs, always associated with persons and sometimes groups); persons and groups (captured individuals or groups of individuals); sessions; properties and property values (key-value metadata for segmenting events, actions, persons, groups, etc.); session recordings (captured web/mobile interactions).
 
-- Events – recorded events from SDKs that can be aggregated in visual charts and text.
-- Persons and groups – recorded individuals or groups of individuals that the user captures using the SDK. Events are always associated with persons and sometimes with groups.
-- Sessions – recorded person or group session captured by the user's SDK.
-- Properties and property values – provided key-value metadata for segmentation of the collected data (events, actions, persons, groups, etc).
-- Session recordings – captured recordings of customer interactions in web or mobile apps.
-
-Created data is used by the user on the PostHog's website to perform business activity and has the following types:
-
-- Actions – unify multiple events or filtering conditions into one.
-- Insights – visual and textual representation of the collected data aggregated by different types.
-- Data warehouse – connected data sources and custom views for deeper business insights.
-- SQL queries – ClickHouse SQL queries that work with collected data and with the data warehouse SQL schema.
-- Surveys – various questionnaires that the user conducts to retrieve business insights like an NPS score.
-- Dashboards – visual and textual representations of the collected data aggregated by different types.
-- Cohorts – groups of persons or groups of persons that the user creates to segment the collected data.
-- Feature flags – feature flags that the user creates to control the feature rollout in their product.
-- Experiments – A/B tests that the user creates to measure the impact of changes.
-- Notebooks – notebooks that the user creates to perform business analysis.
-- Error tracking issues – issues that the user creates to track errors in their product.
-- Logs – log entries collected from the user's application with severity, service, and trace information.
-- Workflows – automated workflows with triggers, actions, and conditions.
-- Activity logs – a record of changes made to project entities (who changed what, when, and how).
+Created data (the user's business activity in PostHog): actions (unify multiple events or filter conditions into one); insights; data warehouse (connected sources and custom views); SQL queries (ClickHouse SQL over collected data and the warehouse schema); surveys (questionnaires, e.g. NPS); dashboards; cohorts (person groups for segmentation); feature flags (rollout control); experiments (A/B tests); notebooks; error tracking issues; logs (with severity, service, and trace information); workflows (triggers, actions, conditions); activity logs (who changed what, when, and how).
 
 IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
 
@@ -171,33 +129,26 @@ If you cannot answer the user's PostHog related request or question using other 
 
 ### Tool search
 
-**Always prefer `search` over `tools`** — `tools` returns every tool and wastes tokens. Use `search <regex>` with a short, targeted pattern to find what you need.
+**Always prefer `search` over `tools`** — `tools` returns every tool and wastes tokens. Use `search <query>` to find what you need.
 
-Write focused patterns that match 1-5 tools. The regex matches against tool name, title, and description.
+`search` understands two kinds of query:
 
-**Good patterns** (specific, narrow):
+- **Plain words** (including multiple words / natural language) — ranked by relevance across tool name, title, and description, with name matches weighted highest. `search create dashboard insight` surfaces `dashboard-create` / `insight-create` at the top. Results are capped to the top matches; narrow the query if you see a truncation note.
+- **Regex** — a query containing regex metacharacters (`- | ( ) [ ] \ . * + ^ $ ?`) is treated as a single case-insensitive regular expression, matched against name/title/description. Use this for precise, narrow patterns.
 
-- `search feature-flag` — tools for feature flags
-- `search dashboard` — dashboard CRUD tools
-- `search query-` — all insight query tools
-- `search experiment` — experiment tools
-- `search survey` — survey tools
+**Good queries:**
 
-**Bad patterns** (too broad, match dozens of tools):
+- `search create dashboard insight` — plain words, ranked: dashboard/insight creation tools first
+- `search feature-flag` — regex (`-`): tools for feature flags
+- `search query-` — regex (`-`): all insight query tools
 
-- `search data` — matches almost everything
-- `search get|list|create` — matches action verbs across all domains
-- `search pageview_trends` — search is too focused
-- `search pageview|email@address.com` — unrelated to tools
+**Avoid queries that are too broad** (match dozens of tools): `search data`, `search get list create` — they match almost everything.
 
 Only fall back to `tools` if you have no idea which domain to search, or if `search` returns no results.
 
 PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 
-- dashboard
-- execute-sql
-- feature-flag
-- query
+
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
@@ -217,17 +168,16 @@ When you do use `execute-sql`, run `info execute-sql` first for the full discove
 
 "find / which / do we have / what's our X chart" questions about PostHog-created entities are SQL searches against `system.*` (`system.insights`, `system.dashboards`, `system.cohorts`, `system.feature_flags`, `system.experiments`, `system.surveys`, `system.notebooks`), **not** `*-list` walks.
 
-Required order on every run, no shortcuts:
+Required order on every run, no shortcuts — schema first, every run:
 
-1. `info execute-sql` AND `info read-data-warehouse-schema` — load both tool guides, even if a skill is already loaded.
-2. `read-data-warehouse-schema` — confirms the table's columns. Schema markdown in skills/references (`models-*.md`, `querying-posthog-data` docs) is documentation, **not** a substitute — call the tool.
-3. `execute-sql` against `system.*` — uses only columns confirmed in step 2.
-4. `<entity>-get` (e.g. `insight-get`, `dashboard-get`) — verifies the entity shape; do NOT re-`execute-sql` by ID.
+1. Confirm the table's columns with an `execute-sql` against `system.information_schema.columns`, e.g. `SELECT column_name, data_type, description FROM system.information_schema.columns WHERE table_name = 'system.insights'`. Schema markdown in skills/references (`models-*.md`, `querying-posthog-data` docs) is documentation, **not** a substitute — query the schema.
+2. `execute-sql` against `system.*` — uses only columns confirmed in step 1.
+3. `<entity>-get` (e.g. `insight-get`, `dashboard-get`) — verifies the entity shape; do NOT re-`execute-sql` by ID.
 
 <bad-example>
 User: rename / find / list … (any `system.*` question)
-Assistant: [Calls `execute-sql` against `system.insights` without first running `read-data-warehouse-schema` — OR runs `read-data-warehouse-schema` partway through, only after several `execute-sql` calls thrashed]
-WRONG — the rule is "schema first, every run, no shortcuts." Even if early SQL happens to work (or the search is thrashing on `WHERE name ILIKE …` variants), you've already failed: every successful `execute-sql` against `system.*` MUST be preceded by `read-data-warehouse-schema` in the same run. Same for `info read-data-warehouse-schema` before the first `read-data-warehouse-schema` call. Skipping or postponing either step is a hard violation.
+Assistant: [Calls `execute-sql` against `system.insights` without first confirming its columns via `system.information_schema.columns` — OR checks the schema partway through, only after several `execute-sql` calls thrashed]
+WRONG — the rule is "schema first, every run, no shortcuts." Even if early SQL happens to work (or the search is thrashing on `WHERE name ILIKE …` variants), you've already failed: every successful `execute-sql` against a `system.*` entity table MUST be preceded by an `execute-sql` against `system.information_schema.columns` for that table in the same run. Skipping or postponing the schema check is a hard violation.
 </bad-example>
 
 #### Available insight query tools
@@ -247,67 +197,7 @@ By insight type:
 - "New vs returning vs dormant / user composition" -> `query-lifecycle`
 - "LLM traces / AI generations / token usage" -> `query-llm-traces-list`
 
-##### Trends
-
-A trends insight visualizes events over time using time series. They're useful for finding patterns in historical data.
-
-The trends insights have the following features:
-
-- The insight can show multiple trends in one request.
-- Custom formulas can calculate derived metrics, like `A/B*100` to calculate a ratio.
-- Filter and break down data using multiple properties.
-- Compare with the current period with previous.
-- Apply various aggregation types, like sum, average, etc., and chart types.
-- And more.
-
-Examples of use cases include:
-
-- How the product's most important metrics change over time.
-- Long-term patterns, or cycles in product's usage.
-- The usage of different features side-by-side.
-- How the properties of events vary using aggregation (sum, average, etc).
-- Users can also visualize the same data points in a variety of ways.
-
-##### Funnel
-
-A funnel insight visualizes a sequence of events that users go through in a product. They use percentages as the primary aggregation type. Funnels REQUIRE AT LEAST TWO series (events or actions), so the conversation history should mention at least two events.
-
-The funnel insights have the following features:
-
-- Various visualization types (steps, time-to-convert, historical trends).
-- Filter data and apply exclusion steps (events only, not actions).
-- Break down data using a single property.
-- Specify conversion windows (default 14 days), step order (strict/ordered/unordered), and attribution settings.
-- Aggregate by users, sessions, or specific group types.
-- Sample data.
-- Track first-time conversions with special math aggregations.
-- And more.
-
-Examples of use cases include:
-
-- Conversion rates between steps.
-- Drop off steps (which step loses most users).
-- Steps with the highest friction and time to convert.
-- If product changes are improving their funnel over time.
-- Average/median/histogram of time to convert.
-- Conversion trends over time (using trends visualization type).
-- First-time user conversions (using `first_time_for_user` math).
-
-##### Retention
-
-A retention insight visualizes how many users return to the product after performing some action. They're useful for understanding user engagement and retention.
-
-The retention insights have the following features: filter data, sample data, and more.
-
-Examples of use cases include:
-
-- How many users come back and perform an action after their first visit.
-- How many users come back to perform action X after performing action Y.
-- How often users return to use a specific feature.
-
-#### SQL fallback
-
-Reach for `execute-sql` only when the question genuinely cannot be expressed as a typed insight (entity search via `system.*`, multi-event joins, custom CTEs, data-warehouse joins). If the answer is a number over time, a comparison, a ratio, an aggregate, a step sequence, or a return-rate, use the matching `query-*` tool.
+Each `query-*` tool's own description carries its full feature set, use cases, and schema documentation — read it (e.g. `info query-trends`) before constructing the query.
 
 #### Schema-first workflow
 
@@ -324,11 +214,7 @@ If the required events or properties don't exist, tell the user instead of runni
 
 #### Insight query workflow
 
-1. Discover the data schema with `read-data-schema` (see schema-first workflow above).
-2. Choose the appropriate `query-*` tool based on the user's question.
-3. Construct the query schema. Each tool's description includes detailed schema documentation with examples. Be minimalist: only include filters, breakdowns, and settings essential to answer the question.
-4. Execute the query and analyze the results.
-5. Optionally save as an insight with `insight-create` or add to a dashboard.
+After the schema-first steps, choose the `query-*` tool matching the question, construct a minimal query (only the filters, breakdowns, and settings essential to the answer — each tool's description documents its schema with examples), execute, and analyze. Optionally save as an insight with `insight-create` or add to a dashboard.
 
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
 

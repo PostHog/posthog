@@ -1372,6 +1372,7 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
             cohort_type=CohortType.REALTIME,
             filters=self.BEHAVIORAL_FILTERS,
             last_backfill_person_properties_at=timezone.now(),
+            last_backfill_events_at=timezone.now(),
         )
 
         excluded_without = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False)

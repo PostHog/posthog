@@ -5,9 +5,11 @@ import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { mcpStoreLogic } from '@posthog/products-mcp-store/frontend/mcpStoreLogic'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
@@ -324,6 +326,7 @@ function SetupModal(): JSX.Element {
 export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
@@ -339,7 +342,7 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Connections">
                 <CodeAccessWidget />
                 <NotificationsWidget />
-                <McpServersWidget />
+                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && <McpServersWidget />}
             </SetupSection>
             <SetupSection title="Usage">
                 <InboxUsageWidget />

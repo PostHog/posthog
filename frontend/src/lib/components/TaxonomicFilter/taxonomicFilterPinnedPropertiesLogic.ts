@@ -1,5 +1,9 @@
-import { actions, events, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import type { taxonomicFilterPinnedPropertiesLogicType } from './taxonomicFilterPinnedPropertiesLogicType'
@@ -66,9 +70,71 @@ const OLD_PERSIST_KEY = 'scenes.session-recordings.player.playerSettingsLogic.qu
 
 const teamId = typeof window !== 'undefined' ? window.POSTHOG_APP_CONTEXT?.current_team?.id : undefined
 const MIGRATION_KEY = `taxonomicFilterPinnedProperties__migrated__${teamId ?? 'default'}`
+const DEFAULTS_SEEDED_KEY = `taxonomicFilterPinnedProperties__defaultsSeeded__${teamId ?? 'default'}`
+
+function makeDefaultPinnedFilter(
+    groupType: TaxonomicFilterGroupType,
+    groupName: string,
+    value: string
+): PinnedTaxonomicFilter {
+    return { groupType, groupName, value, item: { name: value }, timestamp: Date.now() }
+}
+
+const DEFAULT_PIN_CANDIDATES = [
+    {
+        contextFlag: 'has_pageview' as const,
+        groupType: TaxonomicFilterGroupType.EventProperties,
+        groupName: 'Event properties',
+        value: '$current_url',
+    },
+    {
+        contextFlag: 'has_person_email' as const,
+        groupType: TaxonomicFilterGroupType.PersonProperties,
+        groupName: 'Person properties',
+        value: 'email',
+    },
+]
+
+function buildDefaultPinnedFilters(): PinnedTaxonomicFilter[] {
+    const appContext = getAppContext()
+    return DEFAULT_PIN_CANDIDATES.filter((candidate) => appContext?.[candidate.contextFlag]).map((candidate) =>
+        makeDefaultPinnedFilter(candidate.groupType, candidate.groupName, candidate.value)
+    )
+}
+
+/**
+ * Which default values have been offered to this user, and whether they have
+ * ever touched a pin themselves. `seeded` lets a later mount top up a default
+ * that wasn't available yet (e.g. `email` arriving days after `$pageview`);
+ * `touched` opts the user out of all future seeding the moment they pin or
+ * unpin anything.
+ */
+interface SeededDefaultsState {
+    seeded: string[]
+    touched: boolean
+}
+
+function readSeededDefaultsState(): SeededDefaultsState {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(DEFAULTS_SEEDED_KEY) ?? '')
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.seeded)) {
+            return { seeded: parsed.seeded, touched: !!parsed.touched }
+        }
+    } catch {
+        // fall through to the fresh state
+    }
+    return { seeded: [], touched: false }
+}
+
+function writeSeededDefaultsState(state: SeededDefaultsState): void {
+    localStorage.setItem(DEFAULTS_SEEDED_KEY, JSON.stringify(state))
+}
 
 export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPropertiesLogicType>([
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterPinnedPropertiesLogic']),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
     actions({
         togglePin: (
             groupType: TaxonomicFilterGroupType,
@@ -138,42 +204,93 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                     pinnedFilters.some((f) => f.groupType === groupType && f.value === value),
         ],
     }),
+    listeners(({ values }) => ({
+        togglePin: ({ groupType, value }) => {
+            if (META_GROUP_TYPES.has(groupType) || value == null) {
+                return
+            }
+            const state = readSeededDefaultsState()
+            if (!state.touched) {
+                writeSeededDefaultsState({ ...state, touched: true })
+            }
+            posthog.capture('taxonomic filter pin toggled', {
+                groupType,
+                value: String(value),
+                pinned: values.isPinned(groupType, value),
+            })
+        },
+    })),
     events(({ actions, values }) => ({
         afterMount: () => {
             if (typeof window === 'undefined') {
                 return
             }
-            const alreadyMigrated = localStorage.getItem(MIGRATION_KEY)
-            if (alreadyMigrated) {
-                return
-            }
 
-            if (values.pinnedFilters.length > 0) {
-                localStorage.setItem(MIGRATION_KEY, '1')
-                return
-            }
-
-            try {
-                const raw = localStorage.getItem(OLD_PERSIST_KEY)
-                if (raw) {
-                    const oldProperties: string[] = JSON.parse(raw)
-                    if (Array.isArray(oldProperties) && oldProperties.length > 0) {
-                        const migrated: PinnedTaxonomicFilter[] = oldProperties.map((prop) => ({
-                            groupType: TaxonomicFilterGroupType.PersonProperties,
-                            groupName: 'Person properties',
-                            value: prop,
-                            item: { name: prop },
-                            timestamp: Date.now(),
-                        }))
-                        actions.setPinnedFilters(migrated)
-                        localStorage.removeItem(OLD_PERSIST_KEY)
-                    }
+            const migrateOldQuickFilters = (): void => {
+                if (localStorage.getItem(MIGRATION_KEY)) {
+                    return
                 }
-            } catch {
-                // ignore parse errors from old data
+                if (values.pinnedFilters.length > 0) {
+                    localStorage.setItem(MIGRATION_KEY, '1')
+                    return
+                }
+                try {
+                    const raw = localStorage.getItem(OLD_PERSIST_KEY)
+                    if (raw) {
+                        const oldProperties: string[] = JSON.parse(raw)
+                        if (Array.isArray(oldProperties) && oldProperties.length > 0) {
+                            const migrated: PinnedTaxonomicFilter[] = oldProperties.map((prop) =>
+                                makeDefaultPinnedFilter(
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    'Person properties',
+                                    prop
+                                )
+                            )
+                            actions.setPinnedFilters(migrated)
+                            localStorage.removeItem(OLD_PERSIST_KEY)
+                            writeSeededDefaultsState({ seeded: [], touched: true })
+                        }
+                    }
+                } catch {
+                    // ignore parse errors from old data
+                }
+                localStorage.setItem(MIGRATION_KEY, '1')
             }
 
-            localStorage.setItem(MIGRATION_KEY, '1')
+            const seedDefaultPinnedFilters = (): void => {
+                if (!values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_DEFAULT_PINS]) {
+                    return
+                }
+                const state = readSeededDefaultsState()
+                if (state.touched) {
+                    return
+                }
+                if (values.pinnedFilters.length > 0 && state.seeded.length === 0) {
+                    writeSeededDefaultsState({ seeded: [], touched: true })
+                    return
+                }
+                const toSeed = buildDefaultPinnedFilters().filter(
+                    (candidate) =>
+                        !state.seeded.includes(candidate.value as string) &&
+                        !values.pinnedFilters.some(
+                            (f) => f.groupType === candidate.groupType && f.value === candidate.value
+                        )
+                )
+                if (toSeed.length === 0) {
+                    return
+                }
+                actions.setPinnedFilters([...values.pinnedFilters, ...toSeed])
+                writeSeededDefaultsState({
+                    seeded: [...state.seeded, ...toSeed.map((candidate) => candidate.value as string)],
+                    touched: false,
+                })
+                posthog.capture('taxonomic filter default pins seeded', {
+                    values: toSeed.map((candidate) => candidate.value),
+                })
+            }
+
+            migrateOldQuickFilters()
+            seedDefaultPinnedFilters()
         },
     })),
     permanentlyMount(),

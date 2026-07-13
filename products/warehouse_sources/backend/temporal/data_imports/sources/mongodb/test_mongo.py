@@ -12,7 +12,11 @@ from parameterized import parameterized
 from pymongo.errors import ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    MONGO_MAX_CHUNK_ROWS,
+    MONGO_MIN_CHUNK_ROWS,
+    _adaptive_chunk_size,
     _build_query,
     _get_rows_to_sync,
     _list_importable_collection_names,
@@ -502,3 +506,21 @@ class TestListImportableCollectionNames(SimpleTestCase):
         db.list_collection_names.return_value = ["system_events", "billing.system", "systematic"]
 
         assert _list_importable_collection_names(db) == ["system_events", "billing.system", "systematic"]
+
+
+class TestAdaptiveChunkSize(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_size", None, DEFAULT_CHUNK_SIZE),
+            ("zero_size", 0, DEFAULT_CHUNK_SIZE),
+            ("negative_size", -10, DEFAULT_CHUNK_SIZE),
+            # 5 MiB docs -> 100MiB/5MiB = 20 rows, clamped up to the floor so we don't thrash on tiny chunks
+            ("huge_docs_clamped_to_min", 5 * 1024 * 1024, MONGO_MIN_CHUNK_ROWS),
+            # 1 KiB docs -> 100k rows, clamped down to the ceiling (the OOM guard for large collections)
+            ("tiny_docs_clamped_to_max", 1024, MONGO_MAX_CHUNK_ROWS),
+            # 256 KiB docs -> 100MiB/256KiB = 400 rows, between the floor and ceiling
+            ("mid_size_computed", 256 * 1024, 400),
+        ]
+    )
+    def test_adaptive_chunk_size(self, _name, avg_obj_size, expected):
+        assert _adaptive_chunk_size(avg_obj_size) == expected

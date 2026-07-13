@@ -325,7 +325,7 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
                 'tools/wordcount/compiled.js': COMPILED,
                 'tools/wordcount/schema.json': JSON.stringify({
                     description: 'Counts words in a string',
-                    args: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+                    args_schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
                 }),
             },
         })
@@ -520,7 +520,7 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
                 'tools/fetch-data/compiled.js': BOOM_TOOL,
                 'tools/fetch-data/schema.json': JSON.stringify({
                     description: 'Fetches data from the upstream service',
-                    args: { type: 'object', properties: {} },
+                    args_schema: { type: 'object', properties: {} },
                 }),
             },
         })

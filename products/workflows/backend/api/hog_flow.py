@@ -1,12 +1,14 @@
 import re
 import json
 import uuid as uuid_mod
+import dataclasses
 from datetime import timedelta
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
+from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -14,6 +16,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -55,6 +58,8 @@ from posthog.plugins.plugin_server_api import (
     create_hog_flow_scheduled_invocation,
     rerun_hog_invocations,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -69,6 +74,13 @@ from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.api.graph_operations import apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
+from products.workflows.backend.api.message_assets import (
+    MessageAssetContentRequestSerializer,
+    MessageAssetSerializer,
+    MessageAssetsRequestSerializer,
+    fetch_message_asset_html,
+    fetch_message_assets,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
@@ -76,6 +88,13 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
+from products.workflows.backend.services.batch_audience import (
+    PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
+    SUPPORTED_DEDUPE_KEYS,
+    get_batch_audience_count,
+    get_batch_audience_person_ids,
+    use_workflows_batch_audience_query,
+)
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -116,6 +135,34 @@ def _validation_error_message(error: exceptions.ValidationError) -> str:
     return str(detail)
 
 
+def _first_error_string(detail: Any) -> Optional[str]:
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, list):
+        for item in detail:
+            if message := _first_error_string(item):
+                return message
+    if isinstance(detail, dict):
+        for value in detail.values():
+            if message := _first_error_string(value):
+                return message
+    return None
+
+
+def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
+    # The many=True error list mirrors the actions list, with {} entries for valid actions. Raising it
+    # as-is gets flattened by the exception handler to that first empty dict, so the client sees "{}".
+    # Name each offending step instead so the error points at what to fix.
+    parts = []
+    for action_data, error in zip(actions, errors):
+        if not error:
+            continue
+        message = _first_error_string(error) or "has an invalid configuration"
+        name = action_data.get("name") if isinstance(action_data, dict) else None
+        parts.append(f"step '{name or 'unnamed'}': {message}")
+    return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
+
+
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     # Non-draft saves always validate fully. Drafts stay lenient for the web UI builder (which saves
     # incomplete graphs mid-edit) and for internal re-saves (e.g. the refresh management command), which
@@ -143,12 +190,23 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
     group_type_index = serializers.IntegerField(
         required=False, allow_null=True, help_text="Group type index for group-based targeting"
     )
+    dedupe_key = serializers.ChoiceField(
+        choices=list(SUPPORTED_DEDUPE_KEYS),
+        required=False,
+        allow_null=True,
+        help_text="When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.",
+    )
 
 
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
     limit = serializers.IntegerField(help_text="Maximum allowed audience size for batch triggers for this team.")
+    dedupe_key = serializers.ChoiceField(
+        choices=list(SUPPORTED_DEDUPE_KEYS),
+        allow_null=True,
+        help_text="The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.",
+    )
 
 
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
@@ -753,7 +811,7 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class HogFlowMinimalSerializer(serializers.ModelSerializer):
+class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -776,6 +834,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "abort_action",
             "variables",
             "billable_action_types",
+            "user_access_level",
         ]
         read_only_fields = fields
 
@@ -889,6 +948,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "variables",
             "billable_action_types",
             "schedules",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -900,6 +960,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
             "schedules",  # Managed via the schedules sub-resource, surfaced read-only here
+            "user_access_level",
         ]
 
     def validate(self, data):
@@ -911,7 +972,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         status = data.get("status", instance.status if instance else "draft")
         if status == "active" and instance and instance.status != "active" and "actions" not in data:
             action_serializer = HogFlowActionSerializer(data=instance.actions, many=True, context=self.context)
-            action_serializer.is_valid(raise_exception=True)
+            if not action_serializer.is_valid():
+                # many=True yields a list of per-action errors despite the ReturnDict annotation
+                action_errors = cast(list[Any], action_serializer.errors)
+                raise serializers.ValidationError({"actions": _describe_action_errors(action_errors, instance.actions)})
             actions = action_serializer.validated_data
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
@@ -1170,7 +1234,9 @@ class StaleWorkflowUpdateError(exceptions.APIException):
 
 
 @extend_schema(extensions={"x-product": "workflows"})
-class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
+class HogFlowViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+):
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",
@@ -1180,6 +1246,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "metrics_totals",
         "metrics_global",
         "user_blast_radius",
+        "assets",
+        "asset_content",
     ]
     scope_object_write_actions = [
         "create",
@@ -1217,6 +1285,10 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
         # able to enumerate who a workflow ran for.
         if self.action in ("invocation_results", "invocation_result"):
+            return ["hog_flow:read", "person:read"]
+        # Assets expose recipient/distinct_id/person_id and the message bytes — require
+        # person:read so a hog_flow:read-only token can't enumerate who got emailed.
+        if self.action in ("assets", "asset_content"):
             return ["hog_flow:read", "person:read"]
         # A test invocation resolves the event's $groups into real group properties server-side, so a
         # hog_flow:write-only token could branch on group_0.properties and read the returned logs/variables
@@ -1396,7 +1468,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         with transaction.atomic():
             try:
-                # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance; locked for the staleness check + save)
+                # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; locked for the staleness check + save)
                 before_update = HogFlow.objects.select_for_update().get(pk=instance_id)
             except HogFlow.DoesNotExist:
                 before_update = None
@@ -1449,7 +1521,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         instance = self.get_object()
 
         with transaction.atomic():
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
 
             if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
@@ -1465,7 +1537,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             serializer.context["enforce_graph_structure"] = True
             serializer.is_valid(raise_exception=True)
 
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
             serializer.save()
@@ -1480,7 +1552,11 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def invocations(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
-        except Exception:
+        except (Http404, exceptions.NotFound):
+            # Only a genuinely missing workflow lands here (e.g. testing from the builder before first
+            # save) — fall back to testing the submitted payload. Permission failures never reach this
+            # fallback: a resource-level denial 403s upstream before this method runs, and an object-level
+            # PermissionDenied from get_object() is deliberately not caught, so it surfaces as a 403.
             hog_flow = None
 
         serializer = HogFlowInvocationSerializer(
@@ -1503,22 +1579,45 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: Request, **kwargs):
-        if "filters" not in request.data:
-            raise exceptions.ValidationError("Missing filters for which to get blast radius")
+        # detail=False, so there's no workflow object for AccessControlPermission to check — it falls back to
+        # "has access to any one workflow" (has_any_specific_access_for_resource). That's too weak for a
+        # project-wide person/group count: require resource-level workflow access so an object-level grant on
+        # a single workflow can't be used as a project-wide audience oracle.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            raise exceptions.PermissionDenied("You do not have access to workflows.")
 
-        filters = request.data.get("filters", {})
-        group_type_index = request.data.get("group_type_index", None)
+        param_serializer = BlastRadiusRequestSerializer(data=request.data)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        filters = params["filters"]
+        group_type_index = params.get("group_type_index")
+        dedupe_key = params.get("dedupe_key")
 
         reject_flag_conditions_in_audience(self.team, filters)
 
-        result = get_user_blast_radius(self.team, filters, group_type_index)
+        # Preview matches the actual send: with dedup active, "affected" is the number of
+        # sends (unique emails + email-less persons), not the number of matching persons —
+        # the legacy person-count query is skipped entirely, "total" comes straight from
+        # the cached team-wide count it would have returned anyway. The applied key is
+        # echoed back so the frontend labels the count from the response instead of
+        # guessing whether the flag-gated dedup actually ran.
+        applied_dedupe_key = None
+        if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
+            total = self.team.persons_seen_so_far
+            affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
+            applied_dedupe_key = dedupe_key
+        else:
+            result = get_user_blast_radius(self.team, filters, group_type_index)
+            affected, total = result.affected, result.total
 
         return Response(
             BlastRadiusSerializer(
                 {
-                    "affected": result.affected,
-                    "total": result.total,
+                    "affected": affected,
+                    "total": total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                    "dedupe_key": applied_dedupe_key,
                 }
             ).data
         )
@@ -1582,6 +1681,79 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         return Response(HogInvocationResultDetailSerializer(data).data)
 
     @extend_schema(
+        operation_id="hog_flows_assets_retrieve",
+        parameters=[MessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
+    def assets(self, request: Request, *args, **kwargs):
+        obj = self.get_object()
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        param_serializer = MessageAssetsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        before_date = None
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        data = fetch_message_assets(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            limit=params["limit"],
+            offset=params["offset"],
+            parent_run_id=params.get("parent_run_id"),
+            action_id=params.get("action_id"),
+            invocation_id=params.get("invocation_id"),
+            distinct_id=params.get("distinct_id"),
+            search=params.get("search"),
+            after=after_date,
+            before=before_date,
+        )
+        enriched = [dataclasses.replace(row, function_name=obj.name or "") for row in data]
+        return Response(MessageAssetSerializer(enriched, many=True).data)
+
+    @extend_schema(
+        operation_id="hog_flows_asset_content_retrieve",
+        parameters=[MessageAssetContentRequestSerializer],
+        responses={(200, "text/html"): OpenApiTypes.STR},
+    )
+    @action(detail=True, methods=["GET"], url_path="assets/content", pagination_class=None, filter_backends=[])
+    def asset_content(self, request: Request, *args, **kwargs):
+        # Ownership-check the HogFlow first so other teams' assets can't be probed.
+        obj = self.get_object()
+
+        param_serializer = MessageAssetContentRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        html = fetch_message_asset_html(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            invocation_id=params["invocation_id"],
+            action_id=params.get("action_id", ""),
+        )
+        if html is None:
+            raise exceptions.NotFound("Asset content is no longer available.")
+        response = HttpResponse(html, content_type="text/html; charset=utf-8")
+        # Enforce sandboxing at the response layer so direct navigation to the asset URL
+        # (bypassing the iframe with `sandbox=""` on the frontend) still can't execute
+        # scripts or make same-origin requests as the viewer. `sandbox` (no allow-list)
+        # is the most restrictive CSP mode; the other directives are defense-in-depth.
+        response["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; img-src https: data:; style-src 'unsafe-inline'"
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Referrer-Policy"] = "no-referrer"
+        return response
+
+    @extend_schema(
         operation_id="hog_flows_metrics_global_retrieve",
         parameters=[WorkflowGlobalStatsRequestSerializer],
         responses=WorkflowStatsRowSerializer(many=True),
@@ -1639,8 +1811,18 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         except ValueError:
             return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
 
-        queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
-        deleted_count, _ = queryset.delete()
+        # Match the single destroy path: deleting a workflow needs object-level editor access, not just
+        # visibility. filter_queryset_by_access_level only drops effective-"none" (invisible) objects, so an
+        # object-specific viewer override would otherwise be bulk-deletable. Check each candidate explicitly.
+        candidates = list(self.get_queryset().filter(id__in=validated_ids, status="archived"))
+        self.user_access_control.preload_object_access_controls(candidates)
+        deletable_ids = [
+            flow.id
+            for flow in candidates
+            if self.user_access_control.check_access_level_for_object(flow, required_level="editor")
+        ]
+
+        deleted_count, _ = self.get_queryset().filter(id__in=deletable_ids).delete()
 
         return Response({"deleted": deleted_count})
 
@@ -1652,7 +1834,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
-        except Exception:
+        except (Http404, exceptions.NotFound):
+            # A PermissionDenied from the object-level access check propagates as a 403; only a genuine
+            # missing workflow becomes a friendly 404.
             raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")
 
         if request.method == "POST":
@@ -1764,6 +1948,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         "affected": result.affected,
                         "total": result.total,
                         "limit": get_hogflow_batch_trigger_limit(team.id),
+                        "dedupe_key": None,
                     }
                 ).data
             )
@@ -1792,15 +1977,26 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         filters = request.data.get("filters", {}) or {}
         group_type_index = request.data.get("group_type_index", None)
         cursor = request.data.get("cursor", None)
+        dedupe_key = request.data.get("dedupe_key", None)
+
+        if dedupe_key is not None and dedupe_key not in SUPPORTED_DEDUPE_KEYS:
+            return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+            if use_workflows_batch_audience_query(team):
+                users_affected = get_batch_audience_person_ids(
+                    team, filters, group_type_index, cursor, dedupe_key=dedupe_key
+                )
+                batch_size = WORKFLOWS_PERSON_BATCH_SIZE
+            else:
+                users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+                batch_size = PERSON_BATCH_SIZE
             return Response(
                 {
                     "users_affected": users_affected,
                     "cursor": users_affected[-1] if users_affected else None,
-                    "has_more": len(users_affected) == PERSON_BATCH_SIZE,
+                    "has_more": len(users_affected) == batch_size,
                 }
             )
         except exceptions.ValidationError as e:
@@ -1852,7 +2048,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             # 1. Process due schedules (next_run_at <= now)
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (internal endpoint processes all teams)
+            # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
             due_schedule_ids = list(
                 HogFlowSchedule.objects.filter(
                     status=HogFlowSchedule.Status.ACTIVE, next_run_at__lte=timezone.now()
@@ -1869,7 +2065,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         # Re-checks conditions since the schedule may have been processed
                         # between the ID scan and this lock.
                         schedule = (
-                            # nosemgrep: semgrep.rules.idor-lookup-without-team
+                            # nosemgrep: idor-lookup-without-team
                             HogFlowSchedule.objects.select_for_update(skip_locked=True)
                             .select_related("hog_flow")
                             .filter(
@@ -1920,7 +2116,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     failed.append(str(schedule_id))
 
             # 2. Initialize next_run_at for schedules that need it
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (internal endpoint processes all teams)
+            # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
             uninitialized_ids = list(
                 HogFlowSchedule.objects.filter(
                     status=HogFlowSchedule.Status.ACTIVE,
@@ -1938,7 +2134,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         # Re-checks conditions since the schedule may have been initialized
                         # between the ID scan and this lock.
                         schedule = (
-                            # nosemgrep: semgrep.rules.idor-lookup-without-team
+                            # nosemgrep: idor-lookup-without-team
                             HogFlowSchedule.objects.select_for_update(skip_locked=True)
                             .filter(id=schedule_id, status=HogFlowSchedule.Status.ACTIVE, next_run_at__isnull=True)
                             .first()

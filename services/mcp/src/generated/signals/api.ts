@@ -187,7 +187,11 @@ export const SignalsReportArtefactsListParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    report_id: zod.string(),
+    report_id: zod
+        .string()
+        .describe(
+            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
 })
 
 export const SignalsReportArtefactsListQueryParams = /* @__PURE__ */ zod.object({
@@ -205,7 +209,11 @@ export const SignalsReportArtefactsCreateParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    report_id: zod.string(),
+    report_id: zod
+        .string()
+        .describe(
+            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
 })
 
 export const SignalsReportArtefactsCreateHeader = /* @__PURE__ */ zod.object({
@@ -245,7 +253,11 @@ export const SignalsReportArtefactsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    report_id: zod.string(),
+    report_id: zod
+        .string()
+        .describe(
+            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
 })
 
 /**
@@ -259,7 +271,11 @@ export const SignalsReportArtefactsPartialUpdateParams = /* @__PURE__ */ zod.obj
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    report_id: zod.string(),
+    report_id: zod
+        .string()
+        .describe(
+            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
 })
 
 export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
@@ -284,7 +300,11 @@ export const SignalsReportArtefactsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    report_id: zod.string(),
+    report_id: zod
+        .string()
+        .describe(
+            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
 })
 
 /**
@@ -1047,7 +1067,7 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .max(signalsScoutScratchpadRememberBodyContentMax)
             .describe('Prose to write. Read verbatim into future prompts.'),
         run_id: zod
-            .uuid()
+            .string()
             .nullish()
             .describe(
                 "Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost."

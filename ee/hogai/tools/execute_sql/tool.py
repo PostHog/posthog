@@ -163,7 +163,10 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
         tool_payload: str | dict[str, object]
-        if filters is not None:
+        if display or chart_settings:
+            # Full node so the SQL editor can adopt the visualization settings, not just the SQL
+            tool_payload = artifact_query.model_dump(mode="json", exclude_none=True)
+        elif filters is not None:
             tool_payload = source_query.model_dump(mode="json", exclude_none=True)
         else:
             tool_payload = artifact_query.source.query

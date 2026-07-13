@@ -48,6 +48,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
 
@@ -195,6 +196,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
             await service.flush()
@@ -216,6 +218,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
             await service.flush()
@@ -238,6 +241,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
             await service.flush()
