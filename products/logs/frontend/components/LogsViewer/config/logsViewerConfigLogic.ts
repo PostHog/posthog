@@ -68,10 +68,6 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         setGroupBy: (groupBy: LogsViewerGroupBy | null) => ({ groupBy }),
         setCompareEnabled: (enabled: boolean) => ({ enabled }),
         setBaselineMode: (mode: PatternsBaselineMode) => ({ mode }),
-        // One-click "explain this window": open the Patterns view in compare mode against the
-        // given baseline. Atomic so callers in other views (Logs toolbar, alert scenes) can't
-        // half-configure the pivot.
-        openPatternsComparison: (mode: PatternsBaselineMode) => ({ mode }),
 
         // Typed columns (unified column model)
         setColumns: (columns: LogsColumnConfig[]) => ({ columns }),
@@ -124,24 +120,21 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             DEFAULT_VIEW_MODE as LogsViewerViewMode,
             {
                 setViewMode: (_, { viewMode }) => viewMode,
-                openPatternsComparison: () => 'patterns' as LogsViewerViewMode,
             },
         ],
-        // Compare state lives here (not in logsPatternsLogic) so views other than Patterns can
-        // arm the comparison before the patterns logic mounts, and the choice survives
-        // Logs↔Patterns switches within a visit. Not persisted, like viewMode and groupBy.
+        // Compare state lives here (not in logsPatternsLogic) so the choice survives
+        // Logs↔Patterns switches within a visit — the patterns logic unmounts when leaving
+        // the lens. Not persisted, like viewMode and groupBy.
         compareEnabled: [
             false,
             {
                 setCompareEnabled: (_, { enabled }) => enabled,
-                openPatternsComparison: () => true,
             },
         ],
         baselineMode: [
             'lastWeek' as PatternsBaselineMode,
             {
                 setBaselineMode: (_, { mode }) => mode,
-                openPatternsComparison: (_, { mode }) => mode,
             },
         ],
         columns: [

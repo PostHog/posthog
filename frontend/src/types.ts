@@ -472,6 +472,7 @@ export interface InAppNotification {
     body: string
     read: boolean
     read_at: string | null
+    archivable: boolean
     resource_type: string | null
     resource_id: string
     target_type: string
@@ -5663,6 +5664,8 @@ export type APIScopeObject =
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'
+    | 'data_catalog'
+    | 'data_catalog_approval'
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
@@ -6133,7 +6136,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
 }
 
 export interface ExternalDataSource {
@@ -6145,7 +6148,7 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
-    created_via: 'web' | 'api' | 'mcp' | null
+    created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
     engine?: 'duckdb' | 'postgres' | 'mysql' | null
     latest_error: string | null
     last_run_at?: Dayjs

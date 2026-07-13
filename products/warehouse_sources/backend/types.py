@@ -787,6 +787,8 @@ class ExternalDataSourceType(models.TextChoices):
     TERRAAPI = "TerraApi", "TerraApi"
     TRIGGERDEV = "TriggerDev", "TriggerDev"
     TURSO = "Turso", "Turso"
+    SINGULAR = "Singular", "Singular"
+    SWONKIE = "Swonkie", "Swonkie"
     TWELVELABS = "TwelveLabs", "TwelveLabs"
     TWENTY = "Twenty", "Twenty"
     UNSTRUCTURED = "Unstructured", "Unstructured"
@@ -805,8 +807,10 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.POSTGRES: "postgres",
     ExternalDataSourceType.MYSQL: "mysql",
     ExternalDataSourceType.SNOWFLAKE: "snowflake",
+    ExternalDataSourceType.REDSHIFT: "redshift",
 }
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):
     REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
+    ENGINEERING_ANALYTICS = "engineering_analytics", "Engineering Analytics"

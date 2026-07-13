@@ -1937,6 +1937,8 @@ class ExternalDataSourceType(StrEnum):
     WINDMILL = "Windmill"
     ZEP = "Zep"
     HEX = "Hex"
+    SINGULAR = "Singular"
+    SWONKIE = "Swonkie"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2032,6 +2034,7 @@ class FileSystemIconType(StrEnum):
     LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
+    MCP_ANALYTICS = "mcp_analytics"
     EXPORTS = "exports"
 
 

@@ -1011,11 +1011,15 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
-        return filters_override_requested_by_client(request, dashboard)
+        is_shared = self.context.get("is_shared", False)
+        return filters_override_requested_by_client(request, dashboard, is_shared=is_shared)
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")
-        return variables_override_requested_by_client(request, dashboard, list(self.context["insight_variables"]))
+        is_shared = self.context.get("is_shared", False)
+        return variables_override_requested_by_client(
+            request, dashboard, list(self.context["insight_variables"]), is_shared=is_shared
+        )
 
     def get_persisted_filters(self, dashboard: Dashboard) -> dict | None:
         return dashboard.filters if dashboard.filters else None

@@ -619,6 +619,7 @@ from .sim.source import SimSource
 from .simfin.source import SimFinSource
 from .simplecast.source import SimpleCastSource
 from .simplesat.source import SimplesatSource
+from .singular.source import SingularSource
 from .skyvern.source import SkyvernSource
 from .slack.source import SlackSource
 from .slash.source import SlashSource
@@ -651,6 +652,7 @@ from .surveymonkey.source import SurveyMonkeySource
 from .surveysparrow.source import SurveySparrowSource
 from .survicate.source import SurvicateSource
 from .svix.source import SvixSource
+from .swonkie.source import SwonkieSource
 from .synthesia.source import SynthesiaSource
 from .systeme.source import SystemeSource
 from .taboola.source import TaboolaSource
