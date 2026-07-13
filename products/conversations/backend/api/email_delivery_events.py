@@ -128,7 +128,7 @@ def email_delivery_event_handler(request: HttpRequest) -> HttpResponse:
         headers = {}
     message_id = _normalize_message_id(str(headers.get("message-id") or ""))
     if not provider_event_id or not message_id:
-        logger.warning("email_delivery_event_missing_identifiers", event=event)
+        logger.warning("email_delivery_event_missing_identifiers", event_type=event)
         return HttpResponse(status=200)
 
     outbox = (
@@ -136,7 +136,7 @@ def email_delivery_event_handler(request: HttpRequest) -> HttpResponse:
     )
     if outbox is None:
         # Not an outbound ticket reply (e.g. a settings test email) — nothing to attach to.
-        logger.info("email_delivery_event_unmatched", event=event, provider_event_id=provider_event_id)
+        logger.info("email_delivery_event_unmatched", event_type=event, provider_event_id=provider_event_id)
         return HttpResponse(status=200)
 
     recipient = str(event_data.get("recipient") or "")[:254]
@@ -168,7 +168,7 @@ def email_delivery_event_handler(request: HttpRequest) -> HttpResponse:
         "email_delivery_event_recorded",
         team_id=outbox.team_id,
         ticket_id=str(outbox.ticket_id),
-        event=event,
+        event_type=event,
         severity=severity,
         provider_event_id=provider_event_id,
     )
