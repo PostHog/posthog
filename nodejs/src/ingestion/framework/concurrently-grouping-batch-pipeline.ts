@@ -1,3 +1,5 @@
+import pLimit from 'p-limit'
+
 import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
@@ -61,11 +63,16 @@ export class ConcurrentlyGroupingBatchPipeline<
 
     private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 
+    // Caps how many groups process at once. Null means unbounded (start every ready group).
+    private readonly limit: ReturnType<typeof pLimit> | null
+
     constructor(
         private groupingFn: GroupingFunction<TIntermediate, TKey>,
         private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>
+        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
+        maxConcurrency?: number
     ) {
+        this.limit = maxConcurrency !== undefined ? pLimit(maxConcurrency) : null
         this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
             onFeed: (elements) => this.previousPipeline.feed(elements),
             onSourcePull: () => this.routeFromPrevious(),
@@ -150,7 +157,12 @@ export class ConcurrentlyGroupingBatchPipeline<
         }
         this.groupQueues.delete(key)
 
-        const processingPromise = this.processGroupSequentially(queue).then(
+        // The key is claimed in activeProcessing synchronously below, so per-key ordering holds even
+        // when a group parks waiting for a concurrency permit.
+        const run = this.limit
+            ? this.limit(() => this.processGroupSequentially(queue))
+            : this.processGroupSequentially(queue)
+        const processingPromise = run.then(
             (results) => {
                 this.completedResults.push(results)
                 this.activeProcessing.delete(key)

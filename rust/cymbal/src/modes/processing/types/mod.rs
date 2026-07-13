@@ -6,9 +6,7 @@ use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
-use crate::fingerprinting::{
-    FingerprintBuilder, FingerprintComponent, FingerprintRecordPart, FingerprintVersion,
-};
+use crate::fingerprinting::{FingerprintRecordPart, FingerprintVersion};
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::langs::native::DebugImage;
@@ -183,50 +181,6 @@ pub struct OutputErrProps {
     pub sources: Vec<String>,
     #[serde(rename = "$exception_functions")]
     pub functions: Vec<String>,
-}
-
-impl FingerprintComponent for Exception {
-    fn update(&self, fp: &mut FingerprintBuilder) {
-        let mut pieces = vec![];
-        fp.update(self.exception_type.as_bytes());
-        pieces.push("Exception Type".to_string());
-        if !matches!(self.stack, Some(Stacktrace::Resolved { frames: _ })) {
-            fp.update(self.exception_message.as_bytes());
-            pieces.push("Exception Message".to_string());
-        };
-        fp.add_part(FingerprintRecordPart::Exception {
-            id: self.exception_id.clone(),
-            pieces,
-        });
-    }
-}
-
-impl Exception {
-    pub fn include_in_fingerprint(&self, fp: &mut FingerprintBuilder) {
-        self.update(fp);
-
-        let Some(Stacktrace::Resolved { frames }) = &self.stack else {
-            return;
-        };
-
-        let has_no_resolved = !frames.iter().any(|f| f.resolved);
-        let has_no_in_app = !frames.iter().any(|f| f.in_app);
-
-        if has_no_in_app {
-            // TODO: we should try to be smarter about handling the case when
-            // there are no in-app frames
-            if let Some(f) = frames.first() {
-                f.update(fp)
-            }
-            return;
-        }
-
-        for frame in frames {
-            if (has_no_resolved || frame.resolved) && frame.in_app {
-                frame.update(fp)
-            }
-        }
-    }
 }
 
 // Deduplicates while preserving first-seen order, so derived properties

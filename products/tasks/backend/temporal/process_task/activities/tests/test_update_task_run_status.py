@@ -9,6 +9,8 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     update_task_run_status,
 )
 
+TOKEN_USAGE = {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500, "turns": 3}
+
 
 @pytest.mark.requires_secrets
 class TestUpdateTaskRunStatusActivity:
@@ -47,6 +49,25 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.error_message == error_msg
 
     @pytest.mark.django_db(transaction=True)
+    def test_timed_out_inactivity_sets_state_marker_without_error_message(self, activity_environment, test_task_run):
+        test_task_run.state = {**(test_task_run.state or {}), "existing_key": "kept"}
+        test_task_run.save(update_fields=["state"])
+
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.COMPLETED,
+            timed_out_inactivity=True,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == TaskRun.Status.COMPLETED
+        assert test_task_run.error_message is None
+        assert test_task_run.state.get("timed_out_inactivity") is True
+        # Merge, not replace: pre-existing state keys survive the marker write.
+        assert test_task_run.state.get("existing_key") == "kept"
+
+    @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_publishes_stream_state_event(self, mock_publish_stream_state_event, activity_environment, test_task_run):
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.IN_PROGRESS)
@@ -56,6 +77,83 @@ class TestUpdateTaskRunStatusActivity:
         mock_publish_stream_state_event.assert_called_once()
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status,expected_event",
+        [
+            (TaskRun.Status.COMPLETED, "task_run_completed"),
+            (TaskRun.Status.FAILED, "task_run_failed"),
+        ],
+    )
+    @patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_token_usage")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_terminal_transition_captures_analytics_with_usage(
+        self, mock_capture, mock_record, activity_environment, test_task_run, status, expected_event
+    ):
+        test_task_run.state = {
+            **(test_task_run.state or {}),
+            "token_usage": dict(TOKEN_USAGE),
+            "rtk_effective": True,
+        }
+        test_task_run.save(update_fields=["state"])
+
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=status,
+            error_message="boom" if status == TaskRun.Status.FAILED else None,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == expected_event]
+        assert len(captured) == 1
+        props = captured[0].kwargs["properties"]
+        assert props["input_tokens"] == 1200
+        assert props["total_tokens"] == 1500
+        assert props["usage_turns"] == 3
+        assert props["rtk_enabled"] is True
+        assert props["run_environment"] == test_task_run.environment
+        mock_record.assert_called_once()
+        assert mock_record.call_args.kwargs["rtk_enabled"] is True
+        assert mock_record.call_args.kwargs["status"] == status
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "error_type,expected_error_type",
+        [
+            ("ActivityError", "ActivityError"),
+            (None, "unspecified"),
+        ],
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_failed_transition_carries_error_type_and_message_tail(
+        self, mock_capture, activity_environment, test_task_run, error_type, expected_error_type
+    ):
+        error_message = "x" * 1400 + "TypeError: cannot read boot manifest"
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            error_message=error_message,
+            error_type=error_type,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        assert len(captured) == 1
+        props = captured[0].kwargs["properties"]
+        assert props["error_type"] == expected_error_type
+        assert len(props["error_message"]) == 500
+        assert props["error_message"].endswith("TypeError: cannot read boot manifest")
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_repeated_terminal_update_does_not_double_capture(self, mock_capture, activity_environment, test_task_run):
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        completed = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_completed"]
+        assert len(completed) == 1
+
+    @pytest.mark.django_db(transaction=True)
     def test_handles_non_existent_task_run(self, activity_environment):
         non_existent_run_id = "550e8400-e29b-41d4-a716-446655440000"
         input_data = UpdateTaskRunStatusInput(
@@ -63,3 +161,30 @@ class TestUpdateTaskRunStatusActivity:
             status=TaskRun.Status.IN_PROGRESS,
         )
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "extra_state,output,expected_delta",
+        [
+            ({"wizard_head_branch": "posthog/instrumentation-ab12cd"}, None, 1.0),
+            ({"wizard_head_branch": "posthog/instrumentation-ab12cd"}, {"pr_url": "https://x/pull/1"}, 0.0),
+            ({}, None, 0.0),
+        ],
+    )
+    def test_terminal_status_counts_unbound_wizard_runs(
+        self, activity_environment, test_task_run, extra_state, output, expected_delta
+    ):
+        from prometheus_client import REGISTRY
+
+        test_task_run.state = {**(test_task_run.state or {}), **extra_state}
+        if output:
+            test_task_run.output = output
+        test_task_run.save(update_fields=["state", "output"])
+        labels = {"status": "completed"}
+        before = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        after = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
+        assert after == before + expected_delta

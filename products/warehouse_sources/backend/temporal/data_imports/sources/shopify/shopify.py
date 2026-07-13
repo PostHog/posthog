@@ -290,6 +290,9 @@ def normalize_store_id(raw: str) -> str:
         store_id = store_id.removeprefix("admin.shopify.com/store/")
     # Drop any path/query/fragment that rode along with a pasted URL.
     store_id = store_id.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    # A trailing dot (FQDN form, e.g. "my-store.myshopify.com.") otherwise defeats the suffix
+    # strip below and leaves a value the subdomain regex rejects.
+    store_id = store_id.rstrip(".")
     # Strip the domain suffix, looping to collapse an accidental double suffix.
     while store_id.endswith(".myshopify.com"):
         store_id = store_id.removesuffix(".myshopify.com")
@@ -306,12 +309,18 @@ def normalize_store_id(raw: str) -> str:
     # connect/read timeout) surfaces from `post` as requests ConnectionError/Timeout — SSLError
     # is a ConnectionError. A connection dropped mid-response surfaces as ChunkedEncodingError,
     # which is a RequestException rather than a ConnectionError, so it must be listed explicitly.
-    # The adapter's own urllib3 retries back off for only ~1.5s, too short to ride out a
-    # multi-second blip. Minting a token is idempotent, so reissue with backoff rather than failing
-    # the whole import. 4xx/5xx are raised as plain Exceptions below and so are untouched here —
-    # auth failures still fail fast.
+    # A 429/5xx returns a completed response and is raised as ShopifyRetryableError below, so it
+    # is listed here too. The adapter's own urllib3 retries back off for only ~1.5s, too short to
+    # ride out a multi-second blip. Minting a token is idempotent, so reissue with backoff rather
+    # than failing the whole import. 4xx auth failures are raised as plain Exceptions and so are
+    # untouched here — they still fail fast.
     retry=retry_if_exception_type(
-        (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError)
+        (
+            ShopifyRetryableError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+        )
     ),
     stop=stop_after_attempt(5),
     wait=_shopify_backoff,
@@ -329,10 +338,13 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
     if not access_res.ok:
         # A 4xx means the app credentials are invalid/revoked (e.g. the app was
         # uninstalled) — re-auth is the only fix, so surface a non-retryable message.
-        # 429 (rate limit) and 5xx are transient and stay retryable via the generic message.
         if 400 <= access_res.status_code < 500 and access_res.status_code != 429:
             raise Exception(f"{SHOPIFY_ACCESS_TOKEN_AUTH_ERROR} (HTTP {access_res.status_code})")
-        raise Exception(f"Failed to retrieve Shopify access token: {access_res}")
+        # 429 (rate limit) and 5xx (e.g. a 502 Bad Gateway from Shopify's edge) are transient —
+        # retry locally with backoff instead of failing the import, mirroring the GraphQL path.
+        raise ShopifyRetryableError(
+            f"Failed to retrieve Shopify access token: {access_res.status_code} {access_res.reason}"
+        )
     return access_res.json()["access_token"]
 
 

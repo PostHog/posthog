@@ -126,7 +126,11 @@ export const notebooksModel = kea<notebooksModelType>([
                         onCreate?.(logic)
                     })
 
-                    posthog.capture(`notebook created`, {
+                    // Client-scoped name on purpose: the server-side `notebook created` event
+                    // (emitted for every creation path) is the source of truth for counts. This
+                    // one keeps the browser/session context for UI-funnel analysis without
+                    // double-counting UI creations.
+                    posthog.capture(`notebook created (client)`, {
                         short_id: notebook.short_id,
                         is_markdown: useMarkdownNotebook,
                     })

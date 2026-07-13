@@ -47,6 +47,12 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             # `str(SpreadsheetNotFound)` is otherwise just `<Response [404]>`, with nothing to match.
             # Retrying cannot recover.
             "Spreadsheet not found": "Import failed: the Google Sheet could not be found. It may have been deleted or moved. Please check the spreadsheet URL and that it is shared with our service account.",
+            # The values-read calls (`get_all_values`/`get_all_records`) hit the Sheets API directly and
+            # gspread does NOT wrap their 404 into `SpreadsheetNotFound` — it raises the raw `APIError`,
+            # whose `str()` is "APIError: [404]: Requested entity was not found." (Google's stable 404
+            # text). So the sheet/worksheet vanishing mid-read bypasses the `SpreadsheetNotFound` branch
+            # above and would be retried forever. The 404 is deterministic — retrying cannot recover.
+            "Requested entity was not found": "Import failed: the Google Sheet or worksheet could not be found. It may have been deleted or moved, or is no longer shared with our service account. Please check the spreadsheet URL and its sharing settings.",
         }
 
     def get_schemas(
@@ -127,7 +133,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Google Sheets",
-            caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets)",
+            caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets). The first row of each sheet must contain unique column headers, since PostHog reads it as the column names when syncing.",
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/Google_Sheets.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-sheets",

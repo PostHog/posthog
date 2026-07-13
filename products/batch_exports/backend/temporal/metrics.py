@@ -79,6 +79,21 @@ def get_export_finished_metric(status: str, model: str) -> MetricCounter:
     )
 
 
+class CumulativeTimer:
+    """Accumulate wall-clock time spent across many timed sections."""
+
+    def __init__(self) -> None:
+        self.total_seconds: float = 0.0
+
+    @contextmanager
+    def time(self) -> typing.Iterator[None]:
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.total_seconds += time.perf_counter() - start
+
+
 Attributes = dict[str, str | int | float | bool]
 
 

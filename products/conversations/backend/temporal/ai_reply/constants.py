@@ -1,6 +1,10 @@
 from typing import Literal
+from uuid import UUID
 
 MAX_ATTEMPTS = 5
+
+# Stable namespace for deterministic per-ticket trace ids (uuid5).
+AI_REPLY_TRACE_NAMESPACE = UUID("a1b2c3d4-5678-4e9f-ab12-cd34ef567890")
 SCORE_THRESHOLD = 0.5
 RERANK_TOP_K = 5
 # Ticket types whose replies may ever be published to the (untrusted) ticket author.
@@ -67,11 +71,9 @@ BASE_DRAFT_SCOPES: list[str] = [
 # Django/ORM -- it's loaded inside the Temporal workflow sandbox via pipeline.py.
 DIAGNOSTIC_SCOPES_PRESET: Literal["read_only"] = "read_only"
 
-# Sandbox agent model for the draft step. Must be in the LLM gateway's `background_agents`
-# product allowlist (services/llm-gateway/src/llm_gateway/products/config.py) -- that's the
-# product the sandbox agent server routes through, NOT `conversations`. `claude-sonnet-4-6`
-# is allowed for `conversations` (the plain utility/validator calls) but NOT for
-# `background_agents`, so the sandbox draft uses the strongest allowed sonnet instead.
+# Sandbox agent model for the draft step. Must be in the LLM gateway `conversations`
+# product allowlist (services/llm-gateway/src/llm_gateway/products/config.py) — support-reply
+# sandbox tasks route through that product via @posthog/agent's resolveGatewayProduct().
 DRAFT_MODEL = "claude-sonnet-5"
 DRAFT_RUNTIME_ADAPTER = "claude"
 

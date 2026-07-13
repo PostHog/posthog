@@ -99,9 +99,12 @@ verify against the full checklist below before merging.
 
 Treat two issues as duplicates only when **every one** of these matches:
 
-- `$lib` is the same SDK (`posthog-js`, `posthog-python`, `posthog-node`,
-  `posthog-android`, etc.). Errors from different SDKs almost always come from
-  different code paths even when the exception type matches.
+- `$lib` is the same SDK. The browser/JS SDK captures `$lib` as `web` (not
+  `posthog-js`); server SDKs use `posthog-python`, `posthog-node`, etc. Confirm
+  the exact value with `read-data-schema` (`event_property_values` for `$lib` on
+  `$exception`) rather than assuming — a wrong value silently matches nothing.
+  Errors from different SDKs almost always come from different code paths even
+  when the exception type matches.
 - The exception type is identical (`$exception_types`).
 - The top in-app stack frame points at the same file and same function. Line
   numbers and minor offsets within that function are fine; a different file or
@@ -125,8 +128,8 @@ bug":
 - **Frontend and backend variants of the same exception type.** A `TypeError`
   from a browser bundle and a `TypeError` from a Node service share a name and
   often a message word, but the stack, the runtime, and the fix all differ.
-- **Different SDKs / platforms.** `posthog-js` vs `posthog-python` vs
-  `posthog-android` are different call sites.
+- **Different SDKs / platforms.** `web` (browser/JS) vs `posthog-python` vs
+  `posthog-node` are different call sites.
 - **Same type, different file or function on top of the stack.** A
   `NullPointerException` thrown from `OrderService.cancel` is not the same bug
   as one thrown from `PaymentService.refund`, even if both messages say
@@ -184,7 +187,8 @@ A grouping rule is worth creating when both are true:
 The canonical exception properties (`$exception_types`, `$exception_values`
 for messages, `$exception_sources` for file paths, `$exception_functions` for
 function names) are arrays at capture time. The property filter compiler
-[special-cases them](https://github.com/PostHog/posthog/blob/master/posthog/hogql/property.py#L904) — it parses the JSON-materialized column
+special-cases them (see `is_exception_string_array_property` in
+[`posthog/hogql/property.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/property.py)) — it parses the JSON-materialized column
 and wraps the filter in `arrayExists(v -> ..., JSONExtract(...))`, so all
 the standard operators (`exact`, `is_not`, `icontains`, `not_icontains`,
 `regex`, `not_regex`) work against individual elements with the bare value:
@@ -214,7 +218,12 @@ matches more loosely than the checklist will silently merge unrelated bugs
 forever — the rule is more dangerous than the merge because it runs against
 every future event. At a minimum, scope by SDK and exception type, and add
 a third dimension (file path via `$exception_sources`, or a specific message
-phrase via `$exception_values`) to pin the call site:
+phrase via `$exception_values`) to pin the call site.
+
+Confirm the `$lib` value first — the browser/JS SDK captures `$lib="web"`, not
+`posthog-js`, so a rule filtering on `posthog-js` silently never matches. Verify
+with `read-data-schema` (`event_property_values` for `$lib` on `$exception`)
+before baking a value into the rule:
 
 ```json
 posthog:error-tracking-grouping-rules-create
@@ -226,7 +235,7 @@ posthog:error-tracking-grouping-rules-create
         "type": "event",
         "key": "$lib",
         "operator": "exact",
-        "value": "posthog-js"
+        "value": "web"
       },
       {
         "type": "event",
@@ -248,7 +257,7 @@ posthog:error-tracking-grouping-rules-create
       }
     ]
   },
-  "description": "Cleanup: collapse noisy checkout TypeError fingerprints (posthog-js)"
+  "description": "Cleanup: collapse noisy checkout TypeError fingerprints (web)"
 }
 ```
 

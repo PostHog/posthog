@@ -10,6 +10,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { emptyPaginated } from '~/test/mocks/taxonomicFilterApiMock'
 
 import { TaxonomicFilterHeadless } from '../headless'
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
@@ -26,22 +27,7 @@ jest.mock('posthog-js', () => ({
     default: { capture: jest.fn() },
 }))
 
-jest.mock('lib/api', () => {
-    const emptyPaginated = (): Promise<{ results: any[]; count: number; next: null }> =>
-        Promise.resolve({ results: [], count: 0, next: null })
-    return {
-        __esModule: true,
-        default: {
-            get: jest.fn().mockImplementation(emptyPaginated),
-            actions: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dataWarehouseSavedQueries: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dataWarehouseTables: { list: jest.fn().mockImplementation(emptyPaginated) },
-            queryTabState: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dashboards: { list: jest.fn().mockImplementation(emptyPaginated) },
-            cohorts: { listPaginated: jest.fn().mockImplementation(emptyPaginated) },
-        },
-    }
-})
+jest.mock('lib/api', () => require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock())
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
 const captureMock = jest.requireMock('posthog-js').default.capture as jest.Mock
@@ -74,6 +60,7 @@ function renderAll(options: {
     pinnedEntries?: any[]
     searchQuery?: string
     onCommit?: any
+    eventNames?: string[]
 }): ReturnType<typeof render> {
     return render(
         <Provider>
@@ -81,6 +68,7 @@ function renderAll(options: {
                 taxonomicGroupTypes={options.groupTypes}
                 onChange={jest.fn()}
                 searchQuery={options.searchQuery ?? ''}
+                eventNames={options.eventNames}
             >
                 <MenuFilterCombobox
                     drillTo="all"
@@ -116,6 +104,7 @@ describe('MenuFilterCombobox', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
+        apiGet.mockImplementation(emptyPaginated)
         captureMock.mockClear()
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({})
@@ -447,6 +436,37 @@ describe('MenuFilterCombobox', () => {
         expect(contentIdx).toBeGreaterThan(recentIdx)
     })
 
+    it("promotes the context event's primary property after recents, above the content rows", async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            eventNames: ['$mcp_tool_call'],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'my_recent_event', 'Events')],
+        })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
+        const rows = rowTexts()
+        expect(rows[0]).toContain('my_recent_event')
+        expect(rows[1]).toContain('MCP tool name')
+        const contentIdx = rows.findIndex((t) => t.includes('autocapture'))
+        expect(contentIdx).toBeGreaterThan(1)
+    })
+
+    it('shows a promoted property that is also a recent only once, under recents', async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            eventNames: ['$mcp_tool_call'],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, '$mcp_tool_name', 'Event properties')],
+        })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
+        const promotedRows = rowTexts().filter((t) => t.includes('MCP tool name') || t.includes('$mcp_tool_name'))
+        expect(promotedRows).toHaveLength(1)
+    })
+
     it('shows a recent that is also in the catalog only once (deduped from content)', async () => {
         apiGet.mockResolvedValue({ results: [{ id: 1, name: 'pageview' }], count: 1 })
 
@@ -583,7 +603,11 @@ describe('MenuFilterCombobox', () => {
                 if (url.includes('property_definitions')) {
                     return Promise.resolve({ results: [{ id: 1, name: '$browser' }], count: 1 })
                 }
-                return Promise.resolve([])
+                if (url.includes('events/values')) {
+                    return Promise.resolve([])
+                }
+                // Paginated floor for everything else (dashboardsModel & co load on mount)
+                return Promise.resolve({ results: [], count: 0 })
             })
             // What TaxonomicPopoverMenu builds when reopening an existing
             // `$current_url icontains <value>` filter picked via the shortcut.

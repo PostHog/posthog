@@ -6,13 +6,14 @@ import { AddWidgetModal } from '@posthog/products-dashboards/frontend/widgets/Ad
 import { ButtonTileCardModal } from 'lib/components/Cards/ButtonTileCard/ButtonTileCardModal'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
+
+import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardLogic } from './dashboardLogic'

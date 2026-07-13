@@ -17,10 +17,10 @@ use crate::observability::metrics::{
 use crate::stage1::bucket_tz::{daily_bucket_len, day_idx_in_tz};
 use crate::stage1::compressed_history;
 use crate::stage1::daily::{daily_eviction_deadline, slide_window_forward};
-use crate::stage1::key::Stage1Key;
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
+use crate::store::BehavioralKey;
 
 /// The state mutation an eviction implies.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,7 +34,7 @@ pub(crate) enum EvictionAction {
 /// The outcome of evicting one key: optional transition, state mutation, and next deadline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EvictionResult {
-    pub key: Stage1Key,
+    pub key: BehavioralKey,
     pub variant: StateVariant,
     pub transition: Option<LeafTransition>,
     pub action: EvictionAction,
@@ -77,7 +77,7 @@ pub(crate) struct SweepEvictions {
 /// `filters`' team. Pure: no reads, no writes.
 pub(crate) fn sweep_evict(
     filters: &TeamFilters,
-    due_keys: &[Stage1Key],
+    due_keys: &[BehavioralKey],
     values: Vec<Option<Vec<u8>>>,
     due_before_ms: i64,
 ) -> SweepEvictions {
@@ -85,7 +85,7 @@ pub(crate) fn sweep_evict(
         results: Vec::with_capacity(due_keys.len()),
         drops: Vec::new(),
     };
-    // Alignment-safe zip: `multi_get_stage1` preserves input order, `None` for absent keys.
+    // Alignment-safe zip: `multi_get_behavioral` preserves input order, `None` for absent keys.
     for (&key, bytes) in due_keys.iter().zip(values) {
         let record = match bytes {
             None => {
@@ -101,7 +101,7 @@ pub(crate) fn sweep_evict(
                 }
             },
         };
-        let Some(meta) = filters.by_lsk.get(&key.leaf_state_key) else {
+        let Some(meta) = filters.by_lsk.get(&key.lsk()) else {
             out.drops.push(SweepDropReason::LeafDrift);
             continue;
         };
@@ -125,7 +125,7 @@ pub(crate) fn sweep_evict(
 
 /// Evict a `performed_event` single: always deletes.
 fn evict_single(
-    key: Stage1Key,
+    key: BehavioralKey,
     meta: &LeafStateMeta,
     record: StatefulRecord,
 ) -> Result<EvictionResult, SweepDropReason> {
@@ -147,7 +147,7 @@ fn evict_single(
 /// Slide the daily window forward, recompute the predicate, and return the net membership flip.
 /// Rewrites while any bucket survives; deletes when every bucket drains.
 fn evict_daily(
-    key: Stage1Key,
+    key: BehavioralKey,
     meta: &LeafStateMeta,
     record: StatefulRecord,
     tz: Tz,
@@ -226,7 +226,7 @@ fn evict_daily(
 /// Slide the compressed window forward and return the net membership flip (sparse run-length
 /// analog of [`evict_daily`]).
 fn evict_compressed(
-    key: Stage1Key,
+    key: BehavioralKey,
     meta: &LeafStateMeta,
     record: StatefulRecord,
     tz: Tz,
@@ -298,11 +298,15 @@ fn evict_compressed(
     })
 }
 
-fn transition_for(key: Stage1Key, meta: &LeafStateMeta, kind: TransitionKind) -> LeafTransition {
+fn transition_for(
+    key: BehavioralKey,
+    meta: &LeafStateMeta,
+    kind: TransitionKind,
+) -> LeafTransition {
     LeafTransition {
-        team_id: TeamId(key.team_id as i32),
-        leaf_state_key: key.leaf_state_key,
-        person_id: key.person_id,
+        team_id: TeamId(key.team_id() as i32),
+        leaf_state_key: key.lsk(),
+        person_id: key.person_id(),
         condition_hash: meta.condition_hash,
         kind,
     }
@@ -375,13 +379,13 @@ mod tests {
         })
     }
 
-    fn key_for(filters: &TeamFilters, person: u128) -> Stage1Key {
-        Stage1Key {
-            partition_id: PARTITION,
-            team_id: TEAM,
-            leaf_state_key: filters.by_condition_to_lsk[&HASH][0],
-            person_id: Uuid::from_u128(person),
-        }
+    fn key_for(filters: &TeamFilters, person: u128) -> BehavioralKey {
+        BehavioralKey::new(
+            PARTITION,
+            TEAM,
+            Uuid::from_u128(person),
+            filters.by_condition_to_lsk[&HASH][0],
+        )
     }
 
     /// `state` encoded as the worker's prefetch would hand it to `sweep_evict`.
@@ -415,7 +419,7 @@ mod tests {
             transition.condition_hash, HASH,
             "condition_hash from the meta"
         );
-        assert_eq!(transition.person_id, key.person_id);
+        assert_eq!(transition.person_id, key.person_id());
         assert_eq!(transition.team_id, TeamId(TEAM as i32));
         assert_eq!(result.action, EvictionAction::Delete);
         assert_eq!(result.reschedule, None);
@@ -754,17 +758,20 @@ mod tests {
 
     #[test]
     fn person_property_key_is_skipped() {
+        // A scheduled person-property key should never occur, but if one does the sweep drops it on the
+        // `StateVariant::PersonProperty` arm. The stored value decodes before the variant dispatch, so a
+        // behavioral shape under the person LSK still reaches and exercises that arm.
         let filters = freeze(vec![person_leaf()]);
-        let key = Stage1Key {
-            partition_id: PARTITION,
-            team_id: TEAM,
-            leaf_state_key: LeafStateKey::for_person_property(&PERSON_HASH),
-            person_id: Uuid::from_u128(1),
-        };
-        let values = vec![encoded(Stage1State::PersonProperty {
-            matches: true,
-            last_updated_at_ms: 1,
-            last_updated_offset: 2,
+        let key = BehavioralKey::new(
+            PARTITION,
+            TEAM,
+            Uuid::from_u128(1),
+            LeafStateKey::for_person_property(&PERSON_HASH),
+        );
+        let values = vec![encoded(Stage1State::BehavioralSingle {
+            has_match: true,
+            last_event_at_ms: 1,
+            earliest_eviction_at_ms: 2,
         })];
         let out = sweep_evict(&filters, &[key], values, i64::MAX);
         assert!(
@@ -782,12 +789,12 @@ mod tests {
     fn unknown_leaf_and_missing_state_are_skipped() {
         let filters = freeze(vec![single_leaf(7)]);
 
-        let drifted = Stage1Key {
-            partition_id: PARTITION,
-            team_id: TEAM,
-            leaf_state_key: LeafStateKey([0xFF; 16]),
-            person_id: Uuid::from_u128(1),
-        };
+        let drifted = BehavioralKey::new(
+            PARTITION,
+            TEAM,
+            Uuid::from_u128(1),
+            LeafStateKey([0xFF; 16]),
+        );
         let missing = key_for(&filters, 999);
         // The drifted key has state; the missing key reads back as `None`.
         let values = vec![
@@ -814,7 +821,7 @@ mod tests {
     #[test]
     fn evicts_multiple_keys_in_one_pass() {
         let filters = freeze(vec![single_leaf(7)]);
-        let keys: Vec<Stage1Key> = (1..=3).map(|p| key_for(&filters, p)).collect();
+        let keys: Vec<BehavioralKey> = (1..=3).map(|p| key_for(&filters, p)).collect();
         let values: Vec<Option<Vec<u8>>> = keys
             .iter()
             .map(|_| {

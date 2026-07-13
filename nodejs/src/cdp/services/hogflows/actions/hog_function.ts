@@ -9,6 +9,7 @@ import {
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
+import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
@@ -23,6 +24,7 @@ export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
+        private emailValidationService: EmailValidationService,
         private hogFlowActionBillingType: 'fetch' | 'email'
     ) {}
 
@@ -124,6 +126,32 @@ export class HogFunctionHandler implements ActionHandler {
                     },
                 ],
                 metrics: [],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                emailAssets: [],
+            }
+        }
+
+        // Predicted hard bounce (bad syntax / dead domain): skip before the send reaches
+        // SES so it never counts against our bounce rate. Runs after the opt-out check so
+        // an opted-out recipient never triggers a DNS lookup.
+        const emailSkipReason = await this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
+        if (emailSkipReason) {
+            return {
+                finished: true,
+                skipped: true,
+                invocation: hogFunctionInvocation,
+                logs: [{ level: 'info', timestamp: DateTime.now(), message: emailSkipReason }],
+                metrics: [
+                    {
+                        team_id: hogFunctionInvocation.teamId,
+                        app_source_id: hogFunctionInvocation.functionId,
+                        instance_id: action.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_bounce_prevented',
+                        count: 1,
+                    },
+                ],
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
                 emailAssets: [],

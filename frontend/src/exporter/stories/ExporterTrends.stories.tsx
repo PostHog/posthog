@@ -12,9 +12,7 @@ import __trendsLineBreakdown from '../../mocks/fixtures/api/projects/team_id/ins
 import __trendsLineMulti from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
 import __trendsNumber from '../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
 import __trendsPie from '../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
-import __trendsPieBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
 import __trendsTable from '../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
-import __trendsTableBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'
 import __trendsValue from '../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import __trendsValueBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'
 import __trendsWorldMap from '../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
@@ -148,12 +146,6 @@ export const TrendsTableInsight: Story = {
     args: { insight: __trendsTable as any },
 }
 
-export const TrendsTableBreakdownInsight: Story = {
-    args: {
-        insight: __trendsTableBreakdown as any,
-    },
-}
-
 export const TrendsPieInsight: Story = {
     args: { insight: __trendsPie as any },
 }
@@ -169,12 +161,6 @@ export const TrendsPieInsightDetailed: Story = {
     args: {
         insight: __trendsPie as any,
         detailed: true,
-    },
-}
-
-export const TrendsPieBreakdownInsight: Story = {
-    args: {
-        insight: __trendsPieBreakdown as any,
     },
 }
 

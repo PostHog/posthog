@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 import requests
+from google.auth.exceptions import RefreshError
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -145,6 +146,17 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     "Google Analytics admin settings.",
                 )
             return False, f"Failed to read Google Analytics property metadata: {e}"
+        except RefreshError:
+            # Raised while AuthorizedSession refreshes the OAuth access token (e.g. invalid_scope or
+            # invalid_grant): the stored token is missing the required permissions, or has expired or
+            # been revoked. Retrying can't recover it — the raw RefreshError repr is meaningless to
+            # users, so guide them to reconnect.
+            return (
+                False,
+                "PostHog could not authenticate with Google Analytics. Your connection may have "
+                "expired or is missing the required permissions. Please reconnect your Google "
+                "account and grant access to Google Analytics.",
+            )
         except Exception as e:
             return False, f"Failed to read Google Analytics property metadata: {e}"
 

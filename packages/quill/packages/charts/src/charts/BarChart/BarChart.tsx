@@ -26,6 +26,7 @@ import type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DateRangeZoomData,
     DrawHoverResult,
     PointClickData,
     ResolvedSeries,
@@ -47,6 +48,9 @@ export interface BarChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Enables x-axis drag-to-zoom. Vertical bars only — horizontal bars interact along y,
+     *  where the gesture is disabled by the core. See `ChartProps.onDateRangeZoom`. */
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
     dataAttr?: string
@@ -69,6 +73,7 @@ function BarChartInner<Meta = unknown>({
     theme,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     className,
     dataAttr,
     children,
@@ -80,12 +85,12 @@ function BarChartInner<Meta = unknown>({
         barLayout = 'stacked',
         axisOrientation = 'vertical',
         xTickFormatter,
+        barCornerRadius = 0,
         yAxes: configYAxes,
     } = config ?? {}
     const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
     const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
     const {
-        cornerRadius: barCornerRadius = 0,
         track: trackConfig = false,
         shadow: barShadow,
         divergingStack = false,
@@ -431,6 +436,7 @@ function BarChartInner<Meta = unknown>({
                 />
             )}
             onPointClick={onPointClick}
+            onDateRangeZoom={onDateRangeZoom}
             wrapClickData={onPointClick ? wrapClickData : undefined}
             resolveHoverIndex={seriesHasTrackCeiling ? resolveHoverIndex : undefined}
             className={className}

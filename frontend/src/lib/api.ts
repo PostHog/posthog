@@ -164,7 +164,6 @@ import {
     LLMPrompt,
     LLMPromptPublic,
     LLMPromptResolveResponse,
-    LineageGraph,
     LinearTeamType,
     LinkType,
     LinkedInAdsAccountType,
@@ -175,8 +174,8 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     ObjectMediaPreview,
+    OrganizationFeatureFlag,
     OrganizationFeatureFlagKeysResponse,
-    OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
@@ -229,6 +228,7 @@ import {
     WebhookInfo,
 } from '~/types'
 
+import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from 'products/alerts/frontend/types'
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import type {
     ErrorTrackingRule,
@@ -270,7 +270,6 @@ import type {
 
 import { AgentMode } from '../queries/schema'
 import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -751,19 +750,6 @@ export class ApiRequest {
 
     public logsExport(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('export')
-    }
-
-    // # Metrics
-    public metrics(projectId?: ProjectType['id']): ApiRequest {
-        return this.environmentsDetail(projectId).addPathComponent('metrics')
-    }
-
-    public metricsHasMetrics(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('has_metrics')
-    }
-
-    public metricsValues(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('values')
     }
 
     // # Tracing
@@ -1848,15 +1834,6 @@ export class ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
     }
 
-    public upstream(modelId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId)
-            .addPathComponent('lineage')
-            .addPathComponent('get_upstream')
-            .withQueryString({
-                model_id: modelId,
-            })
-    }
-
     // ActivityLog
     public activityLog(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('activity_log')
@@ -2612,7 +2589,7 @@ const api = {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             featureFlagKey: FeatureFlagType['key']
-        ): Promise<OrganizationFeatureFlags> {
+        ): Promise<OrganizationFeatureFlag[]> {
             return await new ApiRequest().organizationFeatureFlags(orgId, featureFlagKey).get()
         },
         async copy(
@@ -2648,7 +2625,7 @@ const api = {
         async migrate(id: ActionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().actionsDetail(id).withAction('migrate').create()
         },
-        async list(params?: string): Promise<PaginatedResponse<ActionType>> {
+        async list(params?: string): Promise<CountedPaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
         async listMatchingPluginConfigs(
@@ -2860,6 +2837,9 @@ const api = {
             hasMore: boolean
             nextCursor?: string
             maxExportableLogs: number
+            // Aliases for the requested customColumns, in request order; rows carry
+            // their custom values under these keys. Null without custom columns.
+            columns?: string[] | null
         }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
@@ -2905,29 +2885,6 @@ const api = {
             filename: string
         }> {
             return new ApiRequest().logsExport().create({ data: { query, columns } })
-        },
-    },
-
-    metrics: {
-        async hasMetrics(): Promise<boolean> {
-            return new ApiRequest()
-                .metricsHasMetrics()
-                .get()
-                .then((response) => Boolean(response.hasMetrics))
-        },
-        async values({
-            search,
-            limit,
-            signal,
-        }: {
-            search?: string
-            limit?: number
-            signal?: AbortSignal
-        } = {}): Promise<{ results: { name: string; metric_type: string }[] }> {
-            return new ApiRequest()
-                .metricsValues()
-                .withQueryString({ value: search ?? '', limit: limit ?? 100 })
-                .get({ signal })
         },
     },
 
@@ -4114,6 +4071,12 @@ const api = {
         async delete(id: string): Promise<void> {
             await new ApiRequest().mcpServerInstallation(id).delete()
         },
+        async share(id: string): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('share').create({ data: {} })
+        },
+        async unshare(id: string): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('unshare').create({ data: {} })
+        },
         async installCustom(data: {
             name: string
             url: string
@@ -4122,10 +4085,15 @@ const api = {
             description?: string
             client_id?: string
             client_secret?: string
+            scope?: 'personal' | 'shared'
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
         },
-        async installTemplate(data: { template_id: string; api_key?: string }): Promise<Record<string, any>> {
+        async installTemplate(data: {
+            template_id: string
+            api_key?: string
+            scope?: 'personal' | 'shared'
+        }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_template').create({ data })
         },
         async listTools(
@@ -4923,6 +4891,44 @@ const api = {
         },
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
+        },
+        async sqlV2Run(
+            notebookId: NotebookType['short_id'],
+            data: { node_id: string; code: string; refs?: Record<string, string> }
+        ): Promise<{ run_id: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
+        },
+        async sqlV2RunResult(
+            notebookId: NotebookType['short_id'],
+            runId: string
+        ): Promise<{
+            status: 'running' | 'done' | 'failed'
+            result: {
+                columns?: string[]
+                types?: [string, string][]
+                row_count?: number
+                first_page?: (string | number | null)[][]
+                has_more?: boolean
+            } | null
+            error: string | null
+        }> {
+            return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}`).get()
+        },
+        async sqlV2RunPage(
+            notebookId: NotebookType['short_id'],
+            runId: string,
+            params: { offset: number; limit: number }
+        ): Promise<{
+            columns: string[]
+            types: [string, string][]
+            rows: (string | number | null)[][]
+            has_more: boolean
+        }> {
+            return await new ApiRequest()
+                .notebook(notebookId)
+                .withAction(`sql_v2/runs/${runId}/page`)
+                .withQueryString(params)
+                .get()
         },
         async markdownSave(
             notebookId: NotebookType['short_id'],
@@ -5798,10 +5804,21 @@ const api = {
         }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
-        async lineage(
-            nodeId: DataModelingNode['id']
-        ): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
-            return await new ApiRequest().dataModelingNode(nodeId).withAction('lineage').get()
+        async lineage({
+            nodeId,
+            savedQueryId,
+        }: {
+            nodeId?: DataModelingNode['id']
+            savedQueryId?: string
+        }): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
+            const params: Record<string, string> = {}
+            if (nodeId) {
+                params.node_id = nodeId
+            }
+            if (savedQueryId) {
+                params.saved_query_id = savedQueryId
+            }
+            return await new ApiRequest().dataModelingNodes().withAction('lineage').withQueryString(params).get()
         },
     },
 
@@ -6111,11 +6128,6 @@ const api = {
             return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
         },
     },
-    upstream: {
-        async get(modelId: string): Promise<LineageGraph> {
-            return await new ApiRequest().upstream(modelId).get()
-        },
-    },
     insightVariables: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
             return await new ApiRequest().insightVariables().get(options)
@@ -6145,17 +6157,20 @@ const api = {
             return await new ApiRequest().subscription(subscriptionId).update({ data })
         },
         async list({
-            insightId,
+            insights,
             dashboardId,
+            dashboardTiles,
             resourceType,
         }: {
-            insightId?: number
+            insights?: number[]
             dashboardId?: number
+            dashboardTiles?: number
             resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
             const params = [
-                insightId ? `insight=${insightId}` : null,
+                insights?.length ? `insights=${insights.join(',')}` : null,
                 dashboardId ? `dashboard=${dashboardId}` : null,
+                dashboardTiles ? `dashboard_tiles=${dashboardTiles}` : null,
                 resourceType ? `resource_type=${resourceType}` : null,
             ].filter(Boolean)
             return await new ApiRequest().subscriptions().withQueryString(params.join('&')).get()
@@ -6626,9 +6641,13 @@ const api = {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
         async getBatchTriggerBlastRadius(
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
+            dedupeKey?: 'email'
         ): Promise<BlastRadiusApi> {
-            return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
+            return await new ApiRequest()
+                .hogFlows()
+                .withAction('user_blast_radius')
+                .create({ data: { filters, dedupe_key: dedupeKey ?? null } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
@@ -7065,6 +7084,13 @@ const api = {
                 .withAction('bulk_update_status')
                 .create({ data: { ids, status: ticketStatus } })
         },
+
+        async submitAiFeedback(
+            ticketId: string,
+            data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
+        ): Promise<void> {
+            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
+        },
     },
 
     llmPrompts: {
@@ -7096,7 +7122,7 @@ const api = {
 
         async update(
             promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number }
+            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
         ): Promise<LLMPrompt> {
             return await new ApiRequest().llmPromptByName(promptName).update({ data })
         },
