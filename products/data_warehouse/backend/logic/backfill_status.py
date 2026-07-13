@@ -24,6 +24,10 @@ _FULL_KEY = re.compile(r"^\d+$")
 _MONTH_KEY = re.compile(r"^\d+_(?P<year>\d{4})-(?P<month>\d{2})$")
 _DAY_KEY = re.compile(r"^\d+_(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})$")
 
+# How long a row may sit in RUNNING before the repair sweep asks the scheduler whether its run
+# is actually still alive. Only a cost gate — a run that legitimately outlives it is left alone.
+STALE_RUNNING_AGE = timedelta(hours=1)
+
 
 class BackfillOutcome(StrEnum):
     """How a backfill run ended, in terms the product understands.
@@ -127,20 +131,36 @@ def record_backfill_started(*, team_id: int, dataset: str, partition_key: str, r
 
 
 def record_backfill_finished(
-    *, team_id: int, dataset: str, partition_key: str, run_id: str, error: Exception | None = None
+    *,
+    team_id: int,
+    dataset: str,
+    partition_key: str,
+    run_id: str,
+    error: Exception | None = None,
+    failure_reason: str | None = None,
 ) -> None:
-    """Record that a partition finished, successfully or not."""
+    """Record that a partition finished, successfully or not.
+
+    Pass `error` when the recording process caught the failure itself; pass `failure_reason`
+    when the failure is known only second-hand (a repaired crash, a lost run).
+    """
     _finish(
         team_id=team_id,
         dataset=dataset,
         partition_key=partition_key,
         run_id=run_id,
-        failure_reason=type(error).__name__[:128] if error is not None else None,
+        failure_reason=type(error).__name__[:128] if error is not None else failure_reason,
     )
 
 
 def record_backfill_outcome(
-    *, team_id: int, dataset: str, partition_key: str, run_id: str, outcome: BackfillOutcome
+    *,
+    team_id: int,
+    dataset: str,
+    partition_key: str,
+    run_id: str,
+    outcome: BackfillOutcome,
+    failure_reason: str = "RunDidNotComplete",
 ) -> None:
     """Project a run this process never saw onto the partition row.
 
@@ -156,8 +176,29 @@ def record_backfill_outcome(
             dataset=dataset,
             partition_key=partition_key,
             run_id=run_id,
-            failure_reason="RunDidNotComplete",
+            failure_reason=failure_reason,
         )
+
+
+def stale_running_partitions(*, dataset: str, limit: int) -> list[ManagedWarehouseBackfillPartition]:
+    """Rows stuck in RUNNING long enough that the recording process may have died mid-run.
+
+    A process killed between record_backfill_started and record_backfill_finished (OOM, pod
+    eviction) never writes its terminal state, so without repair the row reports "backfilling"
+    forever. The scheduler resolves these against its own run records; the age gate only avoids
+    churning on rows whose run is plausibly still in flight.
+    """
+    cutoff = timezone.now() - STALE_RUNNING_AGE
+    try:
+        return list(
+            # unscoped: repair sweeps all teams from a scheduler context, not one tenant.
+            ManagedWarehouseBackfillPartition.objects.unscoped()
+            .filter(dataset=dataset, lifecycle_state=LifecycleState.RUNNING, updated_at__lt=cutoff)
+            .order_by("updated_at")[:limit]
+        )
+    except DatabaseError:
+        logger.exception("managed_warehouse_backfill_stale_running_query_failed", dataset=dataset)
+        return []
 
 
 def _finish(*, team_id: int, dataset: str, partition_key: str, run_id: str, failure_reason: str | None) -> None:

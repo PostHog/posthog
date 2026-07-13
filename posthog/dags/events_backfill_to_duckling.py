@@ -51,6 +51,7 @@ from clickhouse_driver.errors import Error as ClickHouseError
 from dagster import (
     AssetExecutionContext,
     Config,
+    DagsterRun,
     DagsterRunStatus,
     DefaultSensorStatus,
     DynamicPartitionsDefinition,
@@ -74,14 +75,15 @@ from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import DUCKGRES_BUCKET_REGION, _get_org_id_for_team, get_duckgres_server_for_organization
 from posthog.ducklake.models import DuckgresServerTeam
 
-from products.data_warehouse.backend.logic.backfill_status import (
+from products.data_warehouse.backend.facade.backfill_status import (
     BackfillOutcome,
     historical_backfill_months,
     record_backfill_finished,
     record_backfill_outcome,
     record_backfill_started,
+    stale_running_partitions,
 )
-from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
+from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
 
 logger = structlog.get_logger(__name__)
 
@@ -711,6 +713,46 @@ def _outcome_from_run_status(run_status: DagsterRunStatus) -> BackfillOutcome:
     if run_status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
         return BackfillOutcome.FAILED
     return BackfillOutcome.RUNNING
+
+
+def _stale_run_outcome(run: DagsterRun | None) -> BackfillOutcome | None:
+    """How to resolve a row stuck in RUNNING, given its scheduler run — None means leave it alone.
+
+    Only a run's own process may declare it finished while it is still in flight, so a live (or
+    queued) run is never touched. A vanished run resolves to FAILED: there is no proof the data
+    landed, and re-running a partition is safe while trusting a ghost run is not.
+    """
+    if run is None:
+        return BackfillOutcome.FAILED
+    outcome = _outcome_from_run_status(run.status)
+    return None if outcome is BackfillOutcome.RUNNING else outcome
+
+
+# Bounds the run-storage lookups a single sensor tick spends resolving crashed runs.
+STALE_RUNNING_REPAIR_LIMIT = 25
+
+
+def _repair_stale_running_statuses(context: SensorEvaluationContext, dataset: str) -> None:
+    """Resolve status rows whose recording process died before writing a terminal state.
+
+    record_backfill_started/finished bracket the run in-process, so an OOM or pod eviction in
+    between leaves the row RUNNING forever — and the UI reporting "backfilling" indefinitely.
+    Each tick asks Dagster what actually happened to the oldest sufficiently stale RUNNING rows.
+    """
+    for row in stale_running_partitions(dataset=dataset, limit=STALE_RUNNING_REPAIR_LIMIT):
+        run = context.instance.get_run_by_id(row.run_id)
+        outcome = _stale_run_outcome(run)
+        if outcome is None:
+            continue
+        record_backfill_finished(
+            team_id=row.team_id,
+            dataset=dataset,
+            partition_key=row.partition_key,
+            run_id=row.run_id,
+            failure_reason=(
+                None if outcome is BackfillOutcome.SUCCEEDED else "RunLost" if run is None else "RunDidNotComplete"
+            ),
+        )
 
 
 # SQL for creating the events table in DuckLake if it doesn't exist
@@ -2986,12 +3028,14 @@ def _reconcile_events_backfill_statuses(context: SensorEvaluationContext, partit
     if not partition_keys:
         return
 
-    environment_ids = {int(partition_key.split("_", 1)[0]) for partition_key in partition_keys}
+    team_ids = {int(partition_key.split("_", 1)[0]) for partition_key in partition_keys}
     try:
         projected = set(
             ManagedWarehouseBackfillPartition.objects.unscoped()
+            # team_id == environment_id for these rows; filtering on team_id hits the unique
+            # constraint's index, which leads with team.
             .filter(
-                environment_id__in=environment_ids,
+                team_id__in=team_ids,
                 dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
             )
             .values_list("partition_key", flat=True)
@@ -3010,6 +3054,17 @@ def _reconcile_events_backfill_statuses(context: SensorEvaluationContext, partit
             limit=1,
         )
         if not runs:
+            # A registered partition with no findable run offers no evidence its data ever
+            # landed (dropped run request, wiped run storage). Project it failed — re-running a
+            # partition is safe — rather than leaving it to occupy this budget on every tick.
+            record_backfill_outcome(
+                team_id=int(partition_key.split("_", 1)[0]),
+                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+                partition_key=partition_key,
+                run_id="unknown",
+                outcome=BackfillOutcome.FAILED,
+                failure_reason="RunNotFound",
+            )
             continue
         latest_run = runs[0]
         record_backfill_outcome(
@@ -3104,6 +3159,7 @@ def duckling_events_full_backfill_sensor(
             per_team_remaining.append(remaining)
 
     _reconcile_events_backfill_statuses(context, existing_historical_partitions)
+    _repair_stale_running_statuses(context, ManagedWarehouseBackfillPartition.Dataset.EVENTS)
 
     # 3. Round-robin interleave by month index: round r takes each team's r-th remaining
     #    month, so the queue order is team0-m0, team1-m0, ..., team0-m1, ... — fair under FIFO.
@@ -3298,8 +3354,10 @@ def duckling_persons_full_backfill_sensor(
     try:
         projected_persons_partitions = set(
             ManagedWarehouseBackfillPartition.objects.unscoped()
+            # team_id == environment_id for these rows; filtering on team_id hits the unique
+            # constraint's index, which leads with team.
             .filter(
-                environment_id__in=[backfill.team_id for backfill in backfills],
+                team_id__in=[backfill.team_id for backfill in backfills],
                 dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
             )
             .values_list("partition_key", flat=True)
@@ -3307,6 +3365,8 @@ def duckling_persons_full_backfill_sensor(
     except DatabaseError:
         logger.exception("managed_warehouse_backfill_status_reconciliation_failed")
         projected_persons_partitions = existing_partitions
+
+    _repair_stale_running_statuses(context, ManagedWarehouseBackfillPartition.Dataset.PERSONS)
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
@@ -3367,6 +3427,17 @@ def duckling_persons_full_backfill_sensor(
                     DagsterRunStatus.QUEUED,
                 ):
                     context.log.debug(f"Skipping team_id={team_id} - run in progress")
+            elif partition_key not in projected_persons_partitions:
+                # Registered partition with no findable run: no evidence the data ever landed,
+                # so project it failed rather than re-checking it every tick forever.
+                record_backfill_outcome(
+                    team_id=team_id,
+                    dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                    partition_key=partition_key,
+                    run_id="unknown",
+                    outcome=BackfillOutcome.FAILED,
+                    failure_reason="RunNotFound",
+                )
 
     if new_partitions:
         context.log.info(f"Creating {len(new_partitions)} full persons backfill partitions")
