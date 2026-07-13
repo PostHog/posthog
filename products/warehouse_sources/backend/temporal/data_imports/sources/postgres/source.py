@@ -130,11 +130,13 @@ PostgresErrors = {
     # customer's unresolvable host as captured error noise.
     "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
     "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
-    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     # A public host PostHog resolved but can't route to (IPv6-only host, or a firewall dropping our
-    # IPs). `get_non_retryable_errors` already treats both as non-retryable on the streaming path.
+    # IPs). Placed before the "Is the server running..." entry — some libpq versions append that hint
+    # to routing failures too, and the IPv4/pooler guidance here is more actionable. `get_non_retryable_errors`
+    # already treats both as non-retryable on the streaming path.
     "Network is unreachable": _HOST_UNREACHABLE_ERROR,
     "No route to host": _HOST_UNREACHABLE_ERROR,
+    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",

@@ -2777,8 +2777,11 @@ class TestValidateCredentialsErrorMapping:
                 "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
                 "firewall allowlist, then try again.",
             ),
+            # libpq can append the "Is the server running..." hint to a routing failure; the more
+            # specific unreachable-host message must still win over that generic entry.
             (
-                'connection failed: connection to server at "203.0.113.7", port 5432 failed: No route to host',
+                'connection to server at "203.0.113.7", port 5432 failed: No route to host\n\t'
+                "Is the server running on that host and accepting TCP/IP connections?",
                 "PostHog reached the network but couldn't open a connection to the database host. This usually "
                 "means the host only accepts IPv6 connections (PostHog connects over IPv4), or a firewall is "
                 "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
