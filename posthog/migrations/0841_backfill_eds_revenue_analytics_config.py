@@ -2,6 +2,8 @@ from django.db import migrations
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 
@@ -9,7 +11,7 @@ def backfill_revenue_analytics_config(apps, schema_editor):
     ExternalDataSource = apps.get_model("posthog", "ExternalDataSource")
     ExternalDataSourceRevenueAnalyticsConfig = apps.get_model("posthog", "ExternalDataSourceRevenueAnalyticsConfig")
 
-    for source in ExternalDataSource.objects.iterator(chunk_size=100):
+    for source in chunked_queryset_iterator(ExternalDataSource.objects.all(), chunk_size=100):
         try:
             # Create or update the config
             ExternalDataSourceRevenueAnalyticsConfig.objects.update_or_create(

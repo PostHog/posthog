@@ -2,6 +2,8 @@
 
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 # Bulk update every CHUNK_SIZE items
 CHUNK_SIZE = 500
 
@@ -14,7 +16,7 @@ def migrate_recording_annotations(apps, schema_editor):
 
     comment_chunk = []
     annotation_chunk = []
-    for annotation in recording_annotations.iterator(chunk_size=CHUNK_SIZE):
+    for annotation in chunked_queryset_iterator(recording_annotations, chunk_size=CHUNK_SIZE):
         # technically date_marker can be null, but a recording comment without one is invalid
         if annotation.date_marker:
             comment_chunk.append(

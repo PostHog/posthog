@@ -4,6 +4,8 @@ from django.db import migrations
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 
@@ -13,7 +15,9 @@ def migrate_recording_comments_to_replay_scope(apps, schema_editor):
     comments_to_migrate = []
     batch_size = 500
 
-    for comment in Comment.objects.filter(scope="recording").only("id", "scope").iterator(chunk_size=batch_size // 5):
+    for comment in chunked_queryset_iterator(
+        Comment.objects.filter(scope="recording").only("id", "scope"), chunk_size=batch_size // 5
+    ):
         try:
             comment.scope = "Replay"
             comments_to_migrate.append(comment)

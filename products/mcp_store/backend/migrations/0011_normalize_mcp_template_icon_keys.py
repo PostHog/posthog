@@ -1,9 +1,11 @@
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def normalize_icon_keys(apps, schema_editor):
     MCPServerTemplate = apps.get_model("mcp_store", "MCPServerTemplate")
-    for template in MCPServerTemplate.objects.iterator():
+    for template in chunked_queryset_iterator(MCPServerTemplate.objects.all()):
         normalized = "_".join((template.icon_key or "").lower().split())
         if normalized != template.icon_key:
             template.icon_key = normalized

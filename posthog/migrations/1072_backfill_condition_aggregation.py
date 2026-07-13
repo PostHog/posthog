@@ -1,5 +1,7 @@
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def backfill_condition_aggregation(apps, schema_editor):
     """
@@ -12,7 +14,7 @@ def backfill_condition_aggregation(apps, schema_editor):
     batch_size = 500
     updated = []
 
-    for flag in FeatureFlag.objects.exclude(filters=None).iterator(chunk_size=batch_size):
+    for flag in chunked_queryset_iterator(FeatureFlag.objects.exclude(filters=None), chunk_size=batch_size):
         filters = flag.filters
 
         if not isinstance(filters, dict):

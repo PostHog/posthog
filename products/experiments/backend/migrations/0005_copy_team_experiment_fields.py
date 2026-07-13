@@ -1,5 +1,7 @@
 from django.db import migrations, models
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def copy_experiment_fields(apps, schema_editor):
     Team = apps.get_model("posthog", "Team")
@@ -15,12 +17,15 @@ def copy_experiment_fields(apps, schema_editor):
     )
 
     configs = []
-    for team in teams_with_config.only(
-        "id",
-        "experiment_recalculation_time",
-        "default_experiment_confidence_level",
-        "default_experiment_stats_method",
-    ).iterator(chunk_size=1000):
+    for team in chunked_queryset_iterator(
+        teams_with_config.only(
+            "id",
+            "experiment_recalculation_time",
+            "default_experiment_confidence_level",
+            "default_experiment_stats_method",
+        ),
+        chunk_size=1000,
+    ):
         configs.append(
             TeamExperimentsConfig(
                 team_id=team.id,

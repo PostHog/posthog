@@ -648,14 +648,27 @@ class Migration(migrations.Migration):
     ]
 ```
 
-**Pattern 3: Using iterator for memory efficiency**
+**Pattern 3: Chunked iteration for memory efficiency**
+
+Do **not** use `QuerySet.iterator()` in a migration. It streams rows through a named
+server-side cursor (psycopg `DECLARE ... CURSOR`), which breaks behind a
+transaction-pooling connection (PgBouncer, or a Postgres-wire proxy without the
+`pg_cursors` view): the `DECLARE` and the later `FETCH`/`CLOSE` can land on different
+backend sessions, so the migration crashes with `Table not found: pg_cursors` /
+`Portal "_django_curs_..." not found` regardless of the `DISABLE_SERVER_SIDE_CURSORS`
+(`USING_PGBOUNCER`) setting. Use `chunked_queryset_iterator` from
+`posthog.migration_helpers` instead — it keyset-paginates by primary key, so each chunk
+is an independent client-side query that is safe on any connection.
 
 ```python
+from posthog.migration_helpers import chunked_queryset_iterator
+
+
 def process_large_dataset(apps, schema_editor):
     MyModel = apps.get_model('myapp', 'MyModel')
 
-    # Use iterator to avoid loading all rows into memory
-    for obj in MyModel.objects.all().iterator(chunk_size=1000):
+    # Keyset-paginate by pk to avoid loading all rows into memory (and any server-side cursor)
+    for obj in chunked_queryset_iterator(MyModel.objects.all(), chunk_size=1000):
         obj.new_field = calculate_value(obj)
         obj.save(update_fields=['new_field'])
 
@@ -665,16 +678,23 @@ class Migration(migrations.Migration):
     ]
 ```
 
+For a `.values()` / `.values_list()` read, collect the bounded result with `list(...)`
+(a single client-side fetch, also cursor-free) rather than the helper, which yields
+model instances.
+
 **Pattern 4: Bulk update for better performance**
 
 ```python
+from posthog.migration_helpers import chunked_queryset_iterator
+
+
 def bulk_update_in_batches(apps, schema_editor):
     MyModel = apps.get_model('myapp', 'MyModel')
     batch_size = 1000
 
     objects_to_update = []
 
-    for obj in MyModel.objects.filter(needs_update=True).iterator(chunk_size=batch_size):
+    for obj in chunked_queryset_iterator(MyModel.objects.filter(needs_update=True), chunk_size=batch_size):
         obj.new_field = calculate_value(obj)
         objects_to_update.append(obj)
 
@@ -701,7 +721,7 @@ class Migration(migrations.Migration):
 - **Monitor progress:** Add logging every N rows
 - **Test on production data:** Verify performance before deploying
 - **Consider background jobs:** For very large updates (millions of rows), use a background job instead of a migration
-- **Use `.iterator()`:** Avoids loading all rows into memory
+- **Use `chunked_queryset_iterator`:** Streams rows without loading them all into memory, and without a server-side cursor — never use `QuerySet.iterator()` in a migration
 - **Use `.bulk_update()`:** Much faster than individual saves
 
 ## Using SeparateDatabaseAndState

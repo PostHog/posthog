@@ -2,6 +2,8 @@ from django.db import migrations
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 
@@ -10,13 +12,12 @@ def backfill_holdout_format(apps, schema_editor):
 
     flags_to_update = []
 
-    for flag in (
+    for flag in chunked_queryset_iterator(
         FeatureFlag.objects.filter(
             deleted=False,
             filters__has_key="holdout_groups",
-        )
-        .exclude(filters__holdout_groups=None)
-        .iterator(chunk_size=100)
+        ).exclude(filters__holdout_groups=None),
+        chunk_size=100,
     ):
         holdout_groups = flag.filters.get("holdout_groups")
         if not holdout_groups or flag.filters.get("holdout"):

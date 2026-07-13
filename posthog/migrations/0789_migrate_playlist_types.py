@@ -1,5 +1,7 @@
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def migrate_playlist_types(apps, schema_editor):
     # Bulk update every CHUNK_SIZE items
@@ -21,7 +23,7 @@ def migrate_playlist_types(apps, schema_editor):
     )
 
     chunk = []
-    for playlist in playlists_with_items.iterator(chunk_size=CHUNK_SIZE):
+    for playlist in chunked_queryset_iterator(playlists_with_items, chunk_size=CHUNK_SIZE):
         playlist.type = "collection"
         chunk.append(playlist)
 
@@ -37,7 +39,7 @@ def migrate_playlist_types(apps, schema_editor):
     remaining_playlists = SessionRecordingPlaylist.objects.filter(type__isnull=True, deleted=False)
 
     chunk = []
-    for playlist in remaining_playlists.iterator(chunk_size=CHUNK_SIZE):
+    for playlist in chunked_queryset_iterator(remaining_playlists, chunk_size=CHUNK_SIZE):
         playlist.type = "filters"
         chunk.append(playlist)
 

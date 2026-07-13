@@ -2,6 +2,8 @@ from django.db import migrations
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 BATCH_SIZE = 250
@@ -19,7 +21,7 @@ def backfill_feature_enrollment(apps, schema_editor):
         filters__feature_enrollment=True,
     )
 
-    for flag in queryset.iterator(chunk_size=BATCH_SIZE):
+    for flag in chunked_queryset_iterator(queryset, chunk_size=BATCH_SIZE):
         try:
             super_groups = flag.filters.get("super_groups")
             if not isinstance(super_groups, list) or len(super_groups) == 0:

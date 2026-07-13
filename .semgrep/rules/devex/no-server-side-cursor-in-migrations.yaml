@@ -1,0 +1,37 @@
+rules:
+    - id: no-server-side-cursor-in-migrations
+      message: |
+          Don't use `QuerySet.iterator()` in a data migration. It streams rows
+          through a named server-side cursor (psycopg `DECLARE ... CURSOR`), which
+          breaks behind a transaction-pooling connection (PgBouncer, or a
+          Postgres-wire proxy without the `pg_cursors` view): the `DECLARE` and the
+          later `FETCH`/`CLOSE` can land on different backend sessions, so the
+          migration crashes with `Table not found: pg_cursors` /
+          `Portal "_django_curs_..." not found` regardless of the
+          `DISABLE_SERVER_SIDE_CURSORS` (`USING_PGBOUNCER`) setting.
+
+          Use `chunked_queryset_iterator` from `posthog.migration_helpers` instead —
+          it keyset-paginates by primary key, so each chunk is an independent
+          client-side query that is safe on any connection:
+
+              from posthog.migration_helpers import chunked_queryset_iterator
+
+              for obj in chunked_queryset_iterator(MyModel.objects.filter(...), chunk_size=1000):
+                  ...
+
+          For a `.values()` / `.values_list()` read, collect the bounded result with
+          `list(...)` (a single client-side fetch, also cursor-free) rather than the
+          helper, which yields model instances.
+      languages: [python]
+      severity: ERROR
+      paths:
+          include:
+              - 'posthog/migrations/'
+              - 'ee/migrations/'
+              - 'products/*/backend/migrations/'
+      patterns:
+          - pattern: $QS.iterator(...)
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

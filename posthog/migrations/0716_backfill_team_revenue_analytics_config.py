@@ -2,6 +2,8 @@ from django.db import migrations
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 
@@ -10,9 +12,9 @@ def backfill_revenue_analytics_config(apps, schema_editor):
     TeamRevenueAnalyticsConfig = apps.get_model("posthog", "TeamRevenueAnalyticsConfig")
 
     # Get all teams that have revenue_tracking_config
-    teams_with_config = Team.objects.exclude(revenue_tracking_config__isnull=True).iterator()
+    teams_with_config = Team.objects.exclude(revenue_tracking_config__isnull=True)
 
-    for team in teams_with_config:
+    for team in chunked_queryset_iterator(teams_with_config):
         try:
             # Create or update the config
             TeamRevenueAnalyticsConfig.objects.update_or_create(

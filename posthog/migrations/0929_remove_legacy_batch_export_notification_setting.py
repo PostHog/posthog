@@ -2,6 +2,8 @@
 
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def remove_legacy_notification_key(apps, schema_editor):
     """
@@ -38,7 +40,7 @@ def remove_legacy_notification_key(apps, schema_editor):
     User = apps.get_model("posthog", "User")
     users_with_legacy_key = User.objects.filter(partial_notification_settings__has_key="batch_export_run_failure")
 
-    for user in users_with_legacy_key.iterator():
+    for user in chunked_queryset_iterator(users_with_legacy_key):
         del user.partial_notification_settings["batch_export_run_failure"]
         user.save(update_fields=["partial_notification_settings"])
 

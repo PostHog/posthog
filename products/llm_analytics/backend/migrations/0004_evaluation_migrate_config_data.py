@@ -2,6 +2,8 @@
 
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def migrate_prompt_to_configs(apps, schema_editor):
     """Migrate prompt field to evaluation_config/output_config structure"""
@@ -11,7 +13,7 @@ def migrate_prompt_to_configs(apps, schema_editor):
     evaluations = Evaluation.objects.all()
 
     updates = []
-    for evaluation in evaluations.iterator(chunk_size=batch_size):
+    for evaluation in chunked_queryset_iterator(evaluations, chunk_size=batch_size):
         evaluation.evaluation_type = "llm_judge"
         evaluation.output_type = "boolean"
         evaluation.evaluation_config = {"prompt": evaluation.prompt}
@@ -42,7 +44,7 @@ def reverse_migrate_configs_to_prompt(apps, schema_editor):
     evaluations = Evaluation.objects.all()
 
     updates = []
-    for evaluation in evaluations.iterator(chunk_size=batch_size):
+    for evaluation in chunked_queryset_iterator(evaluations, chunk_size=batch_size):
         if evaluation.evaluation_config and "prompt" in evaluation.evaluation_config:
             evaluation.prompt = evaluation.evaluation_config["prompt"]
             updates.append(evaluation)
