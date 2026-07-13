@@ -4,6 +4,11 @@
         "archived": {
             "type": "boolean"
         },
+        "basic": {
+            "default": true,
+            "description": "Return lightweight rows that omit the heavy questions, targeting, appearance, linked-flag, and creator fields. Defaults to true, which is best for browsing and identifying surveys; use survey-get for a single survey's full configuration. Set to false only when you genuinely need the full configuration of every row inline.",
+            "type": "boolean"
+        },
         "ids": {
             "description": "Multiple values may be separated by commas.",
             "items": {
