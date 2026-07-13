@@ -83,6 +83,8 @@ resource "posthog_insight" "pulse_generation_volume" {
 # 2. Opportunity action rate (the primary adoption metric).
 # Acted (and dismissed) opportunities over surfaced opportunities, 7-day
 # rolling windows. Surfaced = sum of new_opportunity_count on generation events.
+# Shares its rolling-window scaffold (and the pulse_rolling_* locals) with
+# pulse_emit_health below — edit both together if the windowing logic changes.
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "pulse_action_rate" {
   name        = "Pulse: Opportunity action rate (7d rolling)"
@@ -554,6 +556,8 @@ resource "posthog_insight" "pulse_investigation_steps" {
 # 6. Signal emit health: emit failures over opportunities emitted.
 # emit_failed_count coalesces to 0 for events captured before the property
 # existed, so early history reads as a 0% failure rate.
+# Shares its rolling-window scaffold (and the pulse_rolling_* locals) with
+# pulse_action_rate above — edit both together if the windowing logic changes.
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "pulse_emit_health" {
   name        = "Pulse: Signal emit failure rate (7d rolling)"

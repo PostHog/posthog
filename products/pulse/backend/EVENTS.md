@@ -26,7 +26,7 @@ Skipped when the brief has no creating user (no distinct id to attribute to).
 | `new_opportunity_count` | int        | Opportunities persisted by this run (post-dedup).                                                                                                                                 |
 | `emit_failed_count`     | int        | Opportunity→signals emits that failed in this run. Carried here (instead of a dedicated event) because the failures are already counted in the emit loop and only matter per run. |
 
-Dashboard panels: Brief generation volume (`status`, `trigger`), Opportunity action rate (`new_opportunity_count`), Signal emit failure rate (`new_opportunity_count`, `emit_failed_count`).
+Dashboard panels: Brief generation volume (`status`, `trigger`), Opportunity action rate (`new_opportunity_count`), Opportunity engagement (`new_opportunity_count`), Signal emit failure rate (`new_opportunity_count`, `emit_failed_count`).
 Future tuning loop — not yet charted: goal adoption (`has_goal`), period mix (`period_days`), `has_config` split.
 
 ## Attention
@@ -59,8 +59,8 @@ Emitted from `api/opportunity.py` on each successful lifecycle transition.
 | `status`         | str        | The status after the transition.                                   |
 | `goal_relevant`  | bool       | Whether the opportunity was marked as advancing the config's goal. |
 
-Dashboard panels: Opportunity action rate (7d) — `opportunity_acted` + `opportunity_dismissed` event counts against generated opportunities; no properties consumed.
-Future tuning loop — not yet charted: by-kind act/dismiss rates (`kind`), goal-relevant split (`goal_relevant`), reopen churn (`opportunity_reopened`).
+Dashboard panels: Opportunity action rate (7d) and Opportunity engagement — `opportunity_acted` + `opportunity_dismissed` event counts against generated opportunities; Opportunity actions by kind (`kind`).
+Future tuning loop — not yet charted: goal-relevant split (`goal_relevant`), reopen churn (`opportunity_reopened`).
 
 ## Helpfulness feedback
 
