@@ -200,6 +200,20 @@ class TestGetRowsTopLevel:
         assert rows[0][0]["id"] == "k-1"
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_checks_redacts_ping_url_credential(self, mock_session):
+        # ping_url is a bearer credential (anyone holding it can POST forged pings), so it must not
+        # land in the warehouse. The uuid/id are retained — they're the stable key and how a row
+        # maps back to the check in Healthchecks.
+        mock_session.return_value = _routing_session(
+            {"/checks/": _response({"checks": [{"uuid": "u-1", "ping_url": "https://hc-ping.com/u-1", "name": "job"}]})}
+        )
+        batches = list(get_rows(None, "key", "checks", mock.MagicMock(), _make_manager()))
+        row = batches[0][0]
+        assert "ping_url" not in row
+        assert row["id"] == "u-1"
+        assert row["uuid"] == "u-1"
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_channels(self, mock_session):
         mock_session.return_value = _routing_session(
             {"/channels/": _response({"channels": [{"id": "c-1", "kind": "email"}]})}

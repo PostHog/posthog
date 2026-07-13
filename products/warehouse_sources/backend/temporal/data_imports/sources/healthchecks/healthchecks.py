@@ -175,6 +175,35 @@ def _normalize_check(check: dict[str, Any]) -> dict[str, Any]:
     return {"id": _check_key(check), **check}
 
 
+def _redact_key(row: dict[str, Any], dotted_key: str) -> dict[str, Any]:
+    """Return `row` with a possibly-nested field removed. `"ping_url"` drops a top-level field;
+    a dotted key walks into nested dicts. Only the nodes on the path are copied, so the upstream
+    item is left unmodified; a missing or non-dict node is a no-op."""
+    head, _, rest = dotted_key.partition(".")
+    if head not in row:
+        return row
+    if not rest:
+        return {key: value for key, value in row.items() if key != head}
+    nested = row[head]
+    if not isinstance(nested, dict):
+        return row
+    return {**row, head: _redact_key(nested, rest)}
+
+
+def _redact_rows(rows: list[dict[str, Any]], redact_keys: list[str]) -> list[dict[str, Any]]:
+    """Drop each configured (possibly-nested) credential field from every row before it's persisted,
+    so a bearer capability URL in the API response never lands in a queryable warehouse table."""
+    if not redact_keys:
+        return rows
+    redacted: list[dict[str, Any]] = []
+    for row in rows:
+        if isinstance(row, dict):
+            for key in redact_keys:
+                row = _redact_key(row, key)
+        redacted.append(row)
+    return redacted
+
+
 def _fan_out_url(
     config: HealthchecksEndpointConfig, base_url: str | None, check_key: str, params: dict[str, Any]
 ) -> str:
@@ -241,7 +270,10 @@ def _get_fan_out_rows(
         else:
             items = body.get(config.data_key, []) if isinstance(body, dict) else []
 
-        rows = [{"check_id": check_key, **item} for item in items if isinstance(item, dict)]
+        rows = _redact_rows(
+            [{"check_id": check_key, **item} for item in items if isinstance(item, dict)],
+            config.redact_keys,
+        )
         if rows:
             yield rows
 
@@ -291,6 +323,7 @@ def get_rows(
     rows = [item for item in items if isinstance(item, dict)]
     if endpoint == "checks":
         rows = [_normalize_check(row) for row in rows]
+    rows = _redact_rows(rows, config.redact_keys)
     if rows:
         yield rows
 

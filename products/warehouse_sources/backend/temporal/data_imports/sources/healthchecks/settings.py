@@ -21,6 +21,9 @@ class HealthchecksEndpointConfig:
     # Iterate every check and query this endpoint per check, injecting `check_id`.
     fan_out_over_checks: bool = False
     should_sync_default: bool = True
+    # Response fields (possibly dotted for nested keys) dropped from every row before it lands
+    # in the warehouse — for bearer capability URLs a table reader could weaponize.
+    redact_keys: list[str] = field(default_factory=list)
 
 
 HEALTHCHECKS_ENDPOINTS: dict[str, HealthchecksEndpointConfig] = {
@@ -33,6 +36,10 @@ HEALTHCHECKS_ENDPOINTS: dict[str, HealthchecksEndpointConfig] = {
         path="/checks/",
         data_key="checks",
         primary_keys=["id"],
+        # `ping_url` is a bearer credential — anyone holding `https://hc-ping.com/<uuid>` can
+        # POST forged success/fail pings without the API key. Keep it out of the warehouse; the
+        # `uuid`/`id` stay (they're the stable key and how rows correlate to the Healthchecks UI).
+        redact_keys=["ping_url"],
     ),
     # Notification integrations (email, sms, webhook, ...). Small, unpaginated, no timestamps.
     "channels": HealthchecksEndpointConfig(

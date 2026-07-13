@@ -26,7 +26,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "timeout": "Expected period between pings, in seconds (for simple checks).",
             "schedule": "Cron expression describing the check's schedule (for cron checks).",
             "tz": "Timezone the cron schedule is evaluated in.",
-            "ping_url": "URL to ping to signal a successful run. Omitted when using a read-only API key.",
             "update_url": "API URL to update the check. Omitted when using a read-only API key.",
             "channels": "Comma-separated list of integration IDs assigned to the check.",
         },
