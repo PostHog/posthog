@@ -22,7 +22,7 @@ from products.stamphog.backend.facade.enums import DigestRunStatus
 from products.stamphog.backend.logic.channel_resolution import auto_provision_channel
 from products.stamphog.backend.logic.digest import summarize_merged_prs
 from products.stamphog.backend.logic.slack_digest import post_digest
-from products.stamphog.backend.models import DigestChannel, DigestRun, MergedPullRequest
+from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequest
 
 logger = structlog.get_logger(__name__)
 
@@ -41,7 +41,7 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
 
     since = timezone.now() - timedelta(days=DIGEST_LOOKBACK_DAYS)
     prs = list(
-        MergedPullRequest.objects.for_team(team_id)
+        PullRequest.objects.for_team(team_id)
         .filter(audience_key=channel.audience_key, digest_run__isnull=True, merged_at__gte=since)
         .select_related("repo_config")
         .order_by("merged_at")
@@ -76,7 +76,7 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
             slack_message_ts=message_ts or "",
             posted_at=now,
         )
-        MergedPullRequest.objects.for_team(team_id).filter(id__in=[pr.id for pr in prs]).update(digest_run=run)
+        PullRequest.objects.for_team(team_id).filter(id__in=[pr.id for pr in prs]).update(digest_run=run)
         DigestChannel.objects.for_team(team_id).filter(id=channel.id).update(last_digest_at=now)
 
     logger.info("stamphog_digest_posted", digest_channel_id=digest_channel_id, pr_count=len(prs), run_id=str(run.id))
@@ -117,8 +117,9 @@ def send_daily_digests() -> None:
     # "repo:" audiences are included too now — a repo with a declared digest channel (policy.yml) resolves
     # them via logic/channel_resolution.py instead of a plain Slack name match.
     candidate_audiences = (
-        MergedPullRequest.objects.unscoped()
+        PullRequest.objects.unscoped()
         .filter(digest_run__isnull=True, merged_at__gte=since)
+        .exclude(audience_key="")
         .values_list("team_id", "audience_key")
         .distinct()
     )

@@ -16,7 +16,7 @@ import structlog
 from posthog.llm.gateway_client import get_llm_client
 
 if TYPE_CHECKING:
-    from ..models import MergedPullRequest
+    from ..models import PullRequest
 
 logger = structlog.get_logger(__name__)
 
@@ -43,7 +43,7 @@ class DigestSummary:
         return asdict(self)
 
 
-def _fallback_summary(prs: list[MergedPullRequest]) -> DigestSummary:
+def _fallback_summary(prs: list[PullRequest]) -> DigestSummary:
     """Deterministic no-LLM summary: keep every PR, use its title as the one-liner."""
     count = len(prs)
     intro = f"{count} pull request{'s' if count != 1 else ''} merged in the last day."
@@ -62,7 +62,7 @@ def _fallback_summary(prs: list[MergedPullRequest]) -> DigestSummary:
     )
 
 
-def _build_prompt(prs: list[MergedPullRequest]) -> str:
+def _build_prompt(prs: list[PullRequest]) -> str:
     lines = [
         "You are summarizing merged pull requests for a daily engineering digest posted to Slack.",
         "Drop trivial PRs (dependency bumps, typo fixes, formatting-only changes).",
@@ -85,7 +85,7 @@ def _build_prompt(prs: list[MergedPullRequest]) -> str:
     return "\n".join(lines)
 
 
-def _parse_llm_response(content: str, prs_by_number: dict[int, MergedPullRequest]) -> DigestSummary:
+def _parse_llm_response(content: str, prs_by_number: dict[int, PullRequest]) -> DigestSummary:
     """Map the model's JSON back onto captured PRs. Unknown PR numbers are ignored."""
     data = json.loads(content)
     intro = str(data.get("intro") or "").strip()
@@ -112,7 +112,7 @@ def _parse_llm_response(content: str, prs_by_number: dict[int, MergedPullRequest
     return DigestSummary(intro=intro or _fallback_summary(list(prs_by_number.values())).intro, prs=picked)
 
 
-def summarize_merged_prs(prs: list[MergedPullRequest]) -> DigestSummary:
+def summarize_merged_prs(prs: list[PullRequest]) -> DigestSummary:
     """Summarize merged PRs into a digest, falling back to a plain list on any failure."""
     if not prs:
         return DigestSummary(intro="No pull requests merged.", prs=[])

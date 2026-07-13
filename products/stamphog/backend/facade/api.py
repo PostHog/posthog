@@ -8,7 +8,7 @@ dataclasses. Never return ORM instances or import DRF.
 
 from __future__ import annotations
 
-from ..models import DigestChannel, DigestRun, MergedPullRequest, ReviewRun, StamphogRepoConfig
+from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from . import contracts
 from .enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
 
@@ -27,8 +27,8 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
     )
 
 
-def _merged_pr_to_dto(obj: MergedPullRequest) -> contracts.MergedPullRequestDTO:
-    return contracts.MergedPullRequestDTO(
+def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
+    return contracts.PullRequestDTO(
         id=obj.id,
         team_id=obj.team_id,
         repo_config_id=obj.repo_config_id,
@@ -37,17 +37,18 @@ def _merged_pr_to_dto(obj: MergedPullRequest) -> contracts.MergedPullRequestDTO:
         pr_url=obj.pr_url,
         title=obj.title,
         author_login=obj.author_login,
-        merged_at=obj.merged_at,
-        merge_commit_sha=obj.merge_commit_sha,
         head_branch=obj.head_branch,
+        body_excerpt=obj.body_excerpt,
         additions=obj.additions,
         deletions=obj.deletions,
         changed_files=obj.changed_files,
-        body_excerpt=obj.body_excerpt,
         audience_key=obj.audience_key,
+        merge_commit_sha=obj.merge_commit_sha,
+        merged_at=obj.merged_at,
         digest_run_id=obj.digest_run_id,
-        delivery_id=obj.delivery_id,
+        posted_comment_id=obj.posted_comment_id,
         created_at=obj.created_at,
+        updated_at=obj.updated_at,
     )
 
 
@@ -86,12 +87,11 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
     return contracts.ReviewRunDTO(
         id=obj.id,
         team_id=obj.team_id,
-        repo_config_id=obj.repo_config_id,
-        repository=obj.repo_config.repository,
-        pr_number=obj.pr_number,
-        pr_url=obj.pr_url,
+        pull_request_id=obj.pull_request_id,
+        repository=obj.pull_request.repo_config.repository,
+        pr_number=obj.pull_request.pr_number,
+        pr_url=obj.pull_request.pr_url,
         head_sha=obj.head_sha,
-        head_branch=obj.head_branch,
         status=ReviewRunStatus(obj.status),
         verdict=ReviewVerdict(obj.verdict),
         delivery_id=obj.delivery_id,
@@ -110,24 +110,22 @@ def get_repo_config(team_id: int, repository: str) -> contracts.RepoConfigDTO | 
 
 
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
-    obj = ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("repo_config").first()
+    obj = (
+        ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config").first()
+    )
     return _review_run_to_dto(obj) if obj is not None else None
 
 
 def create_review_run(
     *,
     team_id: int,
-    repo_config_id: str,
-    pr_number: int,
-    pr_url: str,
+    pull_request_id: str,
     head_sha: str,
     delivery_id: str | None = None,
 ) -> contracts.ReviewRunDTO:
     obj = ReviewRun.objects.for_team(team_id).create(
         team_id=team_id,
-        repo_config_id=repo_config_id,
-        pr_number=pr_number,
-        pr_url=pr_url,
+        pull_request_id=pull_request_id,
         head_sha=head_sha,
         delivery_id=delivery_id,
     )
@@ -144,11 +142,6 @@ def get_digest_run(team_id: int, digest_run_id: str) -> contracts.DigestRunDTO |
     return _digest_run_to_dto(obj) if obj is not None else None
 
 
-def get_merged_pull_request(team_id: int, merged_pull_request_id: str) -> contracts.MergedPullRequestDTO | None:
-    obj = (
-        MergedPullRequest.objects.for_team(team_id)
-        .filter(id=merged_pull_request_id)
-        .select_related("repo_config")
-        .first()
-    )
-    return _merged_pr_to_dto(obj) if obj is not None else None
+def get_pull_request(team_id: int, pull_request_id: str) -> contracts.PullRequestDTO | None:
+    obj = PullRequest.objects.for_team(team_id).filter(id=pull_request_id).select_related("repo_config").first()
+    return _pull_request_to_dto(obj) if obj is not None else None

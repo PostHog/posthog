@@ -46,15 +46,56 @@ class StamphogRepoConfig(ProductTeamModel):
         return self.repository
 
 
-class ReviewRun(ProductTeamModel):
+class PullRequest(ProductTeamModel):
+    """One pull request stamphog knows about — the PR-grain context every review run shares.
+
+    Refreshed on every relevant webhook delivery; merge state is filled in when the PR
+    merges. A row is linked to a `DigestRun` once its merge has been summarized and posted.
+    Unlinked, digest-eligible rows (audience_key set, digest_run NULL) are what the next
+    digest picks up, so a failed post leaves them for tomorrow to retry.
+    """
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    repo_config = models.ForeignKey(StamphogRepoConfig, on_delete=models.CASCADE, related_name="review_runs")
+    repo_config = models.ForeignKey(StamphogRepoConfig, on_delete=models.CASCADE, related_name="pull_requests")
     pr_number = models.IntegerField()
-    pr_url = models.CharField(max_length=512)
-    head_sha = models.CharField(max_length=64)
+    title = models.CharField(max_length=512, blank=True)
+    author_login = models.CharField(max_length=255, blank=True)
+    pr_url = models.CharField(max_length=512, blank=True)
     # Branch name of the PR head (pull_request.head.ref). Named to match the
     # engineering_analytics / GitHub-DWH head_sha/head_branch/pr_number convention.
     head_branch = models.CharField(max_length=255, blank=True)
+    # Trimmed PR description, capped at capture time to keep rows (and the LLM prompt) bounded.
+    body_excerpt = models.TextField(blank=True)
+    # Merge state — set when the PR merges, regardless of whether stamphog approved it.
+    merged_at = models.DateTimeField(null=True)
+    merge_commit_sha = models.CharField(max_length=64, blank=True)
+    additions = models.IntegerField(default=0)
+    deletions = models.IntegerField(default=0)
+    changed_files = models.IntegerField(default=0)
+    # Digest bucket resolved by the audience cascade (see logic/audiences.py) — stamped only
+    # when the merged PR is digest-eligible (stamphog approved a run); the digest filters on it.
+    audience_key = models.CharField(max_length=255, blank=True)
+    digest_run = models.ForeignKey("DigestRun", on_delete=models.SET_NULL, null=True, related_name="pull_requests")
+    # The sticky comment is a PR-level artifact, upserted per PR across review runs.
+    posted_comment_id = models.BigIntegerField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "repo_config", "pr_number"], name="unique_stamphog_pull_request"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.repo_config.repository}#{self.pr_number}"
+
+
+class ReviewRun(ProductTeamModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    pull_request = models.ForeignKey(PullRequest, on_delete=models.CASCADE, related_name="review_runs")
+    head_sha = models.CharField(max_length=64)
     # GitHub webhook delivery id — unique so a redelivered event dedupes.
     delivery_id = models.CharField(max_length=64, null=True, unique=True)
     status = models.CharField(
@@ -75,13 +116,12 @@ class ReviewRun(ProductTeamModel):
     # the post_verdict activity (and the gate-block path) from the API responses.
     verdict_posted_at = models.DateTimeField(null=True)
     posted_review_id = models.BigIntegerField(null=True)
-    posted_comment_id = models.BigIntegerField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True)
 
     def __str__(self) -> str:
-        return f"{self.repo_config.repository}#{self.pr_number} ({self.status})"
+        return f"{self.pull_request.repo_config.repository}#{self.pull_request.pr_number} ({self.status})"
 
 
 class DigestChannel(ProductTeamModel):
@@ -145,41 +185,3 @@ class DigestRun(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"digest {self.digest_channel_id} ({self.status})"
-
-
-class MergedPullRequest(ProductTeamModel):
-    """A merged PR captured from the webhook, awaiting inclusion in a digest.
-
-    A row is linked to a `DigestRun` once it has been summarized and posted. Unlinked rows
-    (digest_run is NULL) are what the next digest picks up, so a failed post leaves them for
-    tomorrow to retry.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    repo_config = models.ForeignKey(StamphogRepoConfig, on_delete=models.CASCADE, related_name="merged_pull_requests")
-    pr_number = models.IntegerField()
-    pr_url = models.CharField(max_length=512)
-    title = models.CharField(max_length=512)
-    author_login = models.CharField(max_length=255)
-    merged_at = models.DateTimeField()
-    merge_commit_sha = models.CharField(max_length=64)
-    head_branch = models.CharField(max_length=255, blank=True)
-    additions = models.IntegerField(default=0)
-    deletions = models.IntegerField(default=0)
-    changed_files = models.IntegerField(default=0)
-    # Trimmed PR description, capped at capture time to keep rows (and the LLM prompt) bounded.
-    body_excerpt = models.TextField(blank=True)
-    # Digest bucket resolved at capture time by the audience cascade (see logic/audiences.py).
-    audience_key = models.CharField(max_length=255, blank=True)
-    # GitHub webhook delivery id — unique so a redelivered merge event dedupes.
-    delivery_id = models.CharField(max_length=64, null=True, unique=True)
-    digest_run = models.ForeignKey(DigestRun, on_delete=models.SET_NULL, null=True, related_name="merged_pull_requests")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["team_id", "repo_config", "pr_number"], name="unique_stamphog_merged_pr"),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.repo_config.repository}#{self.pr_number} (merged)"

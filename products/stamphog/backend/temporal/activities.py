@@ -49,7 +49,11 @@ class MarkReviewFailedInput:
 
 
 def _load_run(input: StamphogReviewInput) -> ReviewRun:
-    return ReviewRun.objects.for_team(input.team_id).select_related("repo_config").get(id=input.review_run_id)
+    return (
+        ReviewRun.objects.for_team(input.team_id)
+        .select_related("pull_request__repo_config")
+        .get(id=input.review_run_id)
+    )
 
 
 def _resolve_sandbox_backend() -> str:
@@ -66,12 +70,13 @@ def _resolve_sandbox_backend() -> str:
 def fetch_review_context(input: StamphogReviewInput) -> dict:
     """Load the PR, its changed files, and default-branch policy files onto the run."""
     run = _load_run(input)
-    repo_config = run.repo_config
+    pull_request = run.pull_request
+    repo_config = pull_request.repo_config
     repo = repo_config.repository
 
     client = StamphogGitHubClient(repo_config.installation_id)
-    pr = client.get_pr(repo, run.pr_number)
-    files = client.get_pr_files(repo, run.pr_number)
+    pr = client.get_pr(repo, pull_request.pr_number)
+    files = client.get_pr_files(repo, pull_request.pr_number)
 
     policy_files: dict[str, str] = {}
     for path in STAMPHOG_POLICY_PATHS:
@@ -82,8 +87,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     run.output = {**(run.output or {}), "pr": pr, "files": files, "policy_files": policy_files}
     run.save(update_fields=["output", "updated_at"])
 
-    activity.logger.info(f"Fetched review context for run {run.id} (pr #{run.pr_number}, {len(files)} files)")
-    return {"pr_number": run.pr_number, "file_count": len(files), "head_sha": run.head_sha}
+    activity.logger.info(f"Fetched review context for run {run.id} (pr #{pull_request.pr_number}, {len(files)} files)")
+    return {"pr_number": pull_request.pr_number, "file_count": len(files), "head_sha": run.head_sha}
 
 
 @activity.defn
@@ -91,7 +96,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
 def run_gates_activity(input: StamphogReviewInput) -> dict:
     """Run the pure gate checks; on a block, post a sticky comment and finish the run."""
     run = _load_run(input)
-    repo_config = run.repo_config
+    pull_request = run.pull_request
+    repo_config = pull_request.repo_config
     output = run.output or {}
     pr = output.get("pr", {})
     files = output.get("files", [])
@@ -112,14 +118,13 @@ def run_gates_activity(input: StamphogReviewInput) -> dict:
         client = StamphogGitHubClient(repo_config.installation_id)
         comment = client.upsert_sticky_comment(
             repo_config.repository,
-            run.pr_number,
+            pull_request.pr_number,
             _gate_block_comment(result.tier, result.reason),
         )
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = ReviewVerdict.WAIT
         run.completed_at = timezone.now()
         run.verdict_posted_at = run.completed_at
-        run.posted_comment_id = _comment_id(comment)
         run.save(
             update_fields=[
                 "gate_result",
@@ -127,10 +132,12 @@ def run_gates_activity(input: StamphogReviewInput) -> dict:
                 "verdict",
                 "completed_at",
                 "verdict_posted_at",
-                "posted_comment_id",
                 "updated_at",
             ]
         )
+        # The sticky comment is upserted per PR, not per run.
+        pull_request.posted_comment_id = _comment_id(comment)
+        pull_request.save(update_fields=["posted_comment_id", "updated_at"])
         activity.logger.info(f"Gates blocked run {run.id} at tier {result.tier}: {result.reason}")
         return {"passed": False}
 
@@ -144,7 +151,7 @@ def run_gates_activity(input: StamphogReviewInput) -> dict:
 def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     """Provision a sandbox, clone the PR head, run the reviewer, and stash its raw output."""
     run = _load_run(input)
-    repo_config = run.repo_config
+    repo_config = run.pull_request.repo_config
     repo = repo_config.repository
     output = run.output or {}
     pr = output.get("pr", {})
@@ -190,7 +197,8 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
 def post_verdict(input: StamphogReviewInput) -> dict:
     """Parse the reviewer output and post the approval or sticky comment."""
     run = _load_run(input)
-    repo_config = run.repo_config
+    pull_request = run.pull_request
+    repo_config = pull_request.repo_config
     repo = repo_config.repository
     output = run.output or {}
     raw = output.get("reviewer_raw", "")
@@ -199,11 +207,13 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     client = StamphogGitHubClient(repo_config.installation_id)
 
     if parsed.verdict == ReviewVerdict.APPROVED:
-        review = client.post_approve_review(repo, run.pr_number, _approve_comment(parsed), run.head_sha)
+        review = client.post_approve_review(repo, pull_request.pr_number, _approve_comment(parsed), run.head_sha)
         run.posted_review_id = _comment_id(review)
     else:
-        comment = client.upsert_sticky_comment(repo, run.pr_number, _verdict_comment(parsed))
-        run.posted_comment_id = _comment_id(comment)
+        comment = client.upsert_sticky_comment(repo, pull_request.pr_number, _verdict_comment(parsed))
+        # The sticky comment is upserted per PR, not per run.
+        pull_request.posted_comment_id = _comment_id(comment)
+        pull_request.save(update_fields=["posted_comment_id", "updated_at"])
 
     run.status = ReviewRunStatus.COMPLETED
     run.verdict = parsed.verdict
@@ -216,7 +226,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
             "completed_at",
             "verdict_posted_at",
             "posted_review_id",
-            "posted_comment_id",
             "updated_at",
         ]
     )

@@ -7,12 +7,21 @@ from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
 
-from products.stamphog.backend.models import ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
 
 def _make_repo_config(team: Team, repository: str = "PostHog/posthog") -> StamphogRepoConfig:
     return StamphogRepoConfig.objects.unscoped().create(team_id=team.id, repository=repository, installation_id="123")
+
+
+def _make_pull_request(team: Team, repo_config: StamphogRepoConfig, pr_number: int = 1) -> PullRequest:
+    return PullRequest.objects.unscoped().create(
+        team_id=team.id,
+        repo_config=repo_config,
+        pr_number=pr_number,
+        pr_url=f"https://github.com/{repo_config.repository}/pull/{pr_number}",
+    )
 
 
 class TestStamphogRepoConfigModel(StamphogTeamScopedTestMixin, APIBaseTest):
@@ -46,13 +55,12 @@ class TestReviewRunModel(StamphogTeamScopedTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.repo_config = _make_repo_config(self.team)
+        self.pull_request = _make_pull_request(self.team, self.repo_config)
 
     def _make_run(self, delivery_id: str | None) -> ReviewRun:
         return ReviewRun.objects.unscoped().create(
             team_id=self.team.id,
-            repo_config=self.repo_config,
-            pr_number=1,
-            pr_url="https://github.com/PostHog/posthog/pull/1",
+            pull_request=self.pull_request,
             head_sha="abc123",
             delivery_id=delivery_id,
         )
@@ -88,12 +96,11 @@ class TestReviewRunModel(StamphogTeamScopedTestMixin, APIBaseTest):
     def test_for_team_scopes_to_owning_team(self) -> None:
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
         other_repo_config = _make_repo_config(other_team, "PostHog/other-repo")
+        other_pull_request = _make_pull_request(other_team, other_repo_config)
         mine = self._make_run("delivery-3")
         ReviewRun.objects.unscoped().create(
             team_id=other_team.id,
-            repo_config=other_repo_config,
-            pr_number=1,
-            pr_url="https://github.com/PostHog/other-repo/pull/1",
+            pull_request=other_pull_request,
             head_sha="def456",
             delivery_id="delivery-4",
         )

@@ -1,9 +1,9 @@
 """Celery tasks for stamphog — the inbound PR review path.
 
 ``process_pull_request_event`` is the durable hand-off from the GitHub webhook:
-it dedupes redeliveries, resolves the repo config, supersedes any stale in-flight
-run for the same PR, creates a fresh ReviewRun, and kicks off the Temporal review
-workflow once the row commits.
+it dedupes redeliveries, resolves the repo config, upserts the PR-grain
+``PullRequest`` row, supersedes any stale in-flight run for the same PR, creates
+a fresh ReviewRun, and kicks off the Temporal review workflow once the row commits.
 """
 
 from typing import Any, cast
@@ -18,7 +18,7 @@ from celery import shared_task
 
 from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.audiences import resolve_audience_key
-from products.stamphog.backend.models import MergedPullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 
 logger = structlog.get_logger(__name__)
@@ -35,7 +35,7 @@ RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "r
 TERMINAL_STATUSES = frozenset({ReviewRunStatus.COMPLETED, ReviewRunStatus.FAILED, ReviewRunStatus.SUPERSEDED})
 
 # PR body is trimmed to this at capture time so rows (and the digest LLM prompt) stay bounded.
-MERGED_PR_BODY_EXCERPT_MAX_CHARS = 2000
+PR_BODY_EXCERPT_MAX_CHARS = 2000
 
 
 def _resolve_repo_config(installation_id: str, repo: str) -> StamphogRepoConfig | None:
@@ -65,7 +65,28 @@ def _mark_pr_event_processed(delivery_id: str) -> None:
     )
 
 
-def _supersede_prior_runs(repo_config: StamphogRepoConfig, pr_number: int) -> None:
+def _upsert_pull_request(repo_config: StamphogRepoConfig, pr_payload: dict[str, Any]) -> PullRequest:
+    """Upsert the PR-grain row, refreshing the descriptive fields from the payload."""
+    team_id = repo_config.team_id
+    head = pr_payload.get("head") or {}
+    # for_team scopes the lookup, but update_or_create still needs team_id in defaults
+    # explicitly — queryset filters don't propagate into row creation.
+    pr_obj, _ = PullRequest.objects.for_team(team_id).update_or_create(
+        repo_config=repo_config,
+        pr_number=pr_payload["number"],
+        defaults={
+            "team_id": team_id,
+            "title": (pr_payload.get("title") or "")[:512],
+            "author_login": ((pr_payload.get("user") or {}).get("login") or "")[:255],
+            "pr_url": pr_payload.get("html_url", ""),
+            "head_branch": head.get("ref", ""),
+            "body_excerpt": (pr_payload.get("body") or "")[:PR_BODY_EXCERPT_MAX_CHARS],
+        },
+    )
+    return pr_obj
+
+
+def _supersede_prior_runs(pr_obj: PullRequest) -> None:
     """Mark every non-terminal run for this PR as superseded, under a row lock.
 
     A new push (synchronize) or reopen makes any queued/in-flight run stale — its
@@ -73,25 +94,26 @@ def _supersede_prior_runs(repo_config: StamphogRepoConfig, pr_number: int) -> No
     deliveries for the same PR from both leaving a live run behind.
     """
     stale_ids = list(
-        ReviewRun.objects.for_team(repo_config.team_id)
+        ReviewRun.objects.for_team(pr_obj.team_id)
         .select_for_update()
-        .filter(repo_config=repo_config, pr_number=pr_number)
+        .filter(pull_request=pr_obj)
         .exclude(status__in=TERMINAL_STATUSES)
         .values_list("id", flat=True)
     )
     if stale_ids:
-        ReviewRun.objects.for_team(repo_config.team_id).filter(id__in=stale_ids).update(
+        ReviewRun.objects.for_team(pr_obj.team_id).filter(id__in=stale_ids).update(
             status=ReviewRunStatus.SUPERSEDED, updated_at=timezone.now()
         )
 
 
 def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> None:
-    """Capture a merged PR for the daily digest. No workflow, no review — just a durable row.
+    """Record merge facts on the PullRequest; stamp the digest audience only if eligible.
 
-    Resolves the repo config exactly like the review path, requires both `enabled` and
-    `digest_enabled` (digests are opt-in and independent of review), and only captures PRs
-    stamphog itself approved. Redeliveries dedupe on the unique delivery_id; a repeat that
-    predates delivery_id tracking dedupes on the (team, repo, pr_number) constraint instead.
+    Merge state is truth regardless of approval, so the facts are always recorded once
+    the repo config resolves and is enabled. The digest gate (digest_enabled + a
+    stamphog-approved run) only decides whether audience_key gets stamped — the digest
+    filters on audience_key, so an unstamped merge never reaches Slack. A redelivery
+    is a no-op: merged_at already being set means this merge was recorded.
     """
     installation_id = str((payload.get("installation") or {}).get("id", ""))
     repo = (payload.get("repository") or {}).get("full_name", "")
@@ -105,50 +127,43 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
     if not repo_config:
         logger.info("stamphog_merged_pr_repo_not_configured", repo=repo, installation_id=installation_id)
         return
-    if not (repo_config.enabled and repo_config.digest_enabled):
-        logger.info("stamphog_merged_pr_digest_disabled", repo=repo)
+    if not repo_config.enabled:
+        logger.info("stamphog_merged_pr_repo_disabled", repo=repo)
         return
 
     team_id = repo_config.team_id
-    # The digest reports what stamphog approved, not everything that merged.
-    approved = (
-        ReviewRun.objects.for_team(team_id)
-        .filter(repo_config=repo_config, pr_number=pr_number, verdict=ReviewVerdict.APPROVED)
-        .exists()
-    )
-    if not approved:
-        logger.info("stamphog_merged_pr_not_stamphog_approved", repo=repo, pr_number=pr_number)
-        return
-
-    merged_at = parse_datetime(pr.get("merged_at") or "") or timezone.now()
-    head = pr.get("head") or {}
-    try:
-        MergedPullRequest.objects.for_team(team_id).create(
-            team_id=team_id,
-            repo_config=repo_config,
-            pr_number=pr_number,
-            pr_url=pr.get("html_url", ""),
-            title=(pr.get("title") or "")[:512],
-            author_login=((pr.get("user") or {}).get("login") or "")[:255],
-            merged_at=merged_at,
-            merge_commit_sha=pr.get("merge_commit_sha") or "",
-            head_branch=head.get("ref", ""),
-            additions=pr.get("additions") or 0,
-            deletions=pr.get("deletions") or 0,
-            changed_files=pr.get("changed_files") or 0,
-            body_excerpt=(pr.get("body") or "")[:MERGED_PR_BODY_EXCERPT_MAX_CHARS],
-            audience_key=resolve_audience_key(repo_config, pr),
-            delivery_id=delivery_id or None,
-        )
-    except IntegrityError:
-        # Redelivery / duplicate merge event — the unique delivery_id or (team, repo, pr) already
-        # has a row. Nothing lost.
+    pr_obj = _upsert_pull_request(repo_config, pr)
+    if pr_obj.merged_at is not None:
         logger.info("stamphog_merged_pr_already_recorded", repo=repo, pr_number=pr_number, delivery_id=delivery_id)
         return
 
+    pr_obj.merged_at = parse_datetime(pr.get("merged_at") or "") or timezone.now()
+    pr_obj.merge_commit_sha = pr.get("merge_commit_sha") or ""
+    pr_obj.additions = pr.get("additions") or 0
+    pr_obj.deletions = pr.get("deletions") or 0
+    pr_obj.changed_files = pr.get("changed_files") or 0
+    update_fields = ["merged_at", "merge_commit_sha", "additions", "deletions", "changed_files", "updated_at"]
+
+    # Digest eligibility: opt-in per repo, and the digest reports what stamphog
+    # approved, not everything that merged. Ineligible merges keep their facts but
+    # stay out of the digest (blank audience_key).
+    approved = ReviewRun.objects.for_team(team_id).filter(pull_request=pr_obj, verdict=ReviewVerdict.APPROVED).exists()
+    if repo_config.digest_enabled and approved:
+        pr_obj.audience_key = resolve_audience_key(repo_config, pr)
+        update_fields.append("audience_key")
+    else:
+        logger.info(
+            "stamphog_merged_pr_not_digest_eligible",
+            repo=repo,
+            pr_number=pr_number,
+            digest_enabled=repo_config.digest_enabled,
+            approved=approved,
+        )
+    pr_obj.save(update_fields=update_fields)
+
     if delivery_id:
         _mark_pr_event_processed(delivery_id)
-    logger.info("stamphog_merged_pr_recorded", repo=repo, pr_number=pr_number)
+    logger.info("stamphog_merged_pr_recorded", repo=repo, pr_number=pr_number, team_id=team_id)
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -197,15 +212,13 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     team_id = repo_config.team_id
     try:
         with transaction.atomic():
-            _supersede_prior_runs(repo_config, pr_number)
+            pr_obj = _upsert_pull_request(repo_config, pr)
+            _supersede_prior_runs(pr_obj)
             head = pr.get("head") or {}
             review_run = ReviewRun.objects.for_team(team_id).create(
                 team_id=team_id,
-                repo_config=repo_config,
-                pr_number=pr_number,
-                pr_url=pr.get("html_url", ""),
+                pull_request=pr_obj,
                 head_sha=head.get("sha", ""),
-                head_branch=head.get("ref", ""),
                 delivery_id=delivery_id or None,
                 status=ReviewRunStatus.QUEUED,
             )

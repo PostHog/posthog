@@ -16,8 +16,14 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from ..models import DigestChannel, DigestRun, ReviewRun, StamphogRepoConfig
-from .serializers import DigestChannelSerializer, DigestRunSerializer, ReviewRunSerializer, StamphogRepoConfigSerializer
+from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
+from .serializers import (
+    DigestChannelSerializer,
+    DigestRunSerializer,
+    PullRequestSerializer,
+    ReviewRunSerializer,
+    StamphogRepoConfigSerializer,
+)
 
 
 class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -62,15 +68,17 @@ class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = ReviewRun.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[ReviewRun]) -> QuerySet[ReviewRun]:
-        queryset = queryset.filter(team_id=self.team_id).select_related("repo_config").order_by("-created_at")
+        queryset = (
+            queryset.filter(team_id=self.team_id).select_related("pull_request__repo_config").order_by("-created_at")
+        )
 
         repository = self.request.query_params.get("repository")
         if repository:
-            queryset = queryset.filter(repo_config__repository=repository)
+            queryset = queryset.filter(pull_request__repo_config__repository=repository)
 
         pr_number = self.request.query_params.get("pr_number")
         if pr_number:
-            queryset = queryset.filter(pr_number=pr_number)
+            queryset = queryset.filter(pull_request__pr_number=pr_number)
 
         status_filter = self.request.query_params.get("status")
         if status_filter:
@@ -103,6 +111,51 @@ class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
             ),
         ],
         responses={200: ReviewRunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        return super().list(request, **kwargs)
+
+
+class PullRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    """Read-only pull requests stamphog knows about, filterable by PR number and merge state."""
+
+    scope_object = "INTERNAL"
+    serializer_class = PullRequestSerializer
+    # Unscoped base: the fail-closed manager raises at class-body eval if scoped here.
+    # safely_get_queryset re-applies the team filter per request.
+    queryset = PullRequest.objects.unscoped()
+
+    def safely_get_queryset(self, queryset: QuerySet[PullRequest]) -> QuerySet[PullRequest]:
+        queryset = queryset.filter(team_id=self.team_id).select_related("repo_config").order_by("-created_at")
+
+        pr_number = self.request.query_params.get("pr_number")
+        if pr_number:
+            queryset = queryset.filter(pr_number=pr_number)
+
+        merged = self.request.query_params.get("merged")
+        if merged is not None:
+            queryset = queryset.filter(merged_at__isnull=merged.lower() not in ("true", "1"))
+
+        return queryset
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "pr_number",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by pull request number.",
+            ),
+            OpenApiParameter(
+                "merged",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by merge state: true for merged pull requests, false for unmerged.",
+            ),
+        ],
+        responses={200: PullRequestSerializer(many=True)},
     )
     def list(self, request: Request, **kwargs) -> Response:
         return super().list(request, **kwargs)

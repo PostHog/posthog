@@ -2,12 +2,21 @@
 
 from posthog.api.routing import RouterRegistry
 
-from .presentation.views import DigestChannelViewSet, DigestRunViewSet, ReviewRunViewSet, StamphogRepoConfigViewSet
+from .presentation.views import (
+    DigestChannelViewSet,
+    DigestRunViewSet,
+    PullRequestViewSet,
+    ReviewRunViewSet,
+    StamphogRepoConfigViewSet,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"stamphog/repo_configs", StamphogRepoConfigViewSet, "project_stamphog_repo_configs", ["team_id"]
+    )
+    routers.projects.register(
+        r"stamphog/pull_requests", PullRequestViewSet, "project_stamphog_pull_requests", ["team_id"]
     )
     routers.projects.register(r"stamphog/review_runs", ReviewRunViewSet, "project_stamphog_review_runs", ["team_id"])
     routers.projects.register(

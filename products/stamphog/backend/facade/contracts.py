@@ -35,8 +35,8 @@ class RepoConfigDTO:
 
 
 @dataclass(frozen=True)
-class MergedPullRequestDTO:
-    """A merged pull request captured for the digest."""
+class PullRequestDTO:
+    """A pull request stamphog knows about, including merge state once it merges."""
 
     id: UUID
     team_id: int
@@ -46,17 +46,18 @@ class MergedPullRequestDTO:
     pr_url: str
     title: str
     author_login: str
-    merged_at: datetime
-    merge_commit_sha: str
     head_branch: str
+    body_excerpt: str
     additions: int
     deletions: int
     changed_files: int
-    body_excerpt: str
     audience_key: str
+    merge_commit_sha: str = ""
+    merged_at: datetime | None = None
     digest_run_id: UUID | None = None
-    delivery_id: str | None = None
+    posted_comment_id: int | None = None
     created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -94,16 +95,16 @@ class DigestRunDTO:
 
 @dataclass(frozen=True)
 class ReviewRunDTO:
-    """A single stamphog review of a pull request."""
+    """A single stamphog review attempt against a pull request."""
 
     id: UUID
     team_id: int
-    repo_config_id: UUID
+    pull_request_id: UUID
+    # Convenience PR context sourced via the pull_request FK.
     repository: str
     pr_number: int
     pr_url: str
     head_sha: str
-    head_branch: str
     status: ReviewRunStatus
     verdict: ReviewVerdict
     delivery_id: str | None = None

@@ -7,7 +7,7 @@ from rest_framework import serializers
 from posthog.models.integration import Integration
 
 from ..facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
-from ..models import DigestChannel, DigestRun, ReviewRun, StamphogRepoConfig
+from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -54,11 +54,88 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
         }
 
 
-class ReviewRunSerializer(serializers.ModelSerializer):
+class PullRequestSerializer(serializers.ModelSerializer):
     repository = serializers.CharField(
         source="repo_config.repository",
         read_only=True,
+        help_text="Full name of the repository this pull request belongs to.",
+    )
+    merged = serializers.SerializerMethodField(
+        help_text="Whether this pull request has merged (merged_at is set).",
+    )
+
+    class Meta:
+        model = PullRequest
+        fields = [
+            "id",
+            "repository",
+            "pr_number",
+            "title",
+            "author_login",
+            "pr_url",
+            "head_branch",
+            "body_excerpt",
+            "merged",
+            "merged_at",
+            "merge_commit_sha",
+            "additions",
+            "deletions",
+            "changed_files",
+            "audience_key",
+            "digest_run",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "pr_number": {"help_text": "Pull request number on GitHub."},
+            "title": {"help_text": "Pull request title, refreshed on every relevant webhook delivery."},
+            "author_login": {"help_text": "GitHub login of the pull request author."},
+            "pr_url": {"help_text": "Full URL to the pull request on GitHub."},
+            "head_branch": {"help_text": "Branch name of the PR head."},
+            "body_excerpt": {"help_text": "Trimmed PR description, capped at capture time."},
+            "merged_at": {"help_text": "When the pull request merged, null if it hasn't."},
+            "merge_commit_sha": {"help_text": "Merge commit SHA, blank until the pull request merges."},
+            "additions": {"help_text": "Lines added, recorded when the pull request merges."},
+            "deletions": {"help_text": "Lines deleted, recorded when the pull request merges."},
+            "changed_files": {"help_text": "Files changed, recorded when the pull request merges."},
+            "audience_key": {
+                "help_text": "Digest bucket this merged PR belongs to; blank unless it was digest-eligible."
+            },
+            "digest_run": {"help_text": "ID of the digest run that reported this merged PR, if any."},
+            "created_at": {"help_text": "When this pull request was first captured."},
+            "updated_at": {"help_text": "When this pull request was last updated."},
+        }
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_merged(self, obj: PullRequest) -> bool:
+        return obj.merged_at is not None
+
+
+class ReviewRunSerializer(serializers.ModelSerializer):
+    pull_request = serializers.PrimaryKeyRelatedField(
+        read_only=True,
+        help_text="ID of the pull request this review run belongs to.",
+    )
+    repository = serializers.CharField(
+        source="pull_request.repo_config.repository",
+        read_only=True,
         help_text="Full name of the repository this review run belongs to.",
+    )
+    pr_number = serializers.IntegerField(
+        source="pull_request.pr_number",
+        read_only=True,
+        help_text="Pull request number on GitHub.",
+    )
+    pr_url = serializers.CharField(
+        source="pull_request.pr_url",
+        read_only=True,
+        help_text="Full URL to the pull request on GitHub.",
+    )
+    head_branch = serializers.CharField(
+        source="pull_request.head_branch",
+        read_only=True,
+        help_text="Branch name of the PR head.",
     )
     status = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in ReviewRunStatus],
@@ -83,6 +160,7 @@ class ReviewRunSerializer(serializers.ModelSerializer):
         model = ReviewRun
         fields = [
             "id",
+            "pull_request",
             "repository",
             "pr_number",
             "pr_url",
@@ -100,10 +178,7 @@ class ReviewRunSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
         extra_kwargs = {
-            "pr_number": {"help_text": "Pull request number on GitHub."},
-            "pr_url": {"help_text": "Full URL to the pull request on GitHub."},
             "head_sha": {"help_text": "Commit SHA of the PR head at the time this run started."},
-            "head_branch": {"help_text": "Branch name of the PR head at the time this run started."},
             "delivery_id": {"help_text": "GitHub webhook delivery ID that triggered this run, used for deduplication."},
             "error": {"help_text": "Error message if the run failed, blank otherwise."},
             "created_at": {"help_text": "When the review run was created."},

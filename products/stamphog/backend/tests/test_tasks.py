@@ -6,7 +6,7 @@ from unittest.mock import patch
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import ReviewRunStatus
-from products.stamphog.backend.models import ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import process_pull_request_event
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -58,11 +58,11 @@ def test_queues_review_run_and_starts_workflow(team, repo_config):
     mock_execute = _run_task(_pr_payload(head_branch="feat/x"), "delivery-1", team.id)
 
     with team_scope(team.id):
-        run = ReviewRun.objects.get()
+        run = ReviewRun.objects.select_related("pull_request").get()
     assert run.status == ReviewRunStatus.QUEUED
-    assert run.pr_number == 42
-    assert run.head_branch == "feat/x"
-    assert run.repo_config_id == repo_config.id
+    assert run.pull_request.pr_number == 42
+    assert run.pull_request.head_branch == "feat/x"
+    assert run.pull_request.repo_config_id == repo_config.id
     mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
 
 
@@ -114,11 +114,10 @@ def test_synchronize_supersedes_prior_non_terminal_run_but_not_terminal_ones(tea
     _run_task(_pr_payload(action="opened", head_sha="sha-1"), "delivery-open", team.id)
     with team_scope(team.id):
         first_run = ReviewRun.objects.get()
+        pull_request = PullRequest.objects.get(pr_number=42)
         completed_run = ReviewRun.objects.create(
             team_id=team.id,
-            repo_config=repo_config,
-            pr_number=42,
-            pr_url=f"https://github.com/{REPO}/pull/42",
+            pull_request=pull_request,
             head_sha="sha-old",
             status=ReviewRunStatus.COMPLETED,
         )

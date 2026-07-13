@@ -4,7 +4,7 @@ from rest_framework import status
 
 from posthog.models.team import Team
 
-from products.stamphog.backend.models import ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
 
@@ -70,11 +70,17 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         )
 
     def _make_run(self, *, team=None, repo_config=None, pr_number: int = 1, status_value: str = "queued") -> ReviewRun:
-        return ReviewRun.objects.unscoped().create(
-            team_id=(team or self.team).id,
-            repo_config=repo_config or self.repo_config,
+        team = team or self.team
+        repo_config = repo_config or self.repo_config
+        pull_request, _ = PullRequest.objects.unscoped().update_or_create(
+            team_id=team.id,
+            repo_config=repo_config,
             pr_number=pr_number,
-            pr_url=f"https://github.com/PostHog/posthog/pull/{pr_number}",
+            defaults={"pr_url": f"https://github.com/{repo_config.repository}/pull/{pr_number}"},
+        )
+        return ReviewRun.objects.unscoped().create(
+            team_id=team.id,
+            pull_request=pull_request,
             head_sha="abc123",
             status=status_value,
         )
