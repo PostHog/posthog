@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
@@ -57,8 +59,13 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 return await api.dataModelingNodes.get(props.id)
             },
             updateNodeDescription: async ({ description }) => {
-                const updated = await api.dataModelingNodes.update(props.id, { description })
-                return updated
+                try {
+                    return await api.dataModelingNodes.update(props.id, { description })
+                } catch (error: any) {
+                    lemonToast.error(error?.detail || 'Could not save description. Please try again.')
+                    // Revert to the last loaded node so the failed edit doesn't stick
+                    return values.node
+                }
             },
         },
         savedQuery: {
