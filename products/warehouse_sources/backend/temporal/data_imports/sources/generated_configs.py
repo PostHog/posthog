@@ -2451,7 +2451,7 @@ class NetSuiteSourceConfig(config.Config):
 
 @config.config
 class NetlifySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
