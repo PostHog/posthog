@@ -787,6 +787,8 @@ class ExternalDataSourceType(models.TextChoices):
     TERRAAPI = "TerraApi", "TerraApi"
     TRIGGERDEV = "TriggerDev", "TriggerDev"
     TURSO = "Turso", "Turso"
+    SINGULAR = "Singular", "Singular"
+    SWONKIE = "Swonkie", "Swonkie"
     TWELVELABS = "TwelveLabs", "TwelveLabs"
     TWENTY = "Twenty", "Twenty"
     UNSTRUCTURED = "Unstructured", "Unstructured"
