@@ -1,15 +1,17 @@
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.conf import settings
 
 from rest_framework import status
 
 from posthog.models.file_system.file_system import FileSystem
 
-from products.tasks.backend.models import Task, TaskThreadMessage
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task
 
 
 class TestDesktopCanvasPublishAPI(APIBaseTest):
@@ -101,7 +103,10 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST, bad.json())
         self.assertIn("code", bad.json())
 
-    def _create_task(self) -> Task:
+    # Task models load via the app registry: this test lives outside the isolated
+    # tasks product, so it can't import its internals (tach-enforced).
+    def _create_task(self) -> "Task":
+        Task = apps.get_model("tasks", "Task")
         return Task.objects.create(
             team=self.team,
             title="Generate canvas",
@@ -110,7 +115,8 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
             created_by=self.user,
         )
 
-    def _thread_messages(self, task: Task):
+    def _thread_messages(self, task: "Task"):
+        TaskThreadMessage = apps.get_model("tasks", "TaskThreadMessage")
         return TaskThreadMessage.objects.for_team(self.team.id).filter(task=task)
 
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
@@ -149,6 +155,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
 
         self.client.patch(self._canvas_url(item_id), {"code": "v1"})
 
+        TaskThreadMessage = apps.get_model("tasks", "TaskThreadMessage")
         self.assertFalse(TaskThreadMessage.objects.for_team(self.team.id).exists())
 
     def test_delete_canvas_removes_ref_less_dashboard_row(self):

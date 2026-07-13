@@ -31,14 +31,14 @@ class TestAgentThreadUpdates(TestCase):
             created_by=self.user,
             channel=self.channel,
         )
-        self.run = TaskRun.objects.create(task=self.task, team=self.team)
+        self.task_run = TaskRun.objects.create(task=self.task, team=self.team)
 
     def _messages(self, task: Task) -> list[TaskThreadMessage]:
         return list(TaskThreadMessage.objects.for_team(self.team.id).filter(task=task).order_by("created_at"))
 
     @patch(_FLAG_TARGET, return_value=True)
     def test_turn_complete_posts_authorless_message_mentioning_creator(self, _flag) -> None:
-        post_turn_complete_thread_update(str(self.run.id), str(self.task.id), self.team.id)
+        post_turn_complete_thread_update(str(self.task_run.id), str(self.task.id), self.team.id)
 
         messages = self._messages(self.task)
         self.assertEqual(len(messages), 1)
@@ -53,8 +53,8 @@ class TestAgentThreadUpdates(TestCase):
 
     @patch(_FLAG_TARGET, return_value=True)
     def test_turn_complete_cooldown_collapses_duplicate_end_of_turn_events(self, _flag) -> None:
-        post_turn_complete_thread_update(str(self.run.id), str(self.task.id), self.team.id)
-        post_turn_complete_thread_update(str(self.run.id), str(self.task.id), self.team.id)
+        post_turn_complete_thread_update(str(self.task_run.id), str(self.task.id), self.team.id)
+        post_turn_complete_thread_update(str(self.task_run.id), str(self.task.id), self.team.id)
 
         self.assertEqual(len(self._messages(self.task)), 1)
 
