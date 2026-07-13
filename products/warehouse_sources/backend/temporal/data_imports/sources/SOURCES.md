@@ -587,7 +587,6 @@ doesn't conflict with concurrent PRs.
 - hightouch
 - hoorayhr
 - hubplanner
-- hugging_face
 - humanitix
 - hyperspell
 - ikas
@@ -695,7 +694,6 @@ doesn't conflict with concurrent PRs.
 - pennylane
 - perigon
 - perk
-- persona
 - pexels
 - phyllo
 - pinecone
@@ -774,6 +772,7 @@ doesn't conflict with concurrent PRs.
 - simfin
 - simplecast
 - simplesat
+- singular
 - skyvern
 - slash
 - smaily
@@ -792,6 +791,7 @@ doesn't conflict with concurrent PRs.
 - surveymonkey
 - survicate
 - svix
+- swonkie
 - synthesia
 - systeme
 - tawk_to
@@ -799,7 +799,6 @@ doesn't conflict with concurrent PRs.
 - telli
 - tempo
 - terra_api
-- testrail
 - thinkific_courses
 - thrive_learning
 - ticketmaster
