@@ -104,7 +104,7 @@ const observations = [
         '2026-05-12T09:00:00Z'
     ),
     observation(
-        '019f592d-a91b-7212-ab89-a8cc4909459',
+        '019f592d-a91b-7212-ab89-a8cc49094590',
         'tommy@example.com',
         ['technical_docs_research'],
         '2026-05-12T08:30:00Z'
@@ -204,7 +204,7 @@ export const TagMenuOpen: Story = {
     play: async ({ canvasElement }) => {
         await within(canvasElement).findByText('Observation history')
         await within(canvasElement).findByText('actively-read')
-        const tagFilter = canvasElement.querySelector('[data-attr="vision-observations-tag-filter"] input')
+        const tagFilter = canvasElement.querySelector('[data-attr="vision-observations-tag-filter"]')
         if (!tagFilter) {
             throw new Error('Tag filter input not found')
         }
