@@ -2709,9 +2709,9 @@ snapshots:
     insights-insightstable--compare-previous--light:
         hash: v1.k794b7964.28fa002817466cdc38906e70bc568a02c9d4080d4e696ec4013a2a538907b56d.yFhGtvxHTdLkBaBTudbBvH9CQbI3uANS3b2ycEIeKRY
     insights-insightstable--compare-previous-detailed-results--dark:
-        hash: v1.k794b7964.a64b2e50f805705bbc9b8d2ebd207cebcd1202dc578004ab1e9dc477f02ff9aa.E8oFRn7xnK_56vtfgxYZuC1XNdTAUAc-aRld_poFGNk
+        hash: v1.k794b7964.c99318f81cdc4a1e9d7dae8dba5d0727a84aa19c41036114fe8a395922db110b.tjGLu_ipVC3nNz-pebdemSE04ce-00kEzGbs7lRfKSo
     insights-insightstable--compare-previous-detailed-results--light:
-        hash: v1.k794b7964.95d186cac16aa659249c098d76264c71a4f75af27fe8ddc458fb452371f4c584.gcfzOx0i14MOBQ7nvtxNXdOhyrG3zuxGFX1MY8SnYCY
+        hash: v1.k794b7964.3981b9428cb05f4f8eab902d95a0900cb9a724309b124db04091a84ae2c5e90a.cL_ZiS6mBEh0i59RySIuPM6oT0zETFIc1u4glGzvzjI
     insights-insightstable--default--dark:
         hash: v1.k794b7964.585aa3b95a71f83db72c958f68b5b9b28c05047625904238a18d840fd4abe38b.kbYrG-uIZ1A_25STyJcDiz6Ph7-N7rkj2HWE6g6eoy8
     insights-insightstable--default--light:
