@@ -302,7 +302,14 @@ properties.foo.bar
 
 -- Keys with special characters
 properties.foo['bar-baz']
+
+-- Typed reads: cast the dot access
+toFloat(properties.revenue)
 ```
+
+**Always use dot access for `properties` and `person.properties`. Never call `JSONExtractString`, `JSONExtractRaw`, `JSONHas`, or any other `JSONExtract*` function on those blobs.**
+Dot access compiles to a materialized column when one exists (up to ~100x faster) and falls back to JSON extraction only when none does, so hand-written `JSONExtract*` can only match or lose to `properties.foo`, and it stays slow even after the property is materialized later.
+`JSONExtract*` remains correct for JSON stored in other columns (activity log `detail`, action `steps_json`, data warehouse JSON columns) and for parsing a JSON string held inside a property's value.
 
 ##### Unsupported/changed functions
 
@@ -337,6 +344,7 @@ Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation
 - `toStartOfWeek(timestamp, 1)` for Monday start (numeric, not string)
 - Always handle nulls before array functions: `splitByChar(',', coalesce(field, ''))`
 - Performance: always filter `events` by timestamp
+- Performance: read properties with dot access (`properties.foo`, cast via `toFloat(properties.foo)`), never `JSONExtract*` on the `properties` blob
 
 ##### SQL Variables
 
