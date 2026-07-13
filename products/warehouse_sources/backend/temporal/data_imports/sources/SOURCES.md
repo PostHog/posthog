@@ -137,6 +137,7 @@ the row lists both.
 | deel                    | HTTP                        | requests                                                        | ✅                          |
 | deepgram                | HTTP                        | requests                                                        | ✅                          |
 | delighted               | HTTP                        | requests                                                        | ✅                          |
+| deno_deploy             | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                | HTTP                        | requests                                                        | ✅                          |
 | ding_connect            | HTTP                        | requests                                                        | ✅                          |
 | dixa                    | HTTP                        | requests                                                        | ✅                          |
@@ -198,6 +199,7 @@ the row lists both.
 | guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
 | harvey                  | HTTP                        | requests                                                        | ✅                          |
+| healthchecks            | HTTP                        | requests                                                        | ✅                          |
 | height                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
@@ -585,7 +587,6 @@ doesn't conflict with concurrent PRs.
 - harness
 - harvey
 - hatchet
-- healthchecks
 - heap
 - helicone
 - helpscout

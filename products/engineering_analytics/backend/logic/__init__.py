@@ -16,6 +16,7 @@ from posthog.utils import relative_date_parse
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
+    CurrentBranchHealth,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
@@ -43,6 +44,7 @@ from products.engineering_analytics.backend.logic.queries.ci_failure_logs import
     query_ci_failure_logs,
     query_run_failure_logs,
 )
+from products.engineering_analytics.backend.logic.queries.current_branch_health import query_current_branch_health
 from products.engineering_analytics.backend.logic.queries.flaky_tests import query_flaky_tests
 from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
 from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
@@ -343,6 +345,12 @@ def build_repo_overview(
         else empty_repo_series(date_from=parsed_from, date_to=parsed_to)
     )
     return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to, series=series)
+
+
+def build_current_branch_health(*, curated: CuratedGitHubSource) -> CurrentBranchHealth:
+    date_from, date_to = _parse_window(curated.team, None, None, default=_DEFAULT_WORKFLOW_WINDOW)
+    branch = query_default_branch(curated=curated, date_from=date_from, date_to=date_to)
+    return query_current_branch_health(curated=curated, date_from=date_from, branch=branch)
 
 
 def build_repo_run_activity(

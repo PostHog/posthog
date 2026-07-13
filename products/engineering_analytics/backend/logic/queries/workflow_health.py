@@ -34,6 +34,7 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DURATION_PERCENTILE_CONDITION,
+    LATEST_COMPLETED_RUN_FAILED,
     branch_filter_clause,
     date_to_filter_clause,
     run_scope_filter_clause,
@@ -55,8 +56,8 @@ _SELECT = f"""
         quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,
         max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
-        argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed,
-        argMaxIf(conclusion, run_started_at, status = 'completed') AS latest_conclusion,
+        {LATEST_COMPLETED_RUN_FAILED} AS latest_failed,
+        argMaxIf(conclusion, (run_started_at, id), status = 'completed') AS latest_conclusion,
         countIf(run_attempt > 1) AS rerun_cycles
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__

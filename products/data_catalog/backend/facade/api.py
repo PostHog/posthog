@@ -7,6 +7,7 @@ into ``logic`` or ``models`` directly.
 """
 
 from ..logic.drift import compute_drift
+from ..logic.execution import run_metric
 from ..logic.metrics import (
     approve_metric,
     metrics_for_team,
@@ -24,6 +25,7 @@ __all__ = [
     "compute_drift",
     "metrics_for_team",
     "refresh_metric_from_insight",
+    "run_metric",
     "soft_delete_metric",
     "update_metric",
     "upsert_metric",
