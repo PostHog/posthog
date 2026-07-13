@@ -3,6 +3,7 @@ import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
+import { dedupeChunkLoadExceptions } from 'lib/utils/dedupeChunkLoadExceptions'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
@@ -56,7 +57,16 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            // Drop the duplicate `$exception` events a chunk-load failure produces as it rethrows
+            // up through nested ErrorBoundaries, then run any caller-provided hooks.
+            before_send: [
+                dedupeChunkLoadExceptions(),
+                ...(Array.isArray(options.beforeSend)
+                    ? options.beforeSend
+                    : options.beforeSend
+                      ? [options.beforeSend]
+                      : []),
+            ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
