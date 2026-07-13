@@ -3790,7 +3790,10 @@ describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
     beforeEach(async () => {
         MockKafkaProducerWrapper.create = jest.fn((...args) => ActualKafkaProducerWrapper.create(...args))
 
-        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
+        // KAFKA_HOG_INVOCATION_RESULTS isn't in TEST_KAFKA_TOPICS — the janitor
+        // produces the give-up record there, so it must exist or the produce
+        // fails and the row is (correctly) never deleted.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
         await resetTestDatabase()
         await cyclotronPool.query('DELETE FROM cyclotron_jobs')
 
