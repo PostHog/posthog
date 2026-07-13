@@ -5,7 +5,9 @@ import contextvars
 from typing import cast
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import (
@@ -13,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     async_iterate,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+
+_PIPELINE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline"
 
 _probe: contextvars.ContextVar[str | None] = contextvars.ContextVar("probe", default=None)
 
@@ -131,3 +135,61 @@ async def test_run_cleanup_failure_does_not_mask_import_error(monkeypatch):
         await pipeline.run()
 
     pipeline._logger.aexception.assert_awaited_once_with("Failed to clean up delta table helper")
+
+
+class TestPersistPrimaryKeys:
+    @parameterized.expand(
+        [
+            # name, is_incremental, persisted_pk, resource_pks, db_config_before, expected_config (None = no write attempted)
+            # Full-refresh schemas don't merge on a PK — never touch sync_type_config.
+            ("skips_when_not_incremental", False, None, ["id"], {}, None),
+            # A stored PK is already the source of truth — nothing to backfill.
+            ("skips_when_already_persisted", True, ["existing"], ["id"], {}, None),
+            # No resolvable PK -> leave it empty so the keyless-table guardrail still fires.
+            ("skips_when_no_resolved_pk", True, None, None, {}, None),
+            # The fix: an incremental schema with no stored PK backfills the resolved one.
+            ("backfills_when_incremental_and_empty", True, None, ["id"], {}, {"primary_key_columns": ["id"]}),
+            # A concurrent API edit that landed a PK first must not be clobbered inside the lock.
+            (
+                "does_not_clobber_concurrent_write",
+                True,
+                None,
+                ["id"],
+                {"primary_key_columns": ["already"]},
+                {"primary_key_columns": ["already"]},
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_persist_primary_keys(
+        self,
+        _name: str,
+        is_incremental: bool,
+        persisted: list[str] | None,
+        resource_pks: list[str] | None,
+        db_config_before: dict,
+        expected_config: dict | None,
+    ):
+        pipeline = PipelineNonDLT.__new__(PipelineNonDLT)
+        pipeline._logger = AsyncMock()
+        pipeline._is_incremental = is_incremental
+        pipeline._schema = MagicMock(primary_key_columns=persisted)
+        pipeline._job = MagicMock(team_id=1)
+        pipeline._resource = MagicMock(primary_keys=resource_pks)
+
+        captured: dict = {}
+
+        def fake_pool(fn):
+            async def _call(schema_id, team_id, *, mutate=None, **kwargs):
+                config = dict(db_config_before)
+                if mutate is not None:
+                    mutate(config)
+                captured["config"] = config
+                return config
+
+            return _call
+
+        with patch(f"{_PIPELINE_MODULE}.database_sync_to_async_pool", fake_pool):
+            await pipeline._persist_primary_keys()
+
+        assert captured.get("config") == expected_config

@@ -15,10 +15,37 @@ from products.warehouse_sources.backend.models.oom_event import ExternalDataSche
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
     report_heartbeat_timeout,
+    resolve_primary_keys,
     run_pre_write_defensive_compact,
 )
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
+
+
+class TestResolvePrimaryKeys:
+    @parameterized.expand(
+        [
+            # A persisted key (user override or earlier detection) always wins over live detection.
+            ("persisted_wins_over_live", ["user_pk"], ["live_pk"], {"columns": [{"name": "id"}]}, ["user_pk"]),
+            # No persisted key -> use what the source detected live this run.
+            ("live_used_when_no_persisted", None, ["live_pk"], {"columns": [{"name": "id"}]}, ["live_pk"]),
+            # Neither persisted nor live, but the table has `id` -> mirror the discovery-time fallback.
+            ("id_fallback_when_neither", None, None, {"columns": [{"name": "id"}, {"name": "name"}]}, ["id"]),
+            # Nothing to fall back on -> None, so the keyless-table guardrail still fires.
+            ("none_when_no_id_and_nothing_else", None, None, {"columns": [{"name": "name"}]}, None),
+        ]
+    )
+    def test_precedence(
+        self,
+        _name: str,
+        persisted: list[str] | None,
+        live: list[str] | None,
+        schema_metadata: dict,
+        expected: list[str] | None,
+    ):
+        schema = MagicMock(primary_key_columns=persisted, schema_metadata=schema_metadata)
+        resource = MagicMock(primary_keys=live)
+        assert resolve_primary_keys(schema, resource) == expected
 
 
 class TestRunPreWriteDefensiveCompact:
