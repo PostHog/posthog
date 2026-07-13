@@ -18,6 +18,8 @@ from uuid import UUID
 
 from django.db import transaction
 
+from rest_framework.request import Request
+
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.kafka_client.client import ProduceResult
 
@@ -31,7 +33,9 @@ class AlertDestinationOwnershipError(Exception):
     """Raised when deleting destinations that do not all belong to an alert."""
 
 
-def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
+def create_alert_destination_hog_functions(
+    configs: list[AlertDestinationConfig], *, request: Request
+) -> list[HogFunction]:
     """Create one HogFunction per config, atomically."""
     created: list[HogFunction] = []
     with transaction.atomic():

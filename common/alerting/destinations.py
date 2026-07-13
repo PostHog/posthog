@@ -86,6 +86,11 @@ class EventKindSpec:
     # Action buttons rendered after the primary button_url/button_label one.
     extra_buttons: tuple[Button, ...] = ()
 
+    @property
+    def all_buttons(self) -> tuple[Button, ...]:
+        """The primary button first, then any extras — the order rendered everywhere."""
+        return (Button(url=self.button_url, label=self.button_label), *self.extra_buttons)
+
     def destination_description(self, alert_name: str) -> str:
         return f'Sends {self.display_kind} notifications for {self.product_label} "{alert_name}".'
 
@@ -139,7 +144,7 @@ def slack_blocks(spec: EventKindSpec, context_elements: tuple[str, ...]) -> list
                     "text": {"text": button.label, "type": "plain_text"},
                     "type": "button",
                 }
-                for button in (Button(url=spec.button_url, label=spec.button_label), *spec.extra_buttons)
+                for button in spec.all_buttons
             ],
         },
     ]
@@ -153,12 +158,7 @@ def teams_text(spec: EventKindSpec) -> str:
     parts.extend(spec.body_lines)
     if spec.details:
         parts.append("\n\n".join(f"**{label}:** {value}" for label, value in spec.details))
-    parts.append(
-        " · ".join(
-            f"[{button.label}]({button.url})"
-            for button in (Button(url=spec.button_url, label=spec.button_label), *spec.extra_buttons)
-        )
-    )
+    parts.append(" · ".join(f"[{button.label}]({button.url})" for button in spec.all_buttons))
     return "\n\n".join(parts)
 
 
