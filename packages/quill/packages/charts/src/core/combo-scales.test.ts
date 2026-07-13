@@ -1,7 +1,7 @@
 import { dimensions, makeSeries } from '../testing'
 import { computeBarAtIndex } from './bar-layout'
 import { createComboScales, isLineLike, partitionByType, resolveSeriesType } from './combo-scales'
-import { computePercentStackData, computeStackData } from './scales'
+import { computeDivergingStackData, computePercentStackData, computeStackData } from './scales'
 import type { Series, SeriesType } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
@@ -128,6 +128,21 @@ describe('combo-scales', () => {
             })
             const [, domainMax] = scales.y.domain()
             expect(domainMax).toBeGreaterThanOrEqual(60)
+        })
+
+        it('extends the domain below zero for a diverging stack (bottoms count too)', () => {
+            // A diverging stack's negative segments live in `bottom` — if only tops fed the
+            // domain, negative bars would render outside the plot.
+            const pos = makeSeries({ key: 'pos', data: [10, 20, 30], type: 'bar' })
+            const neg = makeSeries({ key: 'neg', data: [-40, -20, -10], type: 'bar' })
+            const scales = createComboScales([pos, neg], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'stacked',
+                seriesTypeOf: typeOfWithDefault('line'),
+                barStackedData: computeDivergingStackData([pos, neg], ['a', 'b', 'c']),
+            })
+            const [domainMin, domainMax] = scales.y.domain()
+            expect(domainMin).toBeLessThanOrEqual(-40)
+            expect(domainMax).toBeGreaterThanOrEqual(30)
         })
 
         it('keeps bar and line on the same axis under one value scale', () => {

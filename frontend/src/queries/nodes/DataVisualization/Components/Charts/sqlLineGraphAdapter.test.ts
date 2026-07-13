@@ -875,6 +875,31 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.barLayout).toBe(expected)
         })
 
+        it.each<[string, ChartDisplayType, ChartSettings, boolean]>([
+            [
+                'enables divergingStack for stacked bars so negatives render below zero',
+                ChartDisplayType.ActionsStackedBar,
+                {},
+                true,
+            ],
+            [
+                'disables divergingStack for percent-stacked bars',
+                ChartDisplayType.ActionsStackedBar,
+                { stackBars100: true },
+                false,
+            ],
+            ['disables divergingStack for grouped bars', ChartDisplayType.ActionsBar, {}, false],
+        ])('%s', (_name, visualizationType, chartSettings, expected) => {
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType,
+                ySeriesData: [ySeries('a', [1, -2])],
+            })
+            expect(config.divergingStack).toBe(expected)
+        })
+
         it('maps the axis-border toggles to per-edge showAxisLines for combo', () => {
             const config = buildComboChartConfig({
                 xData: dateXData,

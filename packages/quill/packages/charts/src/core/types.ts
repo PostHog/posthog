@@ -466,6 +466,10 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
      *  `'stacked'`. `'percent'` stacks bars to 100%; line/area series still plot at raw values. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
+    /** Stacked layout only — use d3.stackOffsetDiverging so negative bar values stack below the
+     *  zero baseline (positives above). Default `false` clamps negatives to 0. Mirrors
+     *  {@link BarsConfig.divergingStack}. */
+    divergingStack?: boolean
     /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
     barCornerRadius?: number
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
