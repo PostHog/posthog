@@ -1,6 +1,7 @@
 import hashlib
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 import structlog
 
@@ -111,6 +112,10 @@ def _build_links(
     return links
 
 
+def _existing_fingerprints(team_opportunities: QuerySet[Opportunity], fingerprints: list[str]) -> set[str]:
+    return set(team_opportunities.filter(fingerprint__in=fingerprints).values_list("fingerprint", flat=True))
+
+
 def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[SourceItem]) -> ProductBrief:
     team_opportunities = Opportunity.objects.for_team(brief.team_id)
     items_by_hint = {item.fingerprint_hint: item for item in items}
@@ -123,10 +128,8 @@ def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[Sour
         brief.status = ProductBrief.Status.READY if has_content else ProductBrief.Status.QUIET
         brief.sources_used = sorted({item.source for item in items})
         brief.save(update_fields=["sections", "status", "sources_used", "updated_at"])
-        seen = set(
-            team_opportunities.filter(
-                fingerprint__in=[_fingerprint(o.kind, o.fingerprint_hint) for o in out.opportunities],
-            ).values_list("fingerprint", flat=True)
+        seen = _existing_fingerprints(
+            team_opportunities, [_fingerprint(o.kind, o.fingerprint_hint) for o in out.opportunities]
         )
         new_opportunities: list[Opportunity] = []
         links_by_opportunity: list[tuple[Opportunity, list[EvidenceRef]]] = []
@@ -140,15 +143,31 @@ def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[Sour
             new_opportunities.append(opportunity)
             links_by_opportunity.append((opportunity, evidence))
         if new_opportunities:
-            # ignore_conflicts: the (team, fingerprint) unique constraint absorbs concurrent-persist races.
+            # ignore_conflicts lets a concurrent persist that inserted the same (team, fingerprint)
+            # between the dedup read above and here win the race without erroring.
             team_opportunities.bulk_create(new_opportunities, ignore_conflicts=True)
-            all_evidence = [ref for _, evidence in links_by_opportunity for ref in evidence]
-            resolved_fks = _resolve_link_fks(brief.team_id, all_evidence)
-            links = [
-                link
+            # Opportunity ids are client-generated (uuid7), so a lost race leaves our in-memory id
+            # uninserted while the persisted row carries the winner's id. Linking against our phantom
+            # id would violate the ResourceLink FK and abort the whole brief — so re-read and link only
+            # the opportunities we actually inserted; the winner owns the rest (and its own links).
+            persisted_ids = dict(
+                team_opportunities.filter(fingerprint__in=[o.fingerprint for o in new_opportunities]).values_list(
+                    "fingerprint", "id"
+                )
+            )
+            owned = [
+                (opportunity, evidence)
                 for opportunity, evidence in links_by_opportunity
-                for link in _build_links(opportunity, evidence, resolved_fks)
+                if persisted_ids.get(opportunity.fingerprint) == opportunity.id
             ]
-            if links:
-                ResourceLink.objects.for_team(brief.team_id).bulk_create(links, ignore_conflicts=True)
+            if owned:
+                all_evidence = [ref for _, evidence in owned for ref in evidence]
+                resolved_fks = _resolve_link_fks(brief.team_id, all_evidence)
+                links = [
+                    link
+                    for opportunity, evidence in owned
+                    for link in _build_links(opportunity, evidence, resolved_fks)
+                ]
+                if links:
+                    ResourceLink.objects.for_team(brief.team_id).bulk_create(links, ignore_conflicts=True)
     return brief

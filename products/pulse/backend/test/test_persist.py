@@ -1,9 +1,10 @@
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from posthog.models.scoping import team_scope
 
 from products.product_analytics.backend.models.insight import Insight
-from products.pulse.backend.generation.persist import persist_brief_output
+from products.pulse.backend.generation.persist import _fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import (
     ActionStatus,
@@ -120,6 +121,30 @@ class TestPersistBriefOutput(BaseTest):
         persist_brief_output(brief=self._brief(), out=_out(evidence_refs=["c1", "c99"]), items=[_item()])
         assert self._opportunities().count() == 1
         assert [link.ref for link in self._links()] == ["abc"]
+
+    @patch("products.pulse.backend.generation.persist._existing_fingerprints", return_value=set())
+    def test_persist_survives_lost_fingerprint_race(self, _mock_seen: MagicMock) -> None:
+        # A concurrent persist inserts the same (team, fingerprint) between our dedup read and our
+        # bulk_create — simulated by forcing the dedup read empty while the winner row already exists.
+        # Our in-memory opportunity's uuid is never inserted, so links must NOT be built against it
+        # (that would violate the ResourceLink FK and abort the whole brief).
+        with team_scope(self.team.pk, canonical=True):
+            Insight.objects.create(team=self.team, name="Pageviews", short_id="abc")
+            winner = Opportunity.objects.create(
+                team=self.team,
+                first_seen_brief=self._brief(),
+                kind=Opportunity.Kind.BUILD,
+                title="winner",
+                summary="s",
+                fingerprint=_fingerprint("build", "abc:0"),
+            )
+        brief = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        assert brief.status == ProductBrief.Status.READY
+        # Only the pre-existing winner survives; our phantom opportunity was never inserted, and no
+        # links reference it.
+        assert self._opportunities().count() == 1
+        assert self._opportunities().get().id == winner.id
+        assert self._links().count() == 0
 
     def test_same_fingerprint_does_not_duplicate(self) -> None:
         persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
