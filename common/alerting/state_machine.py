@@ -281,32 +281,49 @@ def evaluate_alert_failure(
 
     Callable directly by products whose evaluators raise instead of returning an
     error CheckInput; `evaluate_alert_check` routes here for the rest.
+
+    Errors never move firing state — only threshold checks do (CloudWatch's
+    INSUFFICIENT_DATA doesn't clear ALARM). A FIRING alert rides through a failed
+    check so recovery continues the episode instead of re-firing it. The failure
+    counter carries the escalation-to-BROKEN signal; the persisted state is kept.
     """
     if is_transient_error and not policy.transient_errors_count_toward_broken:
-        consecutive_failures = snapshot.consecutive_failures
-    else:
-        consecutive_failures = snapshot.consecutive_failures + 1
+        # Transient errors (cluster blips, `unknown`) hit whole cohorts at once, so
+        # notifying broadcasts noise to every destination. Skip the cycle entirely —
+        # keep state and counter untouched; the next check retries naturally.
+        return AlertCheckOutcome(
+            new_state=snapshot.state,
+            notification=NotificationAction.NONE,
+            consecutive_failures=snapshot.consecutive_failures,
+            update_last_notified_at=False,
+            error_message=error_message,
+        )
 
-    new_state = AlertState.BROKEN if consecutive_failures >= policy.max_consecutive_failures else AlertState.ERRORED
+    consecutive_failures = snapshot.consecutive_failures + 1
 
-    if new_state == AlertState.BROKEN:
-        notification = NotificationAction.BROKEN
-    elif policy.notify_error_on_every_failure:
-        notification = NotificationAction.ERROR
-    elif snapshot.state != AlertState.ERRORED:
-        # First transition into ERRORED only — repeat failures stay quiet. SNOOZED
-        # auto-expiry can't re-trigger this because the raw state is what's checked.
+    if consecutive_failures >= policy.max_consecutive_failures:
+        return AlertCheckOutcome(
+            new_state=AlertState.BROKEN,
+            notification=NotificationAction.BROKEN,
+            consecutive_failures=consecutive_failures,
+            update_last_notified_at=False,
+            error_message=error_message,
+            disable=policy.disable_when_broken,
+        )
+
+    # Notify once per error streak (0 -> 1), not on every failed check. Using the
+    # counter (not the state) means a SNOOZED auto-expiry can't re-trigger it.
+    if policy.notify_error_on_every_failure or snapshot.consecutive_failures == 0:
         notification = NotificationAction.ERROR
     else:
         notification = NotificationAction.NONE
 
     return AlertCheckOutcome(
-        new_state=new_state,
+        new_state=snapshot.state,
         notification=notification,
         consecutive_failures=consecutive_failures,
         update_last_notified_at=False,
         error_message=error_message,
-        disable=policy.disable_when_broken and new_state == AlertState.BROKEN,
     )
 
 
