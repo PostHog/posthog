@@ -407,6 +407,9 @@ async def get_credentials_using_user_aws_role(
                 first_response = await sts.assume_role(
                     RoleArn=settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN,
                     RoleSessionName=session_name,
+                    # Hard limit of 1h imposed by AWS
+                    # TODO: Support refreshable credentials so we can support batch
+                    # exports running for longer
                     DurationSeconds=duration,
                     Policy=json.dumps(
                         # Narrow permissions to only allow assuming provided role with this
