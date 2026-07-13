@@ -4832,8 +4832,8 @@ class TestPrinter(BaseTest):
             ("char", "event::char", "toString(events.event)"),
             ("string", "event::string", "toString(events.event)"),
             # Boolean types
-            ("boolean", "event::boolean", "toBoolean(events.event)"),
-            ("bool", "event::bool", "toBoolean(events.event)"),
+            ("boolean", "event::boolean", "accurateCastOrNull(events.event, 'Bool')"),
+            ("bool", "event::bool", "accurateCastOrNull(events.event, 'Bool')"),
             # Date type
             ("date", "event::date", "toDate(events.event)"),
             # Constant cast
@@ -6590,7 +6590,7 @@ class TestPostgresPrinter(BaseTest):
             ),
             (
                 "SELECT count() FROM events GROUP BY event",
-                "SELECT count() FROM events GROUP BY events.event LIMIT 50000",
+                "SELECT count(*) FROM events GROUP BY events.event LIMIT 50000",
             ),
         ]
     )
@@ -6720,17 +6720,17 @@ class TestPostgresPrinter(BaseTest):
             (
                 "basic",
                 "SELECT 1 FROM events PIVOT (count() FOR event IN ('a', 'b'))",
-                "SELECT 1 FROM events PIVOT (count() FOR events.event IN (%(hogql_val_0)s, %(hogql_val_1)s)) LIMIT 50000",
+                "SELECT 1 FROM events PIVOT (count(*) FOR events.event IN (%(hogql_val_0)s, %(hogql_val_1)s)) LIMIT 50000",
             ),
             (
                 "multiple_columns",
                 "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') distinct_id IN (1, 2) GROUP BY timestamp)",
-                "SELECT 1 FROM events PIVOT (count() FOR events.event IN (%(hogql_val_0)s) events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
+                "SELECT 1 FROM events PIVOT (count(*) FOR events.event IN (%(hogql_val_0)s) events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
             ),
             (
                 "join",
                 "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))",
-                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN (%(hogql_val_0)s)) LIMIT 50000",
+                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count(*) FOR events.event IN (%(hogql_val_0)s)) LIMIT 50000",
             ),
         ]
     )
@@ -7228,7 +7228,7 @@ class TestPostgresPrinter(BaseTest):
         query = "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums"
         self.assertEqual(
             self._select(query),
-            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
+            "WITH RECURSIVE nums AS ((SELECT 1 AS n) UNION ALL (SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5))) "
             "SELECT nums.n FROM nums LIMIT 50000",
         )
 

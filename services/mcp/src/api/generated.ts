@@ -17069,6 +17069,8 @@ export namespace Schemas {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -17828,6 +17830,8 @@ export namespace Schemas {
       TerraApi: 'TerraApi',
       TriggerDev: 'TriggerDev',
       Turso: 'Turso',
+      Singular: 'Singular',
+      Swonkie: 'Swonkie',
       TwelveLabs: 'TwelveLabs',
       Twenty: 'Twenty',
       Unstructured: 'Unstructured',
@@ -18601,6 +18605,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -20389,6 +20395,7 @@ export namespace Schemas {
      * * `postgres` - postgres
      * * `mysql` - mysql
      * * `snowflake` - snowflake
+     * * `redshift` - redshift
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -20398,6 +20405,7 @@ export namespace Schemas {
       Postgres: 'postgres',
       Mysql: 'mysql',
       Snowflake: 'snowflake',
+      Redshift: 'redshift',
     } as const;
 
     /**
@@ -24299,7 +24307,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine: EngineEnum | null;
     }
 
@@ -25056,6 +25065,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -25167,7 +25178,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -30139,6 +30151,17 @@ export namespace Schemas {
          * @maxLength 400
          */
       identifier: string;
+    }
+
+    export interface JiraIssueSignalExtra {
+      key: string;
+      url: string | null;
+      status: string | null;
+      priority: string | null;
+      assignee: string | null;
+      labels: string[];
+      created: string | null;
+      updated: string | null;
     }
 
     export interface JiraProject {
@@ -36189,6 +36212,7 @@ export namespace Schemas {
      * * `llm_analytics` - LLM analytics
      * * `github` - GitHub
      * * `linear` - Linear
+     * * `jira` - Jira
      * * `zendesk` - Zendesk
      * * `conversations` - Conversations
      * * `error_tracking` - Error tracking
@@ -36207,6 +36231,7 @@ export namespace Schemas {
       LlmAnalytics: 'llm_analytics',
       Github: 'github',
       Linear: 'linear',
+      Jira: 'jira',
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
@@ -40740,7 +40765,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -50647,6 +50673,7 @@ export namespace Schemas {
      * * `llm_analytics` - llm_analytics
      * * `github` - github
      * * `linear` - linear
+     * * `jira` - jira
      * * `zendesk` - zendesk
      * * `conversations` - conversations
      * * `error_tracking` - error_tracking
@@ -50665,6 +50692,7 @@ export namespace Schemas {
       LlmAnalytics: 'llm_analytics',
       Github: 'github',
       Linear: 'linear',
+      Jira: 'jira',
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
@@ -50774,7 +50802,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -50789,6 +50817,7 @@ export namespace Schemas {
        * * `llm_analytics` - llm_analytics
        * * `github` - github
        * * `linear` - linear
+       * * `jira` - jira
        * * `zendesk` - zendesk
        * * `conversations` - conversations
        * * `error_tracking` - error_tracking
@@ -53356,6 +53385,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -54155,6 +54186,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -54946,6 +54979,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured

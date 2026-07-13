@@ -695,7 +695,6 @@ doesn't conflict with concurrent PRs.
 - pennylane
 - perigon
 - perk
-- persona
 - pexels
 - phyllo
 - pinecone
@@ -774,6 +773,7 @@ doesn't conflict with concurrent PRs.
 - simfin
 - simplecast
 - simplesat
+- singular
 - skyvern
 - slash
 - smaily
@@ -792,6 +792,7 @@ doesn't conflict with concurrent PRs.
 - surveymonkey
 - survicate
 - svix
+- swonkie
 - synthesia
 - systeme
 - tawk_to
