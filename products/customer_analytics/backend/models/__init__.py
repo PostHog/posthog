@@ -1,4 +1,6 @@
 from .account import Account
+from .announcement import Announcement
+from .announcement_delivery import AnnouncementDelivery
 from .custom_property_definition import DATA_TYPE_BY_DISPLAY_TYPE, CustomPropertyDefinition, DataType, DisplayType
 from .custom_property_source import CustomPropertySource
 from .custom_property_value import CustomPropertyValue
@@ -12,6 +14,8 @@ __all__ = [
     "Account",
     "AccountRelationship",
     "AccountRelationshipDefinition",
+    "Announcement",
+    "AnnouncementDelivery",
     "CustomPropertyDefinition",
     "CustomPropertySource",
     "CustomPropertyValue",
