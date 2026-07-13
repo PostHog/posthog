@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from 'fflate'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import type { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import { LEARN_OUTPUT_CHAR_LIMIT, SkillCatalog } from '@/skills/skill-catalog'
 import { ExecLearnCatalog } from '@/tools/exec-learn'
 
@@ -33,17 +34,28 @@ function makeCatalog(): SkillCatalog {
 }
 
 describe('SkillCatalog and exec learn', () => {
-    it('lists names without descriptions and ranks full-text matches deterministically', () => {
+    it('lists qualified names without descriptions and ranks full-text matches deterministically', async () => {
         const catalog = makeCatalog()
         const learn = new ExecLearnCatalog([], catalog)
 
-        expect(JSON.parse(learn.execute('skills'))).toEqual({
-            count: 2,
-            skills: ['funnels', 'retention-analysis'],
+        expect(JSON.parse(await learn.execute('skills'))).toEqual({
+            posthog: {
+                available: true,
+                count: 2,
+                listed: 2,
+                truncated: false,
+                skills: ['posthog:funnels', 'posthog:retention-analysis'],
+            },
+            project: {
+                available: false,
+                reason: 'Project skills are temporarily unavailable.',
+            },
         })
-        const result = learn.execute('-s weekly retention')
-        expect(result).toContain('## retention-analysis')
+        const result = await learn.execute('-s weekly retention')
+        expect(result).toContain('## posthog:retention-analysis')
         expect(result).toContain('SKILL.md:8: Query weekly retention cohorts.')
+        expect(result).toContain('[Project skills unavailable: Project skills are temporarily unavailable.]')
+        await expect(learn.execute('project:team-skill')).rejects.toThrow('Project skills are temporarily unavailable')
     })
 
     it('indexes every file path and Markdown content but not script contents', () => {
@@ -58,7 +70,7 @@ describe('SkillCatalog and exec learn', () => {
         )
     })
 
-    it('returns the rendered skill with a manifest and supports scoped reads', () => {
+    it('returns the rendered skill with a manifest and supports scoped reads', async () => {
         const catalog = makeCatalog()
         const learn = new ExecLearnCatalog([], catalog)
         const result = catalog.read('retention-analysis')
@@ -72,11 +84,50 @@ describe('SkillCatalog and exec learn', () => {
         expect(catalog.readLines('retention-analysis', 'references/functions.md', 1, 2)).toContain(
             '1: # Available functions\n2:'
         )
-        expect(learn.execute('retention-analysis references/functions.md -s dateDiff')).toContain(
+        expect(await learn.execute('posthog:retention-analysis references/functions.md -s dateDiff')).toContain(
             '3: Use retention cohorts with dateDiff.'
         )
-        expect(learn.execute('retention-analysis references/functions.md --lines 1:2')).toContain(
+        expect(await learn.execute('posthog:retention-analysis references/functions.md --lines 1:2')).toContain(
             '1: # Available functions\n2:'
+        )
+    })
+
+    it('merges PostHog and project search results and supports quoted project paths', async () => {
+        const projectSkills = {
+            listNames: vi.fn(async () => ({ count: 1, names: ['team-conventions'], truncated: false })),
+            searchResults: vi.fn(async () => [
+                {
+                    identifier: 'project:team-conventions',
+                    description: 'Team-specific retention guidance.',
+                    snippets: [{ path: 'SKILL.md', line: 4, text: 'Use weekly retention.' }],
+                },
+            ]),
+            read: vi.fn(async () => 'project skill'),
+            searchFile: vi.fn(async () => 'project file match'),
+            readLines: vi.fn(async () => 'project lines'),
+        } as unknown as ProjectSkillCatalog
+        const learn = new ExecLearnCatalog([], makeCatalog(), projectSkills)
+
+        const listed = JSON.parse(await learn.execute('skills'))
+        const result = await learn.execute('-s retention')
+
+        expect(listed.project).toEqual({
+            available: true,
+            count: 1,
+            listed: 1,
+            truncated: false,
+            skills: ['project:team-conventions'],
+        })
+        expect(result.indexOf('## posthog:retention-analysis')).toBeLessThan(
+            result.indexOf('## project:team-conventions')
+        )
+        await expect(
+            learn.execute('project:team-conventions "references/team guide.md" -s weekly retention')
+        ).resolves.toBe('project file match')
+        expect(projectSkills.searchFile).toHaveBeenCalledWith(
+            'team-conventions',
+            'references/team guide.md',
+            'weekly retention'
         )
     })
 

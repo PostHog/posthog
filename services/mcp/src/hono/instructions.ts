@@ -1,12 +1,14 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
+import { hasScope } from '@/lib/api'
 import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
+import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
@@ -134,7 +136,15 @@ export class InstructionsBuilder {
         const guides = state.clientProfile.isClaudeChatHost()
             ? this.formatter.buildClaudeExecLearnGuides(this.buildContext(state))
             : []
-        return new ExecLearnCatalog(guides, skills)
+        const canReadProjectSkills = hasScope(state.apiKeyScopes, 'llm_skill:read')
+        return new ExecLearnCatalog(
+            guides,
+            skills,
+            canReadProjectSkills ? new ProjectSkillCatalog(state.context) : undefined,
+            canReadProjectSkills
+                ? undefined
+                : 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.'
+        )
     }
 
     buildExecToolDescription(): string {
