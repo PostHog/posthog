@@ -172,6 +172,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/metrics': ['Metrics', 'metrics'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
+    '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
     '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
@@ -691,6 +692,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'task',
         layout: 'app-full-scene-height',
     },
+    Pulse: {
+        name: 'Pulse',
+        projectBased: true,
+        description:
+            'Your always-on product manager: spots growth opportunities and shows how to move the numbers that matter.',
+        iconType: 'activity',
+    },
     ReplayVision: {
         name: 'Replay vision',
         projectBased: true,
@@ -1183,6 +1191,7 @@ export const productUrls = {
     insightQuickStart: (): string => '/insights/quick-start',
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
+    pulse: (): string => '/pulse',
     replay: (
         tab?: ReplayTabs,
         filters?: Partial<RecordingUniversalFilters>,
@@ -2040,6 +2049,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
+    },
+    {
+        path: 'Pulse',
+        intents: [ProductKey.PULSE],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'activity',
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'] as FileSystemIconColor,
+        href: urls.pulse(),
+        flag: FEATURE_FLAGS.PULSE,
+        tags: ['alpha'],
+        sceneKey: 'Pulse',
+        sceneKeys: ['Pulse'],
     },
     {
         path: 'Replay vision',

@@ -45,7 +45,7 @@ export function BriefConfigModal(): JSX.Element {
                     label="Focus prompt"
                     info="Free text steering what the brief pays attention to and its tone."
                 >
-                    <LemonTextArea placeholder='e.g. "we’re the feature flags team — flag adoption, evaluation latency, SDK errors"' />
+                    <LemonTextArea placeholder="e.g. Increase adoption of our new onboarding flow and cut week-one drop-off" />
                 </LemonField>
                 <LemonField
                     name="dashboards"

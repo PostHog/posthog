@@ -12,7 +12,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
-from products.pulse.backend.generation.schemas import BriefOut, OpportunityOut
+from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief, ResourceLink, build_action
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, build_evidence_index
 
@@ -50,6 +50,18 @@ def _resolve_citations(citation_ids: list[str], evidence_index: dict[str, Eviden
             continue
         resolved.append(evidence)
     return resolved
+
+
+def _section_dict(section: BriefSectionOut, evidence_index: dict[str, EvidenceRef]) -> dict:
+    # Resolve the LLM's opaque citation ids into structured refs at persist time, while the index is
+    # in scope, so the API ships each section's citations as {type, ref, label, url} the client renders.
+    return {
+        "kind": section.kind,
+        "title": section.title,
+        "markdown": section.markdown,
+        "citations": [ref.citation for ref in _resolve_citations(section.citations, evidence_index)],
+        "confidence": section.confidence,
+    }
 
 
 def _build_opportunity(
@@ -143,7 +155,7 @@ def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[Sour
     # Same index the render side built, so the ids the model cited resolve back to the same refs.
     evidence_index = build_evidence_index(items)
     with transaction.atomic():
-        brief.sections = [s.model_dump() for s in out.sections]
+        brief.sections = [_section_dict(s, evidence_index) for s in out.sections]
         # A brief with only opportunities still has something to say — QUIET means nothing survived the gate.
         has_content = bool(out.sections or out.opportunities)
         brief.status = ProductBrief.Status.READY if has_content else ProductBrief.Status.QUIET
