@@ -685,17 +685,20 @@ class TestAwsS3Integration:
         [
             (
                 {"aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "Name, access key ID, and secret access key must be provided",
+                "A name is required for an AWS S3 integration",
             ),
             (
                 {"name": "n", "aws_secret_access_key": "s"},
-                "Name, access key ID, and secret access key must be provided",
+                "Access key ID is required for an AWS S3 integration",
             ),
-            ({"name": "n", "aws_access_key_id": "k"}, "Name, access key ID, and secret access key must be provided"),
-            ({}, "Name, access key ID, and secret access key must be provided"),
+            (
+                {"name": "n", "aws_access_key_id": "k"},
+                "Secret access key is required for an AWS S3 integration",
+            ),
+            ({}, "A name is required for an AWS S3 integration"),
             (
                 {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": 1},
-                "Name, access key ID, and secret access key must be strings",
+                "Secret access key is required for an AWS S3 integration",
             ),
         ],
     )
@@ -710,6 +713,79 @@ class TestAwsS3Integration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == expected_error_message
+
+
+class TestAwsS3RoleBasedIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_with_valid_config(self, client: HttpClient):
+        client.force_login(self.user)
+
+        role = "arn:aws:iam::123456789012:role/my-role"
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "aws-s3",
+                "config": {
+                    "name": "prod-aws",
+                    "aws_role_arn": role,
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["kind"] == "aws-s3"
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.kind == "aws-s3"
+        assert integration.team == self.team
+        assert integration.integration_id == "prod-aws"
+        assert integration.config == {"name": "prod-aws", "aws_role_arn": role}
+        assert integration.sensitive_config == {}
+
+    def test_create_rejects_duplicate_role_in_different_org(self, client: HttpClient):
+        another_org = Organization.objects.create(name="Test Org 2")
+        another_team = Team.objects.create(organization=another_org, name="Test Team")
+        another_user = User.objects.create_and_join(
+            another_org, "test2@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        client.force_login(another_user)
+        payload = {
+            "kind": "aws-s3",
+            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+        }
+
+        first = client.post(
+            f"/api/environments/{another_team.pk}/integrations", payload, content_type="application/json"
+        )
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        client.force_login(self.user)
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot create AWS S3 integration: Invalid role" in second.json()["detail"]
+
+    def test_create_rejects_duplicate_name(self, client: HttpClient):
+        client.force_login(self.user)
+        payload = {
+            "kind": "aws-s3",
+            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+        }
+
+        first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "An integration named 'prod-aws' already exists" in second.json()["detail"]
+        assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
 
 
 class TestS3CompatibleIntegration:

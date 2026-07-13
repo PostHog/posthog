@@ -4,7 +4,7 @@ import json
 import time
 import base64
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self
@@ -303,16 +303,22 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == Integration.IntegrationKind.AWS_S3:
             name = self.integration_id or "unknown ID"
-            # config["auth_type"] leaves room for a future OIDC / IAM-role mode; only keys exist today.
-            auth_label = self.config.get("auth_type", "access key")
+
             account_id = self.config.get("aws_account_id")
-            detail = f"{auth_label}, AWS account {account_id}" if account_id else auth_label
+            role = self.config.get("aws_role_arn")
+
+            if role:
+                detail = f"AWS role '{role}'"
+            elif account_id:
+                detail = f"AWS account {account_id}"
+            else:
+                detail = "access key"
+
             return f"{name} ({detail})"
         if self.kind == Integration.IntegrationKind.S3_COMPATIBLE:
             name = self.integration_id or "unknown ID"
-            auth_label = self.config.get("auth_type", "access key")
             endpoint_url = self.config.get("endpoint_url")
-            detail = f"{auth_label}, {endpoint_url}" if endpoint_url else auth_label
+            detail = f"access key, {endpoint_url}" if endpoint_url else "access key"
             return f"{name} ({detail})"
         if self.kind == Integration.IntegrationKind.SNOWFLAKE:
             name = self.integration_id or "unknown ID"
@@ -3586,6 +3592,84 @@ def _create_unique_s3_integration(
         raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
 
 
+def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: str) -> bool:
+    """Check if the AWS role is only in one organization.
+
+    This is used as a security measure to block multiple organizations from
+    assuming the same role.
+
+    In the future we may lift this restriction, but initially we want to make sure about
+    AWS role ownership with this check. This complements other runtime checks in
+    batch exports; see `get_credentials_using_user_aws_role` in
+    `s3_batch_export.py`.
+    """
+    has_same_aws_role_integrations = (
+        Integration.objects.select_related("team__organization")
+        .filter(
+            kind=Integration.IntegrationKind.AWS_S3,
+            config__aws_role_arn=aws_role_arn,
+        )
+        .exclude(team__organization_id=organization_id)
+    ).exists()
+
+    if has_same_aws_role_integrations:
+        return False
+
+    return True
+
+
+def _return_non_empty_str_from_config(config: Mapping, key: str) -> str | None:
+    if (value := config.get(key)) is not None and isinstance(value, str) and len(value) > 0:
+        return value
+    return None
+
+
+class AwsS3RoleBasedIntegration:
+    """An AWS S3 integration storing a customer's AWS role."""
+
+    integration: Integration
+    aws_role_arn: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.AWS_S3:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        try:
+            self.aws_role_arn = integration.config["aws_role_arn"]
+        except KeyError:
+            raise S3CredentialIntegrationError("S3 integration is not valid: 'aws_role_arn' missing")
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        organization_id: str,
+        created_by: "User | None" = None,
+        **config,
+    ) -> Integration:
+        name = _return_non_empty_str_from_config(config, "name")
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+
+        aws_role_arn = _return_non_empty_str_from_config(config, "aws_role_arn")
+        if not aws_role_arn:
+            raise S3CredentialIntegrationError("A valid role ARN is required for an AWS S3 integration")
+
+        if not is_unique_aws_role_by_organization_id(aws_role_arn, organization_id):
+            raise ValidationError("Cannot create AWS S3 integration: Invalid role")
+
+        return _create_unique_s3_integration(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.AWS_S3,
+            name=name,
+            config={"name": name, "aws_role_arn": aws_role_arn},
+            sensitive_config={},
+            created_by=created_by,
+        )
+
+
 class AwsS3Integration:
     """An AWS S3 integration storing reusable AWS credentials.
 
@@ -3650,13 +3734,20 @@ class AwsS3Integration:
     def integration_from_config(
         cls,
         team_id: int,
-        name: str,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
         created_by: "User | None" = None,
+        **config,
     ) -> Integration:
+        name = _return_non_empty_str_from_config(config, "name")
         if not name:
             raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+
+        aws_access_key_id = _return_non_empty_str_from_config(config, "aws_access_key_id")
+        if not aws_access_key_id:
+            raise S3CredentialIntegrationError("Access key ID is required for an AWS S3 integration")
+
+        aws_secret_access_key = _return_non_empty_str_from_config(config, "aws_secret_access_key")
+        if not aws_secret_access_key:
+            raise S3CredentialIntegrationError("Secret access key is required for an AWS S3 integration")
 
         # Fail fast on invalid/expired credentials, and capture the (non-sensitive) account id.
         account_id = cls.validate_credentials(aws_access_key_id, aws_secret_access_key)
