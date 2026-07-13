@@ -52,7 +52,7 @@ class TestCrossReference:
 
     def test_campaign_with_source_mismatch(self):
         campaigns = [Campaign("Brand Campaign", "789", "google", 200.0, 80, 2000)]
-        utm_events = {("brand campaign", "adwords"): 30}
+        utm_events = {("brand campaign", "newsletter"): 30}
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
@@ -117,6 +117,44 @@ class TestCrossReference:
         assert results[0].has_utm_events is True
         assert results[0].event_count == 55
         assert len(results[0].issues) == 0
+
+    @pytest.mark.parametrize(
+        "platform,default_source",
+        [
+            ("meta", "facebook"),
+            ("google", "youtube"),
+            ("bing", "microsoft"),
+        ],
+    )
+    def test_default_source_alias_resolves_match(self, platform, default_source):
+        # A default source alias (e.g. utm_source=facebook for Meta Ads) must count as
+        # a match without any custom mapping, matching the attribution join's behavior.
+        campaigns = [Campaign("Brand Campaign", "1", platform, 100.0, 50, 1000)]
+        utm_events = {("brand campaign", default_source): 30}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        assert len(results) == 1
+        assert results[0].has_utm_events is True
+        assert results[0].event_count == 30
+        assert len(results[0].issues) == 0
+
+    def test_custom_mapping_takes_precedence_over_default_source(self):
+        # Team explicitly maps facebook (a Meta default) to google; the Meta campaign
+        # must not claim those events.
+        campaigns = [Campaign("Brand Campaign", "1", "meta", 100.0, 50, 1000)]
+        utm_events = {("brand campaign", "facebook"): 30}
+        mappings = TeamMappings(
+            source_to_integration={"facebook": "google"},
+            campaign_aliases={},
+            field_preferences={},
+        )
+
+        results = _cross_reference(campaigns, utm_events, mappings, _build_known_sources(mappings))
+
+        assert len(results) == 1
+        assert results[0].has_utm_events is False
+        assert len(results[0].issues) == 1
 
     def test_campaign_name_mapping_resolves_match(self):
         campaigns = [Campaign("brand_campaign", "1", "google", 500.0, 100, 5000)]
@@ -418,7 +456,7 @@ class TestBuildAllUtmEvents:
 
     def test_campaign_auto_source_none(self):
         campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
-        utm_events = {("brand", "adwords"): 30}
+        utm_events = {("brand", "newsletter"): 30}
 
         result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
 
@@ -426,6 +464,17 @@ class TestBuildAllUtmEvents:
         assert result[0].campaign_match == "auto"
         assert result[0].source_match == "none"
         assert result[0].matched_campaign == "brand"
+
+    def test_default_source_alias_marks_source_auto(self):
+        # facebook is a Meta default alias: source_match must be "auto", not "mapped" or "none".
+        campaigns = [Campaign("brand", "1", "meta", 0, 0, 0)]
+        utm_events = {("brand", "facebook"): 30}
+
+        result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
+
+        assert len(result) == 1
+        assert result[0].campaign_match == "auto"
+        assert result[0].source_match == "auto"
 
     def test_source_auto_campaign_none(self):
         campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]

@@ -38,6 +38,26 @@ from products.marketing_analytics.backend.services.types import (
 logger = structlog.get_logger(__name__)
 
 
+def _build_default_source_map() -> dict[str, str]:
+    """Map every integration's default utm_source values to its primary source.
+
+    Mirrors the resolution the attribution join applies via
+    MarketingSourceFactory.get_all_source_identifier_mappings, so the audit and the
+    join agree on which sources belong to an integration (e.g. "facebook" -> "meta").
+    """
+    result: dict[str, str] = {}
+    for native_source, sources in INTEGRATION_DEFAULT_SOURCES.items():
+        primary = INTEGRATION_PRIMARY_SOURCE.get(native_source)
+        if not primary:
+            continue
+        for source in sources:
+            result[source.lower().strip()] = str(primary).lower().strip()
+    return result
+
+
+_DEFAULT_SOURCE_TO_INTEGRATION = _build_default_source_map()
+
+
 def _load_team_mappings(team: Team) -> TeamMappings:
     """Load custom source mappings and campaign name mappings from team config."""
     config = team.marketing_analytics_config
@@ -281,8 +301,14 @@ def _get_utm_events(team: Team, date_range: QueryDateRange, *, user: User | None
 
 
 def _resolve_source(utm_source: str, mappings: TeamMappings) -> str:
-    """Resolve a utm_source to its integration source using custom mappings."""
-    return mappings.source_to_integration.get(utm_source, utm_source)
+    """Resolve a utm_source to its integration's primary source.
+
+    Custom mappings take precedence over integration defaults, matching the
+    combined mapping the attribution join is built from.
+    """
+    if utm_source in mappings.source_to_integration:
+        return mappings.source_to_integration[utm_source]
+    return _DEFAULT_SOURCE_TO_INTEGRATION.get(utm_source, utm_source)
 
 
 def _get_match_value(campaign: Campaign, mappings: TeamMappings) -> str:
