@@ -53,7 +53,8 @@ RUN groupadd -g 10001 posthog && \
 
 # One thread per native pool: the sidecar bounds parallelism by its request-concurrency ceiling
 # (IMAGE_SCRUB_CONCURRENCY), so per-op pools sized to host cores would oversubscribe a CPU-limited
-# pod. sharp is pinned in code (sharp.concurrency(1)); ORT is pinned per-session (ORT_THREADS).
+# pod. sharp is pinned at module load in src/blur.ts (sharp.concurrency(1) + cache(false), imported
+# by every scrub path); ORT is pinned per-session (ORT_THREADS).
 ENV OMP_NUM_THREADS=1
 
 # Prove at build time that the models parse, the native/wasm runtimes load, and a scrub runs end to
