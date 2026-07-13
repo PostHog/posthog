@@ -2,14 +2,15 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { toParams } from 'lib/utils/url'
 
 import {
     featureFlagsStaffCacheClearCreate,
     featureFlagsStaffCacheEntryRetrieve,
+    featureFlagsStaffCacheList,
     featureFlagsStaffCacheRebuildCreate,
+    featureFlagsStaffTeamConfigList,
+    featureFlagsStaffTeamConfigSetCreate,
     featureFlagsStaffTeamsList,
 } from '../generated/api'
 import type {
@@ -18,6 +19,7 @@ import type {
     StaffCacheEntryResponseApi,
     StaffCacheMutationResponseApi,
     StaffCacheTeamStatusApi,
+    StaffTeamConfigApi,
     StaffTeamResultApi,
 } from '../generated/api.schemas'
 import type { featureFlagsStaffToolsLogicType } from './featureFlagsStaffToolsLogicType'
@@ -38,13 +40,13 @@ export const CACHE_LABELS: Record<StaffReadableCacheKind, string> = {
 
 const MIN_SEARCH_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 300
-const STAFF_CACHE_URL = 'api/feature_flags_staff_cache'
 
 export type StaffTeamResult = StaffTeamResultApi
 export type StaffCacheTeamStatus = StaffCacheTeamStatusApi
 export type StaffCacheEntryStatus = StaffCacheTeamStatusApi['evaluation']
 export type StaffCacheMutationResponse = StaffCacheMutationResponseApi
 export type StaffCacheEntry = StaffCacheEntryResponseApi
+export type StaffTeamConfig = StaffTeamConfigApi
 
 export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>([
     path(['products', 'feature_flags', 'frontend', 'staff', 'featureFlagsStaffToolsLogic']),
@@ -52,6 +54,12 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
         setSelectedTeamIds: (teamIds: number[]) => ({ teamIds }),
         seedTeamFromDeepLink: (teamId: number) => ({ teamId }),
         closeCacheEntryModal: true,
+        setMinimalFlagCalledEvents: (teamId: number, minimalFlagCalledEvents: boolean) => ({
+            teamId,
+            minimalFlagCalledEvents,
+        }),
+        teamConfigMutationSucceeded: (teamConfig: StaffTeamConfig) => ({ teamConfig }),
+        teamConfigMutationSettled: (teamId: number) => ({ teamId }),
     }),
     loaders(({ values }) => ({
         teamSearchResults: [
@@ -84,13 +92,7 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                     // fetch of the final selection instead of refetching the growing selection on
                     // every single add (matches the searchTeams debounce pattern above).
                     await breakpoint(SEARCH_DEBOUNCE_MS)
-                    // team_ids is a repeated-key query param (?team_ids=1&team_ids=2); the generated
-                    // client serializes array params as a single comma-joined value, which this
-                    // ListField-backed endpoint can't parse.
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.get<{ results: StaffCacheTeamStatus[] }>(
-                        `${STAFF_CACHE_URL}?${toParams({ team_ids: teamIds }, true)}`
-                    )
+                    const response = await featureFlagsStaffCacheList({ team_ids: teamIds })
                     breakpoint()
                     return response.results
                 },
@@ -117,6 +119,23 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
             {
                 viewCacheEntry: async ({ teamId, cache }: { teamId: number; cache: StaffReadableCacheKind }) => {
                     return await featureFlagsStaffCacheEntryRetrieve({ team_id: teamId, cache })
+                },
+            },
+        ],
+        teamConfig: [
+            [] as StaffTeamConfig[],
+            {
+                loadTeamConfig: async (_: void, breakpoint) => {
+                    const teamIds = values.selectedTeamIds
+                    if (teamIds.length === 0) {
+                        return []
+                    }
+                    // Debounce for the same reason as cacheStatus above: collapse rapid
+                    // selection changes into one fetch of the final selection.
+                    await breakpoint(SEARCH_DEBOUNCE_MS)
+                    const response = await featureFlagsStaffTeamConfigList({ team_ids: teamIds })
+                    breakpoint()
+                    return response.results
                 },
             },
         ],
@@ -156,6 +175,25 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                 closeCacheEntryModal: () => null,
             },
         ],
+        // Patches the matching row in place with a confirmed single-row mutation result, same as
+        // scoutFleetLogic.ts's patchScoutConfigLocally: a loader-owned key can take extra action
+        // handlers from a plain reducers() block alongside its auto-generated load handlers.
+        teamConfig: [
+            [] as StaffTeamConfig[],
+            {
+                teamConfigMutationSucceeded: (state, { teamConfig }) =>
+                    state.map((config) => (config.team_id === teamConfig.team_id ? teamConfig : config)),
+            },
+        ],
+        // Reactive per-row in-flight flag for the switch's `loading`/`disabledReason` props.
+        pendingTeamConfigTeamIds: [
+            [] as number[],
+            {
+                setMinimalFlagCalledEvents: (state, { teamId }) =>
+                    state.includes(teamId) ? state : [...state, teamId],
+                teamConfigMutationSettled: (state, { teamId }) => state.filter((id) => id !== teamId),
+            },
+        ],
     }),
     selectors({
         selectedTeams: [
@@ -168,8 +206,13 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
             (cacheStatus: StaffCacheTeamStatus[]): Record<number, StaffCacheTeamStatus> =>
                 Object.fromEntries(cacheStatus.map((status) => [status.team_id, status])),
         ],
+        teamConfigByTeamId: [
+            (s) => [s.teamConfig],
+            (teamConfig: StaffTeamConfig[]): Record<number, StaffTeamConfig> =>
+                Object.fromEntries(teamConfig.map((config) => [config.team_id, config])),
+        ],
     }),
-    listeners(({ actions }) => {
+    listeners(({ actions, cache }) => {
         const onMutationSuccess = (
             result: StaffCacheMutationResponse | null,
             doneMessage: string,
@@ -187,10 +230,12 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
         return {
             setSelectedTeamIds: () => {
                 actions.loadCacheStatus()
+                actions.loadTeamConfig()
             },
             seedTeamFromDeepLink: ({ teamId }) => {
                 actions.searchTeams({ query: String(teamId) })
                 actions.loadCacheStatus()
+                actions.loadTeamConfig()
             },
             rebuildCacheSuccess: ({ rebuildResult }) => {
                 onMutationSuccess(
@@ -211,6 +256,30 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
             viewCacheEntryFailure: () => {
                 lemonToast.error('Failed to load cache entry.')
                 actions.closeCacheEntryModal()
+            },
+            setMinimalFlagCalledEvents: async ({ teamId, minimalFlagCalledEvents }) => {
+                // Non-reactive guard against a duplicate submit racing ahead of the
+                // reducer-driven `pendingTeamConfigTeamIds` re-render. Named distinctly from that
+                // reducer (a `number[]` for UI loading state) since this is a `Set` used only to
+                // dedupe in-flight submits.
+                const inFlight: Set<number> = (cache.inFlightTeamConfigTeamIds ??= new Set())
+                if (inFlight.has(teamId)) {
+                    return
+                }
+                inFlight.add(teamId)
+                try {
+                    const teamConfig = await featureFlagsStaffTeamConfigSetCreate({
+                        team_id: teamId,
+                        minimal_flag_called_events: minimalFlagCalledEvents,
+                    })
+                    actions.teamConfigMutationSucceeded(teamConfig)
+                    lemonToast.success(`Updated team ${teamId}'s minimal flag_called events setting.`)
+                } catch {
+                    lemonToast.error(`Failed to update team ${teamId}'s minimal flag_called events setting.`)
+                } finally {
+                    inFlight.delete(teamId)
+                    actions.teamConfigMutationSettled(teamId)
+                }
             },
         }
     }),
