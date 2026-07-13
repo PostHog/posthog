@@ -14,7 +14,7 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { useSparklineData } from '../../hooks/use-sparkline-data'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
-import { ERROR_TRACKING_LISTING_RESOLUTION, sourceDisplay } from '../../utils'
+import { ERROR_TRACKING_LISTING_RESOLUTION, issueIdentifier, sourceDisplay } from '../../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../Assignee/AssigneeSelect'
 import { StatusIndicator } from '../Indicators'
@@ -44,7 +44,7 @@ export function ErrorTrackingIssueListHeader(): JSX.Element {
 
 function prefetchIssueScene(issue: ErrorTrackingIssue): void {
     const issueLogic = errorTrackingIssueSceneLogic({
-        identifier: issue.fingerprint ?? issue.id,
+        identifier: issueIdentifier(issue),
         timestamp: issue.last_seen,
     })
     issueLogic.mount()
@@ -68,10 +68,10 @@ export function ErrorTrackingIssueListRow({
 
     const issueUrl = useMemo(
         () =>
-            urls.errorTrackingIssue(issue.fingerprint ?? issue.id, {
+            urls.errorTrackingIssue(issueIdentifier(issue), {
                 timestamp: issue.last_seen,
             }),
-        [issue.fingerprint, issue.id, issue.last_seen]
+        [issue]
     )
 
     return (

@@ -10,6 +10,7 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, HogQLPropertyFilter, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
+import { issueIdentifier } from '../../utils'
 import { AssigneeLabelDisplay } from '../Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../Assignee/AssigneeSelect'
 import { IssueStatus, StatusIndicator } from '../Indicators'
@@ -34,7 +35,7 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
         selectedIds.forEach((id) => {
             const issue = issues.find((issue) => issue.id === id)
             if (issue) {
-                newInternalTab(urls.errorTrackingIssue(issue.fingerprint ?? id, { timestamp: issue.last_seen }))
+                newInternalTab(urls.errorTrackingIssue(issueIdentifier(issue), { timestamp: issue.last_seen }))
             }
         })
     }

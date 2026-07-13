@@ -9,6 +9,8 @@ import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
+import { issueIdentifier } from 'products/error_tracking/frontend/utils'
+
 import { useStacktraceDisplay } from '../../../../hooks/use-stacktrace-display'
 import { GitMetadataParser } from '../../../ReleasesPreview/gitMetadataParser'
 import { buildExplainPrompt, buildFixPrompt } from '../../aiPrompts'
@@ -48,13 +50,13 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
                             key: 'fix',
                             label: 'Fix prompt',
                             icon: <IconWrench />,
-                            buildPrompt: () => buildFixPrompt(stacktraceText, issue.fingerprint ?? issue.id),
+                            buildPrompt: () => buildFixPrompt(stacktraceText, issueIdentifier(issue)),
                         },
                         {
                             key: 'explain',
                             label: 'Explain prompt',
                             icon: <IconInfo />,
-                            buildPrompt: () => buildExplainPrompt(stacktraceText, issue.fingerprint ?? issue.id),
+                            buildPrompt: () => buildExplainPrompt(stacktraceText, issueIdentifier(issue)),
                         },
                         {
                             key: 'stacktrace',

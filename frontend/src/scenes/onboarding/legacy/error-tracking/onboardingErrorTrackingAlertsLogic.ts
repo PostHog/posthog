@@ -9,6 +9,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import {
     ERROR_TRACKING_ISSUE_CREATED_DISCORD_MESSAGE,
     ERROR_TRACKING_ISSUE_CREATED_TEAMS_MESSAGE,
+    ERROR_TRACKING_ISSUE_URL,
 } from 'scenes/hog-functions/sub-templates/sub-templates'
 
 import { HogFunctionConfigurationType } from '~/types'
@@ -52,7 +53,7 @@ const DEFAULT_SLACK_INPUTS: Record<string, any> = {
                 type: 'actions',
                 elements: [
                     {
-                        url: '{project.url}/error_tracking/{encodeURLComponent(event.properties.fingerprint)}',
+                        url: ERROR_TRACKING_ISSUE_URL,
                         text: { text: 'View Issue', type: 'plain_text' },
                         type: 'button',
                     },

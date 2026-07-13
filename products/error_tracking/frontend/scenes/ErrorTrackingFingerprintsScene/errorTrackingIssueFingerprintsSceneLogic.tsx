@@ -14,6 +14,7 @@ import { Breadcrumb } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueFingerprintsQuery } from '../../queries'
+import { issueIdentifier } from '../../utils'
 import {
     ErrorTrackingFingerprintSamples,
     ErrorTrackingIssueFingerprintsSceneProps,
@@ -121,7 +122,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
                     breadcrumbs.push(
                         {
                             key: [Scene.ErrorTrackingIssue, name],
-                            path: urls.errorTrackingIssue(issue.fingerprint ?? issue.id),
+                            path: urls.errorTrackingIssue(issueIdentifier(issue)),
                             name: name,
                             iconType: 'error_tracking',
                         },

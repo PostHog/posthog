@@ -14,7 +14,7 @@ import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/sche
 
 import { bulkSelectLogic } from '../logics/bulkSelectLogic'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
-import { sourceDisplay } from '../utils'
+import { issueIdentifier, sourceDisplay } from '../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './Assignee/AssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
@@ -100,11 +100,11 @@ export const IssueListTitleColumn = (props: {
             filterTestAccounts,
             searchQuery,
         })
-        return urls.errorTrackingIssue(record.fingerprint ?? record.id, {
+        return urls.errorTrackingIssue(issueIdentifier(record), {
             timestamp: record.last_seen,
             ...params,
         })
-    }, [dateRange, filterGroup, filterTestAccounts, searchQuery, record.fingerprint, record.last_seen, record.id])
+    }, [dateRange, filterGroup, filterTestAccounts, searchQuery, record])
 
     return (
         <div className="flex items-start gap-x-2 group my-1 [--line-height:1.3rem] -ml-2">
@@ -148,7 +148,7 @@ const IssueTitle = ({
         to={issueUrl}
         onClick={() => {
             const issueLogic = errorTrackingIssueSceneLogic({
-                identifier: record.fingerprint ?? record.id,
+                identifier: issueIdentifier(record),
                 timestamp: record.last_seen,
             })
             issueLogic.mount()

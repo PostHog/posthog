@@ -15,8 +15,13 @@ export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 export const ERROR_TRACKING_LISTING_RESOLUTION = 20
 export const ERROR_TRACKING_DETAILS_RESOLUTION = 50
 
-// Canonical, shareable absolute URL for an issue. Pass a fingerprint when available so the
-// link matches the fingerprint-based routing; falls back to the issue id.
+// The URL identifier for an issue: prefer the fingerprint (stable, canonical link), fall back to
+// the issue id. Keep this the single source of that choice so it can't drift across call sites.
+export function issueIdentifier(issue: { id: string; fingerprint?: string | null }): string {
+    return issue.fingerprint ?? issue.id
+}
+
+// Canonical, shareable absolute URL for an issue. Pass an identifier from `issueIdentifier`.
 export function issueAbsoluteUrl(identifier: string): string {
     return urls.absolute(urls.currentProject(urls.errorTrackingIssue(identifier)))
 }

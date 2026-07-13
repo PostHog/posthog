@@ -504,27 +504,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     listeners(({ props, values, actions }) => {
         return {
             setDateRange: () => {
-                if (!values.issue?.id) {
-                    return
-                }
                 actions.loadSummary()
                 actions.loadSpikeEvents()
             },
-            setFilterGroup: () => {
-                if (values.issue?.id) {
-                    actions.loadSummary()
-                }
-            },
-            setFilterTestAccounts: () => {
-                if (values.issue?.id) {
-                    actions.loadSummary()
-                }
-            },
-            setSearchQuery: () => {
-                if (values.issue?.id) {
-                    actions.loadSummary()
-                }
-            },
+            setFilterGroup: () => actions.loadSummary(),
+            setFilterTestAccounts: () => actions.loadSummary(),
+            setSearchQuery: () => actions.loadSummary(),
             loadSummarySuccess: ({ summary }: { summary: ErrorTrackingIssueSummary | null }) => {
                 if (summary && summary.last_seen) {
                     actions.setLastSeen(summary.last_seen)
@@ -602,11 +587,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.loadIssue()
                 }
             },
-            setSimilarIssuesMaxDistance: () => {
-                if (values.issue?.id) {
-                    actions.loadSimilarIssues(true)
-                }
-            },
+            setSimilarIssuesMaxDistance: () => actions.loadSimilarIssues(true),
         }
     }),
 

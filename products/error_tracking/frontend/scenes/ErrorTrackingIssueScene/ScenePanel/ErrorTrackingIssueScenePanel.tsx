@@ -23,7 +23,7 @@ import { ScenePanel, ScenePanelDivider, ScenePanelInfoSection, ScenePanelLabel }
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingRelationalIssue, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import { issueAbsoluteUrl } from 'products/error_tracking/frontend/utils'
+import { issueAbsoluteUrl, issueIdentifier } from 'products/error_tracking/frontend/utils'
 
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
@@ -52,7 +52,7 @@ export const ErrorTrackingIssueScenePanel = ({
                     buttonProps={{
                         fullWidth: true,
                         onClick: () => {
-                            void copyToClipboard(issueAbsoluteUrl(issue.fingerprint ?? issue.id), 'issue link')
+                            void copyToClipboard(issueAbsoluteUrl(issueIdentifier(issue)), 'issue link')
                         },
                     }}
                 />

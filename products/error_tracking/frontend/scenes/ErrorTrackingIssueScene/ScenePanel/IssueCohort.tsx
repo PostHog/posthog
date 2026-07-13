@@ -11,7 +11,7 @@ import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingIssueCohort, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { issueActionsLogic } from 'products/error_tracking/frontend/components/IssueActions/issueActionsLogic'
-import { issueAbsoluteUrl } from 'products/error_tracking/frontend/utils'
+import { issueAbsoluteUrl, issueIdentifier } from 'products/error_tracking/frontend/utils'
 
 export function IssueCohort({ issue }: { issue: ErrorTrackingRelationalIssue }): JSX.Element {
     const cohort = issue.cohort
@@ -47,7 +47,7 @@ function createIssueCohortForm(issue: ErrorTrackingRelationalIssue, onSubmit: Is
         shouldAwaitSubmit: true,
         initialValues: {
             cohortName: `Impacted by Issue [${issue.name}${issue.description ? ` - ${issue.description.substring(0, 200)}` : ''}]`,
-            cohortDescription: issueAbsoluteUrl(issue.fingerprint ?? issue.id),
+            cohortDescription: issueAbsoluteUrl(issueIdentifier(issue)),
         },
         content: (
             <div className="flex flex-col gap-y-2 w-[600px]">

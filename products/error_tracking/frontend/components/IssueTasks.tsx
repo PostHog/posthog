@@ -17,7 +17,7 @@ import { IntegrationType } from '~/types'
 import { OriginProduct, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
-import { issueAbsoluteUrl } from '../utils'
+import { issueAbsoluteUrl, issueIdentifier } from '../utils'
 
 export const IssueTasks = (): JSX.Element => {
     const { issue, issueLoading, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
@@ -42,7 +42,7 @@ const createTaskForm = (
     selectedEvent: ErrorEventType | null,
     githubIntegrations: IntegrationType[]
 ): void => {
-    const posthogUrl = issueAbsoluteUrl(issue.fingerprint ?? issue.id)
+    const posthogUrl = issueAbsoluteUrl(issueIdentifier(issue))
 
     let description = ''
 
