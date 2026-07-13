@@ -1228,6 +1228,18 @@ snapshots:
         hash: v1.k794b7964.69f3b0ede33d4b597caa7a923520e58945a4626196e203e552a7a1e029a0f525.pBiwxxHtJ2_3NfrUuKzwnrTNZ4b_y4zd49UQyDKRrec
     components-markdown-notebook--malformed-markdown-recovery--light:
         hash: v1.k794b7964.373448e5fe950e05adac4cf223b38920fa8d894d0d0034485cbbd7bdfd41566d.GDrMJvhqrK0U3zs9zESTR84PtJDeR9FOke5qH0EOWd4
+    components-markdown-notebook--mermaid-diagram--dark:
+        hash: v1.k794b7964.425e62645faba28d89678975e7e0d6d3d78caf0e997cbfe64e2b91511cee4f5d.UAvmMoEvnGg2GpzpcDKtTM4u6NymOVybkgU5_yHrm8A
+    components-markdown-notebook--mermaid-diagram--light:
+        hash: v1.k794b7964.cfdb5953653177193f610735cf2b003fef8816d27c6f527c23535bae6e34d68a.a_y-0vnbWLPDXSKCSOXnZcpB46z5XVtbyVz0r54p_60
+    components-markdown-notebook--mermaid-diagram-fallback--dark:
+        hash: v1.k794b7964.16cb85e3be806374ce574166a6d2439c79c87561278fb8080e48600d1f3eca19.6SeBym2Kx28qZOekCxkO-S6ceyOy48BbQD6sOCidnZ0
+    components-markdown-notebook--mermaid-diagram-fallback--light:
+        hash: v1.k794b7964.2df0be36671aaf0c329c6187bb03c752f3f5f701033c9c5c5a1b474f1a2b40da.db3C585yLQ6CyHGg4t5fme1f7J22QmLlkyK_3WpkOm4
+    components-markdown-notebook--mermaid-diagram-wide--dark:
+        hash: v1.k794b7964.be5f389ebf5f2a2d26ba094fb062861127e3af2fb49888f9fe6b5759d54a4a52.YpkWezxIcacFemijTJxzdy50UQMOQXbJwgt8gJSkRrQ
+    components-markdown-notebook--mermaid-diagram-wide--light:
+        hash: v1.k794b7964.76f82fa161da5c7ef652b22367b90c72eb99ff04fe14f13fa5a7965a18c27efd.gEEyp-lSpR49dY4srU6NDA_Jh0YhKYW69DTOckv4tS0
     components-markdown-notebook--mocked-collaboration--dark:
         hash: v1.k794b7964.e11be709065cefe6516361185b66e7aca286b7aeaf851f6f4f731a7b5a44625e.0cF2H1FOanpkyljIOsGiywdkMmu5WtzsAkxQ9xY9tts
     components-markdown-notebook--mocked-collaboration--light:
