@@ -472,6 +472,7 @@ export interface InAppNotification {
     body: string
     read: boolean
     read_at: string | null
+    archivable: boolean
     resource_type: string | null
     resource_id: string
     target_type: string
@@ -6147,7 +6148,7 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
-    created_via: 'web' | 'api' | 'mcp' | null
+    created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
     engine?: 'duckdb' | 'postgres' | 'mysql' | null
     latest_error: string | null
     last_run_at?: Dayjs
