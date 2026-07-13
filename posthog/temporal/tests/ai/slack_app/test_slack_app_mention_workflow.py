@@ -11,6 +11,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.ai.slack_app import derive_mention_workflow_id
+from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 from posthog.temporal.ai.slack_app.types import (
     PostHogCodeRepoCascadeOutcome,
@@ -262,7 +263,7 @@ class _Harness:
         self._worker_cm = Worker(
             self.env.client,
             task_queue=self.task_queue,
-            workflows=[SlackAppMentionWorkflow],
+            workflows=[SlackAppMentionWorkflow, PostHogCodeSlackMentionWorkflow],
             activities=_fake_activities(self.rec),
             workflow_runner=UnsandboxedWorkflowRunner(),
         )
@@ -375,19 +376,23 @@ async def test_repo_picker_signal_resolves_and_queue_continues():
     rec = _Recorder()
     rec.cascade_modes["1.1"] = "agent_needed"
 
+    first = _message("1.1")
     async with _Harness(rec) as h:
         workflow_id = f"wf-{uuid.uuid4()}"
-        handle = await _signal_with_start(h.env, h.task_queue, workflow_id, _message("1.1"))
+        handle = await _signal_with_start(h.env, h.task_queue, workflow_id, first)
         # First message falls through discovery to the picker and blocks the
         # queue; a second message queues up behind it in the meantime.
         await asyncio.wait_for(rec.picker_posted.wait(), timeout=30)
         await handle.signal(SlackAppMentionWorkflow.new_message, _message("1.2"))
-        await handle.signal(SlackAppMentionWorkflow.repo_selected, "org/picked")
-        await asyncio.wait_for(handle.result(), timeout=30)
 
-        # The picker message must carry the conversation workflow ID — it is what
-        # the interactivity webhook uses to route the click back as a signal.
-        assert rec.picker_workflow_id == workflow_id
+        # The picker message must carry the child's per-message workflow ID —
+        # it is what the interactivity webhook uses to route the click back as
+        # a signal, straight to the child that is waiting on it.
+        assert rec.picker_workflow_id is not None
+        assert rec.picker_workflow_id == derive_mention_workflow_id(first)
+        child_handle = h.env.client.get_workflow_handle(rec.picker_workflow_id)
+        await child_handle.signal("repo_selected", "org/picked")
+        await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/picked"), ("1.2", "org/auto-repo")]
 

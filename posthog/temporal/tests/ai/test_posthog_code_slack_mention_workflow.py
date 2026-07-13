@@ -2,7 +2,6 @@ import pytest
 from unittest.mock import patch
 
 from posthog.temporal.ai.slack_app import posthog_code_slack_mention
-from posthog.temporal.ai.slack_app.helpers import process_mention_message
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 
 
@@ -39,18 +38,18 @@ async def test_untagged_followup_with_files_classifier_gating(
 
     async def fake_execute_activity(activity_fn, *args):
         calls.append(activity_fn.__name__)
-        if activity_fn is process_mention_message.enforce_posthog_code_billing_quota_activity:
+        if activity_fn is posthog_code_slack_mention.enforce_posthog_code_billing_quota_activity:
             return False
-        if activity_fn is process_mention_message.classify_untagged_followup_activity:
+        if activity_fn is posthog_code_slack_mention.classify_untagged_followup_activity:
             return True
-        if activity_fn is process_mention_message.forward_posthog_code_followup_activity:
+        if activity_fn is posthog_code_slack_mention.forward_posthog_code_followup_activity:
             return True
 
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
 
     with (
-        patch.object(process_mention_message.workflow, "patched", return_value=patched),
-        patch.object(process_mention_message, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
+        patch.object(posthog_code_slack_mention.workflow, "patched", return_value=patched),
+        patch.object(posthog_code_slack_mention, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
     ):
         await workflow.run(inputs)
 

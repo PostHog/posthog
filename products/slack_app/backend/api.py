@@ -2466,11 +2466,6 @@ def _start_mention_workflow(
     # order. Events without channel/ts fall back to the per-message workflow.
     queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)
     if queue_workflow_id is not None and is_slack_app_queue_workflow_enabled(integration, slack_team_id):
-        # Note: under the queue workflow the slack_mention_workflow_id the
-        # task-creation activity persists (derived per message) has no
-        # Temporal execution behind it, so the debug-tool Temporal link
-        # dangles. Threading the real workflow id through needs an activity
-        # signature change — deferred to a follow-up.
         _start_posthog_code_workflow(
             SlackAppMentionWorkflow,
             SlackAppMentionWorkflowInputs(),

@@ -4,17 +4,14 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import exceptions, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.ai.slack_app import (
     derive_mention_workflow_id,
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
 )
-from posthog.temporal.ai.slack_app.helpers.process_mention_message import (
-    MentionSignalHandlersMixin,
-    process_mention_message,
-)
+from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMentionWorkflowInputs,
@@ -46,16 +43,21 @@ def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflow
 
 
 @workflow.defn(name="slack-app-mention")
-class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
-    """Per-conversation queue over the mention pipeline.
+class SlackAppMentionWorkflow(PostHogWorkflow):
+    """Per-conversation queue over the per-message mention workflow.
 
-    The per-message ``PostHogCodeSlackMentionWorkflow`` races when several
-    messages land in one thread. This workflow serializes them: the webhook
-    signal-with-starts one instance per conversation, messages queue up as
-    ``new_message`` signals, and the loop feeds them one at a time through the
-    shared ``process_mention_message`` orchestration. After the idle timeout
-    with an empty queue the workflow completes; the next message simply starts
-    a fresh instance, which finds the conversation's task via
+    Standalone ``PostHogCodeSlackMentionWorkflow`` executions race when
+    several messages land in one thread. This workflow serializes them: the
+    webhook signal-with-starts one instance per conversation, messages queue
+    up as ``new_message`` signals, and the loop runs each one as a child
+    ``PostHogCodeSlackMentionWorkflow`` — under the same per-message workflow
+    ID the flag-off dispatch would use — awaiting its completion before
+    starting the next. Interactive signals (repo picker, authorship
+    confirmation) never touch this workflow: the child bakes its own ID into
+    the prompts it posts, so the interactivity webhook signals the child
+    directly, exactly as in the standalone shape. After the idle timeout with
+    an empty queue the workflow completes; the next message simply starts a
+    fresh instance, which finds the conversation's task via
     ``SlackThreadTaskMapping`` and continues in followup mode.
 
     The FIFO and dedup guarantees are scoped to one instance: the queue and
@@ -67,7 +69,6 @@ class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
     """
 
     def __init__(self) -> None:
-        super().__init__()
         self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
         self._processing = False
         # Dedup for Slack event redeliveries: signals have no server-side
@@ -123,6 +124,38 @@ class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
             # timeout. Cosmetic either way — never stall the queue for it.
             workflow.logger.warning("slack_app_reaction_activity_failed")
 
+    async def _process(self, message: PostHogCodeSlackMentionWorkflowInputs) -> None:
+        """Run one message to completion as a child workflow.
+
+        The child ID is the per-message workflow ID — the same execution the
+        flag-off dispatch would create, so debug tooling that resolves
+        ``slack_mention_workflow_id`` finds a real run either way.
+        ALLOW_DUPLICATE mirrors the standalone dispatch's reuse policy for
+        retries that outlive this instance's dedup keys.
+        """
+        try:
+            # The default parent close policy (terminate) is deliberate: an
+            # operator killing this queue means "stop this conversation", so
+            # the in-flight child goes down with it. Normal exits (idle
+            # return, continue_as_new) never have a child in flight — the
+            # serial await completes it first.
+            await workflow.execute_child_workflow(
+                PostHogCodeSlackMentionWorkflow.run,
+                message,
+                id=derive_mention_workflow_id(message),
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        except exceptions.WorkflowAlreadyStartedError:
+            # A standalone execution for this exact message is already
+            # running (dispatched pre-flag, retried post-flag). It owns the
+            # work; skip.
+            workflow.logger.info("slack_app_mention_child_already_running")
+        except exceptions.ChildWorkflowError:
+            # The child posts its own internal-error replies and is not
+            # expected to fail; this backstop keeps one poisoned message from
+            # wedging the conversation's queue.
+            workflow.logger.exception("slack_app_mention_child_failed")
+
     @workflow.run
     async def run(self, inputs: SlackAppMentionWorkflowInputs) -> None:
         for key in inputs.processed_event_keys:
@@ -150,12 +183,9 @@ class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
                 return
 
             message = self._queue.pop(0)
-            self._signals.reset()
             self._processing = True
             await self._react(message, mark_slack_app_message_processing_activity)
-            # Never raises: internal errors are posted back to the thread, so
-            # one poisoned message can't wedge the conversation's queue.
-            await process_mention_message(message, self._signals)
+            await self._process(message)
             self._processing = False
 
             # A long-lived conversation would eventually hit Temporal's history
