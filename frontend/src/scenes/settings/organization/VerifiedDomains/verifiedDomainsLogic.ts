@@ -342,26 +342,36 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             if (!id || !domain) {
                 return
             }
-            const config = await fetchLinkedConfig(values.currentOrganizationId as string, domain)
-            actions.setSamlConfigValues({
-                id,
-                saml_acs_url: config?.saml_acs_url ?? '',
-                saml_entity_id: config?.saml_entity_id ?? '',
-                saml_x509_cert: config?.saml_x509_cert ?? '',
-            })
+            try {
+                const config = await fetchLinkedConfig(values.currentOrganizationId as string, domain)
+                actions.setSamlConfigValues({
+                    id,
+                    saml_acs_url: config?.saml_acs_url ?? '',
+                    saml_entity_id: config?.saml_entity_id ?? '',
+                    saml_x509_cert: config?.saml_x509_cert ?? '',
+                })
+            } catch {
+                lemonToast.error('Could not load the SAML configuration for this domain. Please try again.')
+                actions.setConfigureSAMLModalId(null)
+            }
         },
         setConfigureIdJagModalId: async ({ id }) => {
             const domain = values.verifiedDomains.find(({ id: _idToFind }) => _idToFind === id)
             if (!id || !domain) {
                 return
             }
-            const config = await fetchLinkedConfig(values.currentOrganizationId as string, domain)
-            actions.setIdJagConfigValues({
-                id,
-                id_jag_issuer_url: config?.id_jag_issuer_url ?? '',
-                id_jag_jwks_url: config?.id_jag_jwks_url ?? '',
-                id_jag_allowed_clients: config?.id_jag_allowed_clients ?? [],
-            })
+            try {
+                const config = await fetchLinkedConfig(values.currentOrganizationId as string, domain)
+                actions.setIdJagConfigValues({
+                    id,
+                    id_jag_issuer_url: config?.id_jag_issuer_url ?? '',
+                    id_jag_jwks_url: config?.id_jag_jwks_url ?? '',
+                    id_jag_allowed_clients: config?.id_jag_allowed_clients ?? [],
+                })
+            } catch {
+                lemonToast.error('Could not load the ID-JAG configuration for this domain. Please try again.')
+                actions.setConfigureIdJagModalId(null)
+            }
         },
         setConfigureSCIMModalId: ({ id }) => {
             if (id) {

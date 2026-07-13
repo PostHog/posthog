@@ -87,6 +87,28 @@ class TestIdentityProviderConfig(BaseTest):
             domain.full_clean()
         assert "identity_provider_config" in exc_info.value.message_dict
 
+    def test_cross_org_config_link_fails_on_direct_save(self):
+        # `clean()`/`full_clean()` aren't invoked by plain `.save()`/`.objects.create()`, so the
+        # cross-org guard must also be enforced from `save()` itself.
+        other_org = Organization.objects.create(name="Other")
+        other_config = IdentityProviderConfig.objects.create(organization=other_org)
+        domain = self._create_domain()
+        domain.identity_provider_config = other_config
+
+        with pytest.raises(ValidationError) as exc_info:
+            domain.save()
+        assert "identity_provider_config" in exc_info.value.message_dict
+
+    def test_cross_org_config_link_fails_on_create(self):
+        other_org = Organization.objects.create(name="Other")
+        other_config = IdentityProviderConfig.objects.create(organization=other_org)
+
+        with pytest.raises(ValidationError) as exc_info:
+            OrganizationDomain.objects.create(
+                organization=self.organization, domain="posthog.com", identity_provider_config=other_config
+            )
+        assert "identity_provider_config" in exc_info.value.message_dict
+
     def test_dangling_config_link_fails_validation(self):
         domain = self._create_domain()
         config = self._create_linked_config(domain)

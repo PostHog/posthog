@@ -1,5 +1,5 @@
 import secrets
-from typing import Optional
+from typing import Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
@@ -250,7 +250,7 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
     class Meta:
         verbose_name = "domain"
 
-    def clean(self) -> None:
+    def _validate_identity_provider_config_organization(self) -> dict[str, str]:
         # A linked IdP config must belong to the same organization as the domain. Without this,
         # an admin could link a domain to another org's config and have that org's IdP settings
         # exposed on this domain (SCIM/ID-JAG auth resolve through `self.idp_config`).
@@ -266,9 +266,22 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
                 errors["identity_provider_config"] = (
                     "IdP configuration must belong to the same organization as the domain."
                 )
+        return errors
+
+    def clean(self) -> None:
+        errors = self._validate_identity_provider_config_organization()
         if errors:
             raise ValidationError(errors)
         super().clean()
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # `clean()` isn't called by plain `.save()`/`.objects.create()`, so this check has to be
+        # always-on here too — otherwise a direct ORM write (not going through a form/serializer)
+        # could silently persist a cross-organization IdP link.
+        errors = self._validate_identity_provider_config_organization()
+        if errors:
+            raise ValidationError(errors)
+        super().save(*args, **kwargs)
 
     @property
     def is_verified(self) -> bool:
