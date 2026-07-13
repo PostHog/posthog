@@ -16,6 +16,7 @@ class ProductDBRoute:
     app_label: str
     database: str
     source: str
+    optional: bool = False
 
     def routes_model(self, model: object) -> bool:
         model_meta = getattr(model, "_meta", None)
@@ -49,6 +50,7 @@ def load_product_db_routes(base_dir: Path | str) -> tuple[ProductDBRoute, ...]:
                 app_label=app_label,
                 database=database,
                 source=str(config_path),
+                optional=bool(route_config.get("optional", False)),
             )
         )
 
