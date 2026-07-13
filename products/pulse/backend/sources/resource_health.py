@@ -109,8 +109,6 @@ class ResourceHealthSource:
                 "subscription_id",
                 "subscription__title",
                 "subscription__prompt",
-                "subscription__insight__short_id",
-                "subscription__dashboard_id",
             )
             .annotate(failed_deliveries=Count("id"), last_failed_at=Max("created_at"))
             .order_by("-failed_deliveries")[:MAX_ITEMS_PER_DETECTOR]
@@ -125,13 +123,7 @@ class ResourceHealthSource:
                 or f"Subscription {row['subscription_id']}"
             )
             count = row["failed_deliveries"]
-            # Every subscription type (insight, dashboard, AI-prompt) gets a navigable link.
-            url = subscription_url(
-                team.id,
-                row["subscription_id"],
-                insight_short_id=row["subscription__insight__short_id"],
-                dashboard_id=row["subscription__dashboard_id"],
-            )
+            url = subscription_url(team.id, row["subscription_id"])
             items.append(
                 self._health_item(
                     title=f"Subscription '{label}' failed to deliver {count} time{'s' if count != 1 else ''}",
