@@ -1504,6 +1504,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        // Silent background refresh used when the overview paints instantly from the list
+        // cache on mount. Has its own loading key so it never triggers the page skeleton,
+        // while reconciling the flag (notably `active`) with the server — otherwise a stale
+        // cached `active` can make the toggle and its confirmation dialog contradict the
+        // flag's real state.
+        featureFlagRefresh: [
+            null as FeatureFlagType | null,
+            {
+                refreshFeatureFlag: async () => {
+                    if (!props.id || props.id === 'new' || props.id === 'link') {
+                        return null
+                    }
+                    const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
+                    return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
+                },
+            },
+        ],
         relatedInsights: [
             [] as QueryBasedInsightModel[],
             {
@@ -1995,6 +2012,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setFeatureFlag(syncedFlag)
                 actions.updateFlag(syncedFlag)
                 refreshTreeItem('feature_flag', String(flagId))
+            }
+        },
+        refreshFeatureFlagSuccess: ({ featureFlagRefresh }) => {
+            // Reconcile the cache-painted flag with the freshly fetched server state, and keep
+            // the list cache in sync so the two views agree.
+            if (featureFlagRefresh) {
+                actions.setFeatureFlag(featureFlagRefresh)
+                actions.updateFlag(featureFlagRefresh)
             }
         },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
@@ -2875,6 +2900,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadRelatedInsights()
             actions.loadFeatureFlagStatus()
             actions.loadDependentFlags()
+            // Paint instantly from the list cache above, then silently reconcile with the
+            // server: the cached `active` can be stale (toggled elsewhere since the list
+            // loaded), which otherwise leaves the overview toggle and its confirmation
+            // dialog reflecting the wrong state.
+            actions.refreshFeatureFlag()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
