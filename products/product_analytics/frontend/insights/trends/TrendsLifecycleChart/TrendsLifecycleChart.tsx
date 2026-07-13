@@ -96,6 +96,10 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         [trendsFilter, baseCurrency]
     )
 
+    // Dormant counts are emitted negative so they stack below the zero baseline, but the tooltip
+    // shows the magnitude — the "Dormant" label already carries the direction.
+    const renderTooltipCount = useCallback((value: number) => formatValue(Math.abs(value)), [formatValue])
+
     const valueLabelFormatter = useMemo(
         () =>
             buildLifecycleValueLabelFormatter(formatValue, {
@@ -198,6 +202,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 baseCurrency,
                 groupTypeLabel: 'Users' as const,
                 renderSeriesOverride: renderLifecycleSeriesLabel,
+                renderCount: renderTooltipCount,
             }
             const onRowClick = canHandleClick
                 ? (datum: SeriesDatum) => {
@@ -219,6 +224,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             trendsFilter,
             formula,
             baseCurrency,
+            renderTooltipCount,
             quillTooltipEnabled,
             canHandleClick,
             clickDeps,
