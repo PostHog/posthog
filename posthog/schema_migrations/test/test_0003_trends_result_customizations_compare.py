@@ -63,6 +63,17 @@ def test_value_mode_merges_compare_entries(compare, result_customizations, expec
     assert migration.transform(query)["trendsFilter"]["resultCustomizations"] == expected
 
 
+def test_value_mode_compare_to_without_compare_is_compare_off():
+    # compare_to alone never enables comparison (runners and UI gate on compare being
+    # true), so the unlabelled entry is the one in effect and must win
+    migration = _get_migration()
+    query = _trends_query(
+        {BASE_KEY: BASE_ENTRY, CURRENT_KEY: CURRENT_ENTRY},
+        compareFilter={"compare_to": "-1w"},
+    )
+    assert migration.transform(query)["trendsFilter"]["resultCustomizations"] == {BASE_KEY: BASE_ENTRY}
+
+
 def test_value_mode_preserves_breakdown_key_bytes():
     migration = _get_migration()
     labelled_key = '{"series":1,"breakdown_value":["Ö",null,1],"compare_label":"current"}'
