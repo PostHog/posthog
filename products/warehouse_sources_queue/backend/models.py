@@ -82,6 +82,11 @@ class SourceBatch(UUIDModel):
                 name="sb_schema_busy_idx",
                 condition=models.Q(latest_state="executing"),
             ),
+            models.Index(
+                fields=["team_id", "schema_id", "created_at"],
+                name="sb_schema_order_idx",
+                condition=models.Q(latest_state__in=["pending", "waiting", "waiting_retry", "executing"]),
+            ),
         ]
 
 

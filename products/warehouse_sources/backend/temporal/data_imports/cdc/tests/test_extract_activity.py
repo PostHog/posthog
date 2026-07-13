@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
+    CDC_BACKPRESSURE_MAX_PENDING_AGE,
     CDC_BACKPRESSURE_STUCK_AGE,
     CDC_MAX_CHANGES_PER_READ,
     CDC_ORPHAN_JOB_MIN_AGE,
@@ -327,13 +328,17 @@ class TestBackpressureGuard:
         "age_seconds,expect_skip,expect_stuck",
         [
             (None, False, None),
-            (30.0, True, False),
+            # Below the valve the tick proceeds even with a pending backlog — the
+            # loader's claim-side ordering gate owns cross-run correctness now.
+            (30.0, False, None),
+            (CDC_BACKPRESSURE_MAX_PENDING_AGE.total_seconds() - 1, False, None),
+            (CDC_BACKPRESSURE_MAX_PENDING_AGE.total_seconds() + 1, True, False),
             (CDC_BACKPRESSURE_STUCK_AGE.total_seconds() + 1, True, True),
         ],
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.metrics.get_tick_skipped_metric")
     @patch("psycopg.Connection.connect")
-    def test_skips_only_while_previous_batches_pend(
+    def test_skips_only_when_backlog_age_exceeds_valve(
         self, mock_connect, mock_metric, age_seconds, expect_skip, expect_stuck
     ):
         act = self._activity()
@@ -359,7 +364,11 @@ class TestBackpressureGuard:
         with (
             patch.object(act, "_setup", return_value=True),
             patch.object(act, "_mark_schemas_running") as mark_running,
-            patch.object(BatchQueue, "get_oldest_non_terminal_batch_age_seconds", return_value=42.0),
+            patch.object(
+                BatchQueue,
+                "get_oldest_non_terminal_batch_age_seconds",
+                return_value=CDC_BACKPRESSURE_MAX_PENDING_AGE.total_seconds() + 1,
+            ),
         ):
             act.run()
 
