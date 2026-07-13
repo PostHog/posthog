@@ -7,7 +7,7 @@ from django.utils import timezone
 from posthog.models.team import Team
 
 from products.annotations.backend.models import Annotation
-from products.pulse.backend.config import MAX_ANNOTATIONS
+from products.pulse.backend.config import BriefSettings
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 
@@ -23,6 +23,7 @@ class AnnotationsSource:
 
     def gather(self, team: Team, config: BriefConfig | None, lookback_days: int) -> list[SourceItem]:
         now = timezone.now()
+        max_annotations = BriefSettings.from_config(config).max_annotations
         # Visibility matches the annotations AI-context path (team + same-org). Scope is deliberately
         # unrestricted, unlike get_annotations_for_ai_context (which defaults to PROJECT/ORGANIZATION):
         # a brief has no single insight/dashboard target, so every team-owned annotation is a valid
@@ -36,7 +37,7 @@ class AnnotationsSource:
             .exclude(content="")
             .annotate(effective_date=Coalesce(F("date_marker"), F("created_at")))
             .filter(effective_date__gte=now - timedelta(days=lookback_days), effective_date__lte=now)
-            .order_by("-effective_date")[:MAX_ANNOTATIONS]
+            .order_by("-effective_date")[:max_annotations]
         )
         items: list[SourceItem] = []
         for annotation in annotations:
