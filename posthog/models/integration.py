@@ -3562,15 +3562,16 @@ def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: st
     batch exports; see `get_credentials_using_user_aws_role` in
     `s3_batch_export.py`.
     """
-    same_aws_role_integrations = (
+    has_same_aws_role_integrations = (
         Integration.objects.select_related("team__organization")
         .filter(
             kind=Integration.IntegrationKind.AWS_S3,
             config__aws_role_arn=aws_role_arn,
         )
         .exclude(team__organization_id=organization_id)
-    )
-    for _ in same_aws_role_integrations:
+    ).exists()
+
+    if has_same_aws_role_integrations:
         return False
 
     return True
