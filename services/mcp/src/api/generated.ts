@@ -12486,32 +12486,6 @@ export namespace Schemas {
       failing_workflows?: string[];
     }
 
-    /**
-     * * `evaluation` - evaluation
-     * * `definitions` - definitions
-     * * `definitions_no_cohorts` - definitions_no_cohorts
-     */
-    export type CacheEnum = typeof CacheEnum[keyof typeof CacheEnum];
-
-
-    export const CacheEnum = {
-      Evaluation: 'evaluation',
-      Definitions: 'definitions',
-      DefinitionsNoCohorts: 'definitions_no_cohorts',
-    } as const;
-
-    /**
-     * * `evaluation` - evaluation
-     * * `definitions` - definitions
-     */
-    export type CachesEnum = typeof CachesEnum[keyof typeof CachesEnum];
-
-
-    export const CachesEnum = {
-      Evaluation: 'evaluation',
-      Definitions: 'definitions',
-    } as const;
-
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
       value: number;
@@ -55925,6 +55899,18 @@ export namespace Schemas {
     export type StaffCacheEntryResponseData = { [key: string]: unknown } | null;
 
     /**
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     */
+    export type StaffCacheKindEnum = typeof StaffCacheKindEnum[keyof typeof StaffCacheKindEnum];
+
+
+    export const StaffCacheKindEnum = {
+      Evaluation: 'evaluation',
+      Definitions: 'definitions',
+    } as const;
+
+    /**
      * * `redis` - redis
      * * `miss` - miss
      */
@@ -55942,9 +55928,8 @@ export namespace Schemas {
       /** Which cache this entry is for.
        *
        * * `evaluation` - evaluation
-       * * `definitions` - definitions
-       * * `definitions_no_cohorts` - definitions_no_cohorts */
-      cache: CacheEnum;
+       * * `definitions` - definitions */
+      cache: StaffCacheKindEnum;
       /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
        *
        * * `redis` - redis
@@ -55977,7 +55962,7 @@ export namespace Schemas {
          */
       team_ids: number[];
       /** Which logical caches to act on: 'evaluation' (the /flags cache) and/or 'definitions' (the /flags/definitions local-eval cache). Defaults to both. */
-      caches?: CachesEnum[];
+      caches?: StaffCacheKindEnum[];
     }
 
     export interface StaffCacheMutationResponse {
@@ -55992,10 +55977,8 @@ export namespace Schemas {
       team_id: number;
       /** Status of the /flags evaluation cache. */
       evaluation: StaffCacheEntryStatus;
-      /** Status of the /flags/definitions local-eval cache (with-cohorts variant). */
+      /** Status of the /flags/definitions local-eval cache. */
       definitions: StaffCacheEntryStatus;
-      /** Status of the /flags/definitions local-eval cache (without-cohorts variant, cohort filters transformed to properties for simple SDK clients). */
-      definitions_no_cohorts: StaffCacheEntryStatus;
     }
 
     export interface StaffCacheStatusResponse {
@@ -65804,11 +65787,10 @@ export namespace Schemas {
 
     export type FeatureFlagsStaffCacheEntryRetrieveParams = {
     /**
-     * Which cache to fetch: 'evaluation' (the /flags cache), 'definitions' (the /flags/definitions local-eval cache, with-cohorts variant), or 'definitions_no_cohorts' (the without-cohorts variant served to simple SDK clients).
+     * Which cache to fetch: 'evaluation' (the /flags cache) or 'definitions' (the /flags/definitions local-eval cache).
      *
      * * `evaluation` - evaluation
      * * `definitions` - definitions
-     * * `definitions_no_cohorts` - definitions_no_cohorts
      * @minLength 1
      */
     cache: FeatureFlagsStaffCacheEntryRetrieveCache;
@@ -65824,7 +65806,6 @@ export namespace Schemas {
     export const FeatureFlagsStaffCacheEntryRetrieveCache = {
       Evaluation: 'evaluation',
       Definitions: 'definitions',
-      DefinitionsNoCohorts: 'definitions_no_cohorts',
     } as const;
 
     export type FeatureFlagsStaffTeamConfigListParams = {
