@@ -64,6 +64,7 @@ DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 PI_IMAGE_NAME = "posthog-sandbox-pi"
 STREAMLIT_IMAGE_NAME = "posthog-sandbox-streamlit"
+SLIM_IMAGE_NAME = "posthog-sandbox-slim"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 # Streamlit sandboxes expose their auth proxy (not the agent-server) on this port; the
 # host-published port maps to it so connect_info can reach the app across processes.
@@ -196,6 +197,7 @@ class DockerSandbox(SandboxBase):
         image_name: str,
         dockerfile_path: str,
         build_args: dict[str, str] | None = None,
+        needs_skills: bool = True,
     ) -> None:
         """Build a sandbox image if it doesn't exist."""
         result = DockerSandbox._run(["docker", "images", "-q", image_name])
@@ -204,12 +206,13 @@ class DockerSandbox(SandboxBase):
 
         logger.info(f"Building {image_name} image (this may take a few minutes)...")
 
-        # Ensure the skills dist directory is populated so the Dockerfile's
-        # unconditional COPY picks up real content instead of an empty dir.
-        # In CI the directory is pre-populated by the release workflow; in
-        # local dev checkouts this triggers a cached build via
-        # hogli build:skills.
-        LocalSkillsCache().ensure_built()
+        if needs_skills:
+            # Ensure the skills dist directory is populated so the Dockerfile's
+            # unconditional COPY picks up real content instead of an empty dir.
+            # In CI the directory is pre-populated by the release workflow; in
+            # local dev checkouts this triggers a cached build via
+            # hogli build:skills.
+            LocalSkillsCache().ensure_built()
 
         argv = [
             "docker",
@@ -277,6 +280,16 @@ class DockerSandbox(SandboxBase):
             )
             DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
             return NOTEBOOK_IMAGE_NAME
+
+        # Slim ships its own standalone image (git + node + uv, no agent server, no skills)
+        # for review/exec sandboxes like stamphog — it never builds on the base image and
+        # never needs the skills dist, unlike the default/notebook/PI builds below.
+        if template == SandboxTemplate.SLIM_BASE:
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-slim"
+            )
+            DockerSandbox._build_image_if_needed(SLIM_IMAGE_NAME, dockerfile_path, needs_skills=False)
+            return SLIM_IMAGE_NAME
 
         # Streamlit ships its own standalone image (FROM python:3.11-slim with a `streamlit`
         # user + auth proxy), so it doesn't build on top of the base image like PI does.

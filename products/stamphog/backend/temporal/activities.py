@@ -45,7 +45,12 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_SANDBOX_ENGINE_DIR,
     STAMPHOG_SANDBOX_REPO_DIR,
 )
-from products.tasks.backend.facade.sandbox import SandboxBase, SandboxConfig, get_sandbox_class_for_backend
+from products.tasks.backend.facade.sandbox import (
+    SandboxBase,
+    SandboxConfig,
+    SandboxTemplate,
+    get_sandbox_class_for_backend,
+)
 
 # The Action's review engine on the server's own checkout. Read as data files at
 # runtime (never imported — the directory is hyphenated and lives outside the
@@ -174,6 +179,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
     config = SandboxConfig(
         name=f"stamphog-review-{run.id}",
+        template=SandboxTemplate.SLIM_BASE,
         metadata={"review_run_id": str(run.id)},
         environment_variables=_reviewer_environment(),
     )
