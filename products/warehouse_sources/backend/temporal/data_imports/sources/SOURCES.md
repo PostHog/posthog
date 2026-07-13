@@ -198,6 +198,7 @@ the row lists both.
 | guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
 | harvey                  | HTTP                        | requests                                                        | ✅                          |
+| healthchecks            | HTTP                        | requests                                                        | ✅                          |
 | height                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
@@ -585,7 +586,6 @@ doesn't conflict with concurrent PRs.
 - harness
 - harvey
 - hatchet
-- healthchecks
 - heap
 - helicone
 - helpscout
