@@ -162,6 +162,16 @@ export const ComparePrevious: Story = {
     },
 }
 
+// The "Detailed results" table below an insight renders as a legend (not isMainInsightView).
+// With a single series + breakdown, the breakdown value replaces the series column, so the
+// current/previous compare tag must still appear on each row.
+export const CompareLegend: Story = {
+    render: renderCompareInsightsTable,
+    args: {
+        isLegend: true,
+    },
+}
+
 // A HogQL breakdown expression that is far too long to fit in a column. The header should be clipped
 // with an ellipsis rather than overflowing into neighbouring columns.
 const LONG_SQL_BREAKDOWN =
