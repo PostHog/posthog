@@ -477,7 +477,7 @@ def _create_multi_search_calls(expr: ast.Expr, value: list) -> list[ast.Call]:
 
 def _multi_search_found(expr: ast.Expr, value: list) -> ast.Expr:
     """Match when the haystack contains any needle, ORing per-chunk matches together."""
-    matches = [
+    matches: list[ast.Expr] = [
         ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=call, right=ast.Constant(value=0))
         for call in _create_multi_search_calls(expr, value)
     ]
@@ -486,7 +486,7 @@ def _multi_search_found(expr: ast.Expr, value: list) -> ast.Expr:
 
 def _multi_search_not_found(expr: ast.Expr, value: list) -> ast.Expr:
     """Match when the haystack contains none of the needles, ANDing per-chunk misses."""
-    misses = [
+    misses: list[ast.Expr] = [
         ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=call, right=ast.Constant(value=0))
         for call in _create_multi_search_calls(expr, value)
     ]
