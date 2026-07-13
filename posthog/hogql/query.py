@@ -1,6 +1,8 @@
+import logging
 import dataclasses
 from typing import ClassVar, Literal, Optional, Union, cast
 
+from clickhouse_driver.errors import ServerException
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -11,6 +13,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     HogQLQueryResponse,
     HogQLVariable,
+    MaterializationMode,
 )
 
 from posthog.hogql import ast
@@ -54,6 +57,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.materialized_columns import MATERIALIZED_COLUMN_NAME_PREFIXES
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -62,7 +66,13 @@ from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+# ClickHouse error codes raised when a query names a column/identifier the table doesn't have. A stale or
+# mid-propagation materialized-column cache surfaces as one of these, depending on where analysis fails.
+# THERE_IS_NO_COLUMN (8), NO_SUCH_COLUMN_IN_TABLE (16), UNKNOWN_IDENTIFIER (47).
+MISSING_COLUMN_CH_ERROR_CODES = frozenset({8, 16, 47})
 
 
 @dataclasses.dataclass
@@ -471,6 +481,10 @@ class HogQLQueryExecutor:
         if self.query_modifiers.forceClickhouseDataSkippingIndexes:
             settings.force_data_skipping_indices = self.query_modifiers.forceClickhouseDataSkippingIndexes
 
+        # `prepare_ast_for_printing` resolves and lowers `self.select_query` in place. Keep a pristine copy so we can
+        # regenerate the SQL (e.g. with materialization disabled) if execution hits a stale materialized column.
+        self._clickhouse_source_ast = clone_expr(self.select_query)
+
         try:
             self.clickhouse_context = dataclasses.replace(
                 self.context,
@@ -606,6 +620,63 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
+        try:
+            self._run_clickhouse_query()
+        except Exception as e:
+            if self._should_retry_without_materialization(e):
+                # A stale or mid-propagation materialized-column schema view produced SQL that reads a physical
+                # column (e.g. `mat_$current_url`) the target table doesn't actually have, which ClickHouse rejects
+                # as a missing column. Fall back to reading the property out of the JSON blob — identical results,
+                # just slower — so the query degrades gracefully instead of hard-failing.
+                logger.warning(
+                    "HogQL query referenced a missing materialized column; retrying without materialization",
+                    exc_info=e,
+                    extra={"team_id": self.team.pk, "query_type": self.query_type},
+                )
+                try:
+                    with self.timings.measure("clickhouse_retry_without_materialization"):
+                        self._regenerate_clickhouse_sql_without_materialization()
+                        self._run_clickhouse_query()
+                except Exception as retry_error:
+                    self._handle_clickhouse_query_error(retry_error)
+            else:
+                self._handle_clickhouse_query_error(e)
+
+        if self.debug and self.error is None:
+            clickhouse_context = self.clickhouse_context
+            assert clickhouse_context is not None
+            with self.timings.measure("explain"):
+                # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
+                explain_results = sync_execute(
+                    f"EXPLAIN {self.clickhouse_sql}",
+                    clickhouse_context.values,
+                    with_column_types=True,
+                    workload=self._effective_workload(clickhouse_context),
+                    team_id=self.team.pk,
+                    readonly=True,
+                    ch_user=self.ch_user,
+                    external_tables=list(clickhouse_context.external_tables.values()) or None,
+                )
+                self.explain = [str(r[0]) for r in explain_results[0]]
+            with self.timings.measure("metadata"):
+                from posthog.hogql.metadata import get_hogql_metadata
+
+                self.metadata = get_hogql_metadata(
+                    HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True),
+                    self.team,
+                    user=self.user,
+                    hogql_ast=self.select_query,
+                    prepared_ast=self.clickhouse_prepared_ast,
+                    printed_sql=self.clickhouse_sql,
+                )
+
+    def _effective_workload(self, clickhouse_context: HogQLContext) -> Workload:
+        workload = self.workload
+        if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
+            workload = clickhouse_context.workload
+        return workload
+
+    def _run_clickhouse_query(self) -> None:
         assert self.clickhouse_sql
         clickhouse_context = self.clickhouse_context
         assert clickhouse_context is not None
@@ -624,57 +695,46 @@ class HogQLQueryExecutor:
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
                 ),
             )
+            self.results, self.types = sync_execute(
+                self.clickhouse_sql,
+                clickhouse_context.values,
+                with_column_types=True,
+                workload=self._effective_workload(clickhouse_context),
+                team_id=self.team.pk,
+                readonly=True,
+                ch_user=self.ch_user,
+                external_tables=list(clickhouse_context.external_tables.values()) or None,
+            )
 
-            workload = self.workload
-            if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
-                workload = clickhouse_context.workload
+    def _handle_clickhouse_query_error(self, e: Exception) -> None:
+        if self.debug:
+            self.results = []
+            if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
+                self.error = str(e)
+            else:
+                self.error = "Unknown error"
+        else:
+            raise e
 
-            try:
-                self.results, self.types = sync_execute(
-                    self.clickhouse_sql,
-                    clickhouse_context.values,
-                    with_column_types=True,
-                    workload=workload,
-                    team_id=self.team.pk,
-                    readonly=True,
-                    ch_user=self.ch_user,
-                    external_tables=list(clickhouse_context.external_tables.values()) or None,
-                )
-            except Exception as e:
-                if self.debug:
-                    self.results = []
-                    if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
-                        self.error = str(e)
-                    else:
-                        self.error = "Unknown error"
-                else:
-                    raise
+    def _should_retry_without_materialization(self, e: Exception) -> bool:
+        """True when a query failed because it read a materialized column the target table doesn't have.
 
-        if self.debug and self.error is None:
-            with self.timings.measure("explain"):
-                # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
-                explain_results = sync_execute(
-                    f"EXPLAIN {self.clickhouse_sql}",
-                    clickhouse_context.values,
-                    with_column_types=True,
-                    workload=workload,
-                    team_id=self.team.pk,
-                    readonly=True,
-                    ch_user=self.ch_user,
-                    external_tables=list(clickhouse_context.external_tables.values()) or None,
-                )
-                self.explain = [str(r[0]) for r in explain_results[0]]
-            with self.timings.measure("metadata"):
-                from posthog.hogql.metadata import get_hogql_metadata
+        Only retries a missing-column ClickHouse error whose message names a physical materialized column
+        (`mat_`/`pmat_`/`dmat_string_`), and only when materialization was actually enabled — otherwise regenerating
+        the SQL would produce the same query and fail again.
+        """
+        if self.query_modifiers.materializationMode == MaterializationMode.DISABLED:
+            return False
+        if not isinstance(e, ServerException) or e.code not in MISSING_COLUMN_CH_ERROR_CODES:
+            return False
+        message = str(getattr(e, "message", None) or e)
+        return any(prefix in message for prefix in MATERIALIZED_COLUMN_NAME_PREFIXES)
 
-                self.metadata = get_hogql_metadata(
-                    HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True),
-                    self.team,
-                    user=self.user,
-                    hogql_ast=self.select_query,
-                    prepared_ast=self.clickhouse_prepared_ast,
-                    printed_sql=self.clickhouse_sql,
-                )
+    def _regenerate_clickhouse_sql_without_materialization(self) -> None:
+        """Re-print the ClickHouse SQL with materialization disabled, so every property reads from the JSON blob."""
+        self.query_modifiers.materializationMode = MaterializationMode.DISABLED
+        self.select_query = clone_expr(self._clickhouse_source_ast)
+        self._generate_clickhouse_sql()
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:

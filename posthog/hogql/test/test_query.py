@@ -5,7 +5,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    cleanup_materialized_columns,
+    flush_persons_and_events,
+)
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -35,7 +42,9 @@ from posthog.hogql.test.utils import (
     pretty_print_response_in_tests,
 )
 
+from posthog.clickhouse.client import sync_execute
 from posthog.errors import InternalCHQueryError
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -46,6 +55,8 @@ from products.cohorts.backend.models.util import recalculate_cohortpeople
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -781,6 +792,39 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 pretty=False,
             )
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
+
+    def test_materialized_column_missing_from_table_falls_back_to_json(self):
+        # A stale / mid-propagation introspection cache promises a materialized column the events table doesn't
+        # actually have, so HogQL emits `mat_$current_url` and ClickHouse raises UNKNOWN_IDENTIFIER. The query must
+        # degrade gracefully by rereading the property from the JSON blob instead of failing the whole request.
+        self.addCleanup(cleanup_materialized_columns)
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"$current_url": "https://example.com/"},
+        )
+        flush_persons_and_events()
+
+        column_name = materialize("events", "$current_url").name
+
+        query = "select properties.$current_url from events where event = '$pageview'"
+
+        # Warm the introspection cache while the column exists; the read resolves to the materialized column.
+        warm = execute_hogql_query(query, team=self.team, pretty=False)
+        assert warm.results == [("https://example.com/",)]
+        assert column_name in (warm.clickhouse or "")
+
+        # Drop the physical column behind the cache's back, so the cached schema now lags the real table.
+        for table in ("events", EVENTS_DATA_TABLE()):
+            sync_execute(f"ALTER TABLE {table} DROP COLUMN IF EXISTS `{column_name}`", settings={"alter_sync": 2})
+
+        # The cache still promises the column, so resolution emits it again — execution now fails and must retry
+        # against the JSON blob, returning the same value.
+        fallback = execute_hogql_query(query, team=self.team, pretty=False)
+        assert fallback.results == [("https://example.com/",)]
+        assert column_name not in (fallback.clickhouse or "")
+        assert "JSONExtract" in (fallback.clickhouse or "")
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_with_property_not_materialized(self):
