@@ -182,6 +182,8 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         start_date=resolved.start_date,
         end_date=resolved.end_date,
         lookback_days=resolved.lookback_days,
+        # Past suggestions the team engaged with — steers relevance, same list we persist for the panel.
+        status_lines=status_lines,
     )
     await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
         brief=brief, out=out, items=items, status_lines=status_lines
