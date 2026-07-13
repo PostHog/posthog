@@ -139,7 +139,7 @@ def _fetch(
 
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     """Confirm the org access token is genuine with one cheap probe against the apps list."""
-    url = _build_url("/v2/apps", {"limit": 1})
+    url = _require_deno_deploy_url(_build_url("/v2/apps", {"limit": 1}))
     try:
         response = _make_session(access_token).get(url, headers=_get_headers(access_token), timeout=10)
     except requests.exceptions.RequestException as e:
