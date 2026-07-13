@@ -1936,6 +1936,7 @@ class ExternalDataSourceType(StrEnum):
     VULTR = "Vultr"
     WINDMILL = "Windmill"
     ZEP = "Zep"
+    HEX = "Hex"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2569,6 +2570,14 @@ class MetricsFilterOp(StrEnum):
     NOT_REGEX = "not_regex"
 
 
+class MetricsOtelType(StrEnum):
+    GAUGE = "gauge"
+    SUM = "sum"
+    HISTOGRAM = "histogram"
+    EXPONENTIAL_HISTOGRAM = "exponential_histogram"
+    SUMMARY = "summary"
+
+
 class MultiQuestionFormFieldType(StrEnum):
     TEXT = "text"
     NUMBER = "number"
@@ -2781,6 +2790,10 @@ class ProductIntentContext(StrEnum):
     LOGS_SET_FILTERS = "logs_set_filters"
     LOGS_SETTINGS_OPENED = "logs_settings_opened"
     METRICS_DOCS_VIEWED = "metrics_docs_viewed"
+    METRICS_VIEWER_QUERY_RUN = "metrics_viewer_query_run"
+    METRICS_SQL_QUERY_RUN = "metrics_sql_query_run"
+    METRICS_QUERY_SAVED = "metrics_query_saved"
+    METRICS_FIRST_INGESTED = "metrics_first_ingested"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -3392,6 +3405,7 @@ class TaxonomicFilterGroupType(StrEnum):
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
+    MCP_PROPERTIES = "mcp_properties"
     MAX_AI_CONTEXT = "max_ai_context"
     WORKFLOW_VARIABLES = "workflow_variables"
     SUGGESTED_FILTERS = "suggested_filters"

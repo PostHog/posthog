@@ -8,8 +8,8 @@
  * Everything else operates on the returned plain-object context, so swapping
  * kea for direct API calls later is a single-file change.
  */
-import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
 
 import {
     AllowedProperties,
@@ -23,12 +23,14 @@ import {
 } from 'lib/components/TaxonomicFilter/utils/buildGroupAnalyticsGroups'
 import { BuildTaxonomicGroupsContext } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { distinctPrimaryPropertiesForEvents } from 'lib/utils/events'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
 
@@ -40,6 +42,8 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
  */
 export interface UseTaxonomicGroupsContextInput {
     eventNames?: string[]
+    /** Requested group types — read by group definitions that adapt to which tabs are present. */
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     schemaColumns?: DatabaseSchemaField[]
     schemaColumnsLoading?: boolean
     metadataSource?: AnyDataNode
@@ -73,6 +77,31 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
     useValues(joinsLogic)
     const { eventMetadataPropertyDefinitions, personMetadataPropertyDefinitions } = useValues(propertyDefinitionsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { primaryProperties } = useValues(primaryEventPropertiesModel)
+    const { ensureLoadedForEvents } = useActions(primaryEventPropertiesModel)
+
+    // Mirrors taxonomicFilterLogic's afterMount/propsChanged: fetch any
+    // team-configured primary-property overrides for the events in context.
+    // Content-keyed like the ctx memo below — consumers pass fresh array
+    // literals per render, and ensureLoadedForEvents shouldn't refire for a
+    // referentially-new-but-equal list.
+    const eventNames = input.eventNames
+    const eventNamesKey = JSON.stringify(eventNames ?? [])
+    useEffect(() => {
+        if (eventNames?.length) {
+            ensureLoadedForEvents(eventNames)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [eventNamesKey, ensureLoadedForEvents])
+
+    // Mirrors the `eventNamesWithPrimaryProperties` selector in
+    // taxonomicFilterLogic: the distinct promoted properties for the events in
+    // context (taxonomy default first, then team override).
+    const promotedPropertiesForContextEvents = useMemo(
+        () => distinctPrimaryPropertiesForEvents(eventNames ?? [], primaryProperties),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [eventNamesKey, primaryProperties]
+    )
 
     return useMemo<BuildTaxonomicGroupsContext>(() => {
         const propertyFilters = {
@@ -106,6 +135,8 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
                 aggregationLabel
             ),
             eventNames: input.eventNames ?? (EMPTY_ARRAY as unknown as string[]),
+            taxonomicGroupTypes: input.taxonomicGroupTypes,
+            promotedPropertiesForContextEvents,
             schemaColumns: input.schemaColumns ?? (EMPTY_ARRAY as unknown as DatabaseSchemaField[]),
             schemaColumnsLoading: input.schemaColumnsLoading,
             metadataSource: input.metadataSource ?? DEFAULT_METADATA_SOURCE,
@@ -131,7 +162,14 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         eventMetadataPropertyDefinitions,
         personMetadataPropertyDefinitions,
         featureFlags,
-        input.eventNames,
+        promotedPropertiesForContextEvents,
+        // Content-keyed: consumers pass fresh array literals per render. The legacy logic
+        // stabilizes the same props differently — reference-equality inputs with objectsEqual
+        // on the selector result (see eventNamesWithPrimaryProperties) — same end effect.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        JSON.stringify(input.eventNames),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        JSON.stringify(input.taxonomicGroupTypes),
         input.schemaColumns,
         input.schemaColumnsLoading,
         input.metadataSource,

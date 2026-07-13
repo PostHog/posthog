@@ -427,6 +427,7 @@ class TestHandleFollowup:
         assert workflow._task_completed is True
         assert workflow._completion_status == "failed"
         assert workflow._completion_error == "Follow-up delivery failed: sandbox is dead"
+        assert workflow._completion_error_type == "followup_delivery_failed"
         ack = workflow._pending_outbound[-1]
         assert ack.target_signal == PARENT_ACK_SIGNAL
         assert ack.args[0] == "send_followup_message"
@@ -459,6 +460,7 @@ class TestHandleFollowup:
         assert workflow._task_completed is True
         assert workflow._completion_status == "failed"
         assert workflow._completion_error == "Follow-up delivery failed: send_followup failed: sandbox unreachable"
+        assert workflow._completion_error_type == "followup_delivery_failed"
         ack = workflow._pending_outbound[-1]
         assert ack.args[3] == "send_followup failed: sandbox unreachable"
 
@@ -688,6 +690,7 @@ class TestRun:
             "failed",
             error_message="database connection closed",
             run_id="run-id",
+            error_type="RuntimeError",
         )
         # A terminal completion signal is enqueued even on failure paths so
         # the orchestrator never waits indefinitely on a silent child.
@@ -934,7 +937,7 @@ class TestRunStatusTransitions:
             update_status_mock.assert_not_awaited()
         else:
             status, message = expected_call
-            update_status_mock.assert_awaited_once_with(status, error_message=message)
+            update_status_mock.assert_awaited_once_with(status, error_message=message, error_type=None)
 
 
 class TestCompletionStatusOnExceptionPaths:

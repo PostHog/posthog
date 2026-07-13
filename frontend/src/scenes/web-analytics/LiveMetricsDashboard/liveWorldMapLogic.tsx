@@ -3,6 +3,8 @@ import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 
+import type { DisposablesManager } from '~/kea-disposables'
+
 import { CountryBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import type { liveWorldMapLogicType } from './liveWorldMapLogicType'
 
@@ -175,9 +177,6 @@ export const liveWorldMapLogic = kea<liveWorldMapLogicType>([
             cache.prevCounts = {}
             cache.lastActivity = {}
         },
-        beforeUnmount: () => {
-            stopHeatInterval(cache as HeatCache)
-        },
     })),
 ])
 
@@ -198,8 +197,10 @@ function computeHeat(lastActivity: Record<string, number>): Record<string, numbe
 
 interface HeatCache {
     lastActivity: Record<string, number>
-    heatInterval: ReturnType<typeof setInterval> | null
+    disposables: DisposablesManager
 }
+
+const HEAT_INTERVAL_KEY = 'heatInterval'
 
 // Only run the heat decay interval while there are active heat values.
 // Stops automatically when all heat has decayed to 0.
@@ -207,23 +208,23 @@ function startHeatInterval(
     cache: HeatCache,
     actions: { setCountryHeat: (heat: Record<string, number>) => void }
 ): void {
-    if (cache.heatInterval) {
+    if (cache.disposables.registry.has(HEAT_INTERVAL_KEY)) {
         return
     }
-    cache.heatInterval = setInterval(() => {
-        const heat = computeHeat(cache.lastActivity || {})
-        if (Object.keys(heat).length === 0) {
-            stopHeatInterval(cache as HeatCache)
-            actions.setCountryHeat({})
-            return
-        }
-        actions.setCountryHeat(heat)
-    }, HEAT_UPDATE_INTERVAL_MS)
+    cache.disposables.add(() => {
+        const intervalId = setInterval(() => {
+            const heat = computeHeat(cache.lastActivity || {})
+            if (Object.keys(heat).length === 0) {
+                stopHeatInterval(cache)
+                actions.setCountryHeat({})
+                return
+            }
+            actions.setCountryHeat(heat)
+        }, HEAT_UPDATE_INTERVAL_MS)
+        return () => clearInterval(intervalId)
+    }, HEAT_INTERVAL_KEY)
 }
 
 function stopHeatInterval(cache: HeatCache): void {
-    if (cache.heatInterval) {
-        clearInterval(cache.heatInterval)
-        cache.heatInterval = null
-    }
+    cache.disposables.dispose(HEAT_INTERVAL_KEY)
 }

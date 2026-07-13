@@ -9,7 +9,7 @@ import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { selectExistingFeatureFlagModalLogic } from '../ExperimentForm/selectExistingFeatureFlagModalLogic'
 import type { FeatureFlagKeyValidation } from '../ExperimentForm/variantsPanelLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
-import { getExperimentVariants } from '../utils'
+import { getExperimentVariants, getFlagVariants } from '../utils'
 import type { experimentWizardLogicType } from './experimentWizardLogicType'
 
 export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'
@@ -274,7 +274,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                     actions.setLinkedFeatureFlag(match)
                     actions.setFeatureFlagConfig({
                         feature_flag_key: match.key,
-                        variants: match.filters?.multivariate?.variants || [],
+                        variants: getFlagVariants(match),
                     })
                 }
             }

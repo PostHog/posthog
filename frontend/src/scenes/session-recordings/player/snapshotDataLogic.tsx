@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { keyForSource } from '@posthog/replay-shared'
-import { SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
+import { SnapshotSourceType, SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
 import api, { RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
@@ -18,7 +18,6 @@ import {
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
-    SnapshotSourceType,
 } from '~/types'
 
 import { SeekTarget, planNextBatch } from './snapshot-store/planNextBatch'
@@ -50,6 +49,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     actions({
         setSnapshots: (snapshots: RecordingSnapshot[]) => ({ snapshots }),
         loadSnapshots: true,
+        // Terminal: a source kept failing to load and retries are exhausted. Distinct from the
+        // per-attempt loadSnapshotsForSourceFailure so the player can show an error even when other
+        // sources already loaded (otherwise seeks into the missing range buffer forever).
+        snapshotSourceLoadExhausted: true,
         loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
         loadNextSnapshotSource: true,
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
@@ -135,7 +138,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, headers)
 
                     if (!response || !response.sources) {
-                        return []
+                        // A null/malformed body is a failed load, not a recording with no sources —
+                        // returning [] here would silently dead-end with no error and no polling.
+                        throw new Error('Malformed response listing snapshot sources')
                     }
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
 
@@ -378,6 +383,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSourceFailure: async (_, breakpoint) => {
             cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
             if (cache.loadFailureCount > 3) {
+                // Give up loudly: nothing else retries this source, so without a terminal action the
+                // player would buffer forever whenever playback reaches the missing range.
+                actions.snapshotSourceLoadExhausted()
                 return
             }
             await breakpoint(cache.loadFailureCount * 2000)

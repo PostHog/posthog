@@ -143,11 +143,24 @@ class TestSafeDateLoader:
             (b"-0044-03-15", date.min),
             (b"0000-01-01", date.min),
             (b"0044-03-15 BC", date.min),
+            # duckdb/duckgres render `date` in text mode with a trailing time component; the
+            # date portion must survive rather than falling through to a fabricated 9999-12-31.
+            (b"2022-04-01 00:00:00", date(2022, 4, 1)),
+            (b"2022-04-01T00:00:00", date(2022, 4, 1)),
+            (b"2022-04-01 00:00:00+00", date(2022, 4, 1)),
+            (b"  2024-01-15  ", date(2024, 1, 15)),
             (None, None),
         ],
     )
     def test_load_dates(self, loader, input_data, expected):
         assert loader.load(input_data) == expected
+
+    @pytest.mark.parametrize("input_data", [b"04/01/2022", b"not-a-date", b"20220401"])
+    def test_unparseable_dates_raise_instead_of_clamping(self, loader, input_data):
+        # A silent clamp to date.max corrupts the whole column with a real-looking date;
+        # an unparseable value must surface as a loud sync failure instead.
+        with pytest.raises(ValueError):
+            loader.load(input_data)
 
 
 class TestSafeTimestampLoader:
@@ -1190,6 +1203,12 @@ class TestIsConnectionDroppedError:
             # retrying internally. Same transient pooler class as EDBHANDLEREXITED; recovers on
             # reconnect once a session returns a connection to the pool.
             psycopg.errors.InternalError_("(ECHECKOUTRETRIES) failed to check out a connection after multiple retries"),
+            # Transaction-mode sibling of ECHECKOUTRETRIES: Supavisor couldn't check out a backend
+            # from the pool before its checkout timeout elapsed. Same transient pooler-saturation
+            # class, also an XX000 InternalError_, matched on the "(ECHECKOUTTIMEOUT)" code.
+            psycopg.errors.InternalError_(
+                "(ECHECKOUTTIMEOUT) unable to check out connection from the pool after 60000ms in Transaction mode"
+            ),
             # Supavisor loses the backend socket mid-session (idle cull, restart, failover) and, once
             # the client is past auth, surfaces it as an XX000 InternalError_ "Internal error
             # (authenticated): :closed" — ":closed" being the Erlang gen_tcp peer-closed reason. No
@@ -2707,6 +2726,27 @@ class TestValidateCredentialsErrorMapping:
                 "Your database connection pooler couldn't find the tenant or user. This usually means the "
                 "database project is paused or deleted, or the pooler username/host is wrong. Check that "
                 "your database is active and the connection details are correct.",
+            ),
+            # Supabase's transaction pooler (port 6543) rejects bad credentials during the
+            # SASL/SCRAM exchange rather than with libpq's "password authentication failed".
+            (
+                'connection failed: connection to server at "10.0.0.1", port 6543 failed: '
+                "FATAL:  SASL authentication failed",
+                'Your database rejected the credentials during authentication ("SASL '
+                'authentication failed"). This usually means the username or password is wrong. '
+                "Some connection poolers (for example Supabase's transaction pooler) also require a "
+                "pooler-specific username such as postgres.<project-ref>. Check your credentials "
+                "and try again.",
+            ),
+            # Supabase/Supavisor's shared pooler rejects a connection whose username carries no
+            # project ref with "(ENOIDENTIFIER) no tenant identifier provided".
+            (
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)",
+                "Your connection pooler couldn't identify your project (\"no tenant identifier "
+                'provided"). On the shared pooler host the username must include your project ref '
+                '(for example "postgres.<project-ref>"). Update the username to the pooler username '
+                "shown in your Supabase dashboard and try again.",
             ),
             # Invalid SSL-negotiation response — the host/port isn't a Postgres server speaking SSL.
             (
