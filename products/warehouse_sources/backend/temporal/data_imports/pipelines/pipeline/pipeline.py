@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     cdp_producer_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
+    handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     reset_rows_synced_if_needed,
     run_pre_write_defensive_compact,
@@ -42,7 +43,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     notify_revenue_analytics_that_sync_has_completed,
     supports_partial_data_loading,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    sync_engineering_analytics_views,
+    sync_revenue_analytics_views,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
@@ -233,6 +237,10 @@ class PipelineNonDLT(Generic[ResumableData]):
             py_table = None
             row_count = 0
             chunk_index = 0
+
+            # Revive a corrupt-`_delta_log` table (from an interrupted repartition swap or OOM-crashed
+            # merge) before extraction so it self-heals in this run instead of looping forever.
+            await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
 
             await handle_reset_or_full_refresh(
                 self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
@@ -546,6 +554,9 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         await self._logger.adebug("Syncing revenue analytics views")
         await database_sync_to_async_pool(sync_revenue_analytics_views)(self._schema, self._source)
+
+        await self._logger.adebug("Syncing engineering analytics views")
+        await database_sync_to_async_pool(sync_engineering_analytics_views)(self._schema, self._source)
 
 
 def _estimate_size(obj: Any) -> int:

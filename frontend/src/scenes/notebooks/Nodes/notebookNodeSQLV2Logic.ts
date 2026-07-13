@@ -1,14 +1,49 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
+import { collectPythonKernelNodes, collectSqlV2Nodes } from './notebookNodeContent'
 import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import type { notebookNodeSQLV2LogicType } from './notebookNodeSQLV2LogicType'
 
+export type SqlV2RunRef = {
+    node_id: string
+    // 'hogql' is a SQL node's query definition; 'local' is a dataframe a Python cell bound in
+    // the kernel namespace. The backend routes a SQL run to ClickHouse or the sandbox's DuckDB
+    // based on which kinds the query actually references.
+    kind: 'hogql' | 'local'
+}
+
+// Map every sibling cell's dataframe name -> {node id, kind}, excluding the running node itself.
+// SQLV2 siblings delegate to collectSqlV2Nodes so duplicate names get the same disambiguated
+// form the dependency graph shows (sql_df, sql_df_2, …) — raw attributes would let a later
+// duplicate silently shadow the node the user actually referenced. Python siblings contribute
+// their returnVariable verbatim (it IS the kernel variable); on a name collision the SQL ref
+// wins, since SQL names are already disambiguated in the UI and kernel variables are not.
+// The backend resolves each referenced hogql node to its last-run query — the frontend only
+// supplies the wiring.
+export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId: string): Record<string, SqlV2RunRef> {
+    const refs: Record<string, SqlV2RunRef> = {}
+    for (const node of collectSqlV2Nodes(doc)) {
+        if (node.nodeId && node.nodeId !== selfNodeId) {
+            refs[node.returnVariable] = { node_id: node.nodeId, kind: 'hogql' }
+        }
+    }
+    for (const node of collectPythonKernelNodes(doc)) {
+        if (node.nodeId && node.nodeId !== selfNodeId && !(node.returnVariable in refs)) {
+            refs[node.returnVariable] = { node_id: node.nodeId, kind: 'local' }
+        }
+    }
+    return refs
+}
+
 const POLL_INTERVAL_MS = 1000
-const MAX_POLL_ATTEMPTS = 150 // ~2.5 minutes at 1s
+// Must outlast the backend's own run budgets (180s data-plane poll deadline, 300s kernel
+// execute timeout) plus slack, or a slow-but-successful run gets reported as timed out.
+const MAX_POLL_ATTEMPTS = 330 // ~5.5 minutes at 1s
 
 export const SQL_V2_DEFAULT_PAGE_SIZE = 50
 
@@ -19,13 +54,22 @@ export type NotebookNodeSQLV2Page = {
     has_more: boolean
 }
 
+export interface RunQueryOptions {
+    nodeType?: 'hogql' | 'python'
+    outputName?: string
+}
+
 export interface NotebookNodeSQLV2LogicProps {
     nodeId: string
     notebookShortId: string
     // Current node attributes, so a fresh mount can recover an in-flight/finished run by its runId.
     runId?: string | null
     hasResult?: boolean
-    updateAttributes: (attrs: { runId?: string | null; result?: NotebookNodeSQLV2Result | null }) => void
+    updateAttributes: (attrs: {
+        nodeId?: string
+        runId?: string | null
+        result?: NotebookNodeSQLV2Result | null
+    }) => void
 }
 
 export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
@@ -40,7 +84,15 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         ],
     })),
     actions({
-        runQuery: (code: string) => ({ code }),
+        // refs maps each named sibling cell's dataframe name to {node id, kind}. A SQL node
+        // inlines referenced hogql refs as CTEs (Journey 3) — or runs locally in DuckDB when
+        // it references a local frame (Journey 5); a python node materializes the hogql refs
+        // its code reads as pandas frames (Journey 4).
+        runQuery: (code: string, refs: Record<string, SqlV2RunRef> = {}, opts: RunQueryOptions = {}) => ({
+            code,
+            refs,
+            opts,
+        }),
         startPolling: (runId: string) => ({ runId }),
         pollResult: (runId: string) => ({ runId }),
         stopPolling: true,
@@ -162,9 +214,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         return {
             setPage: loadCurrentPage,
             setPageSize: loadCurrentPage,
-            runQuery: async ({ code }) => {
+            runQuery: async ({ code, refs, opts }) => {
                 if (!code.trim()) {
-                    actions.setRunError('Query is empty — type some HogQL first.')
+                    actions.setRunError('Nothing to run — type some code first.')
                     actions.setIsRunning(false)
                     return
                 }
@@ -180,11 +232,17 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
                         node_id: props.nodeId,
                         code,
+                        refs,
+                        node_type: opts.nodeType,
+                        output_name: opts.outputName,
                     })
                     // Mark this as the active run so a still-in-flight poll from a previous run
                     // can't overwrite this result or stop this run's poller once it resolves.
                     cache.activeRunId = run_id
-                    props.updateAttributes({ runId: run_id, result: null })
+                    // Persisting nodeId pins the cell's identity: markdown-notebook cell ids are
+                    // content fingerprints otherwise, so without the pin any later prop change
+                    // would orphan this run's node_id and break refs to this cell.
+                    props.updateAttributes({ nodeId: props.nodeId, runId: run_id, result: null })
                     actions.startPolling(run_id)
                 } catch (error) {
                     actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')
@@ -231,6 +289,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                                       row_count: result.row_count ?? 0,
                                       first_page: result.first_page ?? [],
                                       has_more: result.has_more ?? false,
+                                      stdout: result.stdout ?? '',
+                                      stderr: result.stderr ?? '',
+                                      media: result.media ?? [],
                                   }
                                 : null,
                         })

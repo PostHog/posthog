@@ -614,18 +614,10 @@ export const insightVariablesDestroy = async (projectId: string, id: string, opt
     })
 }
 
-export const getLineageGetUpstreamRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/lineage/get_upstream/`
-}
-
-export const lineageGetUpstreamRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLineageGetUpstreamRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_analytics') => {
+export const getManagedViewsetsRetrieveUrl = (
+    projectId: string,
+    kind: 'revenue_analytics' | 'engineering_analytics'
+) => {
     return `/api/projects/${projectId}/managed_viewsets/${kind}/`
 }
 
@@ -635,7 +627,7 @@ export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_
  */
 export const managedViewsetsRetrieve = async (
     projectId: string,
-    kind: 'revenue_analytics',
+    kind: 'revenue_analytics' | 'engineering_analytics',
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getManagedViewsetsRetrieveUrl(projectId, kind), {
@@ -644,7 +636,7 @@ export const managedViewsetsRetrieve = async (
     })
 }
 
-export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics') => {
+export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics' | 'engineering_analytics') => {
     return `/api/projects/${projectId}/managed_viewsets/${kind}/`
 }
 
@@ -654,7 +646,7 @@ export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_an
  */
 export const managedViewsetsUpdate = async (
     projectId: string,
-    kind: 'revenue_analytics',
+    kind: 'revenue_analytics' | 'engineering_analytics',
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getManagedViewsetsUpdateUrl(projectId, kind), {

@@ -65,6 +65,15 @@ class PreviewBackend(abc.ABC):
     def provision(self) -> None:
         """Create/restore the box and expose ``web_port``. Idempotent."""
 
+    def attach(self) -> None:
+        """Bind to the EXISTING box for this preview WITHOUT restoring a new one —
+        the non-creating counterpart to ``provision``. Used by the deferred
+        frontend swap, which must act on the box ``bring_up`` already stood up.
+        Default: fall back to ``provision`` for layers where that's idempotent
+        reuse; the hogland layer overrides it (there ``provision`` restores a
+        fresh box, which a swap must never do)."""
+        self.provision()
+
     @abc.abstractmethod
     def exec(self, command: str, *, timeout: int = 120) -> ExecResult:
         """Run a shell command in the box and capture its output."""

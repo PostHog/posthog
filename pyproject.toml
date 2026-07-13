@@ -481,6 +481,7 @@ exclude = [
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
+    "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py",
 ]
 
 # ---------------------------------------------------------------------------
@@ -542,13 +543,16 @@ ignore_imports = [
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
+    "products.logs.backend.presentation.views.api -> products.logs.backend.column_expressions",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.group_by_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.has_logs_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_attributes_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_facet_values_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_values_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.logs_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.pattern_diff",
     "products.logs.backend.presentation.views.api -> products.logs.backend.patterns_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.services_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.sparkline_query_runner",
@@ -569,6 +573,7 @@ ignore_imports = [
     # directly. Thin it to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.activity_logging",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.analytics",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab_stream",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.kernel_runtime",
@@ -578,6 +583,7 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.python_analysis",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.query_validation",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_references",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",

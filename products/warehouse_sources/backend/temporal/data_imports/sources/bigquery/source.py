@@ -176,6 +176,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # rename it back, or remove it from the sync. Matched on the stable "Not found: Table"
             # wording rather than the volatile table id.
             "Not found: Table": "BigQuery couldn't find a table this source is syncing — it was deleted or renamed after the source was set up. Restore or rename the table in BigQuery, or remove it from this source's synced tables, then re-enable the source.",
+            # Raised from `bq_client.get_table(...)` in `_build_source_response` (and other calls) when
+            # the GCP project the source references no longer exists — it was deleted, or the Project ID
+            # in the service account key file (or the configured dataset project) is wrong. The google
+            # exception stringifies as "... Project <id> is not found. Make sure it references valid GCP
+            # project that hasn't been deleted.", which the table/dataset "Not found" keys don't cover, so
+            # it slips through and retries forever. Retrying can't conjure a missing project; the user
+            # must fix the project reference. Matched on the stable guidance wording rather than the
+            # volatile project id that appears earlier in the message.
+            "Make sure it references valid GCP project": "BigQuery couldn't find the Google Cloud project this source references — it may have been deleted, or the Project ID in your service account key file (or the configured dataset project) may be incorrect. Verify the project exists in Google Cloud and correct the project details in your source configuration, then reconnect the source.",
             # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
             # more than the three `project.dataset.table` components. This happens when the
             # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then

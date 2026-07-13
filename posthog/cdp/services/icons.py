@@ -27,6 +27,7 @@ class CDPIconsService:
                     "token": settings.LOGO_DEV_TOKEN,
                     "query": query,
                 },
+                timeout=10,
             )
             data = res.json() or []
 
@@ -52,6 +53,7 @@ class CDPIconsService:
             params={
                 "token": settings.LOGO_DEV_TOKEN,
             },
+            timeout=10,
         )
 
         return HttpResponse(res.content, content_type=res.headers["Content-Type"])

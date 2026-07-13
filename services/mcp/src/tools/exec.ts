@@ -7,6 +7,7 @@ import { ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
+import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
@@ -20,7 +21,7 @@ import {
 
 /** Upper bound on a `search` regex pattern — keeps a pathological pattern from
  *  forcing catastrophic backtracking against tool metadata. */
-const MAX_SEARCH_PATTERN_LENGTH = 200
+const MAX_SEARCH_PATTERN_LENGTH = 400
 
 /** Ranked (plain-word) search can match loosely on a common token like
  *  "create"; cap the returned names so a vague query can't dump the catalog. */
@@ -48,6 +49,14 @@ export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallP
 
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
+    helpCatalog?: ExecHelpCatalog
+    /**
+     * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
+     * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
+     * PostHog Code consumer: structuredContent suppressed toward the model, app data
+     * re-homed onto `_meta`. Computed from the client profile at the call site.
+     */
+    isInlineExecUiHost?: boolean
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -133,8 +142,7 @@ export function createExecInnerToolCallResolver(
 // guidance. A redirect only fires when the tool is absent, so an entry for a
 // conditionally-gated tool is inert whenever that tool is registered.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
-    // Disabled while `mcp-sql-schema-discovery` is on; the SQL information_schema
-    // path replaces it. See readDataWarehouseSchema.ts for the flag/TODO.
+    // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
     'read-data-warehouse-schema': () =>
         'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill for patterns.',
     'entity-search': () =>
@@ -184,6 +192,28 @@ export function formatInputValidationError(toolName: string, error: z.ZodError):
     return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
 }
 
+/** Whether the tool's input schema declares an `output_format` field. */
+function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
+    return schema instanceof z.ZodObject && 'output_format' in schema.shape
+}
+
+/**
+ * Exec mode owns output encoding through the `--json` call flag, so tools must
+ * not also advertise their `output_format` input — an agent passing
+ * `output_format: "json"` would make the handler skip the server-side formatter
+ * only for exec to TOON-encode the raw result anyway. `call` folds the flag back
+ * into the field for tools that have it (see the `call` verb), so hiding it here
+ * loses no capability.
+ */
+function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<string, unknown> {
+    const properties = jsonSchema.properties as Record<string, unknown> | undefined
+    if (!properties || !('output_format' in properties)) {
+        return jsonSchema
+    }
+    const { output_format: _omitted, ...rest } = properties
+    return { ...jsonSchema, properties: rest }
+}
+
 function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -225,6 +255,35 @@ export function createExecTool(
             const { verb, rest } = parseCommand(params.command)
 
             switch (verb) {
+                case 'learn': {
+                    const helpCatalog = options.helpCatalog
+                    if (!helpCatalog) {
+                        throw new Error('The learning catalog is not available for this client.')
+                    }
+                    if (!rest) {
+                        return JSON.stringify(helpCatalog.list())
+                    }
+                    const topicIds = [...new Set(rest.split(/\s+/))]
+                    const entries = topicIds.map((topicId) => helpCatalog.get(topicId))
+                    const unknownTopicIds = topicIds.filter((_, index) => entries[index] === undefined)
+                    if (unknownTopicIds.length > 0) {
+                        const available = helpCatalog
+                            .list()
+                            .map((item) => item.id)
+                            .join(', ')
+                        if (unknownTopicIds.length === 1) {
+                            throw new Error(`Unknown learning topic: "${unknownTopicIds[0]}". Available: ${available}`)
+                        }
+                        const unknownTopics = unknownTopicIds.map((topicId) => `"${topicId}"`).join(', ')
+                        throw new Error(`Unknown learning topics: ${unknownTopics}. Available: ${available}`)
+                    }
+                    const resolvedEntries = entries.filter((entry) => entry !== undefined)
+                    if (resolvedEntries.length === 1) {
+                        return resolvedEntries[0]!.content
+                    }
+                    return resolvedEntries.map((entry) => `## ${entry.title}\n\n${entry.content}`).join('\n\n')
+                }
+
                 case 'tools': {
                     return JSON.stringify(allTools.map((t) => t.name))
                 }
@@ -306,7 +365,13 @@ export function createExecTool(
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
                     const tool = findTool(allTools, infoArgs)
-                    const fullSchema = z.toJSONSchema(tool.schema)
+                    // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
+                    // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
+                    // are optional and auto-filled. The default `io: 'output'` would list them as
+                    // required, misrepresenting them as mandatory input the caller must supply.
+                    const fullSchema = stripOutputFormatProperty(
+                        z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
+                    )
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
@@ -343,7 +408,11 @@ export function createExecTool(
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
                     const schemaTool = findTool(allTools, schemaToolName)
-                    const fullJsonSchema = z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
+                    // See the `info` command: `io: 'input'` keeps this in sync with the advertised
+                    // schema and validation, so `.default()` fields aren't shown as required.
+                    const fullJsonSchema = stripOutputFormatProperty(
+                        z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
+                    )
 
                     if (!fieldPath) {
                         // The bare `schema <tool>` view is always a summary. Any
@@ -406,7 +475,25 @@ export function createExecTool(
                         }
                     }
 
-                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    // `output_format` is hidden from exec-mode schemas — `--json` owns output
+                    // encoding. Honor a stray `output_format: "json"` as `--json` instead of
+                    // letting the handler skip the formatter only for the result to be
+                    // TOON-encoded anyway.
+                    let strayOutputFormat: unknown
+                    if ('output_format' in input) {
+                        ;({ output_format: strayOutputFormat, ...input } = input)
+                    }
+                    const useJson =
+                        forceJson ||
+                        strayOutputFormat === 'json' ||
+                        tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    // Fold the flag back into the tool's own `output_format` field when it has
+                    // one: formatter-toggle tools then skip the server-side formatter (clean raw
+                    // JSON, no `__formatted_results_override` duplication), and tools where the
+                    // field is a real backend param (dashboard-insights-run) keep full function.
+                    if (useJson && schemaHasOutputFormat(tool.schema)) {
+                        input.output_format = 'json'
+                    }
 
                     // Same validation gate as the non-exec MCP path (`tool-executor.ts`) —
                     // otherwise bad input reaches the HTTP layer and builds URLs like
@@ -451,7 +538,8 @@ export function createExecTool(
                     // ride on the per-call response. Gated on the consumer because other
                     // single-exec callers (direct Claude Code, cline, Slack- and posthog_ai-launched
                     // runs, etc.) don't render UI apps — they should see plain text.
-                    if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
+                    const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
+                    if (tool._meta?.ui?.resourceUri && isInlineUiAppHost) {
                         const isStringResult = typeof result === 'string'
                         const distinctId = isStringResult ? undefined : await context.getDistinctId()
                         const payload = markExecPayload(
@@ -460,10 +548,13 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Consumer is the UI-apps host; keep `structuredContent` for the UI.
-                                // Passing `false` bypasses coding-agent suppression in
-                                // `buildToolResultPayload` because this path explicitly wants it.
-                                suppressStructuredContentForFormattedResults: false,
+                                // Inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork)
+                                // surface `structuredContent` to the model in preference to the
+                                // text content, which would bury the compact formatted table
+                                // under the raw JSON. Always re-home the UI app's data onto
+                                // `_meta` (see APP_DATA_META_KEY) so the model reads the optimized
+                                // table (or the TOON text when unformatted) and the chart still renders.
+                                forceUiDataToMeta: true,
                                 distinctId,
                                 includeUiResponseMeta: true,
                             })
@@ -508,7 +599,9 @@ export function createExecTool(
                 }
 
                 default:
-                    throw new Error(`Unknown command: "${verb}". Supported commands: tools, search, info, schema, call`)
+                    throw new Error(
+                        `Unknown command: "${verb}". Supported commands: ${options.helpCatalog ? 'learn, ' : ''}tools, search, info, schema, call`
+                    )
             }
         },
     }
