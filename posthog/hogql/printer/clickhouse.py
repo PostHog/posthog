@@ -213,15 +213,20 @@ class ClickHousePrinter(BasePrinter):
             if not has_tz_override:
                 args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
-            # If the datetime is in correct format, use optimal toDateTime, it's stricter but faster
-            # and it allows CH to use index efficiently.
+            # When the constant is in an exact date format, fast-path it to a strict
+            # parser: that lets ClickHouse fold it to a DateTime constant and prune by
+            # the partition/primary key. A constant that is NOT a recognized date (an
+            # unresolved variable, a breakdown sentinel, free text) must keep the
+            # null-tolerant parser — `toDateTime` maps to `parseDateTime64BestEffortOrNull`
+            # precisely so a bad value degrades to NULL. Promoting it to the strict
+            # `parseDateTime64BestEffort` instead would raise "Cannot read DateTime" at
+            # runtime and fail the whole query.
             if (
                 relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
                 and len(node.args) == 1
                 and isinstance(node.args[0], Constant)
                 and isinstance(node.args[0].type, StringType)
             ):
-                relevant_clickhouse_name = "parseDateTime64BestEffort"
                 pattern_with_microseconds_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$"
                 pattern_mysql_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
                 if re.match(pattern_with_microseconds_str, node.args[0].value):

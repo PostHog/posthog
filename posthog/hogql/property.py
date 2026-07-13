@@ -388,10 +388,10 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
 
     Absolute values are returned untouched. In particular, ISO 8601 strings with
     an explicit ``T``/``Z`` (e.g. ``2026-03-19T14:00:00Z``) are preserved so that
-    ClickHouse's ``parseDateTime64BestEffort`` — which honors the embedded offset
-    — can parse them to the correct UTC moment regardless of the team's timezone.
-    Stripping the ``Z`` and fast-pathing to ``toDateTime`` would silently reinterpret
-    the value in the team timezone and shift it by the offset.
+    ClickHouse's ``parseDateTime64BestEffortOrNull`` — which honors the embedded
+    offset — can parse them to the correct UTC moment regardless of the team's
+    timezone. Stripping the ``Z`` and fast-pathing to ``toDateTime`` would silently
+    reinterpret the value in the team timezone and shift it by the offset.
     """
     if not isinstance(value, str):
         return value

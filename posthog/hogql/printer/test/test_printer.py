@@ -2213,7 +2213,7 @@ class TestPrinter(BaseTest):
                 "SELECT now() as a, toDateTime(timestamp) as b, toDate(test_date) as c, toDateTime('2020-02-02') as d, toDateTime('2020-02-02 12:25') as e FROM events",
                 context,
             ),
-            f"SELECT now64(6, %(hogql_val_0)s) AS a, toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s) AS b, toDate(events.test_date) AS c, toDateTime(%(hogql_val_3)s, %(hogql_val_4)s) AS d, parseDateTime64BestEffort(%(hogql_val_5)s, 6, %(hogql_val_6)s) AS e FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT now64(6, %(hogql_val_0)s) AS a, toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s) AS b, toDate(events.test_date) AS c, toDateTime(%(hogql_val_3)s, %(hogql_val_4)s) AS d, parseDateTime64BestEffortOrNull(%(hogql_val_5)s, 6, %(hogql_val_6)s) AS e FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             context.values,
@@ -2249,6 +2249,39 @@ class TestPrinter(BaseTest):
                 "hogql_val_4": "Europe/Brussels",
             },
         )
+
+    @parameterized.expand(
+        [
+            # A constant that is not a recognized date must keep the null-tolerant parser:
+            # an unresolved query variable, the trends breakdown null sentinel, free text.
+            ("unresolved_variable", "mStart"),
+            ("breakdown_null_sentinel", "$$_posthog_breakdown_null_$$"),
+            ("free_text", "not a date"),
+        ]
+    )
+    def test_to_datetime_string_constant_stays_null_tolerant(self, _name: str, value: str):
+        # Regression: a non-date string constant used to be promoted to the strict
+        # parseDateTime64BestEffort, which raises "Cannot read DateTime" at runtime and
+        # fails the whole query (e.g. a DateTime-typed property filtered against a
+        # non-date value in a trends breakdown). It must degrade to NULL instead.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr(f"toDateTime('{value}')", context)
+        self.assertIn("parseDateTime64BestEffortOrNull", printed)
+        self.assertNotIn("parseDateTime64BestEffort(", printed)
+
+    @parameterized.expand(
+        [
+            # Exact date formats still fast-path to the index-friendly strict functions.
+            ("date_only", "2020-02-02", "toDateTime"),
+            ("mysql_datetime", "2020-02-02 12:25:00", "toDateTime"),
+            ("microseconds", "2020-02-02 12:25:00.000000", "toDateTime64"),
+        ]
+    )
+    def test_to_datetime_recognized_date_constant_uses_fast_path(self, _name: str, value: str, expected_fn: str):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr(f"toDateTime('{value}')", context)
+        self.assertIn(expected_fn, printed)
+        self.assertNotIn("parseDateTime64BestEffort", printed)
 
     def test_print_timezone_gibberish(self):
         self.team.timezone = "Europe/PostHogLandia"
@@ -2409,7 +2442,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._expr("tumble(parseDateTimeBestEffort('23/10/2020 12:12:57'), toIntervalDay('1')) as t"),
-            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffort(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s)) AS t",
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s)) AS t",
         )
         self.assertEqual(
             self._select("SELECT tumble(timestamp, toIntervalDay('1')) as t FROM events"),
