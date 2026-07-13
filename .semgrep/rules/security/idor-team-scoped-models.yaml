@@ -78,6 +78,7 @@ rules:
                               |BatchExportFileDownload
                               |BatchExportOnDemand
                               |BatchImport
+                              |BriefConfig
                               |ButtonTile
                               |ChangeRequest
                               |ClusteringConfig
@@ -195,6 +196,7 @@ rules:
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
                               |MCPSession
+                              |Opportunity
                               |OptOutSyncConfig
                               |Node
                               |NotificationEvent
@@ -204,6 +206,7 @@ rules:
                               |ParserRecipe
                               |PendingSourceCredential
                               |PluginConfig
+                              |ProductBrief
                               |ProductTour
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
@@ -220,6 +223,7 @@ rules:
                               |RepoRoutingRule
                               |SandboxCustomImage
                               |SandboxEnvironment
+                              |ResourceLink
                               |ScoreDefinition
                               |SavedHeatmap
                               |ScheduledChange
@@ -365,6 +369,7 @@ rules:
                         |BatchExportFileDownload
                         |BatchExportOnDemand
                         |BatchImport
+                        |BriefConfig
                         |ButtonTile
                         |ChangeRequest
                         |ClusteringConfig
@@ -478,6 +483,7 @@ rules:
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
                         |MCPSession
+                        |Opportunity
                         |OptOutSyncConfig
                         |Node
                         |NotificationEvent
@@ -487,6 +493,7 @@ rules:
                         |ParserRecipe
                         |PendingSourceCredential
                         |PluginConfig
+                        |ProductBrief
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
@@ -503,6 +510,7 @@ rules:
                         |RepoRoutingRule
                         |SandboxCustomImage
                         |SandboxEnvironment
+                        |ResourceLink
                         |ScoreDefinition
                         |SavedHeatmap
                         |ScheduledChange
