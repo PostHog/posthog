@@ -14,6 +14,7 @@ import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
+import CLI_LEARN from '@/templates/sections/cli-learn.md'
 import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
 import CLI_SYNTAX from '@/templates/sections/cli-syntax.md'
@@ -27,7 +28,7 @@ import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
-import type { ExecHelpEntry } from '@/tools/exec-help'
+import type { ExecLearnGuide } from '@/tools/exec-learn'
 
 export interface InstructionsContext {
     guidelines: string
@@ -83,11 +84,10 @@ export class InstructionsFormatter {
      * existing prompt sections remain the source of truth; only their delivery
      * moves from the advertised schema to `exec learn`.
      */
-    buildClaudeExecHelpEntries(ctx: InstructionsContext): ExecHelpEntry[] {
-        const entries: ExecHelpEntry[] = [
+    buildClaudeExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
+        const entries: ExecLearnGuide[] = [
             {
                 id: 'analytics',
-                kind: 'guide',
                 title: 'Analytics',
                 description: 'Query or analyze PostHog data, metrics, and events.',
                 content: this.compose([RETRIEVING_DATA, SCHEMA_WORKFLOW, EXAMPLES], ctx, { compact: false }),
@@ -97,7 +97,6 @@ export class InstructionsFormatter {
         if (ctx.renderUiEnabled) {
             entries.push({
                 id: 'visualizations',
-                kind: 'guide',
                 title: 'Visualizations',
                 description: 'Create or render a visualization.',
                 content: this.compose([CLI_RENDERING], ctx, { compact: false }),
@@ -106,7 +105,6 @@ export class InstructionsFormatter {
 
         entries.push({
             id: 'feedback',
-            kind: 'guide',
             title: 'Feedback',
             description: 'Send feedback about PostHog.',
             content: this.compose([AGENT_FEEDBACK], ctx, { compact: false }),
@@ -122,10 +120,13 @@ export class InstructionsFormatter {
      * guidance inline and move only task-specific sections behind `learn <topic...>`.
      * Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
      */
-    buildClaudeExecCommandReference(ctx: InstructionsContext): string {
-        const helpEntries = this.buildClaudeExecHelpEntries(ctx)
-        const helpTopics = helpEntries.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
-        const helpSection = formatPrompt(EXEC_LEARN, { help_topics: helpTopics })
+    buildClaudeExecCommandReference(ctx: InstructionsContext, opts: { learnEnabled?: boolean } = {}): string {
+        const learnEnabled = opts.learnEnabled ?? true
+        const learnGuides = this.buildClaudeExecLearnGuides(ctx)
+        const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
+        const learnSection = learnEnabled
+            ? formatPrompt(EXEC_LEARN, { help_topics: learnGuideList })
+            : undefined
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
             metadata: ctx.metadata,
@@ -136,7 +137,7 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 CLI_SYNTAX,
-                helpSection,
+                ...(learnSection ? [learnSection] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 CLI_EXAMPLES_CLAUDE,
@@ -172,10 +173,11 @@ export class InstructionsFormatter {
      *  its complete JSON schema has a smaller client-enforced size budget. */
     buildExecCommandReference(
         ctx: InstructionsContext,
-        opts: { stripEnvContext: boolean; keepEnvContext?: boolean }
+        opts: { stripEnvContext: boolean; keepEnvContext?: boolean; learnEnabled?: boolean }
     ): string {
         const sections = [
             CLI_SYNTAX,
+            ...((opts.learnEnabled ?? true) ? [CLI_LEARN] : []),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,

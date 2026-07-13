@@ -164,6 +164,8 @@ describe('InstructionsFormatter prompt snapshots', () => {
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
             groupTypes: worstCaseGroupTypes,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
         const posthog = new PostHogMCP('phc_test', { disabled: true })

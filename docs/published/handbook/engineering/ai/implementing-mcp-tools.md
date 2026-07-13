@@ -76,6 +76,30 @@ giving it richer context about PostHog's data model.
 
 Primarily oriented toward coding agents (PostHog Code, PostHog AI, Claude Code).
 
+## Claude web and desktop exec schema budget
+
+Claude web and desktop drop a tool when its complete serialized JSON entry exceeds 18,000 characters.
+This includes analytics fields injected after the base MCP tool entry is built.
+The final `exec` entry has a 17,500-character test budget to leave headroom below that limit.
+
+Keep guidance needed for routine tool calls inline.
+This includes the compact tool-domain index, which must remain in the `command` schema for tool discovery.
+Put optional or task-specific global guidance in the Claude exec learn catalog, available through `learn` and `learn <guide>`.
+The built-in guides are listed in the `command` description so the model can load the relevant guide before starting a task.
+Product skills are discovered at runtime through `learn skills` or `learn -s <query>` and read with `learn <skill> [path]`.
+Keep skill names, descriptions, bodies, and references out of the tool schema.
+The fixed learn grammar and compact tool-domain index must remain inline so Claude can discover both capabilities.
+
+The MCP server loads the published `skills.zip` release into a Redis stale-while-revalidate cache.
+Skill reads include a file manifest, and references that exceed the output budget return a heading outline.
+Use `learn <skill> <path> -s <query>` for scoped full-text search or `learn <skill> <path> --lines <start>:<end>` for a bounded inclusive range.
+Script paths are searchable and their contents are readable directly or by line range, but script contents are not part of the full-text index.
+The plugin consumer does not receive `learn`, because it already supplies product skills directly.
+
+Do not remove information from endpoint serializers or generated tool schemas to meet this budget.
+Those descriptions remain the source of truth for `info` and `schema` discovery.
+When adding global prompt guidance, keep it inline only when it is useful on nearly every call; otherwise add it to an existing learn guide or create a globally unique guide ID.
+
 ## SQL-first MCP: HogQL system tables
 
 Every list/get endpoint exposed as an MCP tool must have a corresponding HogQL system table.

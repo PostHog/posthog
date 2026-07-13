@@ -5,9 +5,10 @@ import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
+import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
-import { ExecHelpCatalog } from '@/tools/exec-help'
+import { ExecLearnCatalog } from '@/tools/exec-learn'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -17,6 +18,7 @@ import {
 } from '@/tools/render-ui'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
+import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
 
@@ -109,20 +111,25 @@ export class InstructionsBuilder {
         // `supportsInstructions: false`, already gets the full env-context via the
         // un-stripped path.)
         const keepEnvContext = state.clientProfile.isClaudeChatHost()
+        const learnEnabled = this.isExecLearnEnabled(state)
         const ctx = this.buildContext(state)
         if (keepEnvContext) {
-            return this.formatter.buildClaudeExecCommandReference(ctx)
+            return this.formatter.buildClaudeExecCommandReference(ctx, { learnEnabled })
         }
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
+            learnEnabled,
         })
     }
 
-    buildExecHelpCatalog(state: ResolvedState): ExecHelpCatalog | undefined {
-        if (!state.clientProfile.isClaudeChatHost()) {
+    buildExecLearnCatalog(state: ResolvedState, skills: SkillCatalog | undefined): ExecLearnCatalog | undefined {
+        if (!this.isExecLearnEnabled(state)) {
             return undefined
         }
-        return new ExecHelpCatalog(this.formatter.buildClaudeExecHelpEntries(this.buildContext(state)))
+        const guides = state.clientProfile.isClaudeChatHost()
+            ? this.formatter.buildClaudeExecLearnGuides(this.buildContext(state))
+            : []
+        return new ExecLearnCatalog(guides, skills)
     }
 
     buildExecToolDescription(): string {
@@ -138,5 +145,10 @@ export class InstructionsBuilder {
             guidelines: this.guidelines.trim(),
             schema_discovery: SCHEMA_DISCOVERY.trim(),
         })
+    }
+
+    private isExecLearnEnabled(state: ResolvedState): boolean {
+        const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
+        return clientContext.mcpConsumer !== 'plugin'
     }
 }

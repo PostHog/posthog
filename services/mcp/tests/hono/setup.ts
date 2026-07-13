@@ -28,6 +28,18 @@ vi.mock('@/resources/ui-apps', async (importOriginal) => {
 
 vi.mock('@/resources/ui-apps.generated', async (importOriginal) => importOriginal())
 
+// Product skills use a live release archive in production. Archive parsing and
+// cache behavior have fixture-backed unit coverage; Hono wiring stays offline.
+vi.mock('@/hono/skill-catalog-service', () => ({
+    SkillCatalogService: class {
+        getCatalog(): undefined {
+            return undefined
+        }
+        async warmup(): Promise<void> {}
+        async revalidate(): Promise<void> {}
+    },
+}))
+
 // Mock template imports that may not exist
 vi.mock('@/templates/cli-proxy-command.md', async () => {
     try {
