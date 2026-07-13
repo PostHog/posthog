@@ -238,3 +238,18 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["distinct_id"] == "user-1"
         mock_capture.assert_called_once()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_oversized_body_is_rejected_before_parsing(self, mock_capture: MagicMock):
+        # A body over the cap is rejected before load_data_from_request decompresses it, so a
+        # compressed body can't inflate into a memory-exhaustion payload.
+        oversized = json.dumps({"api_key": self.team.api_token, "padding": "x" * (16 * 1024 + 1)})
+
+        response = self.client.post(
+            "/api/push_subscriptions/",
+            data=oversized,
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+        mock_capture.assert_not_called()

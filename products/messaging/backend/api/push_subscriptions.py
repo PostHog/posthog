@@ -22,6 +22,12 @@ from posthog.utils_cors import cors_response
 
 VALID_PLATFORMS = ("android", "ios")
 
+# A device registration payload is a handful of short string fields (distinct_id, device_token,
+# platform, app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
+# Django's global limit, so a compressed body can't inflate into a memory-exhaustion payload when
+# load_data_from_request decompresses it.
+MAX_BODY_BYTES = 16 * 1024
+
 # Shared instance: deriving the encryption keys runs PBKDF2 (100k iterations per key) and is
 # cached on the instance, so a module-level singleton avoids re-deriving on every request.
 _encrypted_fields = EncryptedFieldMixin()
@@ -54,6 +60,18 @@ def push_subscriptions(request: Request):
                 type="validation_error",
                 code="method_not_allowed",
                 status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            ),
+        )
+
+    if len(request.body) > MAX_BODY_BYTES:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "push_subscriptions",
+                "Request body too large.",
+                type="validation_error",
+                code="request_too_large",
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             ),
         )
 
