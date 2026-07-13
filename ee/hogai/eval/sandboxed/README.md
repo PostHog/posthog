@@ -18,7 +18,9 @@ Two other docs sit next to this one:
 hogli evals:sandboxed [SELECTOR ...] [flags]
 ```
 
-Or invoke the harness module directly (run it from a flox shell so `cargo` and the venv are available):
+Run it from a flox shell — the personhog build needs flox's Rust toolchain (`cargo`, `pkg-config`, OpenSSL), and outside it the preflight build fails.
+
+Or invoke the harness module directly:
 
 ```bash
 python -m ee.hogai.eval.sandboxed.harness [SELECTOR ...] [flags]
