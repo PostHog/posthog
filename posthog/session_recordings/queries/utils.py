@@ -66,7 +66,13 @@ INVERSE_OPERATOR_FOR = {
 def is_event_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
-    return p_type == "event" or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
+    # "feature" filters resolve to the "$feature/<flag>" event property, so they must be routed
+    # through the events sub-query like any other event property — otherwise the value filter is
+    # applied against the replay-summary table (where the property doesn't exist) and fails to
+    # exclude non-matching recordings.
+    return p_type in ("event", "feature") or (
+        p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key))
+    )
 
 
 def is_person_property(p: AnyPropertyFilter) -> bool:

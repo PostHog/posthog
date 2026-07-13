@@ -911,6 +911,13 @@ def property_to_expr(
             chain = ["person", "properties"]
         elif property.type == "person_metadata":
             chain = ["person"] if scope != "person" else []
+        elif property.type == "feature":
+            # A feature filter targets the event property "$feature/<flag key>". The stored key is
+            # the bare flag key, so prepend the prefix here — matching the schema, which documents
+            # this type as an event property with "$feature/" prepended.
+            chain = ["properties"]
+            if isinstance(property.key, str) and not property.key.startswith("$feature/"):
+                property.key = f"$feature/{property.key}"
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
         elif property.type == "session" and scope == "replay_entity":
