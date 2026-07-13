@@ -134,7 +134,14 @@ jobs:
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/root --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+
+            - name: Check MCP code quality
+              run: |
+                  pnpm exec oxlint --quiet services/mcp
+                  pnpm exec oxfmt --check "services/mcp/**/*.{md,mdx}"
+                  pnpm exec oxfmt --check "services/mcp/**/*.{yaml,yml}"
+                  pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "services/mcp/**/*.{md,mdx}"
 
             - name: Build package
               run: cd services/mcp && pnpm build
