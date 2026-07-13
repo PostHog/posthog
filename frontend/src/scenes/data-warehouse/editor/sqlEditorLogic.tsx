@@ -21,15 +21,7 @@ import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { Suspense } from 'react'
 
-import {
-    LemonCheckbox,
-    LemonDialog,
-    LemonInput,
-    LemonSearchableSelect,
-    Spinner,
-    lemonToast,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Spinner, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -1362,7 +1354,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 <div className="flex gap-2 mt-2">
                                     <LemonField name="folderId" label="Add to folder" className="flex-1">
                                         {({ value, onChange }) => (
-                                            <LemonSearchableSelect<string | null>
+                                            <LemonSelect<string | null>
                                                 value={value}
                                                 onChange={onChange}
                                                 searchPlaceholder="Search folders"

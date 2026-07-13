@@ -9,7 +9,6 @@ import {
     LemonInput,
     LemonLabel,
     LemonModal,
-    LemonSearchableSelect,
     LemonSelect,
     LemonSwitch,
     LemonTag,
@@ -221,7 +220,7 @@ export function CustomPropertyModal(): JSX.Element {
                                 help="Values are pulled from this materialized view on each materialization, matched to accounts by external ID."
                             >
                                 {({ value, onChange }) => (
-                                    <LemonSearchableSelect
+                                    <LemonSelect
                                         value={value}
                                         onChange={(newValue) => {
                                             onChange(newValue)
@@ -248,7 +247,7 @@ export function CustomPropertyModal(): JSX.Element {
                                 help="The column whose value is written to this property."
                             >
                                 {({ value, onChange }) => (
-                                    <LemonSearchableSelect
+                                    <LemonSelect
                                         value={value}
                                         onChange={onChange}
                                         options={selectedSourceColumns.map((column) => ({
@@ -270,7 +269,7 @@ export function CustomPropertyModal(): JSX.Element {
                                 help="The column matched against each account's external ID."
                             >
                                 {({ value, onChange }) => (
-                                    <LemonSearchableSelect
+                                    <LemonSelect
                                         value={value}
                                         onChange={onChange}
                                         options={selectedSourceColumns.map((column) => ({

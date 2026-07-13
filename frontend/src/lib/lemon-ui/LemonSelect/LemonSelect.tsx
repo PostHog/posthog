@@ -86,8 +86,8 @@ export interface LemonSelectPropsBase<T> extends Pick<
     startVisible?: LemonDropdownProps['startVisible']
     truncateText?: { maxWidthClass: string }
     /**
-     * Whether to show a search input at the top of the dropdown menu.
-     * Defaults to automatic: search is enabled when there are more than 15 selectable options.
+     * Whether to show a search input at the top of the dropdown menu once there are more than 15 selectable options.
+     * Defaults to true — pass false to opt out.
      */
     searchable?: boolean
     searchPlaceholder?: string
@@ -123,11 +123,11 @@ export type LemonSelectProps<T> = LemonSelectPropsClearable<T> | LemonSelectProp
 export const LEMON_SELECT_AUTO_SEARCH_THRESHOLD = 15
 
 export function LemonSelect<T extends string | number | boolean | null>({
-    searchable,
+    searchable = true,
     ...props
 }: LemonSelectProps<T>): JSX.Element {
     const isSearchable = useMemo(
-        () => searchable ?? getSearchableLeaves(props.options).length > LEMON_SELECT_AUTO_SEARCH_THRESHOLD,
+        () => searchable && getSearchableLeaves(props.options).length > LEMON_SELECT_AUTO_SEARCH_THRESHOLD,
         [searchable, props.options]
     )
     // Cast to `any` because LemonSelectProps is a union (clearable vs non-clearable) and TS can't spread it as JSX props.
