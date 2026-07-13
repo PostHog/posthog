@@ -160,7 +160,7 @@ Check enablement in the UI, or in code via `TeamExperimentsConfig.experiment_pre
 - `experiment_exposures_path` / `experiment_metric_events_path` — how the read sourced each side:
   `precomputed` (fast path), `direct_scan` (full events scan), `not_applicable`.
 - `experiment_precompute_skip_reason` — set on reads that **never attempted** precompute:
-  `team_disabled`, `min_runtime`, `override_direct`, `data_warehouse`.
+  `team_disabled`, `min_runtime`, `override_direct`, `data_warehouse`, `group_aggregation`.
   **An empty skip reason on a `direct_scan` read means precompute was attempted but the data wasn't ready**
   (build failed or too slow) — that read paid for the build _and_ the full scan.
   This is the bucket to watch; it should stay near zero.
