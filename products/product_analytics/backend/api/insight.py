@@ -973,9 +973,12 @@ class InsightSerializer(InsightBasicSerializer):
 
         dashboard: Dashboard | None = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
-        dashboard_filters_override = filters_override_requested_by_client(request, dashboard) if request else None
+        is_shared = self.context.get("is_shared", False)
+        dashboard_filters_override = (
+            filters_override_requested_by_client(request, dashboard, is_shared=is_shared) if request else None
+        )
         dashboard_variables_override = variables_override_requested_by_client(
-            request, dashboard, list(self.context["insight_variables"])
+            request, dashboard, list(self.context["insight_variables"]), is_shared=is_shared
         )
 
         # Tile filters completely replace dashboard filters (same semantics as the compute path in
@@ -983,7 +986,9 @@ class InsightSerializer(InsightBasicSerializer):
         # filters while the cached result was computed with tile filters — causing the persons modal
         # to use a different filter set than the chart.
         dashboard_tile = self.dashboard_tile_from_context(instance, dashboard)
-        tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile) if request else {}
+        tile_filters_override = (
+            tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared) if request else {}
+        )
 
         if instance.query is not None or instance.query_from_filters is not None:
             query = instance.query or instance.query_from_filters
@@ -1078,19 +1083,21 @@ class InsightSerializer(InsightBasicSerializer):
 
         with upgrade_query(insight):
             try:
+                is_shared = self.context.get("is_shared", False)
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
-                filters_override = filters_override_requested_by_client(self.context["request"], dashboard)
+                filters_override = filters_override_requested_by_client(
+                    self.context["request"], dashboard, is_shared=is_shared
+                )
                 variables_override = variables_override_requested_by_client(
-                    self.context["request"], dashboard, list(self.context["insight_variables"])
+                    self.context["request"], dashboard, list(self.context["insight_variables"]), is_shared=is_shared
                 )
 
                 dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
                 tile_filters_override = tile_filters_override_requested_by_client(
-                    self.context["request"], dashboard_tile
+                    self.context["request"], dashboard_tile, is_shared=is_shared
                 )
 
-                is_shared = self.context.get("is_shared", False)
                 shared_cache_age_seconds: int | None = None
                 if is_shared:
                     execution_mode, shared_cache_age_seconds = shared_insights_execution_mode(execution_mode)

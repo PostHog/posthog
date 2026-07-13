@@ -575,6 +575,45 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertFalse(query_status.get("error"), query_status)
         self.assertIsNotNone(exported["insight"]["result"])
 
+    def test_shared_force_refresh_ignores_client_filter_overrides(self) -> None:
+        # Regression: the /shared/<token> page load runs without an authenticator, so the serializer
+        # must rely on the is_shared context flag to drop client-supplied overrides. Without the flag
+        # reaching the override helpers, a viewer could pair a unique filters_override with
+        # refresh=force_blocking on every request — each novel value is a fresh cache miss that
+        # recomputes synchronously, defeating the throttle this PR relies on.
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}]}, "name": "insight"}
+        )
+        sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
+
+        valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
+
+        with patch(
+            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+        ) as calculate_for_query_based_insight:
+            self.client.get(
+                valid_url,
+                data={
+                    "refresh": "force_blocking",
+                    "filters_override": json.dumps({"date_from": "-1d"}),
+                    "variables_override": json.dumps({"injected": {"value": "evil"}}),
+                    "tile_filters_override": json.dumps({"breakdown": "region"}),
+                },
+            )
+            calculate_for_query_based_insight.assert_called_once_with(
+                mock.ANY,
+                dashboard=mock.ANY,
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                team=self.team,
+                user=mock.ANY,
+                user_access_control=mock.ANY,
+                filters_override={},
+                variables_override={},
+                tile_filters_override={},
+                cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
+                analytics_props=ANY,
+            )
+
     def test_get_insight_by_short_id(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
 
