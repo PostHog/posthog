@@ -234,7 +234,7 @@ def get_daily_exception_counts(team: Team, breakdown: list | None = None) -> lis
         if 1 <= (today - day).days <= 7:
             counts_by_day[day] = counts_by_day.get(day, 0) + day_count
 
-    daily_counts = []
+    daily_counts: list[dict[str, Any]] = []
     for i in range(7, 0, -1):
         day = today - datetime.timedelta(days=i)
         count = counts_by_day.get(day, 0)
