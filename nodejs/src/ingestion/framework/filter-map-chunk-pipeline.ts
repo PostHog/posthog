@@ -1,5 +1,5 @@
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
+import { ChunkPipeline, ChunkPipelineResultWithContext } from './chunk-pipeline.interface'
+import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 import { OkResultWithContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
@@ -8,7 +8,7 @@ export type FilterMapMappingFunction<TInput, TOutput, CInput, COutput> = (
 ) => OkResultWithContext<TOutput, COutput>
 
 /**
- * A batch pipeline that:
+ * A chunk pipeline that:
  * 1. Filters OK results from the previous pipeline
  * 2. Applies a mapping function to transform both values and context
  * 3. Processes the mapped results through a subpipeline
@@ -23,10 +23,10 @@ export type FilterMapMappingFunction<TInput, TOutput, CInput, COutput> = (
  *
  * Synchronization (pulling upstream, feeding the subpipeline, draining it, and
  * staying responsive to concurrent feeds so a parked subpipeline can't strand
- * newly fed input) is handled by {@link InterleavingBatchPipeline}. This class
+ * newly fed input) is handled by {@link InterleavingChunkPipeline}. This class
  * only supplies the filter/map/route policy via the onSourcePull callback.
  */
-export class FilterMapBatchPipeline<
+export class FilterMapChunkPipeline<
     TInput,
     TIntermediate,
     TMapped,
@@ -37,16 +37,16 @@ export class FilterMapBatchPipeline<
     COutput = CMapped,
     RPrev extends string = never,
     RSub extends string = never,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
+> implements ChunkPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
 {
-    private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
+    private inner: InterleavingChunkPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
 
     constructor(
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, CIntermediate, RPrev>,
+        private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, CIntermediate, RPrev>,
         private mappingFn: FilterMapMappingFunction<TIntermediate, TMapped, CIntermediate, CMapped>,
-        private subPipeline: BatchPipeline<TMapped, TOutput, CMapped, COutput, RSub>
+        private subPipeline: ChunkPipeline<TMapped, TOutput, CMapped, COutput, RSub>
     ) {
-        this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>({
+        this.inner = new InterleavingChunkPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>({
             onFeed: (elements) => this.previousPipeline.feed(elements),
             onSourcePull: () => this.pullAndRoute(),
             onProcessPull: () => this.subPipeline.next(),
@@ -57,13 +57,13 @@ export class FilterMapBatchPipeline<
         this.inner.feed(elements)
     }
 
-    next(): Promise<BatchPipelineResultWithContext<TOutput, COutput | CIntermediate, RPrev | RSub> | null> {
+    next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput | CIntermediate, RPrev | RSub> | null> {
         return this.inner.next()
     }
 
     /**
-     * Pull one batch from the previous pipeline, feed mapped OK results into the
-     * subpipeline, and report what to do next: emit non-OK (or empty) batches
+     * Pull one chunk from the previous pipeline, feed mapped OK results into the
+     * subpipeline, and report what to do next: emit non-OK (or empty) chunks
      * immediately, drain the subpipeline for the OK results, or signal that the
      * previous pipeline is empty.
      */
@@ -89,13 +89,13 @@ export class FilterMapBatchPipeline<
         }
 
         if (nonOkResults.length > 0) {
-            return { kind: 'emit', batch: nonOkResults }
+            return { kind: 'emit', chunk: nonOkResults }
         }
 
-        // A non-null empty batch surfaces as [] (a valid empty batch, distinct
+        // A non-null empty chunk surfaces as [] (a valid empty chunk, distinct
         // from null = end of stream), matching the previous pipeline 1:1.
         if (okResults.length === 0) {
-            return { kind: 'emit', batch: [] }
+            return { kind: 'emit', chunk: [] }
         }
 
         return { kind: 'drain' }

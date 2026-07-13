@@ -1,7 +1,7 @@
 import pLimit from 'p-limit'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
-import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
+import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { ResettableSignal } from './resettable-signal'
 import { isOkResult } from './results'
@@ -9,13 +9,13 @@ import { isOkResult } from './results'
 export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
 
 /**
- * A batch pipeline that groups inputs by a key and processes each group concurrently.
+ * A chunk pipeline that groups inputs by a key and processes each group concurrently.
  * Within each group, items are processed sequentially through the provided pipeline.
  *
  * Ordering guarantees:
  * - Items within the same group are always processed in order, even across multiple next() calls
  * - If new items arrive for a group that's currently processing, they're queued and processed
- *   after the current batch completes
+ *   after the current chunk completes
  * - Results are returned unordered between groups - as each group completes processing,
  *   its results are made available
  *
@@ -25,12 +25,12 @@ export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
  *
  * Synchronization (pulling upstream, draining completed groups, and staying
  * responsive to concurrent feeds so a parked drain isn't stranded) is handled by
- * {@link InterleavingBatchPipeline}. This class supplies the grouping policy:
+ * {@link InterleavingChunkPipeline}. This class supplies the grouping policy:
  * routing into per-key queues, starting groups concurrently, and a per-group
  * completion signal so a parked drain wakes when ANY group finishes — including
  * a group that was started after the drain parked.
  */
-export class ConcurrentlyGroupingBatchPipeline<
+export class ConcurrentlyGroupingChunkPipeline<
     TInput,
     TIntermediate,
     TOutput,
@@ -39,16 +39,16 @@ export class ConcurrentlyGroupingBatchPipeline<
     COutput = CInput,
     RPrev extends string = never,
     RStep extends string = never,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
+> implements ChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 {
     // Queue of items waiting to be processed for each group
     private groupQueues: Map<TKey, PipelineResultWithContext<TIntermediate, COutput, RPrev | RStep>[]> = new Map()
 
-    // Promise for the currently processing batch for each group (if any)
+    // Promise for the currently processing chunk for each group (if any)
     private activeProcessing: Map<TKey, Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[]>> =
         new Map()
 
-    // Completed result batches ready to be returned
+    // Completed result chunks ready to be returned
     private completedResults: PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[][] = []
 
     // Resolved whenever any group finishes (pushing to completedResults or
@@ -61,7 +61,7 @@ export class ConcurrentlyGroupingBatchPipeline<
     // behavior where a failed group's rejected promise re-rejected each drain).
     private failure: unknown = undefined
 
-    private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
+    private inner: InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 
     // Caps how many groups process at once. Null means unbounded (start every ready group).
     private readonly limit: ReturnType<typeof pLimit> | null
@@ -69,11 +69,11 @@ export class ConcurrentlyGroupingBatchPipeline<
     constructor(
         private groupingFn: GroupingFunction<TIntermediate, TKey>,
         private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
+        private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
         maxConcurrency?: number
     ) {
         this.limit = maxConcurrency !== undefined ? pLimit(maxConcurrency) : null
-        this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
+        this.inner = new InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
             onFeed: (elements) => this.previousPipeline.feed(elements),
             onSourcePull: () => this.routeFromPrevious(),
             onProcessPull: () => this.pullProcessed(),
@@ -84,11 +84,11 @@ export class ConcurrentlyGroupingBatchPipeline<
         this.inner.feed(elements)
     }
 
-    next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+    next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         return this.inner.next()
     }
 
-    /** Pull one upstream batch, route it into per-key queues, and start available groups. */
+    /** Pull one upstream chunk, route it into per-key queues, and start available groups. */
     private async routeFromPrevious(): Promise<PullOutcome<TOutput, COutput, RPrev | RStep>> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {
@@ -100,7 +100,7 @@ export class ConcurrentlyGroupingBatchPipeline<
     }
 
     /** Emit the next completed group's results, parking until one finishes. */
-    private async pullProcessed(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+    private async pullProcessed(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         while (true) {
             const completed = this.completedResults.shift()
             if (completed !== undefined) {

@@ -6,11 +6,11 @@ import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
 
-import { createFetchPersonBatchStep } from './fetch-person-batch-step'
+import { createFetchPersonChunkStep } from './fetch-person-chunk-step'
 
-describe('createFetchPersonBatchStep', () => {
+describe('createFetchPersonChunkStep', () => {
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
-    let step: ReturnType<typeof createFetchPersonBatchStep>
+    let step: ReturnType<typeof createFetchPersonChunkStep>
 
     const team = createTestTeam({ id: 123 })
 
@@ -36,7 +36,7 @@ describe('createFetchPersonBatchStep', () => {
             fetchPersonsByPersonIds: jest.fn(),
             fetchDistinctIdsForPersons: jest.fn(),
         }
-        step = createFetchPersonBatchStep(mockPersonRepository)
+        step = createFetchPersonChunkStep(mockPersonRepository)
     })
 
     it('returns empty array for empty input', async () => {

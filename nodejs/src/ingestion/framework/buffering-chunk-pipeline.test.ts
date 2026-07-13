@@ -1,10 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { BufferingBatchPipeline } from './buffering-batch-pipeline'
+import { BufferingChunkPipeline } from './buffering-chunk-pipeline'
 import { DefaultContext, createContext, createOkContext } from './helpers'
 import { ok } from './results'
 
-describe('BufferingBatchPipeline', () => {
+describe('BufferingChunkPipeline', () => {
     let message1: Message
     let message2: Message
     let message3: Message
@@ -48,19 +48,19 @@ describe('BufferingBatchPipeline', () => {
 
     describe('constructor', () => {
         it('should create instance with default type', () => {
-            const pipeline = new BufferingBatchPipeline()
-            expect(pipeline).toBeInstanceOf(BufferingBatchPipeline)
+            const pipeline = new BufferingChunkPipeline()
+            expect(pipeline).toBeInstanceOf(BufferingChunkPipeline)
         })
 
         it('should create instance with custom type', () => {
-            const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
-            expect(pipeline).toBeInstanceOf(BufferingBatchPipeline)
+            const pipeline = new BufferingChunkPipeline<string, DefaultContext>()
+            expect(pipeline).toBeInstanceOf(BufferingChunkPipeline)
         })
     })
 
     describe('feed', () => {
         it('should add elements to buffer', async () => {
-            const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
+            const pipeline = new BufferingChunkPipeline<string, DefaultContext>()
             const batch = [createOkContext('hello', context1), createOkContext('world', context2)]
 
             pipeline.feed(batch)
@@ -71,7 +71,7 @@ describe('BufferingBatchPipeline', () => {
         })
 
         it('should accumulate multiple feeds', async () => {
-            const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
+            const pipeline = new BufferingChunkPipeline<string, DefaultContext>()
             const batch1 = [createOkContext('hello', context1)]
             const batch2 = [createOkContext('world', context2)]
 
@@ -83,7 +83,7 @@ describe('BufferingBatchPipeline', () => {
         })
 
         it('should handle empty batch', async () => {
-            const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
+            const pipeline = new BufferingChunkPipeline<string, DefaultContext>()
             const emptyBatch: [] = []
 
             pipeline.feed(emptyBatch)
@@ -95,13 +95,13 @@ describe('BufferingBatchPipeline', () => {
 
     describe('next', () => {
         it('should return null when buffer is empty', async () => {
-            const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
+            const pipeline = new BufferingChunkPipeline<string, DefaultContext>()
             const result = await pipeline.next()
             expect(result).toBeNull()
         })
 
         it('should return all buffered elements and clear buffer', async () => {
-            const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
+            const pipeline = new BufferingChunkPipeline<string, DefaultContext>()
             const batch = [createOkContext('hello', context1), createOkContext('world', context2)]
 
             pipeline.feed(batch)
@@ -114,7 +114,7 @@ describe('BufferingBatchPipeline', () => {
         })
 
         it('should handle mixed result types', async () => {
-            const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
+            const pipeline = new BufferingChunkPipeline<string, DefaultContext>()
 
             const batch = [createOkContext('hello', context1)]
 
@@ -128,7 +128,7 @@ describe('BufferingBatchPipeline', () => {
         })
 
         it('should preserve order of fed elements', async () => {
-            const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
+            const pipeline = new BufferingChunkPipeline<string, DefaultContext>()
             const batch1 = [createOkContext('first', context1)]
             const batch2 = [createOkContext('second', context2)]
             const batch3 = [createOkContext('third', context3)]
@@ -149,7 +149,7 @@ describe('BufferingBatchPipeline', () => {
         })
 
         it('should handle large number of elements', async () => {
-            const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
+            const pipeline = new BufferingChunkPipeline<string, DefaultContext>()
             const batch = []
 
             for (let i = 0; i < 100; i++) {
@@ -168,7 +168,7 @@ describe('BufferingBatchPipeline', () => {
         })
 
         it('should resume after returning null when more elements are fed', async () => {
-            const pipeline = new BufferingBatchPipeline<string, DefaultContext>()
+            const pipeline = new BufferingChunkPipeline<string, DefaultContext>()
 
             // First round: feed and process
             const batch1 = [createOkContext('first', context1)]
