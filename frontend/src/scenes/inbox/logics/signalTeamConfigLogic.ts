@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import type { SignalReportPriority, SignalTeamConfig } from '../types'
+import type { SignalTeamConfig } from '../types'
 import type { signalTeamConfigLogicType } from './signalTeamConfigLogicType'
 
 /**
@@ -21,9 +21,9 @@ import type { signalTeamConfigLogicType } from './signalTeamConfigLogicType'
 export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
     path(['scenes', 'inbox', 'logics', 'signalTeamConfigLogic']),
     actions({
-        setDefaultAutostartPriority: (priority: SignalReportPriority) => ({ priority }),
-        // `channel` is the "<id>|#name" target the backend stores; `null` clears the team default.
-        setDefaultSlackNotificationChannel: (channel: string | null) => ({ channel }),
+        // Partial update of the singleton, e.g. `{ default_slack_notification_channel: null }`
+        // to clear the team channel. One action serves every patchable field.
+        patchTeamConfig: (patch: Partial<SignalTeamConfig>) => ({ patch }),
     }),
     loaders({
         teamConfig: [
@@ -36,37 +36,20 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         ],
     }),
     reducers({
-        // Optimistically reflect the chosen value so the control doesn't flicker
-        // back to the stale one while the request is in flight.
+        // Optimistically reflect the patched values so the controls don't flicker
+        // back to the stale ones while the request is in flight.
         teamConfig: {
-            setDefaultAutostartPriority: (state, { priority }) => ({
-                ...(state ?? { default_autostart_priority: null }),
-                default_autostart_priority: priority,
-            }),
-            setDefaultSlackNotificationChannel: (state, { channel }) => ({
-                ...(state ?? { default_autostart_priority: null }),
-                default_slack_notification_channel: channel,
-            }),
+            patchTeamConfig: (state, { patch }) => (state ? { ...state, ...patch } : state),
         },
     }),
     listeners(({ actions }) => ({
-        setDefaultAutostartPriority: async ({ priority }) => {
+        patchTeamConfig: async ({ patch }) => {
             try {
-                await api.signalTeamConfig.update({ default_autostart_priority: priority })
+                const config = await api.signalTeamConfig.update(patch)
+                actions.loadTeamConfigSuccess(config)
             } catch (error: any) {
-                lemonToast.error(
-                    error?.detail ?? error?.message ?? 'Failed to update team default auto-start threshold'
-                )
-            } finally {
-                actions.loadTeamConfig()
-            }
-        },
-        setDefaultSlackNotificationChannel: async ({ channel }) => {
-            try {
-                await api.signalTeamConfig.update({ default_slack_notification_channel: channel })
-            } catch (error: any) {
-                lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update team Slack channel')
-            } finally {
+                lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update team self-driving settings')
+                // Resync so the optimistic value doesn't linger after a failed update.
                 actions.loadTeamConfig()
             }
         },

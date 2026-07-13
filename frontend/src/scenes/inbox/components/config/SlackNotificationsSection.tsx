@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { ReactNode } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
@@ -26,6 +27,19 @@ const MIN_PRIORITY_OPTIONS: { value: SignalReportPriority | typeof NOTIFY_ALL_VA
     { value: 'P4', label: 'P4 and above' },
 ]
 
+/** Icon + title + description header shared by all the Slack cards in this section. */
+function SlackCardHeader({ title, description }: { title: string; description: ReactNode }): JSX.Element {
+    return (
+        <div className="flex items-start gap-3 min-w-0">
+            <IconSlack className="size-5 shrink-0 mt-0.5 grayscale" />
+            <div className="min-w-0">
+                <div className="font-medium text-sm text-default">{title}</div>
+                <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">{description}</p>
+            </div>
+        </div>
+    )
+}
+
 /** Shown when there's no Slack workspace connected – links out to integration settings. */
 function ConnectSlackPrompt(): JSX.Element {
     return (
@@ -33,15 +47,10 @@ function ConnectSlackPrompt(): JSX.Element {
             to={urls.settings('environment-integrations', 'integration-slack')}
             className="group flex items-center justify-between gap-3 rounded border bg-bg-light px-3 py-2.5 no-underline transition-colors hover:border-primary-3000 hover:bg-bg-3000"
         >
-            <div className="flex items-start gap-3 min-w-0">
-                <IconSlack className="size-5 shrink-0 mt-0.5 grayscale" />
-                <div className="min-w-0">
-                    <div className="font-medium text-sm text-default">Connect a Slack workspace</div>
-                    <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">
-                        Connect Slack to post reports to a team channel and get pinged when you're a suggested reviewer.
-                    </p>
-                </div>
-            </div>
+            <SlackCardHeader
+                title="Connect a Slack workspace"
+                description="Connect Slack to post reports to a team channel and get pinged when you're a suggested reviewer."
+            />
             <IconChevronRight className="size-4 shrink-0 text-muted transition-colors group-hover:text-default" />
         </Link>
     )
@@ -55,28 +64,26 @@ function ConnectSlackPrompt(): JSX.Element {
  */
 function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX.Element {
     const { teamConfig } = useValues(signalTeamConfigLogic)
-    const { setDefaultSlackNotificationChannel } = useActions(signalTeamConfigLogic)
-    const channel = teamConfig?.default_slack_notification_channel ?? null
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
 
     return (
         <div className="flex flex-col gap-3 rounded border bg-bg-light px-3 py-2.5">
-            <div className="flex items-start gap-3 min-w-0">
-                <IconSlack className="size-5 shrink-0 mt-0.5 grayscale" />
-                <div className="min-w-0">
-                    <div className="font-medium text-sm text-default">Notify the whole team</div>
-                    <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">
+            <SlackCardHeader
+                title="Notify the whole team"
+                description={
+                    <>
                         Post every report to one channel, whether or not a reviewer is suggested. PostHog must be in the
                         channel – invite it with <code>/invite @PostHog</code>. Clear the channel to turn this off.
-                    </p>
-                </div>
-            </div>
+                    </>
+                }
+            />
 
             <div className="flex flex-col gap-1 min-w-0 max-w-md border-t border-primary border-dashed pt-3">
                 <span className="text-xs text-secondary">Channel</span>
                 <SlackChannelPicker
                     integration={integration}
-                    value={channel ?? undefined}
-                    onChange={(next) => setDefaultSlackNotificationChannel(next)}
+                    value={teamConfig?.default_slack_notification_channel ?? undefined}
+                    onChange={(next) => patchTeamConfig({ default_slack_notification_channel: next })}
                 />
             </div>
         </div>
@@ -148,16 +155,15 @@ function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] 
     return (
         <div className="flex flex-col gap-3 rounded border bg-bg-light px-3 py-2.5">
             <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3 min-w-0">
-                    <IconSlack className="size-5 shrink-0 mt-0.5 grayscale" />
-                    <div className="min-w-0">
-                        <div className="font-medium text-sm text-default">Notify me directly</div>
-                        <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">
+                <SlackCardHeader
+                    title="Notify me directly"
+                    description={
+                        <>
                             When you're a suggested reviewer, get pinged in your own channel. PostHog must be in the
                             channel – invite it with <code>/invite @PostHog</code>.
-                        </p>
-                    </div>
-                </div>
+                        </>
+                    }
+                />
                 <LemonSwitch
                     checked={showPickers}
                     onChange={onToggleEnabled}
@@ -215,6 +221,8 @@ function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] 
 export function SlackNotificationsSection(): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(userAutonomyLogic)
+    // Mounted here (not just in TeamChannelCard) so the team config fetch runs in
+    // parallel with the integrations load instead of waiting out the skeleton.
     useMountedLogic(signalTeamConfigLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
 
