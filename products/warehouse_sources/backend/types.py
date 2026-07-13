@@ -810,3 +810,4 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):
     REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
+    ENGINEERING_ANALYTICS = "engineering_analytics", "Engineering Analytics"

@@ -35,6 +35,9 @@ class ExpectedView:
     name: str
     query: dict[str, Any]
     columns: dict[str, dict[str, Any]]
+    # Materialized views get a 12h sync schedule and a managed DAG node. A non-materialized view
+    # (e.g. engineering analytics) is computed at query time — no schedule, no DAG, no S3 table.
+    materialized: bool = True
 
 
 class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -74,6 +77,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         expected_views: list[ExpectedView] = []
         if self.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
             expected_views = self._get_expected_views_for_revenue_analytics()
+        elif self.kind == DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS:
+            expected_views = self._get_expected_views_for_engineering_analytics()
         else:
             raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(cast(DataWarehouseManagedViewSetKind, self.kind))
 
@@ -149,11 +154,14 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.query = view.query
                 saved_query.columns = view.columns
                 saved_query.external_tables = external_tables_by_view[view.name]
-                saved_query.is_materialized = True
-                saved_query.sync_frequency_interval = timedelta(hours=12)
+                saved_query.is_materialized = view.materialized
+                # A non-materialized view is computed at query time — no sync schedule, and it never
+                # enters the schedule/DAG lists below.
+                saved_query.sync_frequency_interval = timedelta(hours=12) if view.materialized else None
 
                 saved_query.save()
-                saved_queries_to_schedule.append(saved_query)
+                if view.materialized:
+                    saved_queries_to_schedule.append(saved_query)
 
                 if created:
                     views_created += 1
@@ -175,23 +183,27 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # and eventually exhausting the connection pool. Concurrent sync_views for the same team+kind
         # can therefore race on node/edge placement; that is tolerated for now, pending a pooling-safe
         # guard. The transaction-scoped lock above still serializes the saved-query writes.
-        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
-        for saved_query in saved_queries_to_schedule:
-            try:
-                sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
-                # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
-                # unless something there still depends on it (don't orphan a dependent).
-                for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
-                    if not stale.outgoing_edges.exists():
-                        stale.delete()
-            except Exception as e:
-                capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
-                logger.warning(
-                    "failed_to_sync_managed_view_to_dag",
-                    team_id=self.team_id,
-                    view_name=saved_query.name,
-                    error=str(e),
-                )
+        # Only materialized views get a managed DAG (the revenue-analytics 12h schedule). When
+        # nothing is scheduled (e.g. the non-materialized engineering-analytics view), skip DAG
+        # creation entirely — no managed DAG is created for that kind.
+        if saved_queries_to_schedule:
+            managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+            for saved_query in saved_queries_to_schedule:
+                try:
+                    sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
+                    # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
+                    # unless something there still depends on it (don't orphan a dependent).
+                    for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
+                        if not stale.outgoing_edges.exists():
+                            stale.delete()
+                except Exception as e:
+                    capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
+                    logger.warning(
+                        "failed_to_sync_managed_view_to_dag",
+                        team_id=self.team_id,
+                        view_name=saved_query.name,
+                        error=str(e),
+                    )
 
         for saved_query in saved_queries_to_schedule:
             try:
@@ -208,7 +220,11 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         views_deleted = 0
         for orphaned_view in orphaned_views_to_revert:
             try:
-                orphaned_view.revert_materialization()
+                # revert_materialization tears down the materialized table + Temporal schedule; a
+                # never-materialized view (non-materialized kind) has neither, so skip it and just
+                # soft-delete — calling revert would try to delete a schedule that never existed.
+                if orphaned_view.is_materialized or orphaned_view.table_id is not None:
+                    orphaned_view.revert_materialization()
                 orphaned_view.soft_delete()
                 views_deleted += 1
             except Exception as e:
@@ -264,9 +280,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             self.delete()
         return views_deleted
 
-    def to_saved_query_metadata(self, name: str):
+    def to_saved_query_metadata(self, name: str) -> dict[str, Any]:
+        # Called from DataWarehouseSavedQuery.hogql_definition for every managed view, so it must
+        # degrade gracefully for any kind rather than raise — an unhandled kind here would break
+        # resolving the saved query. Only revenue analytics carries the extra per-schema kind.
         if self.kind != DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
-            raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(cast(DataWarehouseManagedViewSetKind, self.kind))
+            return {"managed_viewset_kind": self.kind}
 
         return {
             "managed_viewset_kind": self.kind,
@@ -297,6 +316,27 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 columns=self._get_columns_from_fields(view.fields),
             )
             for view in expected_views
+        ]
+
+    def _get_expected_views_for_engineering_analytics(self) -> list[ExpectedView]:
+        """The engineering-analytics per-job CI cost view, adapted from its facade contract.
+
+        Non-materialized: the view is computed at query time so a Depot rate change propagates
+        immediately and it never joins the materialization schedule / managed DAG. Imported lazily
+        (like revenue above) to keep the product's read layer off the django.setup() path.
+        """
+        from products.engineering_analytics.backend.facade.warehouse_views import (  # noqa: PLC0415 — keeps the product read layer off the startup path
+            get_expected_warehouse_views,
+        )
+
+        return [
+            ExpectedView(
+                name=view.name,
+                query={"kind": "HogQLQuery", "query": view.query},
+                columns={column: {**meta, "valid": True} for column, meta in view.columns.items()},
+                materialized=False,
+            )
+            for view in get_expected_warehouse_views(self.team)
         ]
 
     @staticmethod

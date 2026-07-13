@@ -150,6 +150,20 @@ class GitHubSource:
 
 
 @dataclass(frozen=True)
+class ExpectedWarehouseView:
+    """A code-generated warehouse view this product exposes as a team-scoped DataWarehouse saved
+    query. Framework-free on purpose: data_modeling adapts it into its own ``ExpectedView`` without
+    importing this product's internals (avoids a dependency cycle). ``query`` is the HogQL SELECT
+    body; ``columns`` maps column name -> ``{"hogql": <field class name>, "clickhouse": <type>}``,
+    the shape data_modeling stores on the saved query.
+    """
+
+    name: str
+    query: str
+    columns: dict[str, dict[str, str]]
+
+
+@dataclass(frozen=True)
 class RepoRef:
     provider: str
     owner: str
