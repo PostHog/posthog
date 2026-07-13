@@ -10,6 +10,7 @@ import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { themeLogic } from 'lib/logic/themeLogic'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
@@ -24,7 +25,6 @@ import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {

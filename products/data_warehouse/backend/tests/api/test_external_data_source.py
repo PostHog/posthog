@@ -361,6 +361,41 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == created_via
 
+    @parameterized.expand(
+        [
+            # The MCP tool injects `mcp`; a wizard user agent upgrades it to `wizard`.
+            (ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
+            # Explicit non-MCP values are never rewritten, even with a wizard user agent.
+            (ExternalDataSource.CreatedVia.WEB, ExternalDataSource.CreatedVia.WEB),
+            (ExternalDataSource.CreatedVia.API, ExternalDataSource.CreatedVia.API),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_wizard_user_agent_upgrades_mcp_created_via(
+        self, sent_created_via, expected_created_via, _mock_validate
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": sent_created_via,
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+            headers={"user-agent": "posthog/wizard/1.0.0"},
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.created_via == expected_created_via
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
@@ -383,13 +418,20 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == ExternalDataSource.CreatedVia.API
 
-    def test_create_external_data_source_rejects_invalid_created_via(self):
+    @parameterized.expand(
+        [
+            ("garbage_value", "hacker"),
+            # `wizard` is derived server-side; a caller must not be able to self-label as wizard-created.
+            ("wizard_is_not_caller_settable", ExternalDataSource.CreatedVia.WIZARD),
+        ]
+    )
+    def test_create_external_data_source_rejects_invalid_created_via(self, _name, created_via):
         # created_via choice validation happens before credentials, so no StripeSource mock is needed here.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
-                "created_via": "hacker",
+                "created_via": created_via,
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -434,7 +476,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("omitted_defaults_true", {}, True),
+            ("omitted_defaults_false", {}, False),
             ("explicit_true", {"direct_query_enabled": True}, True),
             ("explicit_false", {"direct_query_enabled": False}, False),
         ]
@@ -518,17 +560,17 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_patch_external_data_source_toggles_direct_query_enabled(self):
         source = self._create_external_data_source()
-        assert source.direct_query_enabled is True
+        assert source.direct_query_enabled is False
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"direct_query_enabled": False},
+            data={"direct_query_enabled": True},
         )
 
         assert response.status_code == 200, response.json()
-        assert response.json()["direct_query_enabled"] is False
+        assert response.json()["direct_query_enabled"] is True
         source.refresh_from_db()
-        assert source.direct_query_enabled is False
+        assert source.direct_query_enabled is True
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials_for_access_method",
@@ -1721,19 +1763,76 @@ class TestExternalDataSource(APIBaseTest):
                     "id": str(snowflake_source.pk),
                     "prefix": "Analytics Snowflake",
                     "engine": "snowflake",
+                    "source_type": "Snowflake",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
                 {
                     "id": str(postgres_source.pk),
                     "prefix": "Primary database",
                     "engine": "duckdb",
+                    "source_type": "Postgres",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
                 {
                     "id": str(mysql_source.pk),
                     "prefix": "Reporting MySQL",
                     "engine": "mysql",
+                    "source_type": "MySQL",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
             ],
         )
+
+    def test_connections_lists_synced_sources_only_when_direct_query_enabled(self):
+        enabled_synced = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Enabled synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            job_inputs={"host": "localhost", "password": "secret"},
+        )
+        # Toggle off: must not be listed.
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Disabled synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=False,
+            job_inputs={"host": "localhost", "password": "secret"},
+        )
+        # No direct engine for the type: must not be listed even with the toggle on.
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix="Stripe synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual([item["id"] for item in payload], [str(enabled_synced.pk)])
+        self.assertEqual(payload[0]["access_method"], "warehouse")
+        self.assertEqual(payload[0]["source_type"], "Postgres")
+        self.assertEqual(payload[0]["supports_hogql"], True)
 
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()
@@ -3883,7 +3982,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
+            {
+                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
+            },
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -3899,7 +4000,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
+            {
+                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
+            },
         )
 
     def test_source_prefix_accepts_direct_mysql(self):

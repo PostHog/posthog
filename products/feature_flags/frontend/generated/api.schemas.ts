@@ -115,6 +115,25 @@ export interface StaffCacheEntryResponseApi {
     data: StaffCacheEntryResponseApiData
 }
 
+export interface StaffTeamConfigApi {
+    /** Team id. */
+    team_id: number
+    /** Whether this team's SDKs receive the slim $feature_flag_called event shape (omitting fields only needed for experiments) instead of the full legacy shape. */
+    minimal_flag_called_events: boolean
+}
+
+export interface StaffTeamConfigListResponseApi {
+    /** Per-team feature-flags config. */
+    results: StaffTeamConfigApi[]
+}
+
+export interface StaffTeamConfigMutationApi {
+    /** Team id to update. Exactly one team per request. */
+    team_id: number
+    /** New value for the team's minimal_flag_called_events setting. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
+    minimal_flag_called_events: boolean
+}
+
 export interface StaffTeamResultApi {
     /** Team id. */
     id: number
@@ -1564,7 +1583,7 @@ export interface PatchedScheduledChangeApi {
 
 export type FeatureFlagsStaffCacheListParams = {
     /**
-     * Team ids to report cache status for (max 50 per request). Repeat the param, e.g. ?team_ids=1&team_ids=2.
+     * Team ids to report cache status for (max 50 per request). Repeat the param (?team_ids=1&team_ids=2) or pass one comma-separated value (?team_ids=1,2).
      * @maxItems 50
      */
     team_ids: number[]
@@ -1594,6 +1613,14 @@ export const FeatureFlagsStaffCacheEntryRetrieveCache = {
     Definitions: 'definitions',
     DefinitionsNoCohorts: 'definitions_no_cohorts',
 } as const
+
+export type FeatureFlagsStaffTeamConfigListParams = {
+    /**
+     * Team ids to report feature-flags team config for (max 50 per request). Repeat the param (?team_ids=1&team_ids=2) or pass one comma-separated value (?team_ids=1,2).
+     * @maxItems 50
+     */
+    team_ids: number[]
+}
 
 export type FeatureFlagsStaffTeamsListParams = {
     /**
