@@ -99,7 +99,7 @@ def validate_credentials(api_token: str) -> bool:
     """Probe the token with the cheapest account-level call. GET /repo needs no extra scope, so a
     200 confirms the token is genuine; a 401 means it is invalid or revoked."""
     try:
-        response = make_tracked_session(redact_values=(api_token,)).get(
+        response = make_tracked_session(redact_values=(api_token,), capture=False).get(
             f"{AVIATOR_BASE_URL}/repo", headers=_get_headers(api_token), params={"page": 1}, timeout=10
         )
         return response.status_code == 200
@@ -320,8 +320,10 @@ def get_rows(
     config = AVIATOR_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
     # One session reused across every page and every fan-out repo so urllib3 keeps the connection alive.
-    # Register the token for value-based redaction so it can't surface in logged URLs or captured samples.
-    session = make_tracked_session(redact_values=(api_token,))
+    # Register the token for value-based redaction so it can't surface in logged URLs, and disable sample
+    # capture: responses carry arbitrary repository data (config-history diffs, PR titles, branch names)
+    # that the name-based scrubber can't sanitise, so it must never reach the HTTP sample bucket.
+    session = make_tracked_session(redact_values=(api_token,), capture=False)
     batcher = Batcher(logger=logger)
 
     if config.fan_out_over_repos:
