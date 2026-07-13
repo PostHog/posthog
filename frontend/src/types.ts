@@ -289,6 +289,7 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     Logs = 'logs',
     Endpoint = 'endpoint',
+    Workflow = 'hog_flow',
     EarlyAccessFeature = 'early_access_feature',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
@@ -1370,7 +1371,6 @@ export type EncodedRecordingSnapshot = _EncodedRecordingSnapshot
 export type RecordingSnapshot = _RecordingSnapshot
 export type SessionRecordingSnapshotSource = _SessionRecordingSnapshotSource
 export type SessionRecordingSnapshotSourceResponse = _SessionRecordingSnapshotSourceResponse
-export { SnapshotSourceType } from '@posthog/replay-shared'
 
 export type SessionRecordingSnapshotParams = (
     | {
@@ -5487,7 +5487,8 @@ export interface EmailIntegrationDomainGroupedType {
 
 export interface SlackChannelType {
     id: string
-    name: string
+    // Absent for private channels the bot can't access (is_private_without_access).
+    name?: string
     is_private: boolean
     is_ext_shared: boolean
     is_member: boolean
@@ -5662,6 +5663,8 @@ export type APIScopeObject =
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'
+    | 'data_catalog'
+    | 'data_catalog_approval'
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'

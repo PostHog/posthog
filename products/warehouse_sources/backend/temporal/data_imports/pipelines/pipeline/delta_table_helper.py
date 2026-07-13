@@ -240,9 +240,14 @@ class DeltaTableHelper:
                     deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options
                 )
             except Exception as e:
-                # Temp fix for bugged tables
                 capture_exception(e)
-                if "parse decimal overflow" in "".join(e.args):
+                error_text = "".join(str(arg) for arg in e.args)
+                # Unrecoverable tables (bugged decimals, or an orphaned _delta_log missing its
+                # metadata action — impossible on a healthy table): wipe so the sync starts fresh.
+                if "parse decimal overflow" in error_text or "No table metadata or protocol found" in error_text:
+                    await self._logger.aerror(
+                        f"get_delta_table: deleting unrecoverable delta table for a fresh sync: {error_text}"
+                    )
                     async with aget_s3_client() as s3:
                         await s3._rm(delta_uri, recursive=True)
                 else:

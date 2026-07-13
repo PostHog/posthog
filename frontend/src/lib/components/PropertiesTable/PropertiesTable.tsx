@@ -10,11 +10,11 @@ import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tool
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { isObject, isKeyOf } from 'lib/utils/guards'
 import { isURL } from 'lib/utils/url'
 import { NewProperty } from 'scenes/persons/NewProperty'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'

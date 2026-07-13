@@ -48,6 +48,9 @@ export enum NotebookNodeType {
     MarkdownNotebook = 'ph-markdown-notebook',
     Query = 'ph-query',
     Python = 'ph-python',
+    // The revamped Python cell: runs in the notebook's sandbox kernel via the SQLV2 run
+    // path, unlike the legacy ph-python node's in-browser kernel.
+    PythonV2 = 'ph-python-v2',
     DuckSQL = 'ph-duck-sql',
     HogQLSQL = 'ph-hogql-sql',
     SQLV2 = 'ph-sql-v2',

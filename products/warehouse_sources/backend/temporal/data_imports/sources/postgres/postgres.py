@@ -410,11 +410,17 @@ def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
     swallow the follow-up "connection closed" errors, so discovery finishes "successfully"
     and the implicit commit in the enclosing `with connection:` raises a misleading
     `ProgrammingError: Explicit commit() forbidden within a Transaction context`, burying
-    the real cause. Detect the broken connection first and raise the actual
-    dropped-connection error (transient, so it stays retryable) — the activity then retries
-    on a fresh connection instead of failing on a self-inflicted commit error.
+    the real cause.
+
+    A hard drop flips the connection to `broken`, but a drop that lands precisely while
+    psycopg is entering or leaving the probe's `transaction()` block can leave the nesting
+    counter incremented while `broken` stays False (the connection is `INERROR`, not BAD).
+    `commit()` refuses outright whenever that counter is non-zero, so checking `broken` alone
+    misses this case. Detect either signal and raise the actual dropped-connection error
+    (transient, so it stays retryable) — the activity then retries on a fresh connection
+    instead of failing on the self-inflicted commit error.
     """
-    if connection.broken:
+    if connection.broken or getattr(connection, "_num_transactions", 0) > 0:
         raise psycopg.OperationalError("connection to server was lost during table metadata discovery")
 
 
@@ -1065,6 +1071,21 @@ def _is_unsupported_function_error(error: Exception, function_name: str) -> bool
     return any(marker in message for marker in ("does not exist", "unknown function", "not found", "no function"))
 
 
+def _is_unsupported_statement_timeout_error(error: Exception) -> bool:
+    """True when the engine rejects setting `statement_timeout` as an unsupported feature.
+
+    The best-effort `SET statement_timeout` guarding these metadata scans is a Postgres-only
+    convenience. Some Postgres-wire-compatible engines (CrateDB, Materialize, and similar
+    analytical/streaming proxies) accept the connection but expose a limited GUC set, raising
+    `FeatureNotSupported` — `setting configuration parameter "statement_timeout" not supported`.
+    That's an expected engine limitation, not a bug, so callers degrade quietly rather than
+    flooding error tracking (mirrors `_is_unsupported_function_error`). A genuine timeout
+    cancellation reads `canceling statement due to statement timeout`, so it can't match here.
+    """
+    message = str(error).lower()
+    return "statement_timeout" in message and "not supported" in message
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1083,11 +1104,19 @@ def _rls_active_from_conn(
     """
     try:
         with connection.cursor() as cursor:
-            cursor.execute(
-                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                    timeout=sql.Literal(1000 * 30)  # 30 secs
+            try:
+                cursor.execute(
+                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                        timeout=sql.Literal(1000 * 30)  # 30 secs
+                    )
                 )
-            )
+            except psycopg.errors.FeatureNotSupported:
+                # Some Postgres-wire-compatible engines (e.g. Aurora DSQL) don't implement setting
+                # statement_timeout. This SET is only a best-effort guard against a runaway catalog
+                # scan, so its rejection is an expected incompatibility — degrade quietly instead of
+                # flooding error tracking. Scoped to this statement so an unrelated FeatureNotSupported
+                # from the catalog queries below still reaches the capture path.
+                return {}
             discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
             if not discovered_tables:
                 return {}
@@ -1139,6 +1168,7 @@ def _rls_active_from_conn(
             and not connection.broken
             and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
             and not _is_unsupported_function_error(e, "row_security_active")
+            and not _is_unsupported_statement_timeout_error(e)
         ):
             capture_exception(e)
         return {}
@@ -1195,7 +1225,12 @@ def _xmin_capable_tables_from_conn(
         # Best-effort like the PK/RLS/index lookups it runs alongside: losing the `supports_xmin`
         # hint just hides the option for this listing. A non-Postgres engine may lack `relkind`
         # semantics entirely, so degrade quietly.
-        if not connection.closed and not connection.broken and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
+        if (
+            not connection.closed
+            and not connection.broken
+            and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
+            and not _is_unsupported_statement_timeout_error(e)
+        ):
             structlog.get_logger().warning("Failed to detect xmin-capable tables for Postgres schemas", exc_info=e)
         return set()
 
@@ -1558,16 +1593,22 @@ class SafeDateLoader(Loader):
     """Load PostgreSQL dates, handling edge cases beyond Python's date range.
 
     PostgreSQL can store dates beyond Python's datetime.date limits (year 1 to
-    year 9999). This includes 'infinity', '-infinity', and dates in years > 9999.
-    When encountering such dates, we clamp to Python's date limits rather than
-    raising an error.
+    year 9999). This includes 'infinity', '-infinity', and dates in years > 9999,
+    which we clamp to Python's date limits rather than raising an error.
+
+    Some Postgres-compatible engines (duckdb/duckgres) render a `date` in text
+    mode with a trailing time component ("2022-04-01 00:00:00" or ISO "…T…") — we
+    strip it before parsing. A value we genuinely cannot parse raises rather than
+    being clamped: silently mapping it onto date.max fabricates a real-looking
+    9999-12-31 and corrupts the whole column, which is far worse than a loud sync
+    failure.
     """
 
     def load(self, data) -> date | None:
         if data is None:
             return None
 
-        s = bytes(data).decode("utf-8")
+        s = bytes(data).decode("utf-8").strip()
 
         if s in ("infinity", "-infinity"):
             return date.max if s == "infinity" else date.min
@@ -1576,24 +1617,20 @@ class SafeDateLoader(Loader):
         if s.startswith("-") or "bc" in s.lower():
             return date.min
 
+        # Keep only the date portion — duckdb/duckgres may append a time or ISO "T".
+        date_part = s.replace("T", " ").split(" ", 1)[0]
+
         try:
-            parts = s.split("-")
-            if len(parts) == 3:
-                year = int(parts[0])
-                month = int(parts[1])
-                day = int(parts[2])
+            year, month, day = (int(part) for part in date_part.split("-"))
+        except ValueError as e:
+            raise ValueError(f"Unparseable PostgreSQL date value: {s!r}") from e
 
-                if year > 9999:
-                    return date.max
-                if year < 1:
-                    return date.min
+        if year > 9999:
+            return date.max
+        if year < 1:
+            return date.min
 
-                return date(year, month, day)
-        except (ValueError, IndexError):
-            pass
-
-        # Fallback: clamp to max for unparseable dates
-        return date.max
+        return date(year, month, day)
 
 
 def _clamp_out_of_range_timestamp(data, *, tzinfo: timezone | None) -> datetime:
@@ -2837,11 +2874,22 @@ def postgres_source(
                         )
 
                         # Session, not LOCAL: under autocommit a LOCAL timeout has no transaction to bind to.
-                        cursor.execute(
-                            sql.SQL("SET statement_timeout = {timeout}").format(
-                                timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                        # Best-effort: some Postgres-compatible engines and poolers reject `SET
+                        # statement_timeout` with FeatureNotSupported, so fall back to the source's
+                        # default rather than failing the whole sync — mirroring the metadata-probe
+                        # sites in `_get_table`/`_get_columns_for_tables`. A genuine connection
+                        # drop/limit stringifies differently and re-raises so the setup retry recovers
+                        # on a fresh connection instead of silently losing the timeout guard.
+                        try:
+                            cursor.execute(
+                                sql.SQL("SET statement_timeout = {timeout}").format(
+                                    timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                                )
                             )
-                        )
+                        except psycopg.Error as e:
+                            if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+                                raise
+                            logger.debug(f"Source does not support setting statement_timeout; using its default: {e}")
 
                         # Capture the xmin ceiling on this row-serving connection before streaming.
                         if is_xmin:
@@ -3148,10 +3196,16 @@ def postgres_source(
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)
                 # kills the fetch before rows come back.
+                #
+                # Also pin DateStyle to ISO so text-mode date/timestamp values always
+                # arrive as YYYY-MM-DD regardless of the server's configured DateStyle.
+                # A non-ISO source (e.g. German/SQL/Postgres styles) would otherwise send
+                # "04/01/2022" or "15.01.2024", which the Safe*Loaders can't parse.
                 try:
                     # Use psycopg.Cursor directly to bypass cursor_factory (which may be
                     # ServerCursor and requires a `name` arg, breaking an unnamed cursor()).
                     with psycopg.Cursor(connection) as setup_cursor:
+                        setup_cursor.execute(sql.SQL("SET DateStyle TO 'ISO, MDY'"))
                         setup_cursor.execute(
                             sql.SQL("SET statement_timeout = {timeout}").format(
                                 timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)

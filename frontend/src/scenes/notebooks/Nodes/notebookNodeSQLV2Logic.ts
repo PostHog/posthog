@@ -36,6 +36,11 @@ export type NotebookNodeSQLV2Page = {
     has_more: boolean
 }
 
+export interface RunQueryOptions {
+    nodeType?: 'hogql' | 'python'
+    outputName?: string
+}
+
 export interface NotebookNodeSQLV2LogicProps {
     nodeId: string
     notebookShortId: string
@@ -61,9 +66,14 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         ],
     })),
     actions({
-        // refs maps each named sibling node's dataframe name to its HogQL; the backend
-        // inlines the ones this query references as CTEs (Journey 3).
-        runQuery: (code: string, refs: Record<string, string> = {}) => ({ code, refs }),
+        // refs maps each named sibling node's dataframe name to its node id. A hogql node
+        // inlines the referenced ones as CTEs (Journey 3); a python node materializes the
+        // ones its code reads as pandas frames (Journey 4).
+        runQuery: (code: string, refs: Record<string, string> = {}, opts: RunQueryOptions = {}) => ({
+            code,
+            refs,
+            opts,
+        }),
         startPolling: (runId: string) => ({ runId }),
         pollResult: (runId: string) => ({ runId }),
         stopPolling: true,
@@ -185,9 +195,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         return {
             setPage: loadCurrentPage,
             setPageSize: loadCurrentPage,
-            runQuery: async ({ code, refs }) => {
+            runQuery: async ({ code, refs, opts }) => {
                 if (!code.trim()) {
-                    actions.setRunError('Query is empty — type some HogQL first.')
+                    actions.setRunError('Nothing to run — type some code first.')
                     actions.setIsRunning(false)
                     return
                 }
@@ -204,6 +214,8 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         node_id: props.nodeId,
                         code,
                         refs,
+                        node_type: opts.nodeType,
+                        output_name: opts.outputName,
                     })
                     // Mark this as the active run so a still-in-flight poll from a previous run
                     // can't overwrite this result or stop this run's poller once it resolves.
@@ -258,6 +270,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                                       row_count: result.row_count ?? 0,
                                       first_page: result.first_page ?? [],
                                       has_more: result.has_more ?? false,
+                                      stdout: result.stdout ?? '',
+                                      stderr: result.stderr ?? '',
+                                      media: result.media ?? [],
                                   }
                                 : null,
                         })

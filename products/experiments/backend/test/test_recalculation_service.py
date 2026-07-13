@@ -453,15 +453,12 @@ class TestLiveQueryProgress(BaseTest):
         with team_scope(self.team.id, canonical=True):
             with patch(
                 "products.experiments.backend.recalculation.sync_execute",
-                return_value=[(1_284_512, 9_800_000, 41_000_000, 250_000, 3)],
+                return_value=[(1_284_512, 9_800_000)],
             ):
                 progress = get_live_query_progress(recalc)
         assert progress == {
             "rows_read": 1_284_512,
             "estimated_rows_total": 9_800_000,
-            "bytes_read": 41_000_000,
-            "active_cpu_time": 250_000,
-            "running_metrics": 3,
         }
 
     def test_maps_all_zero_row_to_zeros_while_in_progress(self):
@@ -471,15 +468,12 @@ class TestLiveQueryProgress(BaseTest):
         with team_scope(self.team.id, canonical=True):
             with patch(
                 "products.experiments.backend.recalculation.sync_execute",
-                return_value=[(0, 0, 0, 0, 0)],
+                return_value=[(0, 0)],
             ):
                 progress = get_live_query_progress(recalc)
         assert progress == {
             "rows_read": 0,
             "estimated_rows_total": 0,
-            "bytes_read": 0,
-            "active_cpu_time": 0,
-            "running_metrics": 0,
         }
 
     def test_returns_none_when_clickhouse_read_raises(self):
@@ -520,4 +514,3 @@ class TestLiveQueryProgressFinishedQueries(BaseTest, ClickhouseTestMixin):
         assert progress is not None
         assert progress["rows_read"] == 1000
         assert progress["estimated_rows_total"] == 1000
-        assert progress["running_metrics"] == 0
