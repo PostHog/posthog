@@ -20,6 +20,10 @@ from products.tasks.backend.logic.services.agent_command import (
     send_user_message,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.personal_instructions import (
+    build_first_message,
+    mark_personal_instructions_applied,
+)
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.models import TaskRun
@@ -141,9 +145,14 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
             _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
             raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
+    # For interactive runs the first agent turn arrives here (not via forward_pending_user_message),
+    # so the run's first message is decorated on this path; the state marker keeps later follow-ups
+    # from being re-decorated.
+    outgoing_message, mark_instructions_applied = build_first_message(task_run, input.message, actor_user)
+
     result = send_user_message(
         task_run,
-        input.message,
+        outgoing_message,
         artifacts=artifacts,
         auth_token=auth_token,
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
@@ -164,6 +173,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
                 attempt=_current_attempt(),
             )
             return
+        if mark_instructions_applied:
+            mark_personal_instructions_applied(input.run_id)
         _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
         logger.info("send_followup_delivered", run_id=input.run_id)
     elif result.turn_in_flight:

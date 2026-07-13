@@ -10,6 +10,7 @@ from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
+    CodeCustomInstructionsDTO,
     CodeHomeDTO,
     CodeHomeWorkstreamDTO,
     CodeWorkflowConfigDTO,
@@ -34,6 +35,15 @@ def _serialize_config(config: CodeWorkflowConfigDTO) -> dict:
         "version": config.version,
         "updatedAt": config.updated_at.isoformat(),
         "bindings": config.bindings,
+    }
+
+
+def _serialize_instructions(config: CodeCustomInstructionsDTO) -> dict:
+    return {
+        "id": config.id,
+        "version": config.version,
+        "updatedAt": config.updated_at.isoformat(),
+        "content": config.content,
     }
 
 
@@ -125,6 +135,47 @@ class CodeWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def reset(self, request, **kwargs):
         config = tasks_facade.reset_code_workflow_bindings(self.team_id, request.user.id)
         return Response(_serialize_config(config))
+
+
+class CodeCustomInstructionsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "task"
+    authentication_classes = _AUTH_CLASSES
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    hide_api_docs = True
+
+    def list(self, request, *args, **kwargs):
+        config = tasks_facade.get_code_custom_instructions(self.team_id, request.user.id)
+        return Response(_serialize_instructions(config))
+
+    @action(detail=False, methods=["post"], url_path="save", required_scopes=["task:write"])
+    def save(self, request, **kwargs):
+        config_in = request.data.get("config") or {}
+        expected_version = request.data.get("expectedVersion")
+        content = config_in.get("content")
+
+        result = tasks_facade.save_code_custom_instructions(
+            self.team_id,
+            request.user.id,
+            content=content,
+            expected_version=expected_version,
+        )
+
+        if result.outcome == tasks_facade.CODE_CUSTOM_INSTRUCTIONS_CONFLICT:
+            return Response(
+                {"status": "conflict", "config": _serialize_instructions(result.config)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if result.outcome == tasks_facade.CODE_CUSTOM_INSTRUCTIONS_INVALID:
+            return Response(
+                {"status": "invalid", "config": _serialize_instructions(result.config)},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        return Response({"status": "saved", "config": _serialize_instructions(result.config)})
+
+    @action(detail=False, methods=["post"], url_path="reset", required_scopes=["task:write"])
+    def reset(self, request, **kwargs):
+        config = tasks_facade.reset_code_custom_instructions(self.team_id, request.user.id)
+        return Response(_serialize_instructions(config))
 
 
 class CodeHomeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

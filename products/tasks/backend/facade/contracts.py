@@ -533,6 +533,33 @@ class CodeWorkflowSaveResult:
 
 
 @dataclass(frozen=True)
+class CodeCustomInstructionsDTO:
+    """A user's per-team personal agent instructions.
+
+    Mirrors the JSON shape the custom-instructions endpoints emit: ``id`` is stringified,
+    ``version`` powers optimistic locking, and ``content`` is the free-form instruction text.
+    """
+
+    id: str
+    version: int
+    updated_at: datetime
+    content: str
+
+
+@dataclass(frozen=True)
+class CodeCustomInstructionsSaveResult:
+    """Outcome of attempting to save personal agent instructions.
+
+    ``outcome`` is one of ``saved`` (persisted, version bumped), ``conflict`` (``expected_version``
+    did not match the stored version), or ``invalid`` (content exceeded the length cap).
+    ``config`` is always the resulting/current instructions.
+    """
+
+    outcome: str
+    config: CodeCustomInstructionsDTO
+
+
+@dataclass(frozen=True)
 class CodeHomeWorkstreamTaskDTO:
     """One grouped task inside a workstream card."""
 

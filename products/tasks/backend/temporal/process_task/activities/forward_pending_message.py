@@ -57,6 +57,10 @@ def forward_pending_user_message(run_id: str) -> None:
     """
     from products.tasks.backend.logic.services.agent_command import send_user_message
     from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+    from products.tasks.backend.logic.services.personal_instructions import (
+        build_first_message,
+        mark_personal_instructions_applied,
+    )
     from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
     from products.tasks.backend.metrics import observe_followup_delivery_failed
     from products.tasks.backend.models import TaskRun
@@ -106,9 +110,11 @@ def forward_pending_user_message(run_id: str) -> None:
                 task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
             )
 
+        outgoing_message, mark_instructions_applied = build_first_message(task_run, pending_message, actor_user)
+
         result = send_user_message(
             task_run,
-            pending_message,
+            outgoing_message,
             artifacts=pending_artifacts or None,
             auth_token=auth_token,
             timeout=90,
@@ -122,7 +128,7 @@ def forward_pending_user_message(run_id: str) -> None:
         if not result.success and result.retryable and result.status_code != 504:
             result = send_user_message(
                 task_run,
-                pending_message,
+                outgoing_message,
                 artifacts=pending_artifacts or None,
                 auth_token=auth_token,
                 timeout=90,
@@ -152,6 +158,8 @@ def forward_pending_user_message(run_id: str) -> None:
         )
 
         if result.success:
+            if mark_instructions_applied:
+                mark_personal_instructions_applied(run_id)
             logger.info("forward_pending_message_delivered", run_id=run_id)
         else:
             observe_followup_delivery_failed(task_run, retryable=False)
