@@ -5,8 +5,9 @@ description: >
   mode you've identified. Use when the user wants an evaluation that automatically scores new
   `$ai_generation` events going forward — "create an eval to catch X", "continuously check that responses
   do Y", "turn this failure into an eval". Covers choosing the eval type (hog / llm_judge / sentiment),
-  gating on the team's provider key before an llm_judge eval, scoping which events fire via
-  conditions (property filters + rollout sampling), creating it disabled, verifying scope, and enabling.
+  requiring a valid provider and model for an llm_judge eval (pinning a provider key is optional), scoping
+  which events fire via conditions (property filters + rollout sampling), creating it disabled, verifying
+  scope, and enabling.
   Finding and ranking the failure modes worth evaluating is its own job — use exploring-ai-failures first.
   To debug or manage evaluations that already exist, use exploring-llm-evaluations.
 ---
@@ -30,7 +31,7 @@ debugging a live eval), defer to `exploring-llm-evaluations`.
 
 | Tool                                   | Purpose                                                       |
 | -------------------------------------- | ------------------------------------------------------------- |
-| `posthog:llma-provider-key-list`       | Find a usable (`ok` state) provider key to pin (llm_judge)    |
+| `posthog:llma-provider-key-list`       | Find a usable (`ok` state) provider key to optionally pin (llm_judge) |
 | `posthog:llma-evaluation-judge-models` | List valid provider+model combos                              |
 | `posthog:llma-evaluation-test-hog`     | Dry-run Hog source against recent generations before creating |
 | `posthog:llma-evaluation-create`       | Create the evaluation (always `enabled: false` first)         |
@@ -63,25 +64,26 @@ tool call must include an `order_id`". Then move to Phase 2.
 | Use…        | When the criterion is…                                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `hog`       | Structural / rule-based (JSON parses, length, regex, tool-call shape). Cheap, deterministic, **no provider key needed.**              |
-| `llm_judge` | Subjective / fuzzy (tone, factuality, on-topic). Costs an LLM call per run; needs AI data-processing approval + a provider key.       |
+| `llm_judge` | Subjective / fuzzy (tone, factuality, on-topic). Costs an LLM call per run; needs a valid `provider` + `model` (pinning a provider key is optional). |
 | `sentiment` | You want sentiment labels on user messages, not a pass/fail (unless very specifically asked for, usually not relevant to this skill). |
 
 Reach for `hog` first, escalate to `llm_judge` if there is no deterministic way to check for what we want to check.
 
-### 2.2 — Gate (llm_judge only)
+### 2.2 — Pick a provider and model (llm_judge only)
 
-Before creating an `llm_judge` eval, confirm it can actually run, or it errors on first fire. Hog and
-sentiment skip this.
+An `llm_judge` eval requires a valid `provider` and `model` in `model_configuration` — that's the gate.
+Pinning a provider key is optional: `provider_key_id` may be `null` when no key is pinned. Hog and
+sentiment skip this entirely.
 
 ```json
-posthog:llma-provider-key-list            // pick a key whose state == "ok"
 posthog:llma-evaluation-judge-models      // { "provider": "openai" } → valid models
+posthog:llma-provider-key-list            // optional: pick a key whose state == "ok" to pin
 ```
 
-Every `llm_judge` eval runs on a provider key. Pick an `ok`-state key from `llma-provider-key-list` and set
-it as `model_configuration.provider_key_id`.
-
-If there's no `ok` key, stop and ask the user to add/validate one in the UI — the agent can't create keys.
+Confirm the `provider` + `model` combo is valid with `llma-evaluation-judge-models`. If you want to pin a
+specific key, pick an `ok`-state key from `llma-provider-key-list` and set it as
+`model_configuration.provider_key_id`; otherwise leave `provider_key_id` as `null`. Don't stop just
+because there's no `ok` key — an unpinned judge is allowed.
 
 ### 2.3 — Create it disabled
 
@@ -104,8 +106,10 @@ posthog:llma-evaluation-create
 ```
 
 For `llm_judge`, swap `evaluation_config` to `{ "prompt": "…" }` and add
-`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": "<uuid of an ok-state key from llma-provider-key-list>" }`.
-Full field reference: [references/evaluation-payload.md](references/evaluation-payload.md).
+`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": null }` — set
+`provider_key_id` to the UUID of an `ok`-state key from `llma-provider-key-list` if you want to pin one,
+or leave it `null` when no key is pinned. Full field reference:
+[references/evaluation-payload.md](references/evaluation-payload.md).
 
 ### 2.4 — Verify the scope before enabling
 
@@ -178,7 +182,8 @@ creating so the user can review and toggle it in the UI.
   criterion genuinely can't be coded.
 - **Always create disabled, verify scope, then enable.** An eval firing on the wrong events is worse than
   none — noise, and (for llm_judge) cost.
-- **Gate llm_judge before creating**, not after. A judge eval with no usable provider key errors on first run.
+- **Set a valid provider + model for llm_judge**, not after. A judge eval needs both fields; pinning a
+  provider key is optional (`provider_key_id` may be `null`).
 - **`bytecode` is server-written** for hog evals — never pass it; send only `evaluation_config.source`.
 - For cluster-scoped evals, identify the cluster with `exploring-llm-clusters`, then translate its event
   filter into `conditions`.

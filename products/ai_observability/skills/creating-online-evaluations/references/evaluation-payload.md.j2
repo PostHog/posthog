@@ -13,7 +13,7 @@ schemas below are rendered from the backend Pydantic models at build time, so th
 | `evaluation_config`   | yes      | Shape depends on `evaluation_type` (below).                                |
 | `output_type`         | yes      | `"boolean"` for `hog`/`llm_judge`; `"sentiment"` for `sentiment`.         |
 | `output_config`       | no       | `{ "allows_na": bool }` for boolean; `{}` for sentiment.                   |
-| `model_configuration` | llm_judge only | Provider/model/key. Rejected on `hog`/`sentiment`.                  |
+| `model_configuration` | llm_judge only | Provider + model (provider key optional). Rejected on `hog`/`sentiment`. |
 | `conditions`          | no       | List of trigger condition sets (below). Omit to evaluate all generations. |
 | `enabled`             | no       | Defaults to `false`. Create disabled, then flip with `llma-evaluation-update`. |
 
@@ -62,9 +62,10 @@ Empty object: `{}`.
 | ----------------- | -------- | ------------------------------------------------------------------------------ |
 | `provider`        | yes      | One of `openai`, `anthropic`, `gemini`, `openrouter`, `fireworks`, `azure_openai`, `together_ai`. |
 | `model`           | yes      | Model id, e.g. `gpt-5-mini`. Validate against `llma-evaluation-judge-models`.  |
-| `provider_key_id` | yes      | UUID of an `ok`-state `LLMProviderKey` from `llma-provider-key-list`. |
+| `provider_key_id` | no       | UUID of an `ok`-state `LLMProviderKey` from `llma-provider-key-list`, or `null` when no key is pinned. |
 
-Pin `provider_key_id` to an `ok`-state key; the eval runs on that key.
+`provider` and `model` are required. Optionally pin `provider_key_id` to an `ok`-state key to run the eval
+on that key; leave it `null` when no key is pinned.
 
 ## `conditions`
 
@@ -121,7 +122,7 @@ and sample volume with `rollout_percentage`.
   "evaluation_config": { "prompt": "Return true if the assistant's reply stays on the user's topic, false if it changes subject. Return N/A if the user did not ask a question." },
   "output_type": "boolean",
   "output_config": { "allows_na": true },
-  "model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": "<ok-state key uuid from llma-provider-key-list>" },
+  "model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": null },
   "conditions": [{ "id": "default", "rollout_percentage": 100, "properties": [] }],
   "enabled": false
 }
