@@ -160,6 +160,7 @@ export interface PatchedSignalReportContentUpdateApi {
  * * `logs` - logs
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
+ * * `analytics` - analytics
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -178,6 +179,7 @@ export const SignalSourceProductApi = {
     Logs: 'logs',
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
 } as const
 
 /**
@@ -196,6 +198,7 @@ export const SignalSourceProductApi = {
  * * `alert_state_change` - alert_state_change
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
+ * * `anomaly_investigation` - anomaly_investigation
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -215,6 +218,7 @@ export const SignalSourceTypeApi = {
     AlertStateChange: 'alert_state_change',
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
+    AnomalyInvestigation: 'anomaly_investigation',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -445,6 +449,29 @@ export interface ReplayVisionScannerFindingSignalExtraApi {
     recording_active_seconds?: number | null
 }
 
+export type AnalyticsAnomalyInvestigationSignalExtraApiVerdict =
+    | (typeof AnalyticsAnomalyInvestigationSignalExtraApiVerdict)[keyof typeof AnalyticsAnomalyInvestigationSignalExtraApiVerdict]
+    | null
+
+export const AnalyticsAnomalyInvestigationSignalExtraApiVerdict = {
+    TruePositive: 'true_positive',
+    FalsePositive: 'false_positive',
+    Inconclusive: 'inconclusive',
+} as const
+
+export interface AnalyticsAnomalyInvestigationSignalExtraApi {
+    alert_id: string
+    alert_name: string
+    insight_short_id: string
+    insight_name?: string | null
+    calculated_value?: number | null
+    detector_type?: string | null
+    verdict?: AnalyticsAnomalyInvestigationSignalExtraApiVerdict
+    investigation_summary?: string | null
+    notebook_id?: string | null
+    url: string
+}
+
 export type HealthCheckSignalExtraSeverityEnumApi =
     (typeof HealthCheckSignalExtraSeverityEnumApi)[keyof typeof HealthCheckSignalExtraSeverityEnumApi]
 
@@ -483,6 +510,7 @@ export type SignalExtraApi =
     | SignalsScoutSignalExtraApi
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
+    | AnalyticsAnomalyInvestigationSignalExtraApi
     | HealthCheckSignalExtraApi
 
 export interface SpecificityMetadataApi {
@@ -536,7 +564,8 @@ export interface SignalNodeApi {
      * * `signals_scout` - signals_scout
      * * `logs` - logs
      * * `health_checks` - health_checks
-     * * `replay_vision` - replay_vision */
+     * * `replay_vision` - replay_vision
+     * * `analytics` - analytics */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -554,7 +583,8 @@ export interface SignalNodeApi {
      * * `cross_source_issue` - cross_source_issue
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
-     * * `scanner_finding` - scanner_finding */
+     * * `scanner_finding` - scanner_finding
+     * * `anomaly_investigation` - anomaly_investigation */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -2205,6 +2235,7 @@ export interface ForgetResponseApi {
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
+ * * `analytics` - Product analytics
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -2224,6 +2255,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
 } as const
 
 /**
@@ -2241,6 +2273,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `endpoint_execution_failed` - Endpoint execution failed
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
+ * * `anomaly_investigation` - Anomaly investigation
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -2260,6 +2293,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointExecutionFailed: 'endpoint_execution_failed',
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
+    AnomalyInvestigation: 'anomaly_investigation',
 } as const
 
 export interface SignalSourceConfigApi {

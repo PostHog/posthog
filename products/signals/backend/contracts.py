@@ -359,6 +359,31 @@ class ReplayVisionScannerFindingSignalInput(SignalInputBase):
     extra: ReplayVisionScannerFindingSignalExtra
 
 
+# ── Product analytics ───────────────────────────────────────────────────────────
+
+
+class AnalyticsAnomalyInvestigationSignalExtra(SignalExtraBase):
+    alert_id: str
+    alert_name: str
+    insight_short_id: str
+    insight_name: str | None = None
+    # Value the alert calculated on the firing check, and the anomaly detector that flagged it.
+    calculated_value: float | None = None
+    detector_type: str | None = None
+    # The investigation agent's conclusion on the firing alert, plus its short summary and the
+    # notebook it wrote (all absent when the signal is emitted before the agent runs).
+    verdict: Literal["true_positive", "false_positive", "inconclusive"] | None = None
+    investigation_summary: str | None = None
+    notebook_id: str | None = None
+    url: str
+
+
+class AnalyticsAnomalyInvestigationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ANOMALY_INVESTIGATION]
+    source_product: Literal[SignalSourceProduct.ANALYTICS]
+    extra: AnalyticsAnomalyInvestigationSignalExtra
+
+
 # ── Health checks ───────────────────────────────────────────────────────────────
 
 HealthCheckSeverity = Literal["critical", "warning", "info"]
@@ -426,6 +451,7 @@ SignalInput = Annotated[
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
+    | AnalyticsAnomalyInvestigationSignalInput
     | HealthCheckSignalInput
     | ReplayVisionScannerFindingSignalInput,
     Field(union_mode="left_to_right"),
@@ -446,6 +472,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     PgAnalyzeIssueSignalInput,
     SignalsScoutSignalInput,
     LogsAlertStateChangeSignalInput,
+    AnalyticsAnomalyInvestigationSignalInput,
     HealthCheckSignalInput,
     ReplayVisionScannerFindingSignalInput,
 )
