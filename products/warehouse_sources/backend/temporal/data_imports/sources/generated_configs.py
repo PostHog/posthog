@@ -3765,7 +3765,7 @@ class TodoistSourceConfig(config.Config):
 
 @config.config
 class TogetherAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

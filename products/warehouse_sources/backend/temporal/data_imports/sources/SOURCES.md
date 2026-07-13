@@ -376,6 +376,7 @@ the row lists both.
 | tiktok_ads              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | tmdb                    | HTTP                        | requests                                                        | ✅                          |
 | todoist                 | HTTP                        | requests                                                        | ✅                          |
+| together_ai             | HTTP                        | requests                                                        | ✅                          |
 | trello                  | HTTP                        | requests                                                        | ✅                          |
 | tremendous              | HTTP                        | requests                                                        | ✅                          |
 | twilio                  | HTTP                        | requests                                                        | ✅                          |
@@ -806,7 +807,6 @@ doesn't conflict with concurrent PRs.
 - tile38
 - timely
 - tinyemail
-- together_ai
 - toggl
 - track_pms
 - tremendous
