@@ -792,6 +792,10 @@ class OauthIntegration:
                 verifier_cache_key = f"oauth_pkce_verifier/{state_token}"
                 code_verifier = cache.get(verifier_cache_key)
                 cache.delete(verifier_cache_key)  # single-use, per RFC 7636
+            # Missing verifier still exchanges without PKCE (Salesforce accepts that until it
+            # requires PKCE). Log it so the gap is visible before we enforce PKCE provider-side.
+            if not code_verifier:
+                logger.warning("oauth_pkce_verifier_missing", kind=kind, has_state_token=bool(state_token))
 
         # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
         if kind == "reddit-ads":
