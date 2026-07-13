@@ -71,7 +71,6 @@ from posthog.tasks.usage_report import (
     get_teams_with_logs_bytes_in_period,
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_bytes_in_period,
-    get_teams_with_mcp_tool_calls_count_in_period,
     get_teams_with_mobile_billable_recording_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
@@ -223,11 +222,6 @@ QUERIES: list[QuerySpec] = [
         timeout_minutes=30,
     ),
     QuerySpec(
-        name="teams_with_mcp_tool_calls_count_in_period",
-        fn=get_teams_with_mcp_tool_calls_count_in_period,
-        timeout_minutes=30,
-    ),
-    QuerySpec(
         name="teams_with_enhanced_persons_event_count_in_period",
         fn=lambda b, e: get_teams_with_billable_enhanced_persons_event_count_in_period(b, e, count_distinct=True),
         timeout_minutes=30,
@@ -268,6 +262,7 @@ QUERIES: list[QuerySpec] = [
             "elixir_events": "teams_with_elixir_events_count_in_period",
             "unity_events": "teams_with_unity_events_count_in_period",
             "rust_events": "teams_with_rust_events_count_in_period",
+            "mcp_tool_calls": "teams_with_mcp_tool_calls_count_in_period",
         },
         timeout_minutes=30,
     ),

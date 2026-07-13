@@ -616,21 +616,6 @@ def get_teams_with_billable_event_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_mcp_tool_calls_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
-    query_template = """
-        SELECT team_id, count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
-        FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            AND event = '$mcp_tool_call'
-        GROUP BY team_id
-    """
-
-    with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
-        return _execute_split_query(begin, end, query_template, {}, num_splits=12)
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_enhanced_persons_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> list[tuple[int, int]]:
@@ -787,6 +772,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     quoted_tracked_libs = ", ".join(f"'{lib}'" for lib in tracked_libs)
     metric_filter_conditions = [f"event LIKE '{event_prefix}'" for event_prefix, _metric in event_prefix_metrics]
     metric_filter_conditions.append(f"{lib_expression} IN ({quoted_tracked_libs})")
+    metric_filter_conditions.append("event = '$mcp_tool_call'")
     metric_filter = "\n            OR ".join(metric_filter_conditions)
     # The main scan classifies SDKs by $lib only, so it never reads the `properties` blob. The AI
     # sub-SDK split (openclaw / posthog_pi / posthog_ai, keyed by $ai_lib) is computed separately
@@ -805,7 +791,11 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             multiIf(
                 {metric_expression}
             ) AS metric,
-            count(1) as count
+            count(1) as count,
+            uniqExactIf(
+                (toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)),
+                event = '$mcp_tool_call'
+            ) AS mcp_tool_calls_count
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
         WHERE (
@@ -844,16 +834,20 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "elixir_events": {},
             "unity_events": {},
             "rust_events": {},
+            "mcp_tool_calls": {},
         }
 
         # Process each result set
         for results in results_list:
-            for team_id, metric, count in results:
+            for team_id, metric, count, mcp_tool_calls_count in results:
                 if metric in metrics:  # Make sure the metric exists in our dictionary
                     if team_id in metrics[metric]:
                         metrics[metric][team_id] += count
                     else:
                         metrics[metric][team_id] = count
+                if mcp_tool_calls_count:
+                    team_mcp_tool_calls = metrics["mcp_tool_calls"]
+                    team_mcp_tool_calls[team_id] = team_mcp_tool_calls.get(team_id, 0) + mcp_tool_calls_count
 
         # Convert to the expected format
         result = {}
@@ -2311,9 +2305,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
-        "teams_with_mcp_tool_calls_count_in_period": get_teams_with_mcp_tool_calls_count_in_period(
-            period_start, period_end
-        ),
+        "teams_with_mcp_tool_calls_count_in_period": all_metrics["mcp_tool_calls"],
         "teams_with_enhanced_persons_event_count_in_period": get_teams_with_billable_enhanced_persons_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),

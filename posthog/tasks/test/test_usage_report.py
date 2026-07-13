@@ -1426,6 +1426,8 @@ class TestQueryUsageReportSQL:
         assert "event LIKE 'helicone%%'" in main_query
         assert "event LIKE 'traceloop%%'" in main_query
         assert "OR lib_expr IN (" in main_query
+        assert "event = '$mcp_tool_call'" in main_query
+        assert "uniqExactIf(" in main_query
         assert "'posthog-node'" in main_query
         assert "'posthog-rs'" in main_query
         assert "ai_lib_expr" not in main_query
@@ -5394,8 +5396,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
     def test_mcp_tool_calls_are_reported_and_remain_billable_events(self) -> None:
         from posthog.tasks.usage_report import (
+            get_all_event_metrics_in_period,
             get_teams_with_billable_event_count_in_period,
-            get_teams_with_mcp_tool_calls_count_in_period,
         )
 
         billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
@@ -5407,16 +5409,17 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 team=self.team,
                 distinct_id=f"mcp_user_{index}",
                 timestamp=self.begin + relativedelta(hours=index + 1),
-                properties={},
+                properties={"$lib": "posthog-node"},
             )
 
         flush_persons_and_events()
 
         billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
-        mcp_result = get_teams_with_mcp_tool_calls_count_in_period(self.begin, self.end)
+        event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 2)])
-        self.assertEqual(mcp_result, [(self.team.id, 2)])
+        self.assertEqual(event_metrics["mcp_tool_calls"], [(self.team.id, 2)])
+        self.assertEqual(dict(event_metrics["node_events"]).get(self.team.id), 2)
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(
         self,
