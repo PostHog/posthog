@@ -429,11 +429,10 @@ class TestCostPerMergeSeries(BaseTest):
             (datetime(2026, 6, 3), 2),
             (datetime(2026, 6, 5), 3),  # merges but no cost above
         ]
-        granularity, buckets = query_cost_per_merge_series(
-            curated=self._curated(cost_rows, merges_rows), date_from=date_from, date_to=date_to
+        buckets = query_cost_per_merge_series(
+            curated=self._curated(cost_rows, merges_rows), date_from=date_from, date_to=date_to, granularity="day"
         )
 
-        assert granularity == "day"
         assert len(buckets) == 30  # June 1..30 inclusive, zero-filled.
         by_day = {bucket.bucket_start: bucket for bucket in buckets}
 
@@ -468,10 +467,9 @@ class TestCostPerMergeSeries(BaseTest):
 
     def test_empty_when_jobs_source_unsynced(self) -> None:
         curated = self._curated([], [], jobs_synced=False)
-        granularity, buckets = query_cost_per_merge_series(
-            curated=curated, date_from=_dt("2026-06-01T00:00:00"), date_to=_dt("2026-06-30T00:00:00")
+        buckets = query_cost_per_merge_series(
+            curated=curated, date_from=_dt("2026-06-01T00:00:00"), date_to=_dt("2026-06-30T00:00:00"), granularity="day"
         )
-        assert granularity == "day"
         assert buckets == []
         curated.run.assert_not_called()  # no jobs source -> no scan is issued
 

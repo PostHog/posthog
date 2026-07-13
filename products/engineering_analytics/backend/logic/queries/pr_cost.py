@@ -37,7 +37,6 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
     bucket_expr,
     normalize_bucket,
-    pick_granularity,
     window_buckets,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
@@ -392,19 +391,19 @@ def query_cost_per_merge_series(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-) -> tuple[Granularity, list[CostPerMergeBucket]]:
-    """CI cost per merged PR across [date_from, date_to], bucketed to fit the window, oldest first.
+    granularity: Granularity,
+) -> list[CostPerMergeBucket]:
+    """CI cost per merged PR across [date_from, date_to] at ``granularity``, oldest first.
 
-    Returns ``(granularity, buckets)``. ``buckets`` is zero-filled across the whole window so the trend
-    has no gaps; each bucket's ``cost_per_merge_usd`` is the trailing-window ratio (see
-    ``_ROLLING_BUCKETS``) while ``estimated_cost_usd``/``merges`` stay bucket-local. When the job-level source isn't synced there's no cost to divide, so ``buckets`` is
-    empty (the UI shows the same "sync jobs" state as the other cost surfaces); the granularity is still
-    returned so the caller can label an empty chart consistently.
+    Buckets are zero-filled across the whole window so the trend has no gaps; each bucket's
+    ``cost_per_merge_usd`` is the trailing-window ratio (see ``_ROLLING_BUCKETS``) while
+    ``estimated_cost_usd``/``merges`` stay bucket-local. When the job-level source isn't synced
+    there's no cost to divide, so the series is empty (the UI shows the same "sync jobs" state as
+    the other cost surfaces).
     """
-    granularity = pick_granularity(date_from, date_to)
     jobs_source = curated.jobs_source()
     if jobs_source is None:
-        return granularity, []
+        return []
 
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     date_to_runs = ""
@@ -461,7 +460,7 @@ def query_cost_per_merge_series(
                 else None,
             )
         )
-    return granularity, buckets
+    return buckets
 
 
 # Per-runner-tier cost for one workflow (single-workflow page "where the spend goes" breakdown), scoped

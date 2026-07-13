@@ -25,6 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthRunScope,
 )
 from products.engineering_analytics.backend.logic.queries._buckets import (
+    Granularity,
     bucket_expr,
     normalize_bucket,
     pick_granularity,
@@ -111,12 +112,12 @@ def query_time_to_green_series(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-) -> tuple[str, list[TimeToGreenBucket]]:
+    granularity: Granularity,
+) -> list[TimeToGreenBucket]:
     """Median time-to-green per bucket across the window, oldest first: the p50 wall-clock duration of
     successful, PR-attributed CI runs (default-branch runs excluded). Success-only + PR-scoped — the same
     population workflow-health's percentiles use — so it answers "how long until CI passes on a PR", not
     master build time. Empty buckets carry ``p50_seconds`` None (a gap, not instant CI)."""
-    granularity = pick_granularity(date_from, date_to)
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     run_scope_clause = run_scope_filter_clause(WorkflowHealthRunScope.PULL_REQUEST)
@@ -131,11 +132,10 @@ def query_time_to_green_series(
         normalize_bucket(bucket_start, granularity): opt_float(p50_seconds)
         for bucket_start, p50_seconds in response.results or []
     }
-    buckets = [
+    return [
         TimeToGreenBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
         for bucket in window_buckets(date_from, date_to, granularity)
     ]
-    return granularity, buckets
 
 
 def query_workflow_health(

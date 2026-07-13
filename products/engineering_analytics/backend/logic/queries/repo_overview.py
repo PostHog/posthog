@@ -4,13 +4,26 @@ One runs scan covers the current window and the equal-length window before it, s
 every headline number ships with its previous-window twin and the UI can render an
 honest delta instead of a server-baked percentage. The PR medians (bots and drafts
 excluded, per the locked cycle-time recipe) come from the PR snapshot the same way.
+
+The four chart series are a separate concern with a separate producer
+(``query_repo_series``): every series query computes unconditionally, the shared
+bucket granularity is decided exactly once, and a headline-only consumer composes
+``query_repo_overview`` with ``empty_repo_series`` instead of flag-switching what
+the query layer computes.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import OpenToMergeBucket, PassRateBucket, RepoOverview
+from products.engineering_analytics.backend.facade.contracts import (
+    CostPerMergeBucket,
+    OpenToMergeBucket,
+    PassRateBucket,
+    RepoOverview,
+    TimeToGreenBucket,
+)
 from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
     bucket_expr,
@@ -114,10 +127,10 @@ def query_success_rate_series(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-) -> tuple[Granularity, list[PassRateBucket]]:
+    granularity: Granularity,
+) -> list[PassRateBucket]:
     """Pass rate per bucket across the window, oldest first: completed runs that succeeded, all branches —
     the same population as the headline pass rate. Empty buckets carry ``success_rate`` None (a gap)."""
-    granularity = pick_granularity(date_from, date_to)
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
     if date_to is not None:
@@ -132,11 +145,10 @@ def query_success_rate_series(
         normalize_bucket(bucket_start, granularity): opt_float(success_rate)
         for bucket_start, success_rate in response.results or []
     }
-    buckets = [
+    return [
         PassRateBucket(bucket_start=bucket, success_rate=rate_by_bucket.get(bucket))
         for bucket in window_buckets(date_from, date_to, granularity)
     ]
-    return granularity, buckets
 
 
 def query_open_to_merge_series(
@@ -144,10 +156,10 @@ def query_open_to_merge_series(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-) -> tuple[Granularity, list[OpenToMergeBucket]]:
+    granularity: Granularity,
+) -> list[OpenToMergeBucket]:
     """Median time-to-merge per bucket across the window, oldest first: p50 merged_at - created_at over PRs
     merged in the bucket, bots and drafts excluded. Empty buckets carry ``p50_seconds`` None (a gap)."""
-    granularity = pick_granularity(date_from, date_to)
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
     if date_to is not None:
@@ -162,11 +174,64 @@ def query_open_to_merge_series(
         normalize_bucket(bucket_start, granularity): (opt_float(p50) if (n or 0) > 0 else None)
         for bucket_start, p50, n in response.results or []
     }
-    buckets = [
+    return [
         OpenToMergeBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
         for bucket in window_buckets(date_from, date_to, granularity)
     ]
-    return granularity, buckets
+
+
+@dataclass(frozen=True)
+class RepoSeries:
+    """The repo hub's four chart series over one window, on one shared bucket granularity.
+
+    Internal to the read layer: ``RepoOverview`` flattens it into the contract's per-series
+    fields. Produced by ``query_repo_series`` (four bucketed scans) or ``empty_repo_series``
+    (no scans — the headline-only shape), so callers compose which one they pay for instead
+    of the query layer flag-switching what it computes.
+    """
+
+    granularity: Granularity
+    cost: list[CostPerMergeBucket]
+    time_to_green: list[TimeToGreenBucket]
+    success_rate: list[PassRateBucket]
+    open_to_merge: list[OpenToMergeBucket]
+
+
+def query_repo_series(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+) -> RepoSeries:
+    """All four chart series across the window — the one place their shared granularity is decided."""
+    granularity = pick_granularity(date_from, date_to)
+    return RepoSeries(
+        granularity=granularity,
+        cost=query_cost_per_merge_series(
+            curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
+        ),
+        time_to_green=query_time_to_green_series(
+            curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
+        ),
+        success_rate=query_success_rate_series(
+            curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
+        ),
+        open_to_merge=query_open_to_merge_series(
+            curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
+        ),
+    )
+
+
+def empty_repo_series(*, date_from: datetime, date_to: datetime | None) -> RepoSeries:
+    """The series a headline-only read carries: no buckets, no scans, but the same granularity a
+    full read would use, so the contract's non-null granularity fields stay meaningful."""
+    return RepoSeries(
+        granularity=pick_granularity(date_from, date_to),
+        cost=[],
+        time_to_green=[],
+        success_rate=[],
+        open_to_merge=[],
+    )
 
 
 def query_repo_overview(
@@ -174,7 +239,7 @@ def query_repo_overview(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-    include_series: bool = True,
+    series: RepoSeries,
 ) -> RepoOverview:
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
@@ -224,27 +289,6 @@ def query_repo_overview(
     cost_usd = sum(c.estimated_cost_usd or 0.0 for c in cost_cur.values()) if cost_cur else None
     cost_usd_prev = sum(c.estimated_cost_usd or 0.0 for c in cost_prev.values()) if cost_prev else None
 
-    if include_series:
-        cost_series_granularity, cost_series = query_cost_per_merge_series(
-            curated=curated, date_from=date_from, date_to=date_to
-        )
-        ttg_series_granularity, ttg_series = query_time_to_green_series(
-            curated=curated, date_from=date_from, date_to=date_to
-        )
-        pass_rate_series_granularity, pass_rate_series = query_success_rate_series(
-            curated=curated, date_from=date_from, date_to=date_to
-        )
-        open_to_merge_series_granularity, open_to_merge_series = query_open_to_merge_series(
-            curated=curated, date_from=date_from, date_to=date_to
-        )
-    else:
-        # Headline-only read (the weekly digest): skip the four chart scans, but keep the granularity
-        # the series would have used so the contract's non-null granularity fields stay meaningful.
-        granularity = pick_granularity(date_from, date_to)
-        cost_series_granularity = ttg_series_granularity = granularity
-        pass_rate_series_granularity = open_to_merge_series_granularity = granularity
-        cost_series, ttg_series, pass_rate_series, open_to_merge_series = [], [], [], []
-
     return RepoOverview(
         run_count=run_count,
         run_count_prev=run_count_prev,
@@ -262,12 +306,12 @@ def query_repo_overview(
         estimated_cost_usd_prev=opt_float(cost_usd_prev),
         jobs_available=jobs_available,
         default_branch=default_branch,
-        cost_series=cost_series,
-        cost_series_granularity=cost_series_granularity,
-        time_to_green_series=ttg_series,
-        time_to_green_series_granularity=ttg_series_granularity,
-        success_rate_series=pass_rate_series,
-        success_rate_series_granularity=pass_rate_series_granularity,
-        open_to_merge_series=open_to_merge_series,
-        open_to_merge_series_granularity=open_to_merge_series_granularity,
+        cost_series=series.cost,
+        cost_series_granularity=series.granularity,
+        time_to_green_series=series.time_to_green,
+        time_to_green_series_granularity=series.granularity,
+        success_rate_series=series.success_rate,
+        success_rate_series_granularity=series.granularity,
+        open_to_merge_series=series.open_to_merge,
+        open_to_merge_series_granularity=series.granularity,
     )
