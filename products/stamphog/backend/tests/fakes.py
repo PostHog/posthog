@@ -1,19 +1,87 @@
-"""GitHub fake installed at the egress seam (``github_request``).
+"""Reusable GitHub, Slack, and sandbox fakes for the stamphog integration tests.
 
-``StamphogGitHubClient`` funnels every outbound call through
-``posthog.egress.github.transport.github_request``. The harness patches that reference
-(as imported into ``logic/github_client``) with ``GitHubRecorder.github_request`` and stubs
-the two limiter helpers that inspect a real ``requests.Response``. The recorder serves
-scripted reads keyed by (method, path) and records every write (approve review, sticky
-comment) into ``github_writes`` with its body, returning plausible GitHub response JSON.
+The chain has exactly four true boundaries; each fake stands in at one of them:
+  * GitHub  — the egress transport ``github_request`` (``GitHubRecorder``)
+  * Slack   — the ``SlackIntegration`` client (``FakeSlackIntegration``)
+  * Sandbox — ``get_sandbox_class_for_backend`` (``make_fake_sandbox_class``)
+  * LLM     — patched to raise so the digest uses its deterministic fallback
+
+Everything else in the chain (webhook view, Celery task, review activities, ORM,
+audience / channel-resolution / digest logic) runs as real code. The dev runner
+(``dev/run_scenario.py``) reuses these same fakes against a real sandbox.
 """
 
 from __future__ import annotations
 
 import re
+import hmac
+import json
+import hashlib
+from dataclasses import dataclass
 from typing import Any
 
-# Path shapes we route on. Kept as compiled patterns so routing stays readable.
+# --- Webhook payload + signing (mirrors what GitHub sends) ---
+
+_RELEVANT_PR_FIELDS = ("number", "title", "body")
+
+
+def build_pull_request_event(
+    *,
+    action: str,
+    installation_id: str,
+    repo: str,
+    number: int,
+    title: str,
+    body: str,
+    author_login: str,
+    head_sha: str,
+    head_ref: str,
+    base_sha: str,
+    merged: bool = False,
+    merged_at: str | None = None,
+    merge_commit_sha: str = "",
+    additions: int = 0,
+    deletions: int = 0,
+    changed_files: int = 0,
+    draft: bool = False,
+) -> dict[str, Any]:
+    """Assemble one ``pull_request`` webhook body for ``action`` (opened/synchronize/closed)."""
+    return {
+        "action": action,
+        "installation": {"id": installation_id},
+        "repository": {"full_name": repo},
+        "pull_request": {
+            "number": number,
+            "title": title,
+            "body": body,
+            "html_url": f"https://github.com/{repo}/pull/{number}",
+            "state": "closed" if action == "closed" else "open",
+            "draft": draft,
+            "user": {"login": author_login},
+            "head": {"sha": head_sha, "ref": head_ref},
+            "base": {"sha": base_sha, "ref": "master"},
+            "merged": merged,
+            "merged_at": merged_at,
+            "merge_commit_sha": merge_commit_sha,
+            "additions": additions,
+            "deletions": deletions,
+            "changed_files": changed_files,
+        },
+    }
+
+
+def encode(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload).encode("utf-8")
+
+
+def sign_payload(body: bytes, secret: str) -> str:
+    """Compute the ``X-Hub-Signature-256`` header GitHub would send for ``body``."""
+    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return f"sha256={digest}"
+
+
+# --- GitHub fake at the egress seam (``github_request``) ---
+
 _TOKEN_RE = re.compile(r"^/app/installations/(?P<inst>[^/]+)/access_tokens$")
 _PR_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)$")
 _PR_FILES_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/files$")
@@ -46,13 +114,11 @@ class GitHubRecorder:
     """Scriptable GitHub API fake. Configure reads, then read ``github_writes`` after a run."""
 
     def __init__(self) -> None:
-        # Scripted read state, all keyed by their natural identity.
         self.prs: dict[tuple[str, int], dict] = {}
         self.pr_files: dict[tuple[str, int], list[dict]] = {}
         self.author_merged: dict[tuple[str, str], list[int]] = {}
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
-        # Recorded writes (approve reviews + issue comments), each {method, repo, number, body}.
         self.github_writes: list[dict[str, Any]] = []
         self._next_id = 90000
 
@@ -85,7 +151,6 @@ class GitHubRecorder:
         if method == "POST" and (m := _REVIEWS_RE.match(path)):
             return self._record_write("approve_review", m.group("repo"), int(m.group("number")), json_body)
         if method == "GET" and _ISSUE_COMMENTS_RE.match(path):
-            # Sticky-comment lookup: no existing stamphog comment, so upsert posts a new one.
             return FakeResponse(200, json_data=[])
         if method == "POST" and (m := _ISSUE_COMMENTS_RE.match(path)):
             return self._record_write("issue_comment", m.group("repo"), int(m.group("number")), json_body)
@@ -95,7 +160,6 @@ class GitHubRecorder:
         raise AssertionError(f"fake github: unrouted {method} {path}")
 
     def _mint_token(self, installation_id: str) -> FakeResponse:
-        # One hour out, matching GitHub's installation-token lifetime.
         return FakeResponse(
             201,
             json_data={"token": f"ghs_fake_{installation_id}", "expires_at": "2999-01-01T00:00:00Z"},
@@ -108,7 +172,6 @@ class GitHubRecorder:
         return FakeResponse(200, json_data=pr)
 
     def _get_files(self, repo: str, number: int, params: dict) -> FakeResponse:
-        # Single page: return the scripted files on page 1, empty thereafter.
         page = int(params.get("page", 1))
         files = self.pr_files.get((repo, number), []) if page == 1 else []
         return FakeResponse(200, json_data=files)
@@ -140,7 +203,6 @@ class GitHubRecorder:
 
 
 def _extract(query: str, prefix: str) -> str:
-    """Pull the token following ``prefix`` out of a GitHub search query string."""
     for token in query.split():
         if token.startswith(prefix):
             return token[len(prefix) :]
@@ -148,10 +210,101 @@ def _extract(query: str, prefix: str) -> str:
 
 
 def noop_remember_observed_core_limit(*args: Any, **kwargs: Any) -> None:
-    """Stub for the limiter's response inspector — the fake response has no rate headers."""
+    """The limiter's response inspector — the fake response carries no rate headers."""
     return None
 
 
 def noop_raise_if_github_rate_limited(*args: Any, **kwargs: Any) -> None:
-    """Stub for the rate-limit guard — the fake never rate-limits."""
+    """The rate-limit guard — the fake never rate-limits."""
     return None
+
+
+# --- Slack fake at the ``SlackIntegration`` seam ---
+
+
+class FakeSlackClient:
+    """Records ``chat_postMessage`` calls; returns a Slack-shaped ``{"ok", "ts"}``."""
+
+    def __init__(self, posted: list[dict[str, Any]]) -> None:
+        self._posted = posted
+
+    def chat_postMessage(self, *, channel: str, blocks: list[dict], text: str, **kwargs: Any) -> dict[str, Any]:
+        self._posted.append({"channel": channel, "blocks": blocks, "text": text})
+        return {"ok": True, "ts": "1234.5678"}
+
+
+class FakeSlackIntegration:
+    """Stand-in for ``posthog.models.integration.SlackIntegration``.
+
+    Class-level state is shared across every instance a run constructs, so a test can read
+    ``posted_messages`` and script ``workspace_channels`` regardless of which module built the
+    instance (both the digest-post and channel-resolution paths construct their own).
+    """
+
+    posted_messages: list[dict[str, Any]] = []
+    workspace_channels: list[dict[str, str]] = []
+
+    def __init__(self, integration: Any) -> None:
+        self.integration = integration
+
+    @property
+    def client(self) -> FakeSlackClient:
+        return FakeSlackClient(FakeSlackIntegration.posted_messages)
+
+    def list_channels(self, should_include_private_channels: bool = False, authed_user: str = "") -> list[dict]:
+        return sorted(FakeSlackIntegration.workspace_channels, key=lambda c: c["name"])
+
+    @classmethod
+    def reset(cls, channels: list[dict[str, str]]) -> None:
+        cls.posted_messages = []
+        cls.workspace_channels = list(channels)
+
+
+# --- Sandbox fake at the ``get_sandbox_class_for_backend`` seam ---
+
+
+@dataclass
+class FakeExecResult:
+    stdout: str
+    stderr: str
+    exit_code: int
+    error: str | None = None
+
+
+def approved_engine_output() -> str:
+    """A realistic ``review_pr`` ``to_dict()`` payload — gates pass, final verdict APPROVED.
+
+    Emitted as the reviewer's last stdout line (uv/SDK noise can precede it), which is exactly
+    what ``parse_reviewer_output`` scans for.
+    """
+    payload = {
+        "final_verdict": "APPROVED",
+        "reviewer": {"reasoning": "Small, well-tested change. No policy concerns.", "issues": []},
+        "gates": [{"name": "size", "passed": True}, {"name": "deny_list", "passed": True}],
+        "classification": {"tier": "low_risk", "reason": "docs + small logic change"},
+        "policy": {"version": "1"},
+        "review_body": "Approved by stamphog. All deterministic gates passed; change is low risk.",
+        "stamphog_version": "test-1.0.0",
+    }
+    return "uv run: resolved 1 package\n" + json.dumps(payload)
+
+
+def make_fake_sandbox_class(engine_output: str) -> type:
+    """A sandbox class returning ``engine_output`` for the reviewer command, no-ops otherwise."""
+
+    class _FakeSandbox:
+        @classmethod
+        def create(cls, config: Any) -> _FakeSandbox:
+            return cls()
+
+        def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:
+            stdout = engine_output if "review_local.py" in command else ""
+            return FakeExecResult(stdout=stdout, stderr="", exit_code=0)
+
+        def write_file(self, path: str, payload: bytes) -> FakeExecResult:
+            return FakeExecResult(stdout="", stderr="", exit_code=0)
+
+        def destroy(self) -> None:
+            return None
+
+    return _FakeSandbox

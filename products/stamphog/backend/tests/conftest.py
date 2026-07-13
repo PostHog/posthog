@@ -1,8 +1,27 @@
-from contextlib import AbstractContextManager
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, ExitStack
+from dataclasses import dataclass
+from typing import Any
 
 import pytest
+from unittest.mock import patch
+
+from django.test import Client, override_settings
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from posthog.models.scoping import team_scope
+
+from products.stamphog.backend.temporal.activities import (
+    MarkReviewFailedInput,
+    StamphogReviewInput,
+    fetch_review_context,
+    mark_review_failed,
+    post_verdict,
+    run_review_in_sandbox,
+)
+from products.stamphog.backend.tests import fakes
 
 PRODUCT_DATABASES = {"default", "stamphog_db_writer", "stamphog_db_reader"}
 
@@ -53,3 +72,120 @@ class StamphogTeamScopedTestMixin:
             finally:
                 self._team_scope_cm = None
         super().tearDown()  # type: ignore[misc]
+
+
+WEBHOOK_PATH = "/webhooks/stamphog/github"
+WEBHOOK_SECRET = "integration-webhook-secret"
+
+
+def _generate_app_private_key() -> str:
+    """Ephemeral RSA key so the real App-JWT mint path runs (the token POST itself is faked)."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+
+
+def _run_activity(activity_fn: Any, arg: Any) -> Any:
+    """Run a stamphog activity's plain sync body in-thread.
+
+    The activities are ``@activity.defn`` over ``@asyncify``; ``__wrapped__`` is the original
+    sync function, callable directly so it shares the test's DB connection (production drives the
+    same body from a Temporal worker thread instead).
+    """
+    return activity_fn.__wrapped__(arg)
+
+
+def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
+    """Stand in for the Temporal client by driving the real activities in order.
+
+    Mirrors StamphogReviewWorkflow: fetch context, run in the (faked) sandbox, post the verdict;
+    on any error mark the run failed, exactly like the workflow's failure path.
+    """
+    inp = StamphogReviewInput(review_run_id=review_run_id, team_id=team_id)
+    try:
+        _run_activity(fetch_review_context, inp)
+        _run_activity(run_review_in_sandbox, inp)
+        _run_activity(post_verdict, inp)
+    except Exception as e:  # noqa: BLE001 — mirror the workflow's failure path
+        _run_activity(mark_review_failed, MarkReviewFailedInput(review_run_id, team_id, str(e)))
+
+
+@dataclass
+class StamphogChain:
+    """Handle for a wired-up full chain: the GitHub recorder plus a webhook poster."""
+
+    recorder: fakes.GitHubRecorder
+    client: Client
+
+    def post_webhook(self, payload: dict[str, Any], *, delivery_id: str) -> int:
+        body = fakes.encode(payload)
+        return self.client.post(
+            WEBHOOK_PATH,
+            data=body,
+            content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256=fakes.sign_payload(body, WEBHOOK_SECRET),
+            HTTP_X_GITHUB_EVENT="pull_request",
+            HTTP_X_GITHUB_DELIVERY=delivery_id,
+        ).status_code
+
+
+@pytest.fixture
+def stamphog_chain() -> Iterator[StamphogChain]:
+    """Wire the four chain boundaries (GitHub, Slack, sandbox, LLM) to deterministic fakes.
+
+    The Temporal client is replaced with an inline runner of the real activities, and the task's
+    ``on_commit`` fires inline (the test's outer transaction never really commits). Everything else
+    runs as production code.
+    """
+    recorder = fakes.GitHubRecorder()
+    fake_slack = fakes.FakeSlackIntegration
+    fake_slack.reset(channels=[])
+    fake_sandbox = fakes.make_fake_sandbox_class(fakes.approved_engine_output())
+
+    with ExitStack() as stack:
+        stack.enter_context(
+            override_settings(
+                STAMPHOG_GITHUB_WEBHOOK_SECRET=WEBHOOK_SECRET,
+                STAMPHOG_GITHUB_APP_ID="123456",
+                STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
+            )
+        )
+        stack.enter_context(
+            patch("products.stamphog.backend.logic.github_client.github_request", recorder.github_request)
+        )
+        stack.enter_context(
+            patch(
+                "products.stamphog.backend.logic.github_client.remember_observed_core_limit",
+                fakes.noop_remember_observed_core_limit,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "products.stamphog.backend.logic.github_client.raise_if_github_rate_limited",
+                fakes.noop_raise_if_github_rate_limited,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "products.stamphog.backend.temporal.activities.get_sandbox_class_for_backend",
+                lambda backend: fake_sandbox,
+            )
+        )
+        stack.enter_context(
+            patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow", _inline_review_workflow)
+        )
+        stack.enter_context(
+            patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn: fn())
+        )
+        stack.enter_context(patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", fake_slack))
+        stack.enter_context(patch("products.stamphog.backend.logic.channel_resolution.SlackIntegration", fake_slack))
+        stack.enter_context(
+            patch(
+                "products.stamphog.backend.logic.digest.get_llm_client",
+                side_effect=RuntimeError("no gateway in tests"),
+            )
+        )
+        yield StamphogChain(recorder=recorder, client=Client())
