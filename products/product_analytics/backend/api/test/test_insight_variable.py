@@ -4,12 +4,18 @@ from posthog.test.base import APIBaseTest
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.auth import SharingAccessTokenAuthentication
 
-from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet, map_stale_to_latest
+from products.product_analytics.backend.api.insight_variable import (
+    InsightVariableSerializer,
+    InsightVariableViewSet,
+    map_stale_to_latest,
+)
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
@@ -178,6 +184,53 @@ class TestInsightVariable(APIBaseTest):
         )
         assert response.status_code == 200
         assert response.json()["values"] == []
+
+    def test_create_list_variable_with_object_values_is_rejected(self):
+        # Object entries used to be accepted and crashed the dashboard variables UI (React #31)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/insight_variables/",
+            data={"name": "List Var", "type": "List", "values": [{"label": "School A", "value": 5}]},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json()["attr"] == "values"
+        assert InsightVariable.objects.filter(team_id=self.team.pk).count() == 0
+
+
+class TestInsightVariableSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("object_entries", [{"label": "School A", "value": 5}]),
+            ("nested_list_entries", [["a", "b"]]),
+            ("null_entry", ["a", None]),
+        ]
+    )
+    def test_list_variable_with_non_scalar_values_is_invalid(self, _name, values):
+        serializer = InsightVariableSerializer(data={"name": "List Var", "type": "List", "values": values})
+        assert not serializer.is_valid()
+        assert "values" in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("strings", ["a", "b"]),
+            ("numbers", [1, 2.5]),
+            ("mixed_scalars", ["a", 1, True]),
+        ]
+    )
+    def test_list_variable_with_scalar_values_is_valid(self, _name, values):
+        serializer = InsightVariableSerializer(data={"name": "List Var", "type": "List", "values": values})
+        assert serializer.is_valid(), serializer.errors
+
+    def test_updating_values_with_non_scalar_entries_is_invalid(self):
+        instance = InsightVariable(name="List Var", type="List", code_name="list_var", values=["a"])
+        serializer = InsightVariableSerializer(instance=instance, data={"values": [{"label": "a"}]}, partial=True)
+        assert not serializer.is_valid()
+        assert "values" in serializer.errors
+
+    def test_updating_other_fields_on_legacy_row_with_bad_values_is_valid(self):
+        instance = InsightVariable(name="List Var", type="List", code_name="list_var", values=[{"label": "a"}])
+        serializer = InsightVariableSerializer(instance=instance, data={"name": "Renamed"}, partial=True)
+        assert serializer.is_valid(), serializer.errors
 
 
 class TestMapStaleToLatest(TestCase):

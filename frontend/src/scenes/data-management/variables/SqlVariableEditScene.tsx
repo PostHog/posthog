@@ -20,6 +20,11 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import {
+    coerceListVariableValue,
+    coerceListVariableValues,
+    getListVariableValues,
+} from '~/queries/nodes/DataVisualization/Components/Variables/VariableFields'
 import { ListVariable, Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
 
 import { VARIABLE_TYPE_OPTIONS, formatVariableReference, getCodeName } from './constants'
@@ -75,7 +80,7 @@ function VariableTypeFields(): JSX.Element {
                 <LemonField name="values" label="Options">
                     {({ value, onChange }) => (
                         <LemonInputSelect
-                            value={value || []}
+                            value={coerceListVariableValues(value)}
                             onChange={onChange}
                             placeholder="Add options..."
                             mode="multiple"
@@ -90,8 +95,8 @@ function VariableTypeFields(): JSX.Element {
                         <LemonSelect
                             className="w-full"
                             placeholder="Select default value"
-                            value={value}
-                            options={((variableForm as ListVariable).values || []).map((n: string) => ({
+                            value={coerceListVariableValue(value)}
+                            options={getListVariableValues(variableForm as ListVariable).map((n: string) => ({
                                 label: n,
                                 value: n,
                             }))}
