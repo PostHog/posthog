@@ -333,6 +333,7 @@ the row lists both.
 | sendowl                 | HTTP                        | requests                                                        | ✅                          |
 | sentry                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow              | HTTP                        | requests                                                        | ✅                          |
+| shippo                  | HTTP                        | requests                                                        | ✅                          |
 | shipstation             | HTTP                        | requests                                                        | ✅                          |
 | shopify                 | HTTP                        | requests                                                        | ✅                          |
 | shopwired               | HTTP                        | requests                                                        | ✅                          |
@@ -762,6 +763,7 @@ doesn't conflict with concurrent PRs.
 - sharepoint
 - sharetribe
 - shippo
+- shopwired
 - shortio
 - shutterstock
 - sigma_computing
