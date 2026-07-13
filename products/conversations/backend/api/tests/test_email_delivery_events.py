@@ -35,8 +35,9 @@ def _payload(
     recipient: str = "customer@example.com",
     event_id: str | None = None,
     key: str = SIGNING_KEY,
+    severity: str | None = None,
+    reason: str | None = None,
     delivery_status: dict[str, Any] | None = None,
-    **event_fields: Any,
 ) -> dict:
     timestamp = str(int(time.time()))
     token = uuid4().hex
@@ -46,8 +47,11 @@ def _payload(
         "timestamp": time.time(),
         "recipient": recipient,
         "message": {"headers": {"message-id": message_id}},
-        **event_fields,
     }
+    if severity is not None:
+        event_data["severity"] = severity
+    if reason is not None:
+        event_data["reason"] = reason
     if delivery_status is not None:
         event_data["delivery-status"] = delivery_status
     return {
@@ -145,8 +149,7 @@ class TestEmailDeliveryEventsWebhook(BaseTest):
         expected_badge: str,
         _mock_key: MagicMock,
     ):
-        extra = {"severity": severity} if severity else {}
-        response = self._post(_payload(self._bare_message_id(), event=event, recipient=recipient, **extra))
+        response = self._post(_payload(self._bare_message_id(), event=event, recipient=recipient, severity=severity))
 
         assert response.status_code == 200
         row = self._rows().get()
