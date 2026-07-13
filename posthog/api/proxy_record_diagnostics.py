@@ -203,8 +203,9 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
         # Healthy — the endpoint works. The only remaining concern is renewal, read from the
         # certificate the proxy is actually serving.
         checks.append(_check_cert_expiry(record, is_cloudflare=is_cloudflare))
-    elif is_cloudflare:
-        # Not serving, and provisioned on the Cloudflare path — inspect the custom hostname.
+    elif is_cloudflare and cname_check.status == "passed":
+        # Not serving, DNS resolves, and provisioned on the Cloudflare path — the custom hostname
+        # should exist by now, so inspect it.
         cloudflare_check, hostname_info = _check_cloudflare(record)
         checks.append(cloudflare_check)
         checks.append(_check_caa(record, hostname_info, is_cloudflare=True))
@@ -213,6 +214,21 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
         else:
             checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — no challenge URL available."))
         checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — certificate is not active yet."))
+    elif is_cloudflare:
+        # Cloudflare path, but DNS isn't pointing at us yet. We only create the custom hostname
+        # once DNS resolves (during provisioning), so its absence here is expected — not a fault.
+        # Skip the check instead of reporting a false "we don't have a record of this proxy"; the
+        # failed CNAME check above is the real actionable item. CAA still matters pre-issuance.
+        checks.append(
+            _skip(
+                "cloudflare",
+                "Cloudflare custom hostname",
+                "Skipped — the proxy isn't provisioned yet. We create this automatically once the CNAME resolves.",
+            )
+        )
+        checks.append(_check_caa(record, None, is_cloudflare=True))
+        checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — the proxy isn't provisioned yet."))
+        checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — the proxy isn't provisioned yet."))
     else:
         # Not serving, and provisioned on the legacy path — there is no Cloudflare custom
         # hostname by design, so the Cloudflare check would only ever produce a false
