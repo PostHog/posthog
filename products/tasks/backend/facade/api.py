@@ -5026,6 +5026,9 @@ AGENT_THREAD_UPDATES_FLAG = "project-bluebird"
 # replaying the tail of the stream can't double-post the same end-of-turn.
 _TURN_COMPLETE_COOLDOWN_SECONDS = 30
 
+# Cap the relayed final message so one agent essay can't dwarf the thread.
+_TURN_MESSAGE_MAX_CHARS = 4000
+
 
 def _create_agent_thread_message(task: Task, content: str) -> None:
     """Write an authorless (agent) thread message and index its mentions."""
@@ -5072,12 +5075,16 @@ def post_canvas_created_thread_update(
         logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
 
 
-def post_turn_complete_thread_update(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
-    """Announce a finished agent turn in the task's thread, @-mentioning the task creator.
+def post_turn_complete_thread_update(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, message: str | None = None
+) -> None:
+    """Post the agent's final turn message into the task's thread, @-mentioning the task creator.
 
     Fires from the sandbox event relay on every end-of-turn of a channel task's
-    background run, so the update lands even with no client open. Best-effort and
-    never raises — a failed post must not disturb the relay.
+    background run, so the update lands even with no client open. ``message`` is
+    the agent's closing prose for the turn; when the relay captured none, a plain
+    "Turn complete." stands in. Best-effort and never raises — a failed post must
+    not disturb the relay.
     """
     try:
         if not settings.TEST:
@@ -5093,8 +5100,11 @@ def post_turn_complete_thread_update(run_id: str | UUID, task_id: str | UUID, te
 
         if not get_tasks_cache().add(f"thread_update:{run_id}:turn_complete", True, _TURN_COMPLETE_COOLDOWN_SECONDS):
             return
+        body = (message or "").strip() or "Turn complete."
+        if len(body) > _TURN_MESSAGE_MAX_CHARS:
+            body = body[: _TURN_MESSAGE_MAX_CHARS - 1] + "…"
         mention = format_mention_token(creator.get_full_name() or creator.email, creator.email)
-        _create_agent_thread_message(task, f"{mention} Turn complete.")
+        _create_agent_thread_message(task, f"{mention} {body}")
     except Exception:
         logger.exception("Failed to post turn-complete thread update", extra={"task_id": str(task_id)})
 

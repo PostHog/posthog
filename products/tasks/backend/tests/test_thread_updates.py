@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
@@ -9,6 +9,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.tasks.backend.facade.api import post_canvas_created_thread_update, post_turn_complete_thread_update
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage, TaskThreadMessageMention
+from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import _track_final_message
 
 _FLAG_TARGET = "products.tasks.backend.facade.api.posthoganalytics.feature_enabled"
 
@@ -36,20 +37,38 @@ class TestAgentThreadUpdates(TestCase):
     def _messages(self, task: Task) -> list[TaskThreadMessage]:
         return list(TaskThreadMessage.objects.for_team(self.team.id).filter(task=task).order_by("created_at"))
 
+    @parameterized.expand(
+        [
+            (
+                "relays_final_message",
+                "Shipped the canvas with three charts.",
+                "@[Casey Creator](creator@example.com) Shipped the canvas with three charts.",
+            ),
+            ("falls_back_without_message", None, "@[Casey Creator](creator@example.com) Turn complete."),
+        ]
+    )
     @patch(_FLAG_TARGET, return_value=True)
-    def test_turn_complete_posts_authorless_message_mentioning_creator(self, _flag) -> None:
-        post_turn_complete_thread_update(str(self.task_run.id), str(self.task.id), self.team.id)
+    def test_turn_complete_posts_authorless_message_mentioning_creator(self, _name, message, expected, _flag) -> None:
+        post_turn_complete_thread_update(str(self.task_run.id), str(self.task.id), self.team.id, message=message)
 
         messages = self._messages(self.task)
         self.assertEqual(len(messages), 1)
         self.assertIsNone(messages[0].author_id)
-        self.assertEqual(messages[0].content, "@[Casey Creator](creator@example.com) Turn complete.")
+        self.assertEqual(messages[0].content, expected)
         # The creator's mention is indexed so it lands in their mentions feed.
         self.assertTrue(
             TaskThreadMessageMention.objects.for_team(self.team.id)
             .filter(message=messages[0], mentioned_user=self.user)
             .exists()
         )
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_turn_complete_truncates_oversized_message(self, _flag) -> None:
+        post_turn_complete_thread_update(str(self.task_run.id), str(self.task.id), self.team.id, message="x" * 5000)
+
+        content = self._messages(self.task)[0].content
+        self.assertTrue(content.endswith("…"))
+        self.assertLess(len(content), 4100)
 
     @patch(_FLAG_TARGET, return_value=True)
     def test_turn_complete_cooldown_collapses_duplicate_end_of_turn_events(self, _flag) -> None:
@@ -113,3 +132,34 @@ class TestAgentThreadUpdates(TestCase):
         post_canvas_created_thread_update(self.task.id, self.team.id, canvas_name="Canvas", canvas_url=None)
 
         self.assertEqual(self._messages(self.task), [])
+
+
+def _session_update(update: dict) -> dict:
+    return {"type": "notification", "notification": {"method": "session/update", "params": {"update": update}}}
+
+
+def _chunk(text: str) -> dict:
+    return _session_update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+
+
+class TestTrackFinalMessage(SimpleTestCase):
+    def test_holds_only_prose_after_last_tool_call(self) -> None:
+        parts: list[str] = []
+        for event in [
+            _chunk("Let me look at the data first. "),
+            _session_update({"sessionUpdate": "tool_call", "toolCallId": "t1"}),
+            _session_update({"sessionUpdate": "tool_call_update", "toolCallId": "t1"}),
+            _chunk("Done. The canvas "),
+            _chunk("shows signups by week."),
+        ]:
+            _track_final_message(event, parts)
+
+        self.assertEqual("".join(parts), "Done. The canvas shows signups by week.")
+
+    @parameterized.expand([("user_message",), ("user_message_chunk",), ("tool_call",)])
+    def test_resets_on(self, session_update: str) -> None:
+        parts = ["stale narration"]
+
+        _track_final_message(_session_update({"sessionUpdate": session_update}), parts)
+
+        self.assertEqual(parts, [])
