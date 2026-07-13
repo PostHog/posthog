@@ -1679,4 +1679,90 @@ describe('sqlEditorLogic', () => {
             viewsLogic.unmount()
         })
     })
+
+    describe('query history', () => {
+        it('tags SQL editor runs with the sql_editor product key', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ results: [], columns: [], types: [] } as never)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            performQuerySpy.mockClear()
+            logic.actions.runQuery()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(performQuerySpy).toHaveBeenCalled()
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT 1',
+                tags: { productKey: 'sql_editor' },
+            })
+
+            performQuerySpy.mockRestore()
+        })
+
+        it.each([
+            [OutputTab.History, OutputTab.Results],
+            [OutputTab.Visualization, OutputTab.Visualization],
+            [OutputTab.Both, OutputTab.Both],
+        ])('running a query from the %s output tab lands on the %s tab', async (startTab, expectedTab) => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ results: [], columns: [], types: [] } as never)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.setActiveTab(startTab)
+            logic.actions.runQuery()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.outputActiveTab).toEqual(expectedTab)
+
+            performQuerySpy.mockRestore()
+        })
+
+        it.each([
+            ['query_history' as const, 'Restore', 'Cancel'],
+            ['max_ai' as const, 'Accept', 'Reject'],
+        ])('suggestions from %s use the %s/%s handlers', async (source, acceptText, rejectText) => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setSuggestedQueryInput('SELECT 2', source)
+            await expectLogic(logic).toDispatchActions(['setSuggestedQueryInput'])
+
+            expect(logic.values.suggestionPayload).toMatchObject({
+                suggestedValue: 'SELECT 2',
+                acceptText,
+                rejectText,
+                source,
+            })
+        })
+    })
 })
