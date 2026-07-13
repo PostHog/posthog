@@ -202,13 +202,8 @@ def create_oauth_access_token_for_user(
     scopes: PosthogMcpScopes = "read_only",
     include_internal_scopes: bool = True,
     application: SandboxOAuthApplication = "array",
-    extra_scopes: list[str] | None = None,
 ) -> str:
-    """Mint a sandbox OAuth token; ``extra_scopes`` are appended verbatim after
-    preset resolution, for callers layering specific grants onto a preset."""
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
-    if extra_scopes:
-        resolved = [*resolved, *extra_scopes]
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved))
 

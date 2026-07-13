@@ -169,21 +169,6 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         with self.assertRaisesRegex(RuntimeError, "PostHog AI app not found"):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
 
-    @parameterized.expand([("with_extra_scopes", ["llm_gateway_internal:read"]), ("without_extra_scopes", None)])
-    @override_settings(CLOUD_DEPLOYMENT="DEV")
-    def test_extra_scopes_minted_only_when_passed(self, _name: str, extra_scopes: list[str] | None) -> None:
-        # Callers layer targeted grants (e.g. the LLM gateway's internal-products
-        # marker) onto a preset via extra_scopes; a token minted without them must
-        # not carry them — leaking such a grant onto every task token would re-open
-        # the product bypass the marker exists to close.
-        self._create_oauth_app(POSTHOG_AI_APP_CLIENT_ID_DEV, "PostHog AI Dev App")
-        user, team = self._create_user_and_team()
-
-        token = create_oauth_access_token_for_user(user, team.id, application="posthog_ai", extra_scopes=extra_scopes)
-
-        minted_scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
-        assert ("llm_gateway_internal:read" in minted_scopes) is (extra_scopes is not None)
-
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):
     def _create_wizard_app(self, scopes: list[str]) -> OAuthApplication:

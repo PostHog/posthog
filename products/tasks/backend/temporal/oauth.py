@@ -29,13 +29,6 @@ __all__ = [
     "create_wizard_oauth_access_token",
 ]
 
-# The LLM gateway requires this scope (explicitly — `*` doesn't count) to reach its
-# internal, unbilled products (background_agents, signals, conversations). Granted only
-# to internal-run tokens, never to user-facing runs: a run's token is readable from the
-# sandbox env, so minting it into every task token would let any user reach the unbilled
-# products with an exfiltrated token.
-LLM_GATEWAY_INTERNAL_PRODUCTS_SCOPE = "llm_gateway_internal:read"
-
 
 def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
     if task.origin_product == Task.OriginProduct.POSTHOG_AI:
@@ -67,7 +60,6 @@ def create_oauth_access_token(
         task.team_id,
         scopes=scopes,
         application=_oauth_application_for_task(task),
-        extra_scopes=[LLM_GATEWAY_INTERNAL_PRODUCTS_SCOPE] if task.internal else None,
     )
 
 
@@ -119,12 +111,9 @@ def create_oauth_access_token_for_user(
     *,
     scopes: PosthogMcpScopes = "read_only",
     application: SandboxOAuthApplication = "array",
-    extra_scopes: list[str] | None = None,
 ) -> str:
     """Create an OAuth access token for a sandbox app, scoped to a specific team."""
     try:
-        return _create_oauth_access_token_for_user(
-            user, team_id, scopes=scopes, application=application, extra_scopes=extra_scopes
-        )
+        return _create_oauth_access_token_for_user(user, team_id, scopes=scopes, application=application)
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": team_id}, cause=err) from err
