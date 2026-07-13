@@ -521,6 +521,7 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
                 sourceConfig={selectedConnector}
                 initialAccessMethod={sourceConnectionDetails?.access_method ?? source.access_method}
                 showAccessMethodSelector={false}
+                showDirectQueryToggle
                 sourceWizardLogicProps={sourceWizardLogicProps}
             />
         </div>

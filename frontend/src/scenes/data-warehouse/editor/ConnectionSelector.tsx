@@ -90,12 +90,14 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                     return
                 }
 
+                // Raw-only connections cannot compile HogQL — start them in raw SQL mode.
+                const nextOption = (connectionOptions ?? []).find((option) => option.id === nextValue)
                 setSourceQuery({
                     ...sourceQueryWithoutLegacyConnectionId,
                     source: {
                         ...sourceQuery.source,
                         connectionId: nextValue,
-                        sendRawQuery: undefined,
+                        sendRawQuery: nextOption?.supports_hogql === false ? true : undefined,
                     },
                 } as typeof sourceQuery)
                 syncUrlWithQuery()

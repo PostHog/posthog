@@ -138,7 +138,6 @@ import {
     ExternalDataJob,
     ExternalDataSchemaWithSource,
     ExternalDataSource,
-    ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
@@ -256,6 +255,7 @@ import type {
     ClaudeTaskRunCreateSchemaApi,
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -5875,7 +5875,10 @@ const api = {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
         },
-        async connections(options?: ApiMethodOptions | undefined): Promise<ExternalDataSourceConnectionOption[]> {
+        async connections(options?: ApiMethodOptions | undefined): Promise<ExternalDataSourceConnectionOptionApi[]> {
+            // The generated externalDataSourcesConnectionsList wrapper types this endpoint as
+            // paginated, but the backend returns a bare array — keep the manual call, typed
+            // with the generated item schema.
             return await new ApiRequest().externalDataSourceConnections().get(options)
         },
         async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {

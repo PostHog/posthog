@@ -50,6 +50,7 @@ export interface SourceFormProps {
     showPrefix?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
+    showDirectQueryToggle?: boolean
     showCdcConfig?: boolean
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
@@ -702,6 +703,7 @@ export function SourceFormComponent({
     showPrefix = true,
     showDescription,
     showAccessMethodSelector = true,
+    showDirectQueryToggle = false,
     showCdcConfig = true,
     jobInputs,
     initialAccessMethod,
@@ -782,6 +784,24 @@ export function SourceFormComponent({
                     <LemonDivider />
                 </>
             )}
+            {showDirectQueryToggle &&
+                supportsDirectQuery(sourceConfig.name) &&
+                selectedAccessMethod === 'warehouse' && (
+                    <LemonField
+                        name="direct_query_enabled"
+                        help="Run live queries against this database from the SQL editor, in addition to syncing tables to the warehouse."
+                    >
+                        {({ value, onChange }) => (
+                            <LemonSwitch
+                                checked={value ?? !isUpdateMode}
+                                onChange={onChange}
+                                label="Enable live queries"
+                                bordered
+                                data-attr="direct-query-enabled-toggle"
+                            />
+                        )}
+                    </LemonField>
+                )}
             {isDirectQuerySource && (
                 <LemonField
                     name="prefix"

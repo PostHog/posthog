@@ -6114,6 +6114,7 @@ export interface ExternalDataSourceCreatePayload {
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
+    direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
 }
@@ -6126,12 +6127,6 @@ export interface ExternalDataSourceConnectionMetadata {
     available_functions?: string[]
 }
 
-export interface ExternalDataSourceConnectionOption {
-    id: string
-    prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
-}
-
 export interface ExternalDataSource {
     id: string
     source_id: string
@@ -6141,8 +6136,9 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
+    direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]

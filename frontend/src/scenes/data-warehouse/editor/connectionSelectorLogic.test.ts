@@ -22,6 +22,17 @@ describe('connectionSelectorLogic', () => {
                 id: 'conn-123',
                 prefix: 'warehouse',
                 engine: 'postgres',
+                source_type: 'Postgres',
+                access_method: 'direct',
+                supports_hogql: true,
+            },
+            {
+                id: 'conn-456',
+                prefix: 'prod',
+                engine: null,
+                source_type: 'MySQL',
+                access_method: 'warehouse',
+                supports_hogql: true,
             },
         ] as any)
     })
@@ -45,6 +56,12 @@ describe('connectionSelectorLogic', () => {
                     value: 'conn-123',
                     label: 'warehouse (Postgres)',
                     managementUrl: urls.dataWarehouseSource('managed-conn-123'),
+                }),
+                // Synced source: no detected engine — label derives from source_type + synced marker
+                expect.objectContaining({
+                    value: 'conn-456',
+                    label: 'prod (MySQL · synced)',
+                    managementUrl: urls.dataWarehouseSource('managed-conn-456'),
                 }),
             ])
         )
