@@ -334,10 +334,8 @@ class TestBedrockFallback:
 class TestBedrockCountTokensViaProvider:
     @pytest.fixture
     def valid_request_body(self) -> dict[str, Any]:
-        # A dated foundation-model id — the only kind bedrock-runtime CountTokens accepts;
-        # CRIS-only models (claude-opus-4-8, claude-fable-5, ...) go straight to mantle.
         return {
-            "model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "model": "us.anthropic.claude-sonnet-4-6",
             "messages": [{"role": "user", "content": "Hello"}],
         }
 
@@ -377,14 +375,8 @@ class TestBedrockCountTokensViaProvider:
     @pytest.mark.parametrize(
         "model,expected_model_id",
         [
-            pytest.param(
-                "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-                "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-                id="already_bedrock",
-            ),
-            pytest.param(
-                "claude-sonnet-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", id="anthropic_name_mapped"
-            ),
+            pytest.param("us.anthropic.claude-sonnet-4-6", "us.anthropic.claude-sonnet-4-6", id="already_bedrock"),
+            pytest.param("claude-sonnet-4-6", "us.anthropic.claude-sonnet-4-6", id="anthropic_name_mapped"),
         ],
     )
     @patch("llm_gateway.api.anthropic.get_settings")
@@ -514,12 +506,13 @@ class TestBedrockCountTokensViaProvider:
         mock_settings.request_timeout = 300.0
         mock_get_settings.return_value = mock_settings
 
-        # Mirrors bedrock-runtime unexpectedly rejecting CountTokens for a dated foundation model.
+        # Mirrors bedrock-runtime rejecting the request contents (e.g. an oversized prompt) for a
+        # model whose CountTokens support is otherwise fine — the mantle fallback still runs.
         mock_count_tokens.side_effect = ClientError(
             {
                 "Error": {
                     "Code": "ValidationException",
-                    "Message": "The provided model doesn't support counting tokens.",
+                    "Message": "prompt is too long: 290010 tokens > 200000 maximum",
                 },
                 "ResponseMetadata": {
                     "HTTPHeaders": {},
@@ -562,16 +555,16 @@ class TestBedrockCountTokensViaProvider:
         assert mantle_count_tokens_call.kwargs["product"] == "llm_gateway"
         mock_logger.exception.assert_called_once_with(
             "Bedrock CountTokens failed",
-            model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            model="us.anthropic.claude-sonnet-4-6",
             product="llm_gateway",
             runtime_status=400,
             runtime_error_type="ClientError",
-            runtime_error_message="The provided model doesn't support counting tokens.",
+            runtime_error_message="prompt is too long: 290010 tokens > 200000 maximum",
             runtime_error_code="ValidationException",
         )
         mock_logger.info.assert_any_call(
             "Attempting bedrock-mantle count_tokens fallback",
-            model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            model="us.anthropic.claude-sonnet-4-6",
             product="llm_gateway",
         )
 
@@ -691,7 +684,7 @@ class TestBedrockCountTokensViaProvider:
 
         mock_count_tokens.return_value = 42
         body = {
-            "model": "claude-sonnet-4-5",
+            "model": "claude-sonnet-4-6",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 2048,
             "system": "Be brief.",
@@ -713,7 +706,7 @@ class TestBedrockCountTokensViaProvider:
 
         assert response.status_code == 200
         request_data = mock_count_tokens.call_args.args[0]
-        assert request_data["model"] == "claude-sonnet-4-5"
+        assert request_data["model"] == "claude-sonnet-4-6"
         assert request_data["messages"] == body["messages"]
         assert request_data["system"] == body["system"]
         assert request_data["tools"] == body["tools"]
@@ -915,11 +908,12 @@ class TestSupportsBedrockRuntimeCountTokens:
         "model,expected",
         [
             pytest.param("us.anthropic.claude-sonnet-4-5-20250929-v1:0", True, id="dated_foundation_model"),
-            pytest.param("anthropic.claude-haiku-4-5-20251001-v1:0", True, id="dated_without_regional_prefix"),
-            pytest.param("us.anthropic.claude-opus-4-6-v1", False, id="cris_only_versioned_looking_suffix"),
-            pytest.param("us.anthropic.claude-opus-4-8", False, id="cris_only_opus"),
-            pytest.param("us.anthropic.claude-fable-5", False, id="cris_only_fable"),
-            pytest.param("eu.anthropic.claude-sonnet-5", False, id="cris_only_eu_sonnet"),
+            # CRIS-only but supported — support is per-model, not derivable from the id shape.
+            pytest.param("us.anthropic.claude-sonnet-4-6", True, id="cris_only_but_supported"),
+            pytest.param("us.anthropic.claude-opus-4-6-v1", True, id="not_denylisted_versioned_suffix"),
+            pytest.param("us.anthropic.claude-opus-4-8", False, id="unsupported_opus"),
+            pytest.param("eu.anthropic.claude-opus-4-8", False, id="unsupported_opus_eu_prefix"),
+            pytest.param("us.anthropic.claude-fable-5", False, id="unsupported_fable"),
         ],
     )
     def test_classifies_bedrock_model_ids(self, model: str, expected: bool) -> None:

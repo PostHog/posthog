@@ -636,10 +636,9 @@ async def _bedrock_count_tokens_impl(
     status_code = "200"
 
     try:
-        # bedrock-runtime CountTokens only supports dated foundation-model ids; cross-Region-
-        # inference-only models like claude-opus-4-8 always fail with a ValidationException, so skip
-        # the doomed runtime call and go straight to AWS's recommended path for those — Anthropic's
-        # count_tokens API on the bedrock-mantle endpoint.
+        # bedrock-runtime CountTokens rejects some models outright ("The provided model doesn't
+        # support counting tokens."); for those, skip the doomed runtime call and go straight to
+        # AWS's recommended path — Anthropic's count_tokens API on the bedrock-mantle endpoint.
         runtime_exception: Exception | None = None
         if supports_bedrock_runtime_count_tokens(bedrock_model):
             try:
