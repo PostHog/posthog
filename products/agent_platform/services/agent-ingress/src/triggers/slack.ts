@@ -238,13 +238,24 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             // Deliver the link privately with chat.postEphemeral so only the
             // original sender sees it — otherwise any channel member could open
             // the state-bearing URL and bind their provider account to the
-            // sender's Slack transport principal.
-            await postEphemeralMessage(deps, resolved.application, resolved.revision, {
+            // sender's Slack transport principal. A thread fallback would
+            // re-open that hijack, so on delivery failure we return non-2xx
+            // instead — Slack retries the event (recovers from transient
+            // errors) and ops gets an error log for persistent failures.
+            const delivered = await postEphemeralMessage(deps, resolved.application, resolved.revision, {
                 channel: event.channel,
                 user: event.user,
                 thread_ts: event.thread_ts ?? event.ts,
                 text: `Before I can help, please connect your account: ${result.authorizeUrl}`,
-            }).catch(() => undefined)
+            }).catch(() => false)
+            if (!delivered) {
+                log.error(
+                    { slug: resolved.application.slug, provider: result.provider },
+                    'slack_admission_link_delivery_failed'
+                )
+                res.status(500).json({ error: 'auth_link_delivery_failed' })
+                return
+            }
             res.json({ ok: true, auth_required: true, provider: result.provider, authorize_url: result.authorizeUrl })
             return
         }
