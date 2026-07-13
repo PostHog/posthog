@@ -1,0 +1,34 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "digest_enabled": {
+            "description": "Whether merged PRs on this repo are captured for the daily Slack digest.",
+            "type": "boolean"
+        },
+        "enabled": {
+            "description": "Whether stamphog actively reviews pull requests for this repo.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "A UUID string identifying this stamphog repo config.",
+            "type": "string"
+        },
+        "installation_id": {
+            "description": "Provider app installation ID that authorizes API calls for this repo.",
+            "maxLength": 64,
+            "type": "string"
+        },
+        "provider": {
+            "description": "SCM provider this config talks to. Defaults to 'github'.",
+            "maxLength": 32,
+            "type": "string"
+        },
+        "repository": {
+            "description": "Repository full name, e.g. 'PostHog/posthog'.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
