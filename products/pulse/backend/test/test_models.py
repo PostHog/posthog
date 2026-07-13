@@ -1,3 +1,6 @@
+import json
+import dataclasses
+
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
@@ -16,7 +19,7 @@ from products.pulse.backend.models import (
     ResourceLink,
     ResourceType,
 )
-from products.pulse.backend.sources.base import EvidenceRef, EvidenceType
+from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 
 
 class TestPulseModels(BaseTest):
@@ -173,3 +176,21 @@ class TestEvidenceRef:
     def test_type_coerced_from_string(self) -> None:
         # The plain string that survives the Temporal round-trip rebuilds back into the enum.
         assert EvidenceRef(type="insight", ref="abc", label="l").is_insight
+
+    def test_source_item_survives_asdict_json_roundtrip(self) -> None:
+        # The gather activity returns dataclasses.asdict(item); synthesize rebuilds SourceItem(**item)
+        # across a JSON boundary. The enum must serialize as a string and coerce back, and nested
+        # EvidenceRef must rebuild — exactly what __post_init__ guards.
+        item = SourceItem(
+            source="anchored_insights",
+            kind=SourceItemKind.MOVEMENT,
+            title="t",
+            description="d",
+            metrics={"pct_change": -30.0},
+            evidence=[EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label="l", url="/u")],
+            fingerprint_hint="abc:0",
+        )
+        rebuilt = SourceItem(**json.loads(json.dumps(dataclasses.asdict(item))))
+        assert isinstance(rebuilt.kind, SourceItemKind) and rebuilt.kind == SourceItemKind.MOVEMENT
+        assert isinstance(rebuilt.evidence[0], EvidenceRef)
+        assert rebuilt.evidence[0].key == (EvidenceType.INSIGHT, "abc")

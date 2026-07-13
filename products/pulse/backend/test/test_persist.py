@@ -95,6 +95,26 @@ class TestPersistBriefOutput(BaseTest):
         assert link.ref == "abc"
         assert link.insight_id is None
 
+    def test_event_evidence_link_has_no_fk(self) -> None:
+        # An event ref has no Django model, so _build_links takes the fk_field-is-None branch: the
+        # link stores cached columns only (resource_type=event, every FK null).
+        event_item = SourceItem(
+            source="anchored_insights",
+            kind="movement",
+            title="Signups from $pageview",
+            description="d",
+            metrics={},
+            evidence=[{"type": "event", "ref": "$pageview", "label": "Pageview", "url": ""}],
+            fingerprint_hint="evt:0",
+        )
+        persist_brief_output(brief=self._brief(), out=_out(fingerprint_hint="evt:0"), items=[event_item])
+        link = self._links().get()
+        assert link.resource_type == ResourceType.EVENT
+        assert link.ref == "$pageview"
+        assert link.label == "Pageview"
+        assert link.insight_id is None
+        assert link.dashboard_id is None
+
     def test_unknown_citation_id_creates_no_link(self) -> None:
         # The model cited an id that maps to no gathered evidence — it is dropped, not fabricated.
         persist_brief_output(brief=self._brief(), out=_out(evidence_refs=["c1", "c99"]), items=[_item()])
