@@ -9,6 +9,7 @@ from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
+from posthog.ph_client import enable_dedicated_ai_endpoint_for_default_client
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
@@ -47,6 +48,12 @@ class PostHogConfig(AppConfig):
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
         import posthog.storage.checks  # noqa: F401, PLC0415
+
+        # Product-DB route checks must register even when no PRODUCT_DB_* env
+        # vars are set — the unconfigured case is exactly what
+        # check_product_db_routes_configured guards — and Django only imports
+        # the router module when at least one route is configured.
+        import posthog.product_db_router  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 
@@ -125,6 +132,10 @@ class PostHogConfig(AppConfig):
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
+
+        # The feature_flag_definitions() call above constructs the default client, so
+        # the dedicated-AI-endpoint flag can only be applied from this point on.
+        enable_dedicated_ai_endpoint_for_default_client()
 
         from posthog.async_migrations.setup import setup_async_migrations
 

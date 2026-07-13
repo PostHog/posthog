@@ -71,6 +71,7 @@ describe('Toolbar flag loading', () => {
 
     it('should handle fetch errors gracefully', async () => {
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
         await import('./index')
 
@@ -95,10 +96,12 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
         consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
     })
 
     it('should handle non-ok responses gracefully', async () => {
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
         await import('./index')
 
@@ -126,6 +129,7 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
         consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
     })
 
     it.each([
@@ -199,6 +203,9 @@ describe('Toolbar flag loading', () => {
     })
 
     it('should still load toolbar even if flag fetching fails', async () => {
+        // The failed flags fetch is reported through toolbarLogger's console.warn by design
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
         await import('./index')
 
         const mockPostHog = {
@@ -221,5 +228,7 @@ describe('Toolbar flag loading', () => {
         // Verify toolbar container was created
         const container = document.querySelector('div')
         expect(container).toBeTruthy()
+
+        consoleWarnSpy.mockRestore()
     })
 })

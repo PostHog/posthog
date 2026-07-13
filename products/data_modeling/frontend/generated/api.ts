@@ -12,6 +12,7 @@ import type {
     DagApi,
     DataModelingDagsListParams,
     DataModelingEdgesListParams,
+    DataModelingNodesLineageRetrieveParams,
     DataModelingNodesListParams,
     EdgeApi,
     NodeApi,
@@ -340,24 +341,6 @@ export const dataModelingNodesDestroy = async (projectId: string, id: string, op
     })
 }
 
-export const getDataModelingNodesLineageRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_modeling_nodes/${id}/lineage/`
-}
-
-/**
- * Return the subgraph of nodes and edges reachable from this node (upstream + downstream).
- */
-export const dataModelingNodesLineageRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<NodeApi> => {
-    return apiMutator<NodeApi>(getDataModelingNodesLineageRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getDataModelingNodesMaterializeCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/materialize/`
 }
@@ -414,6 +397,42 @@ export const getDataModelingNodesDagIdsRetrieveUrl = (projectId: string) => {
  */
 export const dataModelingNodesDagIdsRetrieve = async (projectId: string, options?: RequestInit): Promise<NodeApi> => {
     return apiMutator<NodeApi>(getDataModelingNodesDagIdsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataModelingNodesLineageRetrieveUrl = (
+    projectId: string,
+    params?: DataModelingNodesLineageRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_modeling_nodes/lineage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_modeling_nodes/lineage/`
+}
+
+/**
+ * Return the subgraph of nodes and edges reachable from a node (upstream + downstream).
+ *
+ * Accepts either node_id or saved_query_id, so a caller holding only a saved query (the SQL
+ * editor) doesn't need to resolve the node itself.
+ */
+export const dataModelingNodesLineageRetrieve = async (
+    projectId: string,
+    params?: DataModelingNodesLineageRetrieveParams,
+    options?: RequestInit
+): Promise<NodeApi> => {
+    return apiMutator<NodeApi>(getDataModelingNodesLineageRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

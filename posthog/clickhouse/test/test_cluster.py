@@ -765,3 +765,18 @@ def test_query_repr_redacts_password_in_list_parameters():
     rendered = repr(Query("INSERT INTO t VALUES", [{"db": "posthog", "password": "pw"}]))
     assert "pw" not in rendered
     assert "'password': '[REDACTED]'" in rendered
+
+
+def test_query_repr_truncates_long_query():
+    # Guards against multi-megabyte statements (e.g. large seed INSERTs) flooding logs and traces.
+    query = "INSERT INTO t VALUES " + ",".join("(1)" for _ in range(100_000))
+    rendered = repr(Query(query))
+    assert len(rendered) < 2000
+    assert rendered.startswith("Query(query='INSERT INTO t VALUES (1)")
+    assert "more chars truncated" in rendered
+
+
+def test_query_repr_keeps_short_query_intact():
+    rendered = repr(Query("SELECT 1"))
+    assert "truncated" not in rendered
+    assert "SELECT 1" in rendered

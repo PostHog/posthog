@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     _is_empty_repository_response,
     _is_issue_not_pr,
     _is_older_than_cutoff,
-    _iter_jobs_for_run,
+    _iter_child_for_parent,
     _iter_pages,
     _parse_next_url,
     _should_stop_desc,
@@ -1366,7 +1366,7 @@ class TestIterPages:
         assert logger.warning.call_args.kwargs["max_pages"] == 2
         assert logger.warning.call_args.kwargs["run_id"] == 1001
 
-    def test_iter_jobs_for_run_builds_path_and_passes_cap(self) -> None:
+    def test_iter_child_for_parent_builds_path_and_passes_cap(self) -> None:
         config = dataclasses.replace(GITHUB_ENDPOINTS["workflow_jobs"], max_pages_per_parent=1)
         responses = [
             _make_response(
@@ -1379,7 +1379,7 @@ class TestIterPages:
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
         ) as mock_get:
             mock_get.return_value.request.side_effect = responses
-            jobs = list(_iter_jobs_for_run("owner/repo", 1001, {}, logger, config))
+            jobs = list(_iter_child_for_parent("owner/repo", 1001, {}, logger, config))
 
         assert [job["id"] for job in jobs] == [1]
         url = mock_get.return_value.request.call_args_list[0].args[1]

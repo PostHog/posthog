@@ -39,21 +39,26 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   styleLink.rel = 'stylesheet'
                   styleLink.type = 'text/css'
 
+                  // The stylesheet is the app entry's CSS, emitted as a hashless copy inside
+                  // dist/toolbar/ next to the JS. It must be fetched from there — its url()
+                  // references (fonts) are relative, so they only resolve alongside the
+                  // toolbar/assets/ directory it was built with.
+                  //
                   // When __POSTHOG_TOOLBAR_PUBLIC_PATH__ is baked in at build
                   // time (posthog-js versioned bundle), load the CSS from the
                   // same versioned URL as the JS bundle. The version is the
                   // cache key, so no cache-busting query param is needed.
                   //
                   // Otherwise (i.e. posthog/posthog's own deploys), fall back to
-                  // serving toolbar.css from the API host alongside toolbar.js,
-                  // with a 5-minute cache-buster on the unversioned URL.
+                  // serving it from the API host alongside toolbar.js, with a
+                  // 5-minute cache-buster on the unversioned URL.
                   if (__POSTHOG_TOOLBAR_PUBLIC_PATH__) {
-                      styleLink.href = `${__POSTHOG_TOOLBAR_PUBLIC_PATH__}toolbar.css`
+                      styleLink.href = `${__POSTHOG_TOOLBAR_PUBLIC_PATH__}toolbar/toolbar-app.css`
                   } else {
                       const fiveMinutesInMillis = 5 * 60 * 1000
                       const timestampToNearestFiveMinutes =
                           Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
-                      styleLink.href = `${apiHost}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
+                      styleLink.href = `${apiHost}/static/toolbar/toolbar-app.css?t=${timestampToNearestFiveMinutes}`
                   }
 
                   styleLink.onload = () => setDidLoadStyles(true)

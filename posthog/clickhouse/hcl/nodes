@@ -77,4 +77,12 @@ prod-us  sessionsv3 roles/shared roles/sessionsv3/prod-us
 prod-us  batch_exports roles/shared roles/batch_exports/prod-us
 prod-eu  batch_exports roles/shared roles/batch_exports/prod-eu
 
-# prod-us  data       roles/shared roles/data/shared roles/data/prod-us
+# DATA cluster: the main sharded cluster (events family, persons/groups, sessions,
+# preaggregated + analytics tables). Only the local node is modeled here — it runs the
+# base schema migrations produce (MSK events_json_mv, ~135 objects, no per-env mat_
+# columns). The prod data clusters carry 200-300 env-specific materialized (mat_)
+# columns per env that are added out-of-band and churn constantly, so their goldens
+# live in PostHog/posthog-cloud-infra (clickhouse/hcl/), not the OSS gate.
+local    data       roles/shared roles/data/local
+
+# prod-us  endpoints  roles/shared

@@ -14,6 +14,7 @@ from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
@@ -69,7 +70,7 @@ DELETE_PREVIEW_ENTRY_LIMIT = 200
 RECENTS_SEARCH_SCAN_LIMIT = 200
 
 
-class FileSystemSerializer(serializers.ModelSerializer):
+class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     class Meta:
@@ -85,6 +86,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "shortcut",
             "created_at",
             "last_viewed_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -92,6 +94,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "created_at",
             "team_id",
             "last_viewed_at",
+            "user_access_level",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:

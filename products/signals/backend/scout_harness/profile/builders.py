@@ -29,7 +29,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -61,7 +61,7 @@ from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v8"
+INVENTORY_SOURCE_VERSION = "v9"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -217,12 +217,30 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
     """Connected warehouse sources (Stripe, Postgres, BigQuery, etc.).
 
     Excludes soft-deleted rows. `status` and `prefix` give the agent enough context to
-    spot a stuck or recently-added source without exposing credentials.
+    spot a recently-added source without exposing credentials. `last_run_at` and
+    `latest_error` are what let a scout tell a healthy source apart from one stuck in
+    `Running`: source-level `status` conflates "sync in progress" with "never succeeded",
+    so a source that has never completed a sync reads as `Running` just like a healthy one.
+    `last_run_at` is the timestamp of the most recent completed sync job (null = never
+    synced); `latest_error` surfaces the newest schema-level error, if any. Both mirror the
+    semantics of the `external-data-sources-list` API so a scout can spot a dead source from
+    the profile alone without a follow-up list call.
     """
+    # Newest schema-level error across the source's non-deleted schemas. Ordered by most
+    # recently updated so a scout sees the freshest failure, matching the list API's intent.
+    latest_error = Subquery(
+        ExternalDataSchema.objects.filter(source_id=OuterRef("pk"), deleted=False, latest_error__isnull=False)
+        .order_by("-updated_at")
+        .values("latest_error")[:1]
+    )
     rows = (
         ExternalDataSource.objects.filter(team=team, deleted=False)
+        .annotate(
+            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJob.Status.COMPLETED)),
+            latest_error=latest_error,
+        )
         .order_by("source_type", "id")
-        .values("source_type", "status", "prefix", "created_at")
+        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
     )
     return [
         {
@@ -230,6 +248,8 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
             "status": row["status"],
             "prefix": row["prefix"] or "",
             "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+            "last_run_at": row["last_run_at"].isoformat() if row.get("last_run_at") else None,
+            "latest_error": row.get("latest_error"),
         }
         for row in rows
     ]
@@ -660,8 +680,8 @@ def _recent_activity(team: Team) -> dict[str, Any]:
     Cuts across every entity type the activity log knows about — surveys, feature flags,
     experiments, dashboards, insights, cohorts, notebooks, actions, etc. — so the agent
     gets one place to look for "where has this team been working lately?" without per-
-    entity readers. The MCP tools `activity-log-list` / `advanced-activity-logs-list`
-    do the drill-down once the agent decides a scope is worth investigating.
+    entity readers. The MCP tool `advanced-activity-logs-list`
+    does the drill-down once the agent decides a scope is worth investigating.
 
     `edits` is total log entries in the window (write velocity). `users` is distinct
     user count, so a single power-user looping is distinguishable from broad team
@@ -743,17 +763,27 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
 def _top_events(team: Team) -> list[dict[str, Any]] | None:
     """Top events by count over the lookback window, with reach + burst signals.
 
-    For each of the top 50 events in the last 7 days:
-      - `count` — total occurrences in the window
+    Every count here is over a rolling `TOP_EVENTS_LOOKBACK_DAYS`-day window, *not*
+    lifetime. Each row carries `window_days` so that's un-missable: a capture gap can
+    collapse a real, high-volume project's in-window counts to near-zero, and without
+    the window on the payload a scout keying a "no data worth watching" close-out on
+    `top_events` thinness can't tell a project that just went dark from one that never
+    had traffic. When the counts look thin, rule out a capture gap (compare to a
+    trailing baseline via a direct `execute-sql`) before concluding low-volume.
+
+    For each of the top 50 events in the window:
+      - `window_days` — the rolling window every count/timestamp below is measured over.
+      - `count` — total occurrences in the window (windowed, not lifetime).
       - `distinct_users` — `uniq(person_id)`; reach. Distinguishes a high-count event
         from one power user vs from many users.
-      - `recent_24h_count` — count in the last 24h. Compare to `count / 7` to spot
-        bursts: ratio well above 1/7 means the event is concentrated in the last day.
+      - `recent_24h_count` — count in the last 24h. Compare to `count / window_days` to
+        spot bursts: a ratio well above `1 / window_days` means the event is
+        concentrated in the last day.
       - `recent_24h_users` — `uniq(person_id)` over the last 24h. A burst across many
         users is qualitatively different from one user looping.
-      - `first_seen` / `last_seen` — both *within the window*. Recent `first_seen`
-        suggests a new event type or fresh burst; near-window-edge `first_seen` just
-        means it's been around at least that long (the window can't tell you the
+      - `first_seen_in_window` / `last_seen_in_window` — both *within the window*. Recent
+        `first_seen_in_window` suggests a new event type or fresh burst; near-window-edge
+        just means it's been around at least that long (the window can't tell you the
         true first-ever timestamp).
 
     Returns `None` rather than `[]` if the query fails or times out, so the agent can
@@ -796,13 +826,14 @@ def _top_events(team: Team) -> list[dict[str, Any]] | None:
     rows = response.results or []
     return [
         {
+            "window_days": TOP_EVENTS_LOOKBACK_DAYS,
             "event": row[0],
             "count": int(row[1]),
             "distinct_users": int(row[2]),
             "recent_24h_count": int(row[3]),
             "recent_24h_users": int(row[4]),
-            "first_seen": row[5].isoformat() if row[5] else None,
-            "last_seen": row[6].isoformat() if row[6] else None,
+            "first_seen_in_window": row[5].isoformat() if row[5] else None,
+            "last_seen_in_window": row[6].isoformat() if row[6] else None,
         }
         for row in rows
     ]

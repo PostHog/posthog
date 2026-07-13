@@ -123,7 +123,7 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
-    from posthog.admin.admins.tophog_admin import tophog_dashboard_view
+    from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
 
     admin_urlpatterns = [
         # APPEND_SLASH is disabled globally, so redirect /admin to /admin/ explicitly
@@ -198,6 +198,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/tophog/",
             admin.site.admin_view(tophog_dashboard_view),
             name="tophog-dashboard",
+        ),
+        path(
+            "admin/tophog/restrictions/",
+            admin.site.admin_view(tophog_restrictions_view),
+            name="tophog-restrictions",
         ),
         path(
             "admin/health-checks/",
