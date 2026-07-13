@@ -232,17 +232,18 @@ describe('logsPatternsLogic', () => {
         )
     })
 
-    it('openPatternsComparison before mount arms compare so mounting loads the diff', async () => {
-        // The "explain changes" button lives in the Logs view and fires before this logic
-        // exists: it arms compare state on the config logic, then the view switch mounts
-        // Patterns. If afterMount ignored that state and ran the plain mine, the button
-        // would silently answer the wrong question.
+    it('compare armed before mount makes mounting load the diff, not the plain mine', async () => {
+        // Compare state lives on the config logic and survives Logs↔Patterns lens switches,
+        // while this logic unmounts when leaving the lens. Re-entering Patterns with compare
+        // still on must resume the diff — an afterMount that always ran the plain mine would
+        // silently show the wrong table.
         mockDiffCreate.mockResolvedValue(DIFF_RESPONSE)
         const configLogic = logsViewerConfigLogic({ id: ID })
         configLogic.mount()
 
-        configLogic.actions.openPatternsComparison('preceding')
-        expect(configLogic.values.viewMode).toBe('patterns')
+        configLogic.actions.setCompareEnabled(true)
+        configLogic.actions.setBaselineMode('preceding')
+        configLogic.actions.setViewMode('patterns')
 
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadDiff', 'loadDiffSuccess'])
