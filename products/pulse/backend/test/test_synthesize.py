@@ -45,18 +45,18 @@ def _item() -> SourceItem:
 
 
 class TestManagedPrompt:
-    @patch("posthog.storage.llm_prompt_cache.get_prompt_by_name_from_cache")
+    @patch("products.pulse.backend.generation.prompts.get_prompt_by_name_from_cache")
     def test_store_hit_uses_managed_template(self, mock_cache: MagicMock) -> None:
         mock_cache.return_value = {"prompt": "MANAGED TEMPLATE {focus_prompt}"}
         result = _get_managed_prompt(MagicMock(), "pulse-brief-synthesis-system", SYNTHESIZE_PROMPT)
         assert result == "MANAGED TEMPLATE {focus_prompt}"
 
-    @patch("posthog.storage.llm_prompt_cache.get_prompt_by_name_from_cache")
+    @patch("products.pulse.backend.generation.prompts.get_prompt_by_name_from_cache")
     def test_store_miss_falls_back_to_constant(self, mock_cache: MagicMock) -> None:
         mock_cache.return_value = None
         assert _get_managed_prompt(MagicMock(), "pulse-brief-synthesis-system", SYNTHESIZE_PROMPT) == SYNTHESIZE_PROMPT
 
-    @patch("posthog.storage.llm_prompt_cache.get_prompt_by_name_from_cache")
+    @patch("products.pulse.backend.generation.prompts.get_prompt_by_name_from_cache")
     def test_store_exception_falls_back_to_constant(self, mock_cache: MagicMock) -> None:
         # A store outage must never fail synthesis — it falls back to the in-code prompt.
         mock_cache.side_effect = RuntimeError("store down")

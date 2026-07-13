@@ -39,11 +39,9 @@ class BriefGenerationFailed(Exception):
 
 
 def resolve_period(spec: dict, now: dt.datetime, last_run: dt.datetime | None) -> ResolvedPeriod:
-    """Resolve a period spec to explicit dates + a lookback window.
+    """Resolve a period spec to explicit start/end dates and a lookback window.
 
-    Wall-clock reads are fine here (activities, not the deterministic workflow). end_date is
-    today; start_date is `lookback_days` before. For since_last_run the window is the days since
-    the last READY brief (min 1), falling back to the default when there is no prior run.
+    since_last_run measures the window from the last READY brief (min 1 day), else the default.
     """
     end_date = now.date()
     period_type = spec.get("type", "last_n_days")

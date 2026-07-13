@@ -31,11 +31,11 @@ def apply_say_less_gate(out: BriefOut, settings: BriefSettings) -> BriefOut:
 
 def _render_items(items: list[SourceItem]) -> str:
     evidence_index = build_evidence_index(items)
-    id_by_key = {(ev["type"], ev["ref"]): cid for cid, ev in evidence_index.items()}
+    id_by_key = {ev.key: cid for cid, ev in evidence_index.items()}
     blocks = []
     for item in items:
         metrics = ", ".join(f"{k}={v}" for k, v in item.metrics.items())
-        citation_ids = ", ".join(id_by_key[(e["type"], e["ref"])] for e in item.evidence)
+        citation_ids = ", ".join(id_by_key[e.key] for e in item.evidence)
         blocks.append(
             f"- [{item.source}/{item.kind}] {item.title}\n"
             f"  metrics: {metrics}\n  citation_ids: {citation_ids}\n  fingerprint_hint: {item.fingerprint_hint}\n"

@@ -2,6 +2,8 @@ from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
 
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 
 from products.product_analytics.backend.models.insight import Insight
@@ -14,6 +16,7 @@ from products.pulse.backend.models import (
     ResourceLink,
     ResourceType,
 )
+from products.pulse.backend.sources.base import EvidenceRef, EvidenceType
 
 
 class TestPulseModels(BaseTest):
@@ -136,3 +139,37 @@ class TestPulseModels(BaseTest):
                 label="$pageview",
             )
             link.clean()  # must not raise
+
+
+class TestEvidenceRef:
+    def test_evidence_type_matches_resource_type(self) -> None:
+        # EvidenceRef.resource_type / fk_field and persist's FK resolution all assume the two enums
+        # share members. A new EvidenceType without a matching ResourceType would silently route its
+        # evidence to the event fallback (no FK), so pin the sync here.
+        assert {t.value for t in EvidenceType} == set(ResourceType.values)
+
+    @parameterized.expand(
+        [
+            (EvidenceType.INSIGHT, ResourceType.INSIGHT, "insight"),
+            (EvidenceType.DASHBOARD, ResourceType.DASHBOARD, "dashboard"),
+            (EvidenceType.ANNOTATION, ResourceType.ANNOTATION, "annotation"),
+            (EvidenceType.EXPERIMENT, ResourceType.EXPERIMENT, "experiment"),
+            (EvidenceType.EVENT, ResourceType.EVENT, None),
+        ]
+    )
+    def test_resource_type_and_fk_field(
+        self, evidence_type: EvidenceType, expected_resource_type: ResourceType, expected_fk: str | None
+    ) -> None:
+        ref = EvidenceRef(type=evidence_type, ref="r", label="l")
+        assert ref.resource_type == expected_resource_type
+        assert ref.fk_field == expected_fk
+
+    def test_key_and_metric_ref(self) -> None:
+        insight = EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label="l")
+        assert insight.key == (EvidenceType.INSIGHT, "abc")
+        assert insight.metric_ref == {"insight_short_id": "abc"}
+        assert EvidenceRef(type=EvidenceType.EVENT, ref="$pageview", label="l").metric_ref is None
+
+    def test_type_coerced_from_string(self) -> None:
+        # The plain string that survives the Temporal round-trip rebuilds back into the enum.
+        assert EvidenceRef(type="insight", ref="abc", label="l").is_insight

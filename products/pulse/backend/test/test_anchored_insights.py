@@ -83,7 +83,7 @@ class TestAnchoredInsightsGather(BaseTest):
         assert items[0].fingerprint_hint == f"{insight.short_id}:0"
         assert items[0].metrics["pct_change"] == -30.0
         # Evidence carries a navigable deep link into the app.
-        assert items[0].evidence[0]["url"] == f"/project/{self.team.id}/insights/{insight.short_id}"
+        assert items[0].evidence[0].url == f"/project/{self.team.id}/insights/{insight.short_id}"
 
     @parameterized.expand(
         [

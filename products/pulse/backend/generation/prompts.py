@@ -6,6 +6,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
+from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import normalize_prompt_to_string
 
@@ -25,19 +26,11 @@ PULSE_PROMPT_SOURCE = Counter(
 
 
 def _get_managed_prompt(team: Team | None, prompt_name: str, fallback: str) -> str:
-    """Fetch a managed prompt from the store, falling back to the in-code constant.
-
-    Mirrors the subscription summary helper: a store miss or outage never fails synthesis —
-    it falls back. The counter tracks the managed/fallback split.
-    """
+    """Fetch a managed prompt from the store, falling back to the in-code constant on miss/outage."""
     if team is None:
         PULSE_PROMPT_SOURCE.labels(prompt_name=prompt_name, source="fallback").inc()
         return fallback
     try:
-        from posthog.storage.llm_prompt_cache import (  # noqa: PLC0415 — keeps the prompt-store/ORM dep off the import path
-            get_prompt_by_name_from_cache,
-        )
-
         result = get_prompt_by_name_from_cache(team, prompt_name)
         if result and "prompt" in result:
             PULSE_PROMPT_SOURCE.labels(prompt_name=prompt_name, source="managed").inc()

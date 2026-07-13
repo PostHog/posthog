@@ -189,7 +189,8 @@ class ResourceLink(PulseModel):
     # Deep link into the app; "" when the ref has no navigable target.
     url = models.CharField(max_length=1000, blank=True, default="")
 
-    # Maps each DB-modeled resource_type to the FK field that must be set for it.
+    # Single source of truth mapping each DB-modeled resource_type to the FK field it populates;
+    # EvidenceRef.fk_field and clean() both route through fk_field_for so the mapping lives once.
     _FK_FIELD_BY_TYPE = {
         ResourceType.INSIGHT: "insight",
         ResourceType.DASHBOARD: "dashboard",
@@ -197,11 +198,16 @@ class ResourceLink(PulseModel):
         ResourceType.EXPERIMENT: "experiment",
     }
 
+    @classmethod
+    def fk_field_for(cls, resource_type: "ResourceType | str") -> str | None:
+        """The FK field a resource_type must populate, or None if it has no model (events)."""
+        return cls._FK_FIELD_BY_TYPE.get(ResourceType(resource_type)) if resource_type else None
+
     def clean(self) -> None:
         # No hard CheckConstraint: SET_NULL nulls the FK when a resource is deleted, which would
         # violate an "FK-matching-resource_type is set" constraint even though the link is still
         # valid history. So this is enforced at write time (creation), not by the DB forever.
         super().clean()
-        fk_field = self._FK_FIELD_BY_TYPE.get(ResourceType(self.resource_type)) if self.resource_type else None
+        fk_field = self.fk_field_for(self.resource_type)
         if fk_field is not None and getattr(self, f"{fk_field}_id") is None:
             raise ValidationError(f"resource_type '{self.resource_type}' requires the '{fk_field}' FK to be set.")

@@ -35,6 +35,22 @@ LLM_MAX_RETRIES = 1
 MAX_ITEMS = 50
 
 
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
+
+
+# (key, min, max, cast) — the allowed override knobs and their safe ranges. Kept in sync with
+# BriefSettings fields and the API's BriefSettingsSerializer.
+_RANGES: list[tuple[str, float, float, type]] = [
+    ("min_abs_change_pct", 1.0, 1000.0, float),
+    ("min_baseline_value", 0.0, 1_000_000.0, float),
+    ("max_anchor_insights", 1, 100, int),
+    ("fallback_dashboard_count", 1, 20, int),
+    ("confidence_threshold", 0.0, 1.0, float),
+    ("max_opportunities", 1, 20, int),
+]
+
+
 @dataclass(frozen=True)
 class BriefSettings:
     """Per-config tunables for gathering and synthesis. Defaults in DEFAULT_BRIEF_SETTINGS;
@@ -62,20 +78,5 @@ class BriefSettings:
                     continue
         return replace(DEFAULT_BRIEF_SETTINGS, **overrides)  # type: ignore[arg-type]
 
-
-def _clamp(value: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, value))
-
-
-# (key, min, max, cast) — the allowed override knobs and their safe ranges. Kept in sync with
-# BriefSettings fields and the API's BriefSettingsSerializer.
-_RANGES: list[tuple[str, float, float, type]] = [
-    ("min_abs_change_pct", 1.0, 1000.0, float),
-    ("min_baseline_value", 0.0, 1_000_000.0, float),
-    ("max_anchor_insights", 1, 100, int),
-    ("fallback_dashboard_count", 1, 20, int),
-    ("confidence_threshold", 0.0, 1.0, float),
-    ("max_opportunities", 1, 20, int),
-]
 
 DEFAULT_BRIEF_SETTINGS = BriefSettings()

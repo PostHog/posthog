@@ -9,7 +9,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.generation.schemas import BriefOut, OpportunityOut
-from products.pulse.backend.models import Opportunity, ProductBrief, ResourceLink, ResourceType, build_action
+from products.pulse.backend.models import Opportunity, ProductBrief, ResourceLink, build_action
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, build_evidence_index
 
 logger = structlog.get_logger(__name__)
@@ -44,8 +44,7 @@ def _build_opportunity(
     brief: ProductBrief, opp: OpportunityOut, item: SourceItem | None, evidence: list[EvidenceRef]
 ) -> Opportunity:
     baseline = item.metrics if item is not None else None
-    first_insight = next((e for e in evidence if e["type"] == EvidenceType.INSIGHT), None)
-    metric_ref = {"insight_short_id": first_insight["ref"]} if first_insight else None
+    first_insight = next((e for e in evidence if e.is_insight), None)
     return Opportunity(
         team_id=brief.team_id,
         first_seen_brief=brief,
@@ -53,7 +52,7 @@ def _build_opportunity(
         title=opp.title[:_TITLE_MAX_LENGTH],
         summary=opp.summary,
         action=build_action(opp.suggested_action),
-        metric_ref=metric_ref,
+        metric_ref=first_insight.metric_ref if first_insight else None,
         baseline=baseline,
         fingerprint=_fingerprint(opp.kind, opp.fingerprint_hint),
     )
@@ -61,22 +60,22 @@ def _build_opportunity(
 
 def _resolve_link_fks(
     team_id: int, evidence: list[EvidenceRef]
-) -> dict[str, Insight | Dashboard | Annotation | Experiment]:
+) -> dict[tuple[EvidenceType, str], Insight | Dashboard | Annotation | Experiment]:
     """Batch-resolve cited refs to the model instances the ResourceLink FKs point at, per team.
 
-    Insights are looked up by short_id; dashboards/annotations/experiments by id. Events have no
-    model. A ref that resolves to nothing is still linked (cached columns only) — the resource may
-    have been deleted since the brief cited it.
+    Keyed by EvidenceRef.key. Insights are looked up by short_id; dashboards/annotations/experiments
+    by id. Events have no model. A ref that resolves to nothing is still linked (cached columns
+    only) — the resource may have been deleted since the brief cited it.
     """
-    by_type: dict[str, set[str]] = {}
+    by_type: dict[EvidenceType, set[str]] = {}
     for ref in evidence:
-        by_type.setdefault(ref["type"], set()).add(ref["ref"])
+        by_type.setdefault(ref.type, set()).add(ref.ref)
 
-    resolved: dict[str, Insight | Dashboard | Annotation | Experiment] = {}
+    resolved: dict[tuple[EvidenceType, str], Insight | Dashboard | Annotation | Experiment] = {}
     insight_ids = by_type.get(EvidenceType.INSIGHT)
     if insight_ids:
         for insight in Insight.objects.filter(team_id=team_id, short_id__in=insight_ids):
-            resolved[f"{EvidenceType.INSIGHT}:{insight.short_id}"] = insight
+            resolved[(EvidenceType.INSIGHT, insight.short_id)] = insight
     for evidence_type, model in (
         (EvidenceType.DASHBOARD, Dashboard),
         (EvidenceType.ANNOTATION, Annotation),
@@ -87,39 +86,27 @@ def _resolve_link_fks(
             continue
         numeric_ids = [int(r) for r in refs if r.isdigit()]
         for obj in model.objects.filter(team_id=team_id, id__in=numeric_ids):
-            resolved[f"{evidence_type}:{obj.id}"] = obj
+            resolved[(evidence_type, str(obj.id))] = obj
     return resolved
-
-
-# EvidenceType and ResourceType share the same members; each DB-modeled type has a matching FK field.
-_FK_FIELD_BY_TYPE = {
-    EvidenceType.INSIGHT: "insight",
-    EvidenceType.DASHBOARD: "dashboard",
-    EvidenceType.ANNOTATION: "annotation",
-    EvidenceType.EXPERIMENT: "experiment",
-}
 
 
 def _build_links(
     opportunity: Opportunity,
     evidence: list[EvidenceRef],
-    resolved_fks: dict[str, Insight | Dashboard | Annotation | Experiment],
+    resolved_fks: dict[tuple[EvidenceType, str], Insight | Dashboard | Annotation | Experiment],
 ) -> list[ResourceLink]:
     links: list[ResourceLink] = []
     for ref in evidence:
-        # A ref whose type is not a known ResourceType is stored as an event (cached columns, no FK).
-        resource_type = ref["type"] if ref["type"] in ResourceType.values else ResourceType.EVENT.value
         link = ResourceLink(
             team_id=opportunity.team_id,
             opportunity=opportunity,
-            resource_type=resource_type,
-            ref=ref["ref"][:_REF_MAX_LENGTH],
-            label=ref["label"][:_LABEL_MAX_LENGTH],
-            url=ref["url"][:_URL_MAX_LENGTH],
+            resource_type=ref.resource_type,
+            ref=ref.ref[:_REF_MAX_LENGTH],
+            label=ref.label[:_LABEL_MAX_LENGTH],
+            url=ref.url[:_URL_MAX_LENGTH],
         )
-        fk_field = _FK_FIELD_BY_TYPE.get(EvidenceType(resource_type))
-        if fk_field is not None:
-            setattr(link, fk_field, resolved_fks.get(f"{ref['type']}:{ref['ref']}"))
+        if ref.fk_field is not None:
+            setattr(link, ref.fk_field, resolved_fks.get(ref.key))
         links.append(link)
     return links
 
