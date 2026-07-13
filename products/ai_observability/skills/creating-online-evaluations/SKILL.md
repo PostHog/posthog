@@ -29,16 +29,16 @@ debugging a live eval), defer to `exploring-llm-evaluations`.
 
 ## Tools
 
-| Tool                                   | Purpose                                                       |
-| -------------------------------------- | ------------------------------------------------------------- |
+| Tool                                   | Purpose                                                               |
+| -------------------------------------- | --------------------------------------------------------------------- |
 | `posthog:llma-provider-key-list`       | Find a usable (`ok` state) provider key to optionally pin (llm_judge) |
-| `posthog:llma-evaluation-judge-models` | List valid provider+model combos                              |
-| `posthog:llma-evaluation-test-hog`     | Dry-run Hog source against recent generations before creating |
-| `posthog:llma-evaluation-create`       | Create the evaluation (always `enabled: false` first)         |
-| `posthog:llma-evaluation-run`          | Spot-run a draft eval against one generation                  |
-| `posthog:llma-evaluation-update`       | Iterate config, then flip `enabled: true`                     |
-| `posthog:execute-sql`                  | Verify a condition matches the events and volume you expect   |
-| `posthog:generate-app-url`             | Build a region- and project-qualified deep link to the eval   |
+| `posthog:llma-evaluation-judge-models` | List valid provider+model combos                                      |
+| `posthog:llma-evaluation-test-hog`     | Dry-run Hog source against recent generations before creating         |
+| `posthog:llma-evaluation-create`       | Create the evaluation (always `enabled: false` first)                 |
+| `posthog:llma-evaluation-run`          | Spot-run a draft eval against one generation                          |
+| `posthog:llma-evaluation-update`       | Iterate config, then flip `enabled: true`                             |
+| `posthog:execute-sql`                  | Verify a condition matches the events and volume you expect           |
+| `posthog:generate-app-url`             | Build a region- and project-qualified deep link to the eval           |
 
 The full create payload (every field, the config schemas, the exact `conditions` shape) is in
 [references/evaluation-payload.md](references/evaluation-payload.md).
@@ -61,11 +61,11 @@ tool call must include an `order_id`". Then move to Phase 2.
 
 ### 2.1 — Choose the eval type
 
-| Use…        | When the criterion is…                                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `hog`       | Structural / rule-based (JSON parses, length, regex, tool-call shape). Cheap, deterministic, **no provider key needed.**              |
+| Use…        | When the criterion is…                                                                                                                               |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hog`       | Structural / rule-based (JSON parses, length, regex, tool-call shape). Cheap, deterministic, **no provider key needed.**                             |
 | `llm_judge` | Subjective / fuzzy (tone, factuality, on-topic). Costs an LLM call per run; needs a valid `provider` + `model` (pinning a provider key is optional). |
-| `sentiment` | You want sentiment labels on user messages, not a pass/fail (unless very specifically asked for, usually not relevant to this skill). |
+| `sentiment` | You want sentiment labels on user messages, not a pass/fail (unless very specifically asked for, usually not relevant to this skill).                |
 
 Reach for `hog` first, escalate to `llm_judge` if there is no deterministic way to check for what we want to check.
 
