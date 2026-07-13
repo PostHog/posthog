@@ -2,6 +2,7 @@ import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
+from llm_gateway.rate_limiting.cost_throttles import CostThrottle
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 
 
@@ -37,6 +38,13 @@ def make_context(
         seat_created_at=seat_created_at,
         billing_period_start=billing_period_start,
     )
+
+
+async def recorded_cost(throttle: CostThrottle, context: ThrottleContext) -> float:
+    """Cost the underlying limiter has actually accumulated for this context, read
+    straight from the limiter rather than through get_status (which reports staff as
+    unlimited). Lets a test prove spend was recorded even when enforcement is bypassed."""
+    return await throttle._get_limiter(context).get_current(throttle._get_cache_key(context))
 
 
 class TestProductCostLimitConfig:
@@ -575,6 +583,9 @@ class TestStaffUnlimitedUsage:
         context = make_context(user=make_user(is_staff=True), product="posthog_code")
 
         await throttle.record_cost(context, 100_000.0)
+        # Observability guarantee: staff spend is still recorded even though the
+        # request is allowed. Fails if record_cost starts skipping staff.
+        assert await recorded_cost(throttle, context) == 100_000.0
         result = await throttle.allow_request(context)
         assert result.allowed is True
         get_settings.cache_clear()
@@ -601,7 +612,11 @@ class TestStaffUnlimitedUsage:
         context = make_context(user=make_user(is_staff=True), product="posthog_code")
 
         await throttle.record_cost(context, 100_000.0)
+        # Spend is recorded on the limiter even though the reported status hides it
+        # behind an unlimited budget — the observability guarantee this PR promises.
+        assert await recorded_cost(throttle, context) == 100_000.0
         status = await throttle.get_status(context)
+        assert status.used_usd == 0.0
         assert status.exceeded is False
         assert status.limit_usd == float("inf")
         get_settings.cache_clear()
