@@ -845,8 +845,9 @@ class DeltaTableHelper:
         vacuums as part of compaction, so when it runs it supersedes the cadence vacuum (no double vacuum
         in one run) and the watermark advances to the post-compaction version. When nothing was fragmented,
         fall through to `vacuum_if_stale`. Returns the single delta version to persist as the new
-        `last_vacuum_version` watermark, or None when nothing changed; the caller is the sole writer of
-        the watermark so it lives in exactly one place.
+        `last_vacuum_version` watermark, or None when nothing changed. Callers persist the watermark
+        via `update_sync_type_config_keys` (row-locked merge): the pre-write defensive path in
+        `common/extract.py` and the CDC post-load path in `common/load.py`.
         """
         compacted = await self.compact_if_fragmented(partition_count=partition_count)
         if compacted:

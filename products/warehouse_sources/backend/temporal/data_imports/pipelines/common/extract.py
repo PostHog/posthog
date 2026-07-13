@@ -569,8 +569,9 @@ async def run_pre_write_defensive_compact(
     reaching `_post_run_operations` — keeping the subsequent per-partition merge scans
     cheap) and otherwise vacuums on a commit-count cadence so a table that OOMs its merge
     every run and never reaches post-load compaction still sheds tombstones (the
-    ~99%-dead-file tables). The helper returns the single vacuum watermark to persist, so
-    this function is the sole writer of `last_vacuum_version`. Wrapped in try/except so a
+    ~99%-dead-file tables). The helper returns the single vacuum watermark to persist;
+    the CDC post-load path in `common/load.py` writes the same watermark, and both merge
+    via `update_sync_type_config_keys` under a row lock. Wrapped in try/except so a
     maintenance failure never blocks the actual sync; the original error path is unaffected.
 
     Used by both `PipelineNonDLT.run` (v2) and `PipelineV3.run` to keep the behaviour

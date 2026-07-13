@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
+from django.conf import settings
 from django.db.models import F
 
 import pyarrow as pa
@@ -12,7 +13,11 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    process_incremental_value,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
@@ -284,13 +289,42 @@ async def run_post_load_operations(
     # table independently, otherwise we overwrite the snapshot queryable_folder with the SCD2 path.
     is_cdc_companion = cdc_write_mode == "scd2_append"
 
-    logger.debug("Triggering compaction and vacuuming on delta table")
-    try:
-        with POST_LOAD_DURATION_SECONDS.labels(operation="compact").time():
-            await delta_table_helper.compact_table()
-    except Exception as e:
-        capture_exception(e)
-        logger.exception(f"Compaction failed: {e}", exc_info=e)
+    if schema.is_cdc:
+        # CDC finals land once per tick per changed schema, so unconditional compaction would run
+        # near-continuously after mostly-tiny merges. Use threshold/cadence maintenance instead:
+        # compact when fragmented, otherwise vacuum once enough commits have accrued.
+        logger.debug("Running threshold-based delta maintenance")
+        try:
+            with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
+                if is_cdc_companion:
+                    # One schema can back two delta tables (snapshot + _cdc companion) but holds a
+                    # single last_vacuum_version watermark, and the two tables' versions are unrelated.
+                    # Keep the cadence vacuum (and the watermark) on the snapshot path only; the
+                    # companion relies on compact_if_fragmented, which vacuums whenever it compacts.
+                    await delta_table_helper.compact_if_fragmented(partition_count=schema.partition_count)
+                else:
+                    last_vacuum_version = (schema.sync_type_config or {}).get("last_vacuum_version")
+                    commit_threshold = int(getattr(settings, "DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100))
+                    new_version = await delta_table_helper.run_maintenance(
+                        partition_count=schema.partition_count,
+                        last_vacuum_version=last_vacuum_version,
+                        commit_threshold=commit_threshold,
+                    )
+                    if new_version is not None and new_version != last_vacuum_version:
+                        await database_sync_to_async_pool(update_sync_type_config_keys)(
+                            schema.id, schema.team_id, updates={"last_vacuum_version": new_version}
+                        )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Delta maintenance failed: {e}", exc_info=e)
+    else:
+        logger.debug("Triggering compaction and vacuuming on delta table")
+        try:
+            with POST_LOAD_DURATION_SECONDS.labels(operation="compact").time():
+                await delta_table_helper.compact_table()
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Compaction failed: {e}", exc_info=e)
 
     if is_cdc_companion:
         # Look up the existing companion table's queryable_folder (not the main schema.table).
