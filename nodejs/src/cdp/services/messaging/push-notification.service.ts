@@ -23,6 +23,12 @@ const pushNotificationSentCounter = new Counter({
     labelNames: ['platform'],
 })
 
+const pushNotificationTokenPrunedCounter = new Counter({
+    name: 'push_notification_token_pruned_total',
+    help: 'Total number of device tokens removed after the provider reported them no longer registered',
+    labelNames: ['platform'],
+})
+
 // Apple rate-limits new APNs provider tokens (returns 429 TooManyProviderTokenUpdates if refreshed more
 // than once every ~20 min per key) and accepts a token for up to 1 hour. Cache the signed JWT in Redis
 // keyed by the auth key id so the whole fleet reuses one token per key rather than minting one per send.
@@ -194,6 +200,14 @@ export class PushNotificationService {
                 'error',
                 `FCM send error. Status: ${status ?? '(none)'}. Body: ${typeof body === 'string' ? body : JSON.stringify(body)}. Fetch error: ${fetchError?.message ?? 'none'}`
             )
+            // A 404 / UNREGISTERED means FCM no longer knows this token (app uninstalled or token rotated).
+            // Prune it and treat the channel as skipped rather than retrying a token that will never work.
+            const fcmErrorCode = (body as any)?.error?.details?.find?.((d: any) => d?.errorCode)?.errorCode
+            if (status === 404 || fcmErrorCode === 'UNREGISTERED') {
+                this.pruneDeviceToken(result, invocation, params.distinctId, projectId, 'fcm')
+                addLog('warn', `Removed unregistered FCM token for distinct_id: ${params.distinctId}`)
+                return false
+            }
             throw new Error(
                 `Push notification failed with status ${status ?? '(none)'}.${fetchError ? ` Error: ${fetchError.message}.` : ''}`
             )
@@ -300,6 +314,14 @@ export class PushNotificationService {
                 'error',
                 `APNS send error. Status: ${status ?? '(none)'}. Body: ${typeof body === 'string' ? body : JSON.stringify(body)}. Fetch error: ${fetchError?.message ?? 'none'}`
             )
+            // 410 Unregistered is Apple's signal that the token is dead (app uninstalled). Prune it and
+            // skip rather than retrying. Other 4xx (e.g. BadDeviceToken) can be environment/config issues,
+            // so we don't prune on those to avoid dropping a token that is actually valid.
+            if (status === 410) {
+                this.pruneDeviceToken(result, invocation, params.distinctId, bundleId, 'apns')
+                addLog('warn', `Removed unregistered APNS token for distinct_id: ${params.distinctId}`)
+                return false
+            }
             throw new Error(
                 `Push notification failed with status ${status ?? '(none)'}.${reason}${fetchError ? ` Error: ${fetchError.message}.` : ''}`
             )
@@ -390,6 +412,26 @@ export class PushNotificationService {
         }
 
         return result
+    }
+
+    // Remove a device token the provider reported as no longer registered. Emitted as a $unset person
+    // update (flushed with the invocation's captured events) so we stop retrying dead tokens and don't
+    // accumulate stale ones on the person.
+    private pruneDeviceToken(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        invocation: CyclotronJobInvocationHogFunction,
+        distinctId: string,
+        appIdentifier: string,
+        platform: 'fcm' | 'apns'
+    ): void {
+        result.capturedPostHogEvents.push({
+            team_id: invocation.teamId,
+            event: '$set',
+            distinct_id: distinctId,
+            timestamp: new Date().toISOString(),
+            properties: { $unset: [`$device_push_subscription_${appIdentifier}`] },
+        })
+        pushNotificationTokenPrunedCounter.labels({ platform }).inc()
     }
 
     private buildFcmMessage(token: string, payload: PushNotificationPayloadType): Record<string, unknown> {

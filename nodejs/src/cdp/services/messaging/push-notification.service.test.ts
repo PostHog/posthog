@@ -212,6 +212,37 @@ describe('PushNotificationService', () => {
             expect(result.error).toBeTruthy()
         })
 
+        it('prunes an unregistered FCM token and skips the channel without erroring', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+            })
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 404,
+                    text: () =>
+                        Promise.resolve(
+                            JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } })
+                        ),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            // Dead token: removed via a $unset person update, and the channel is skipped (not errored → no retry).
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toContainEqual(
+                expect.objectContaining({
+                    event: '$set',
+                    distinct_id: 'test-distinct-id',
+                    properties: { $unset: ['$device_push_subscription_test-project'] },
+                })
+            )
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped' }))
+        })
+
         it('puts an iOS subtitle in the APNS alert, not the FCM notification (FCM rejects notification.subtitle)', async () => {
             const invocation = createSendPushNotificationInvocation({
                 '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
@@ -504,6 +535,31 @@ describe('PushNotificationService', () => {
             const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
             expect(body.aps.alert.title).toBe('Real title')
             expect(body.custom).toBe('kept')
+        })
+
+        it('prunes an unregistered APNS token (410) and skips the channel', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-token'),
+            })
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 410,
+                    text: () => Promise.resolve(JSON.stringify({ reason: 'Unregistered' })),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toContainEqual(
+                expect.objectContaining({
+                    event: '$set',
+                    properties: { $unset: ['$device_push_subscription_com.example.app'] },
+                })
+            )
         })
     })
 
