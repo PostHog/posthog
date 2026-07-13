@@ -636,6 +636,10 @@ snapshots:
         hash: v1.k794b7964.2c24142bf0dcb6fa211ecf90a0376170006861061546ffc5fd66b7fe796dce4c.HBgbgdLit0-gs8WaX4skHdbK16P-EL0XVxF75QJLEmc
     components-hogcharts-combochart--bar-and-line--light:
         hash: v1.k794b7964.36ffba656428dfb67a84646e127df5c8af170c42655614b65c030c795464227c.dT9RoIihAlR2IYyBkbkyF9hW7-O3w72AftC8QTPfLNs
+    components-hogcharts-combochart--diverging-stacked-bars-and-line--dark:
+        hash: v1.k794b7964.c0dc1d567070aa2ead68125067b406f4ad704aecf64a18a54f2e5a90d37e1b82.xZcSWaw-21hRuL_yN4t3MYYM0E7wViaBje1ne2KjN7g
+    components-hogcharts-combochart--diverging-stacked-bars-and-line--light:
+        hash: v1.k794b7964.f19bec8c6396cf02562cd1b1f407b44d64bb96522cee356334762d2a30488bba.VanTOpQNNWWPSsljjEaUf_Leu1--iifOrZjHc1H8DBw
     components-hogcharts-combochart--dual-y-axis-bar-and-line--dark:
         hash: v1.k794b7964.56a5e9cb9c602bc7340d990d2bb50ecedb0d2e12c261f911cad8d9434265fa38.twmudtXz0pbGRtgJS9NNL8PSURZCaHwumhcH_SToYFc
     components-hogcharts-combochart--dual-y-axis-bar-and-line--light:
@@ -2704,6 +2708,10 @@ snapshots:
         hash: v1.k794b7964.41fb69aabc8a918c58f693db54ee71abf53115782820dd01a1a26f6929dbe714.ACZOSkxt8vlxz5dr0DPoe7koXbe7aUxWeHcU4zMhv84
     insights-insightstable--compare-previous--light:
         hash: v1.k794b7964.28fa002817466cdc38906e70bc568a02c9d4080d4e696ec4013a2a538907b56d.yFhGtvxHTdLkBaBTudbBvH9CQbI3uANS3b2ycEIeKRY
+    insights-insightstable--compare-previous-detailed-results--dark:
+        hash: v1.k794b7964.a64b2e50f805705bbc9b8d2ebd207cebcd1202dc578004ab1e9dc477f02ff9aa.E8oFRn7xnK_56vtfgxYZuC1XNdTAUAc-aRld_poFGNk
+    insights-insightstable--compare-previous-detailed-results--light:
+        hash: v1.k794b7964.95d186cac16aa659249c098d76264c71a4f75af27fe8ddc458fb452371f4c584.gcfzOx0i14MOBQ7nvtxNXdOhyrG3zuxGFX1MY8SnYCY
     insights-insightstable--default--dark:
         hash: v1.k794b7964.585aa3b95a71f83db72c958f68b5b9b28c05047625904238a18d840fd4abe38b.kbYrG-uIZ1A_25STyJcDiz6Ph7-N7rkj2HWE6g6eoy8
     insights-insightstable--default--light:
@@ -5623,13 +5631,17 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--top-tools-per-server--light:
         hash: v1.k794b7964.e6420f44b86930d43085b575192d3c26ac0401919a4af6f8d7bd1c799e964836.pZmiZ4w-9QbQ60TFc6Sx94NT0YmU4EULydWdqDqxDmY
     scenes-app-engineering-analytics-repo-overview--repo-overview--dark:
-        hash: v1.k794b7964.c6f38d08b3c59294a9443a62fdf1b76fab8f2a026d3c3bb169f8ec86575e2296.xPQhtO1OrkOaRa8V_fKsaZMyJ9CM9iW_HTB3w5wa9r8
+        hash: v1.k794b7964.2f6a03768f7fd744209d68ad0d4ed30f8f13e6457c005caee001711bce72559a.wGhGJXZVT2RMHTY1nYDEsKOe8gs15i8OKJTOiHy6M2A
     scenes-app-engineering-analytics-repo-overview--repo-overview--light:
-        hash: v1.k794b7964.10713695bfff7d1fe091a19db8a951832946f61cc5711f41edf479cdc443e071.j1YL510Wvt_XUK4isWUN7pSluY0kL7yvzokjkR1P1es
+        hash: v1.k794b7964.fa63ebe5edc3d998537561d334db2ca368d4f68a6eb62ae51d05f005af379311.n3sBaR2EfJiLyoFcIhsp_z4thfRlGElFns_X7qaNQII
+    scenes-app-engineering-analytics-repo-overview--repo-overview-failing--dark:
+        hash: v1.k794b7964.0fe8332bfa26e030a0ff01303d1fcce2c57442e90e979ef0b7aa42530720119a.G2CN2Y5L8tUETotqOpviY8y6o9IAWJHCzYs9xYRc1Mw
+    scenes-app-engineering-analytics-repo-overview--repo-overview-failing--light:
+        hash: v1.k794b7964.4e1ed6c540fca8e95dad14c8d479a3ffc5b8a0eec6083ddddeed1e2ceabfe5b6.UC2p5Di8xVfGABNMYuqx6WqTIf5fC3pr8WsFSlB0J5o
     scenes-app-engineering-analytics-test-health--flaky-test-leaderboard--dark:
-        hash: v1.k794b7964.b80842e3c1fcc9321fbd781d1c7aa06bdd243479eff1b407ad94466b48625e7f.vSCnKb5GwJzPTNMCRmvYw6f3fYfPbJcDlNia1tEc22E
+        hash: v1.k794b7964.8e887d3516448ca8544b66f54ec2b15c348c795f5eeb38121d8822614ab6895a.FSJv5vBtsNGzICpMzsq58FRQDj-CMLwqFPl9IVKY4A4
     scenes-app-engineering-analytics-test-health--flaky-test-leaderboard--light:
-        hash: v1.k794b7964.fcab5b35c3e2147beaf8445febe839a6a30952a8bcba3fa634d7a3d073d561a3.-OVkVjtyzLUrkMi_4lDd7F39UmQPWKEvPhnf47_BxoA
+        hash: v1.k794b7964.10a6793cc79056bee67f5785d2bf58cc936de9db6ccc526f85b44f051d658f94.EgZzEPDMHkx6x4Jw2IlGMf1wP1CBqkfy0jWdAsdSqAI
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.30ace8f015100159e1dedbed07ff9f0b0b770535870d5c98ea764b10ff1f7621.dTVw9qLa7D_e7ZNme4tVuPZov-0Gg1o84aiDl5zihF0
     scenes-app-error-project-unavailable--access-revoked--light:

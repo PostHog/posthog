@@ -17208,6 +17208,7 @@
                     "type": "object"
                 },
                 "format": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 },
                 "id": {
@@ -17237,10 +17238,11 @@
                     "type": "string"
                 },
                 "url_pattern": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 }
             },
-            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "required": ["fields", "id", "name", "type"],
             "type": "object"
         },
         "DatabaseSchemaEndpointTable": {
@@ -23250,7 +23252,14 @@
                 "Vultr",
                 "Windmill",
                 "Zep",
-                "Hex"
+                "Hex",
+                "Singular",
+                "Swonkie",
+                "Sumsub",
+                "GoogleChat",
+                "Kickscale",
+                "Zellify",
+                "RudderStack"
             ],
             "type": "string"
         },
@@ -25267,7 +25276,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "endPosition": {
@@ -25374,7 +25383,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "debug": {
@@ -25519,7 +25528,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "explain": {
