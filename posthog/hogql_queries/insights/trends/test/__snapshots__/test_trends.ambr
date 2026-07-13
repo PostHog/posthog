@@ -519,7 +519,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(equals(e.`mat_$browser`, 'Firefox'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -565,7 +565,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(equals(e.`mat_$browser`, 'Firefox'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -611,7 +611,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(equals(e.`mat_$browser`, 'Firefox'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -657,7 +657,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(equals(e.`mat_$browser`, 'Firefox'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
