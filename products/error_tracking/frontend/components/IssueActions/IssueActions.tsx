@@ -34,7 +34,7 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
         selectedIds.forEach((id) => {
             const issue = issues.find((issue) => issue.id === id)
             if (issue) {
-                newInternalTab(urls.errorTrackingIssue(id, { timestamp: issue.last_seen }))
+                newInternalTab(urls.errorTrackingIssue(issue.fingerprint ?? id, { timestamp: issue.last_seen }))
             }
         })
     }

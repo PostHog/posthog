@@ -142,7 +142,7 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
-    '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
+    '/error_tracking/:identifier': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
@@ -1025,15 +1025,14 @@ export const productUrls = {
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
     errorTrackingIssue: (
-        id: string,
+        identifier: string,
         params: {
             timestamp?: string
-            fingerprint?: string
             searchQuery?: string
             dateRange?: DateRange
             filterGroup?: UniversalFiltersGroup
         } = {}
-    ): string => combineUrl(`/error_tracking/${id}`, params).url,
+    ): string => combineUrl(`/error_tracking/${encodeURIComponent(identifier)}`, params).url,
     errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
     errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,

@@ -241,7 +241,7 @@ const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Sc
             'hogql',
             'types',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+        return await withPostHogUrl(context, filtered, `/insights/${encodeURIComponent(String(filtered.short_id))}`)
     },
 })
 
@@ -300,7 +300,7 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
             'hogql',
             'types',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+        return await withPostHogUrl(context, filtered, `/insights/${encodeURIComponent(String(filtered.short_id))}`)
     },
 })
 
@@ -354,7 +354,7 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Sc
             'hogql',
             'types',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+        return await withPostHogUrl(context, filtered, `/insights/${encodeURIComponent(String(filtered.short_id))}`)
     },
 })
 
@@ -485,7 +485,9 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
             {
                 ...filtered,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
+                    (filtered.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/insights/${encodeURIComponent(String(item.short_id))}`)
+                    )
                 ),
             },
             '/insights'
@@ -539,7 +541,9 @@ const insightsTrendingRetrieve = (): ToolBase<
             {
                 ...filtered,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
+                    (filtered.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/insights/${encodeURIComponent(String(item.short_id))}`)
+                    )
                 ),
             },
             '/insights'

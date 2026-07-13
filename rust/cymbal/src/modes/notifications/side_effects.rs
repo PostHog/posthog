@@ -108,9 +108,32 @@ pub async fn send_issue_spiking_internal_event<I: NotificationIssue>(
     internal_events_topic: &str,
     notification_id: Uuid,
     issue: &I,
+    fingerprint: &str,
     computed_baseline: f64,
     current_bucket_value: f64,
 ) -> Result<(), UnhandledError> {
+    let iter = [build_issue_spiking_internal_event(
+        notification_id,
+        issue,
+        fingerprint,
+        computed_baseline,
+        current_bucket_value,
+    )];
+
+    send_iter_to_kafka(producer, internal_events_topic, &iter)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(())
+}
+
+fn build_issue_spiking_internal_event<I: NotificationIssue>(
+    notification_id: Uuid,
+    issue: &I,
+    fingerprint: &str,
+    computed_baseline: f64,
+    current_bucket_value: f64,
+) -> InternalEvent {
     let mut event = InternalEventEvent::new(
         "$error_tracking_issue_spiking",
         issue.id(),
@@ -125,23 +148,20 @@ pub async fn send_issue_spiking_internal_event<I: NotificationIssue>(
         .insert_prop("description", issue.description())
         .expect("insert_prop for description should never fail");
     event
+        .insert_prop("fingerprint", fingerprint)
+        .expect("insert_prop for fingerprint should never fail");
+    event
         .insert_prop("computed_baseline", computed_baseline)
         .expect("insert_prop for computed_baseline should never fail");
     event
         .insert_prop("current_bucket_value", current_bucket_value)
         .expect("insert_prop for current_bucket_value should never fail");
 
-    let iter = [InternalEvent {
+    InternalEvent {
         team_id: issue.team_id(),
         event,
         person: None,
-    }];
-
-    send_iter_to_kafka(producer, internal_events_topic, &iter)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(())
+    }
 }
 
 async fn send_internal_event_with_producer<I: NotificationIssue>(
@@ -206,5 +226,36 @@ async fn send_internal_event_with_producer<I: NotificationIssue>(
             Ok(())
         }
         Err(e) => Err(e.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modes::notifications::types::IssueNotificationData;
+
+    #[test]
+    fn issue_spiking_internal_event_includes_fingerprint() {
+        let issue = IssueNotificationData {
+            id: Uuid::from_u128(1),
+            team_id: 2,
+            status: "active".to_string(),
+            name: Some("TypeError".to_string()),
+            description: Some("Cannot read properties of undefined".to_string()),
+            created_at: Utc::now(),
+        };
+
+        let event = build_issue_spiking_internal_event(
+            Uuid::from_u128(3),
+            &issue,
+            "fingerprint/with reserved characters",
+            5.0,
+            25.0,
+        );
+
+        assert_eq!(
+            event.event.properties["fingerprint"],
+            serde_json::json!("fingerprint/with reserved characters")
+        );
     }
 }

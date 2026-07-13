@@ -46,7 +46,7 @@ function createIssueCohortForm(issue: ErrorTrackingRelationalIssue, onSubmit: Is
         shouldAwaitSubmit: true,
         initialValues: {
             cohortName: `Impacted by Issue [${issue.name}${issue.description ? ` - ${issue.description.substring(0, 200)}` : ''}]`,
-            cohortDescription: new URL(urls.errorTrackingIssue(issue.id), window.location.href).toString(),
+            cohortDescription: window.location.href,
         },
         content: (
             <div className="flex flex-col gap-y-2 w-[600px]">

@@ -17,6 +17,7 @@ import {
     ErrorTrackingIssuesMergeCreateParams,
     ErrorTrackingIssuesPartialUpdateBody,
     ErrorTrackingIssuesPartialUpdateParams,
+    ErrorTrackingIssuesResolveRetrieveQueryParams,
     ErrorTrackingIssuesSplitCreateBody,
     ErrorTrackingIssuesSplitCreateParams,
     ErrorTrackingQueryIssueCreateBody,
@@ -306,9 +307,34 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${result.id}`)
+            return await withPostHogUrl(context, result, `/error_tracking/${encodeURIComponent(String(result.id))}`)
         },
     })
+
+const ErrorTrackingIssuesResolveRetrieveSchema = ErrorTrackingIssuesResolveRetrieveQueryParams
+
+const errorTrackingIssuesResolveRetrieve = (): ToolBase<
+    typeof ErrorTrackingIssuesResolveRetrieveSchema,
+    WithPostHogUrl<Schemas.ErrorTrackingIssueResolveResponse>
+> => ({
+    name: 'error-tracking-issues-resolve-retrieve',
+    schema: ErrorTrackingIssuesResolveRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesResolveRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ErrorTrackingIssueResolveResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/resolve/`,
+            query: {
+                identifier: params.identifier,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            result,
+            `/error_tracking/${encodeURIComponent(String(result.fingerprint))}`
+        )
+    },
+})
 
 const ErrorTrackingIssuesSplitCreateSchema = ErrorTrackingIssuesSplitCreateParams.omit({ project_id: true }).extend(
     ErrorTrackingIssuesSplitCreateBody.shape
@@ -603,7 +629,11 @@ const queryErrorTrackingIssue = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/query/issue/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${params.issueId}`)
+            return await withPostHogUrl(
+                context,
+                result,
+                `/error_tracking/${encodeURIComponent(String(result.fingerprint))}`
+            )
         },
     })
 
@@ -654,7 +684,11 @@ const queryErrorTrackingIssueEvents = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/query/issue_events/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${params.issueId}`)
+            return await withPostHogUrl(
+                context,
+                result,
+                `/error_tracking/${encodeURIComponent(String(params.issueId))}`
+            )
         },
     })
 
@@ -734,6 +768,7 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                 results: (result.results ?? []).map((item: any) =>
                     pickResponseFields(item, [
                         'id',
+                        'fingerprint',
                         'name',
                         'description',
                         'status',
@@ -752,7 +787,11 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                     ...filtered,
                     results: await Promise.all(
                         (filtered.results ?? []).map((item) =>
-                            withPostHogUrl(context, item, `/error_tracking/${item.id}`)
+                            withPostHogUrl(
+                                context,
+                                item,
+                                `/error_tracking/${encodeURIComponent(String(item.fingerprint))}`
+                            )
                         )
                     ),
                 },
@@ -773,6 +812,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-grouping-rules-update': errorTrackingGroupingRulesUpdate,
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
+    'error-tracking-issues-resolve-retrieve': errorTrackingIssuesResolveRetrieve,
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
     'error-tracking-recommendations-list': errorTrackingRecommendationsList,
     'error-tracking-settings-get': errorTrackingSettingsGet,

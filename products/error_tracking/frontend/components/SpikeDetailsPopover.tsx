@@ -48,6 +48,12 @@ export function SpikeDetailsPopover({
     const zoomDateTo = useMemo(() => center.add(ZOOM_WINDOW_MINUTES / 2, 'minute'), [center])
 
     useEffect(() => {
+        if (!issueId) {
+            setLoading(false)
+            setZoomData(null)
+            return
+        }
+
         let cancelled = false
         setLoading(true)
         setHasZoomError(false)

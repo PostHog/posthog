@@ -15403,6 +15403,10 @@ class ErrorTrackingIssue(BaseModel):
     cohort: ErrorTrackingIssueCohort | None = None
     description: str | None = None
     external_issues: list[ErrorTrackingExternalReference] | None = None
+    fingerprint: str | None = Field(
+        default=None,
+        description="Canonical current fingerprint used for stable issue links.",
+    )
     first_event: FirstEvent | None = None
     first_seen: AwareDatetime
     function: str | None = None
@@ -15517,6 +15521,10 @@ class ErrorTrackingRelationalIssue(BaseModel):
     cohort: ErrorTrackingIssueCohort | None = None
     description: str | None = None
     external_issues: list[ErrorTrackingExternalReference] | None = None
+    fingerprint: str | None = Field(
+        default=None,
+        description="Canonical current fingerprint used for stable issue links.",
+    )
     first_seen: AwareDatetime
     id: str
     name: str | None = None
@@ -23809,6 +23817,10 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     description: str | None = None
     event: str
     external_issues: list[ErrorTrackingExternalReference] | None = None
+    fingerprint: str | None = Field(
+        default=None,
+        description="Canonical current fingerprint used for stable issue links.",
+    )
     first_seen: AwareDatetime
     id: str
     last_seen: AwareDatetime

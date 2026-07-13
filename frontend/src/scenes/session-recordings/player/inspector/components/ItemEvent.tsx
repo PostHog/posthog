@@ -188,8 +188,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                           label: 'View issue in Error Tracking',
                           icon: <IconOpenInNew />,
                           to: urls.errorTrackingIssue(
-                              item.data.properties.$exception_issue_id,
-                              item.data.properties.$exception_fingerprint
+                              item.data.properties.$exception_fingerprint || item.data.properties.$exception_issue_id
                           ),
                           targetBlank: true,
                       }

@@ -4553,6 +4553,8 @@ export interface ErrorTrackingIssueApi {
     cohort?: ErrorTrackingIssueCohortApi | null
     description?: string | null
     external_issues?: ErrorTrackingExternalReferenceApi[] | null
+    /** Canonical current fingerprint used for stable issue links. */
+    fingerprint?: string | null
     first_event?: FirstEventApi | null
     first_seen: string
     function?: string | null
@@ -4602,6 +4604,8 @@ export interface ErrorTrackingCorrelatedIssueApi {
     description?: string | null
     event: string
     external_issues?: ErrorTrackingExternalReferenceApi[] | null
+    /** Canonical current fingerprint used for stable issue links. */
+    fingerprint?: string | null
     first_seen: string
     id: string
     last_seen: string

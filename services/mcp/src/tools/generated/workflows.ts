@@ -68,7 +68,7 @@ const workflowsCreate = (): ToolBase<typeof WorkflowsCreateSchema, WithPostHogUr
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+            return await withPostHogUrl(context, result, `/workflows/${encodeURIComponent(String(result.id))}/workflow`)
         },
     })
 
@@ -84,7 +84,7 @@ const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema, WithPostHogUrl<Sche
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
             })
-            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+            return await withPostHogUrl(context, result, `/workflows/${encodeURIComponent(String(result.id))}/workflow`)
         },
     })
 
@@ -335,7 +335,7 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+            return await withPostHogUrl(context, result, `/workflows/${encodeURIComponent(String(result.id))}/workflow`)
         },
     })
 

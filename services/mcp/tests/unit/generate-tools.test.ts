@@ -1622,6 +1622,52 @@ describe('path parameter encoding', () => {
         expect(result.code).toContain('${encodeURIComponent(String(id))}')
         expect(result.code).not.toMatch(/\$\{id\}[^)]/)
     })
+
+    it('encodes the enrich_url segment so non-slug field values produce valid links', () => {
+        // A fingerprint like "custom-rule:abc" contains characters that break a raw path segment.
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            enrich_url: '{fingerprint}',
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('${encodeURIComponent(String(result.fingerprint))}')
+        expect(result.code).not.toMatch(/\$\{result\.fingerprint\}/)
+    })
+
+    it('encodes each enrich_url segment on list tools', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            enrich_url: '{fingerprint}',
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('${encodeURIComponent(String(item.fingerprint))}')
+        expect(result.code).not.toMatch(/\$\{item\.fingerprint\}/)
+    })
 })
 
 // ------------------------------------------------------------------

@@ -65,7 +65,7 @@ const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostH
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/archive/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            return await withPostHogUrl(context, result, `/experiments/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -241,7 +241,7 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
                 'conclusion',
                 'conclusion_comment',
             ]) as typeof result
-            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
+            return await withPostHogUrl(context, filtered, `/experiments/${encodeURIComponent(String(filtered.id))}`)
         },
     })
 
@@ -343,7 +343,7 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            return await withPostHogUrl(context, result, `/experiments/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -361,7 +361,7 @@ const experimentGet = (): ToolBase<typeof ExperimentGetSchema, WithPostHogUrl<Sc
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            return await withPostHogUrl(context, result, `/experiments/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -527,7 +527,7 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
                 'conclusion',
                 'conclusion_comment',
             ]) as typeof result
-            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
+            return await withPostHogUrl(context, filtered, `/experiments/${encodeURIComponent(String(filtered.id))}`)
         },
     })
 
@@ -589,7 +589,9 @@ const experimentList = (): ToolBase<
                 {
                     ...filtered,
                     results: await Promise.all(
-                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/experiments/${item.id}`))
+                        (filtered.results ?? []).map((item) =>
+                            withPostHogUrl(context, item, `/experiments/${encodeURIComponent(String(item.id))}`)
+                        )
                     ),
                 },
                 '/experiments'
@@ -611,7 +613,7 @@ const experimentPause = (): ToolBase<typeof ExperimentPauseSchema, WithPostHogUr
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/pause/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            return await withPostHogUrl(context, result, `/experiments/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -629,7 +631,7 @@ const experimentReset = (): ToolBase<typeof ExperimentResetSchema, WithPostHogUr
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/reset/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            return await withPostHogUrl(context, result, `/experiments/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -647,7 +649,7 @@ const experimentResume = (): ToolBase<typeof ExperimentResumeSchema, WithPostHog
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/resume/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            return await withPostHogUrl(context, result, `/experiments/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -821,7 +823,7 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/ship_variant/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            return await withPostHogUrl(context, result, `/experiments/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -877,7 +879,7 @@ const experimentUnarchive = (): ToolBase<typeof ExperimentUnarchiveSchema, WithP
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/unarchive/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            return await withPostHogUrl(context, result, `/experiments/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -991,7 +993,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
                 'conclusion',
                 'conclusion_comment',
             ]) as typeof result
-            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
+            return await withPostHogUrl(context, filtered, `/experiments/${encodeURIComponent(String(filtered.id))}`)
         },
     })
 

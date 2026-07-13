@@ -60,7 +60,9 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
             {
                 ...filtered,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/tasks/${item.id}`))
+                    (filtered.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/tasks/${encodeURIComponent(String(item.id))}`)
+                    )
                 ),
             },
             '/tasks'
@@ -84,7 +86,7 @@ const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Sc
             'latest_run.state.sandbox_connect_token',
             'latest_run.state.sandbox_url',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/tasks/${encodeURIComponent(String(filtered.id))}`)
     },
 })
 

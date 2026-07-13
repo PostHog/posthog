@@ -65,7 +65,7 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+        return await withPostHogUrl(context, result, `/endpoints/${encodeURIComponent(String(result.name))}`)
     },
 })
 
@@ -96,7 +96,7 @@ const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schema
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/`,
         })
-        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+        return await withPostHogUrl(context, result, `/endpoints/${encodeURIComponent(String(result.name))}`)
     },
 })
 
@@ -158,7 +158,7 @@ const endpointMaterializationStatus = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_status/`,
         })
-        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+        return await withPostHogUrl(context, result, `/endpoints/${encodeURIComponent(String(result.name))}`)
     },
 })
 
@@ -183,7 +183,7 @@ const endpointMaterializationSuggestion = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_suggestion/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/endpoints/${params.name}`)
+        return await withPostHogUrl(context, result, `/endpoints/${encodeURIComponent(String(params.name))}`)
     },
 })
 
@@ -240,7 +240,7 @@ const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schema
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/run/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+        return await withPostHogUrl(context, result, `/endpoints/${encodeURIComponent(String(result.name))}`)
     },
 })
 
@@ -286,7 +286,7 @@ const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+        return await withPostHogUrl(context, result, `/endpoints/${encodeURIComponent(String(result.name))}`)
     },
 })
 
@@ -317,7 +317,9 @@ const endpointVersions = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/endpoints/${encodeURIComponent(String(item.name))}`)
+                    )
                 ),
             },
             '/endpoints'
@@ -350,7 +352,9 @@ const endpointsGetAll = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/endpoints/${encodeURIComponent(String(item.name))}`)
+                    )
                 ),
             },
             '/endpoints'
@@ -402,7 +406,7 @@ const endpointsMaterializationPreview = (): ToolBase<typeof EndpointsMaterializa
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_preview/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/endpoints/${params.name}`)
+        return await withPostHogUrl(context, result, `/endpoints/${encodeURIComponent(String(params.name))}`)
     },
 })
 

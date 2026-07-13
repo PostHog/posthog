@@ -255,6 +255,12 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod
         name: zod.string().nullish(),
         description: zod.string().nullish(),
         first_seen: zod.iso.datetime({ offset: true }).nullish(),
+        fingerprint: zod
+            .string()
+            .nullish()
+            .describe(
+                'Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.'
+            ),
         assignee: zod
             .union([
                 zod.object({
@@ -311,6 +317,12 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
         name: zod.string().nullable(),
         description: zod.string().nullable(),
         first_seen: zod.iso.datetime({ offset: true }).nullable(),
+        fingerprint: zod
+            .string()
+            .nullable()
+            .describe(
+                'Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.'
+            ),
         assignee: zod.union([
             zod.object({
                 id: zod.union([zod.number(), zod.string(), zod.null()]),
@@ -384,6 +396,12 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
         name: zod.string().nullable(),
         description: zod.string().nullable(),
         first_seen: zod.iso.datetime({ offset: true }).nullable(),
+        fingerprint: zod
+            .string()
+            .nullable()
+            .describe(
+                'Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.'
+            ),
         assignee: zod.union([
             zod.object({
                 id: zod.union([zod.number(), zod.string(), zod.null()]),

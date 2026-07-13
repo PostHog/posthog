@@ -4,7 +4,7 @@ This is the ONLY module other apps are allowed to import.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import posthoganalytics
@@ -76,6 +76,7 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
         name=issue.name,
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),
+        fingerprint=getattr(issue, "fingerprint", None),
         assignee=_to_issue_assignee(getattr(issue, "assignment", None)),
     )
 
@@ -87,6 +88,7 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
         name=issue.name,
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),
+        fingerprint=getattr(issue, "fingerprint", None),
         assignee=_to_issue_assignee(getattr(issue, "assignment", None)),
         external_issues=[_to_external_reference(reference) for reference in issue.external_issues.all()],
         cohort=_to_issue_cohort(issue),
@@ -152,8 +154,19 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrack
     if issue is None:
         return None
     return contracts.ErrorTrackingIssueBasics(
-        id=issue.id, name=issue.name, description=issue.description, status=issue.status
+        id=issue.id,
+        name=issue.name,
+        description=issue.description,
+        status=issue.status,
+        fingerprint=getattr(issue, "fingerprint", None),
     )
+
+
+def resolve_issue_identifier(
+    team_id: int, identifier: str
+) -> tuple[contracts.ErrorTrackingIssue, Literal["fingerprint", "issue_id"]]:
+    issue, matched_by = logic.resolve_issue_identifier(team_id=team_id, identifier=identifier)
+    return _to_issue(issue), matched_by
 
 
 def resolve_fingerprints(team_id: int, issue_ids: list[str]) -> list[str]:

@@ -57,6 +57,7 @@ class ErrorTrackingIssuePreview:
     name: str | None
     description: str | None
     first_seen: datetime | None
+    fingerprint: str | None
     assignee: ErrorTrackingIssueAssignee | None
 
 
@@ -67,6 +68,7 @@ class ErrorTrackingIssue:
     name: str | None
     description: str | None
     first_seen: datetime | None
+    fingerprint: str | None
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
@@ -226,6 +228,7 @@ class ErrorTrackingIssueBasics:
     name: str | None
     description: str | None
     status: str
+    fingerprint: str | None
 
 
 @dataclass(frozen=True)

@@ -18936,6 +18936,10 @@
                     },
                     "type": "array"
                 },
+                "fingerprint": {
+                    "description": "Canonical current fingerprint used for stable issue links.",
+                    "type": ["string", "null"]
+                },
                 "first_seen": {
                     "format": "date-time",
                     "type": "string"
@@ -19053,6 +19057,10 @@
                         "$ref": "#/definitions/ErrorTrackingExternalReference"
                     },
                     "type": "array"
+                },
+                "fingerprint": {
+                    "description": "Canonical current fingerprint used for stable issue links.",
+                    "type": ["string", "null"]
                 },
                 "first_event": {
                     "additionalProperties": false,
@@ -19665,6 +19673,10 @@
                         "$ref": "#/definitions/ErrorTrackingExternalReference"
                     },
                     "type": "array"
+                },
+                "fingerprint": {
+                    "description": "Canonical current fingerprint used for stable issue links.",
+                    "type": ["string", "null"]
                 },
                 "first_seen": {
                     "format": "date-time",

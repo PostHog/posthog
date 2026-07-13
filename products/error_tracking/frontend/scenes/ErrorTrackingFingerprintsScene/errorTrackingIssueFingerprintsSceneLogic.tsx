@@ -121,7 +121,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
                     breadcrumbs.push(
                         {
                             key: [Scene.ErrorTrackingIssue, name],
-                            path: urls.errorTrackingIssue(issue.id),
+                            path: urls.errorTrackingIssue(issue.fingerprint ?? issue.id),
                             name: name,
                             iconType: 'error_tracking',
                         },

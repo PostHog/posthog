@@ -306,14 +306,27 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
             issue_one = self.create_issue(["fp_one_later"])
         with freeze_time("2026-01-01T00:00:00Z"):
             ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue_one, fingerprint="fp_one_early")
-        issue_two = self.create_issue(["fp_two"])
+        issue_two = ErrorTrackingIssue.objects.create(team=self.team)
+        with freeze_time("2026-01-03T00:00:00Z"):
+            ErrorTrackingIssueFingerprintV2.objects.create(
+                id=UUID("00000000-0000-0000-0000-000000000002"),
+                team=self.team,
+                issue=issue_two,
+                fingerprint="fp_two_later_id",
+            )
+            ErrorTrackingIssueFingerprintV2.objects.create(
+                id=UUID("00000000-0000-0000-0000-000000000001"),
+                team=self.team,
+                issue=issue_two,
+                fingerprint="fp_two_earlier_id",
+            )
         self.create_issue(["fp_other"])
 
         fingerprints = api.list_first_fingerprints(team_id=self.team.id, issue_ids=[issue_one.id, issue_two.id])
 
         assert {f.issue_id: f.fingerprint for f in fingerprints} == {
             issue_one.id: "fp_one_early",
-            issue_two.id: "fp_two",
+            issue_two.id: "fp_two_earlier_id",
         }
 
     def test_symbol_set_delete_calls_object_storage_delete(self):

@@ -242,6 +242,11 @@ class ErrorTrackingAggregationsSerializer(ErrorTrackingImpactSerializer):
 
 class ErrorTrackingIssueListItemSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Error tracking issue ID.")
+    fingerprint = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.",
+    )
     name = serializers.CharField(required=False, allow_null=True, help_text="Issue name.")
     description = serializers.CharField(required=False, allow_null=True, help_text="Issue description.")
     status = serializers.CharField(required=False, help_text="Issue status.")

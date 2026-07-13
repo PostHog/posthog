@@ -155,6 +155,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             payload: dict[str, object] = compact_dict(
                 {
                     "id": str(issue_basics.id),
+                    "fingerprint": issue_basics.fingerprint,
                     "name": issue_basics.name,
                     "description": issue_basics.description,
                     "status": issue_basics.status,

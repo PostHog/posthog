@@ -2,8 +2,8 @@
 name: investigating-error-issue
 description: >
   Investigates a single PostHog error tracking issue end-to-end. Use when
-  the user provides an issue ID or pastes an issue URL
-  (`/error_tracking/<id>`) and wants to understand the error — who it
+  the user provides an issue ID or fingerprint, or pastes an issue URL
+  (`/error_tracking/<fingerprint>`) and wants to understand the error — who it
   affects, what triggers it, when it started, whether it correlates with
   a release, browser, OS, or feature flag, and what the next step should
   be. Pulls aggregated metrics, sample exception events, segment
@@ -19,16 +19,34 @@ changed, where it happens, and whether a replay shows the cause.
 
 ## Available tools
 
-| Tool                                        | Purpose                                                                                     |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `posthog:query-error-tracking-issue`        | Compact issue details (status, assignee, top frame, release, aggregates)                    |
-| `posthog:query-error-tracking-issue-events` | Sampled `$exception` events with stack, URL, browser, `$session_id`                         |
-| `posthog:execute-sql`                       | Breakdowns, release / flag correlations, surrounding events + console logs around the error |
-| `posthog:query-logs`                        | OTEL log entries around the error timestamp for server-side issues                          |
-| `posthog:query-session-recordings-list`     | Linked replays (delegate ranking to `finding-replay-for-issue`)                             |
-| `posthog:read-data-schema`                  | Confirm property keys before filtering on them                                              |
+| Tool                                             | Purpose                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `posthog:error-tracking-issues-resolve-retrieve` | Resolve a fingerprint or legacy issue ID to the issue's current internal ID                 |
+| `posthog:query-error-tracking-issue`             | Compact issue details (status, assignee, top frame, release, aggregates)                    |
+| `posthog:query-error-tracking-issue-events`      | Sampled `$exception` events with stack, URL, browser, `$session_id`                         |
+| `posthog:execute-sql`                            | Breakdowns, release / flag correlations, surrounding events + console logs around the error |
+| `posthog:query-logs`                             | OTEL log entries around the error timestamp for server-side issues                          |
+| `posthog:query-session-recordings-list`          | Linked replays (delegate ranking to `finding-replay-for-issue`)                             |
+| `posthog:read-data-schema`                       | Confirm property keys before filtering on them                                              |
 
 ## Workflow
+
+### Step 0 — Resolve a pasted URL or fingerprint
+
+Error tracking issue URLs use the exact fingerprint as one percent-encoded path segment. If the user pastes a URL,
+percent-decode the segment after `/error_tracking/` exactly once, then resolve it before calling tools that require an
+internal issue ID:
+
+```json
+posthog:error-tracking-issues-resolve-retrieve
+{
+  "identifier": "<decoded_fingerprint_or_legacy_issue_id>"
+}
+```
+
+Use the returned `id` for the remaining steps. The resolver matches an exact fingerprint first and only treats a UUID
+as a legacy issue ID when no fingerprint matches. This also follows fingerprints to their current issue after a merge
+or split.
 
 ### Step 1 — Establish the issue baseline
 

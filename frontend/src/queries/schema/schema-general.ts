@@ -3239,6 +3239,8 @@ export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
 
 export interface ErrorTrackingRelationalIssue {
     id: string
+    /** Canonical current fingerprint used for stable issue links. */
+    fingerprint?: string | null
     name: string | null
     description: string | null
     assignee: ErrorTrackingIssueAssignee | null

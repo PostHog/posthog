@@ -31,12 +31,13 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
-        '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
+        '/error_tracking/:identifier': ['ErrorTrackingIssue', 'errorTrackingIssue'],
         '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     },
     redirects: {
+        // Registered ahead of routes, so this wins over '/error_tracking/:identifier' for old links
         '/error_tracking/configuration': (_params, searchParams, hashParams) => {
             const { tab, ...restSearchParams } = searchParams
             return combineUrl(
@@ -51,15 +52,14 @@ export const manifest: ProductManifest = {
         errorTrackingConfiguration: (params = {}): string =>
             combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
         errorTrackingIssue: (
-            id: string,
+            identifier: string,
             params: {
                 timestamp?: string
-                fingerprint?: string
                 searchQuery?: string
                 dateRange?: DateRange
                 filterGroup?: UniversalFiltersGroup
             } = {}
-        ): string => combineUrl(`/error_tracking/${id}`, params).url,
+        ): string => combineUrl(`/error_tracking/${encodeURIComponent(identifier)}`, params).url,
         errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
         errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
         errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,

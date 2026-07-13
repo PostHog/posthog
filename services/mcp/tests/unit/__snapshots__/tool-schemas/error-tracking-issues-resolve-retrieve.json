@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "identifier": {
+            "description": "Exact error fingerprint to resolve. If no fingerprint matches, a UUID is treated as a legacy issue ID.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["identifier"],
+    "type": "object"
+}

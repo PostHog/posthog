@@ -49,7 +49,11 @@ const workflowsCreateEmailTemplate = (): ToolBase<
             body,
         })
         const filtered = omitResponseFields(result, ['content', 'created_by']) as typeof result
-        return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
+        return await withPostHogUrl(
+            context,
+            filtered,
+            `/workflows/library/templates/${encodeURIComponent(String(filtered.id))}`
+        )
     },
 })
 
@@ -68,7 +72,11 @@ const workflowsGetEmailTemplate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = omitResponseFields(result, ['content.email.html', 'created_by']) as typeof result
-        return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
+        return await withPostHogUrl(
+            context,
+            filtered,
+            `/workflows/library/templates/${encodeURIComponent(String(filtered.id))}`
+        )
     },
 })
 
@@ -100,7 +108,11 @@ const workflowsListEmailTemplates = (): ToolBase<
                 ...filtered,
                 results: await Promise.all(
                     (filtered.results ?? []).map((item) =>
-                        withPostHogUrl(context, item, `/workflows/library/templates/${item.id}`)
+                        withPostHogUrl(
+                            context,
+                            item,
+                            `/workflows/library/templates/${encodeURIComponent(String(item.id))}`
+                        )
                     )
                 ),
             },
@@ -127,7 +139,11 @@ const workflowsPatchEmailTemplate = (): ToolBase<
             body,
         })
         const filtered = omitResponseFields(result, ['content', 'created_by']) as typeof result
-        return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
+        return await withPostHogUrl(
+            context,
+            filtered,
+            `/workflows/library/templates/${encodeURIComponent(String(filtered.id))}`
+        )
     },
 })
 
@@ -147,7 +163,11 @@ const workflowsShowEmailTemplate = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
             })
             const filtered = omitResponseFields(result, ['content.email.design', 'created_by']) as typeof result
-            return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
+            return await withPostHogUrl(
+                context,
+                filtered,
+                `/workflows/library/templates/${encodeURIComponent(String(filtered.id))}`
+            )
         },
     })
 
@@ -188,7 +208,11 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
             body,
         })
         const filtered = omitResponseFields(result, ['content', 'created_by']) as typeof result
-        return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
+        return await withPostHogUrl(
+            context,
+            filtered,
+            `/workflows/library/templates/${encodeURIComponent(String(filtered.id))}`
+        )
     },
 })
 

@@ -69,8 +69,7 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                     sideIcon={<IconWarning />}
                     data-attr="events-table-issue-link"
                     to={urls.errorTrackingIssue(
-                        event.properties.$exception_issue_id,
-                        event.properties.$exception_fingerprint
+                        event.properties.$exception_fingerprint || event.properties.$exception_issue_id
                     )}
                 >
                     Visit issue

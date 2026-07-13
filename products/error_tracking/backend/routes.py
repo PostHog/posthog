@@ -6,6 +6,7 @@ from products.error_tracking.backend.presentation.views import (
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
+    ErrorTrackingIssueResolverViewSet,
     ErrorTrackingIssueViewSet,
     ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
@@ -77,6 +78,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"error_tracking/fingerprints",
         ErrorTrackingFingerprintViewSet,
         "project_error_tracking_fingerprint",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"error_tracking/issues",
+        ErrorTrackingIssueResolverViewSet,
+        "project_error_tracking_issue_resolve",
         ["team_id"],
     )
     routers.register_legacy_dual_route(

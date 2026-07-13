@@ -61,6 +61,10 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
     name = serializers.CharField(allow_null=True)
     description = serializers.CharField(allow_null=True)
     first_seen = serializers.DateTimeField(allow_null=True)
+    fingerprint = serializers.CharField(
+        allow_null=True,
+        help_text="Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.",
+    )
     assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
     external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
     cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
@@ -154,7 +158,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         )
 
     def retrieve(self, request: request.Request, *args: object, **kwargs: object) -> Response | JsonResponse:
-        issue_id = UUID(str(kwargs["pk"]))
+        try:
+            issue_id = UUID(str(kwargs["pk"]))
+        except ValueError:
+            raise NotFound("Issue not found")
         fingerprint = self.request.GET.get("fingerprint")
 
         if fingerprint:

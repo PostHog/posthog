@@ -5538,6 +5538,8 @@ export namespace Schemas {
       cohort?: ErrorTrackingIssueCohort | null;
       description?: string | null;
       external_issues?: ErrorTrackingExternalReference[] | null;
+      /** Canonical current fingerprint used for stable issue links. */
+      fingerprint?: string | null;
       first_event?: FirstEvent | null;
       first_seen: string;
       function?: string | null;
@@ -5587,6 +5589,8 @@ export namespace Schemas {
       description?: string | null;
       event: string;
       external_issues?: ErrorTrackingExternalReference[] | null;
+      /** Canonical current fingerprint used for stable issue links. */
+      fingerprint?: string | null;
       first_seen: string;
       id: string;
       last_seen: string;
@@ -20671,6 +20675,11 @@ export namespace Schemas {
       /** Error tracking issue ID. */
       id: string;
       /**
+         * Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.
+         * @nullable
+         */
+      fingerprint?: string | null;
+      /**
          * Issue name.
          * @nullable
          */
@@ -20856,6 +20865,11 @@ export namespace Schemas {
       /** Error tracking issue ID. */
       id: string;
       /**
+         * Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.
+         * @nullable
+         */
+      fingerprint?: string | null;
+      /**
          * Issue name.
          * @nullable
          */
@@ -20950,9 +20964,53 @@ export namespace Schemas {
       description: string | null;
       /** @nullable */
       first_seen: string | null;
+      /**
+         * Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.
+         * @nullable
+         */
+      fingerprint: string | null;
       assignee: ErrorTrackingIssueAssigneeRead | null;
       external_issues: ErrorTrackingExternalReferenceResult[];
       cohort: ErrorTrackingIssueCohortRead | null;
+    }
+
+    /**
+     * * `fingerprint` - fingerprint
+     * * `issue_id` - issue_id
+     */
+    export type MatchedByEnum = typeof MatchedByEnum[keyof typeof MatchedByEnum];
+
+
+    export const MatchedByEnum = {
+      Fingerprint: 'fingerprint',
+      IssueId: 'issue_id',
+    } as const;
+
+    /**
+     * Read-only serializer for issue contract types returned by the facade.
+     */
+    export interface ErrorTrackingIssueResolveResponse {
+      id: string;
+      status: string;
+      /** @nullable */
+      name: string | null;
+      /** @nullable */
+      description: string | null;
+      /** @nullable */
+      first_seen: string | null;
+      /**
+         * Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.
+         * @nullable
+         */
+      fingerprint: string | null;
+      assignee: ErrorTrackingIssueAssigneeRead | null;
+      external_issues: ErrorTrackingExternalReferenceResult[];
+      cohort: ErrorTrackingIssueCohortRead | null;
+      /** Whether the identifier matched an exact fingerprint or fell back to a legacy issue ID.
+       *
+       * * `fingerprint` - fingerprint
+       * * `issue_id` - issue_id */
+      matched_by: MatchedByEnum;
     }
 
     export interface ErrorTrackingIssueSplitFingerprint {
@@ -39768,6 +39826,11 @@ export namespace Schemas {
       description?: string | null;
       /** @nullable */
       first_seen?: string | null;
+      /**
+         * Deterministic current fingerprint used for issue links, selected by earliest creation time and ID.
+         * @nullable
+         */
+      fingerprint?: string | null;
       assignee?: ErrorTrackingIssueAssigneeRead | null;
       external_issues?: ErrorTrackingExternalReferenceResult[];
       cohort?: ErrorTrackingIssueCohortRead | null;
@@ -67463,6 +67526,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ErrorTrackingIssuesResolveRetrieveParams = {
+    /**
+     * Exact error fingerprint to resolve. If no fingerprint matches, a UUID is treated as a legacy issue ID.
+     * @minLength 1
+     */
+    identifier: string;
     };
 
     export type ErrorTrackingRecommendationsListParams = {

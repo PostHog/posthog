@@ -290,6 +290,21 @@ tools:
             Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or
             update description.
         ui_app: error-issue
+    error-tracking-issues-resolve-retrieve:
+        operation: error_tracking_issues_resolve_retrieve
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{fingerprint}'
+        title: Resolve error tracking issue identifier
+        description: >
+            Resolve an exact error fingerprint to its current issue. If no fingerprint matches and the identifier is a
+            UUID, fall back to that legacy issue ID. Fingerprints take precedence so links remain stable after issues
+            are merged or split.
     error-tracking-issues-retrieve:
         operation: error_tracking_issues_retrieve
         enabled: false
@@ -566,7 +581,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{params.issueId}'
+        enrich_url: '{fingerprint}'
         title: Query error tracking issue
         description_file: ./prompts/query-error-tracking-issue.md
         system_prompt_hint: Error issue details and impact (error-tracking category)
@@ -594,7 +609,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
+        enrich_url: '{fingerprint}'
         list: true
         title: Query error tracking issues list
         description_file: ./prompts/query-error-tracking-issues-list.md
@@ -603,6 +618,7 @@ tools:
         response:
             include:
                 - id
+                - fingerprint
                 - name
                 - description
                 - status
