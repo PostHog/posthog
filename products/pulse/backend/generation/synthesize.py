@@ -29,17 +29,29 @@ def apply_say_less_gate(out: BriefOut, settings: BriefSettings) -> BriefOut:
     )
 
 
+# Safety caps for sanitized free text at the render boundary; generous — they bound a hostile
+# value, not legitimate content.
+_TITLE_RENDER_MAX = 300
+_DESCRIPTION_RENDER_MAX = 2000
+
+
 def _render_items(items: list[SourceItem]) -> str:
     evidence_index = build_evidence_index(items)
     id_by_key = {ev.key: cid for cid, ev in evidence_index.items()}
     blocks = []
     for item in items:
+        # Titles and descriptions carry untrusted free text (annotation content, resource names) —
+        # sanitize once here, for every source, via the shared helper (same one that guards the
+        # focus prompt). metrics and fingerprint_hint render raw: sources put only system-generated
+        # data there (numbers, IDs); a source storing user text in either must sanitize it upstream.
         metrics = ", ".join(f"{k}={v}" for k, v in item.metrics.items())
         citation_ids = ", ".join(id_by_key[e.key] for e in item.evidence)
+        title = sanitize_user_text(item.title, max_len=_TITLE_RENDER_MAX)
+        description = sanitize_user_text(item.description, max_len=_DESCRIPTION_RENDER_MAX)
         blocks.append(
-            f"- [{item.source}/{item.kind}] {item.title}\n"
+            f"- [{item.source}/{item.kind}] {title}\n"
             f"  metrics: {metrics}\n  citation_ids: {citation_ids}\n  fingerprint_hint: {item.fingerprint_hint}\n"
-            f"  {item.description}"
+            f"  {description}"
         )
     return "\n".join(blocks)
 
