@@ -191,6 +191,18 @@ const DEFAULT_FILTERS: HogInvocationsFilters = {
     person_uuid: undefined,
 }
 
+/**
+ * Build the `inv_`-prefixed router search params that deep-link the Invocations tab to a filter
+ * subset. Lets callers outside the tab (e.g. the workflow metrics tiles) point at it without
+ * duplicating the URL param scheme. Unset keys fall back to defaults and are dropped from the URL.
+ */
+export function buildHogInvocationsSearchParams(filters: Partial<HogInvocationsFilters>): Record<string, string> {
+    const params = filtersToSearchParams({ ...DEFAULT_FILTERS, ...filters })
+    return Object.fromEntries(
+        Object.entries(params).filter((entry): entry is [string, string] => entry[1] !== undefined)
+    )
+}
+
 const AUTO_REFRESH_INTERVAL_MS = 10000
 // After a rerun is enqueued the matching rows aren't `running` yet (the worker
 // drains asynchronously), so the `hasRunningRows` guard alone wouldn't restart

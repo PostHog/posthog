@@ -14,6 +14,7 @@ import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
@@ -22,7 +23,11 @@ import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlowBatchJob } from './hogflows/types'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
-import { type EmailMetric, buildEmailMetricLogSearchParams } from './workflowMetricsSummaryLogic'
+import {
+    type EmailMetric,
+    buildEmailMetricInvocationSearchParams,
+    buildEmailMetricLogSearchParams,
+} from './workflowMetricsSummaryLogic'
 
 const HedgehogGreek = pngHoggie(greekPng)
 
@@ -66,6 +71,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     })
 
     const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
+    const runsV2Enabled = useFeatureFlag('HOG_INVOCATION_RESULTS_RUNS_TAB')
 
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params, getDateRangeAbsolute } =
         useValues(logic)
@@ -105,11 +111,26 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
         [workflow.actions, hogFunctionTemplatesById]
     )
 
-    // Drill an email metric into the logs tab filtered to its log entries over the current window.
+    // Drill an email metric into the runs behind it over the current window. Prefer the new
+    // Invocations tab when it's available; fall back to the old Logs tab otherwise.
     const onEmailMetricClick = (metricKey: EmailMetric): void => {
+        if (!props.id) {
+            return
+        }
         const { dateFrom, dateTo } = getDateRangeAbsolute()
+        if (runsV2Enabled) {
+            const searchParams = buildEmailMetricInvocationSearchParams(
+                metricKey,
+                dateFrom.toISOString(),
+                dateTo.toISOString()
+            )
+            if (searchParams) {
+                router.actions.push(urls.workflow(props.id, 'invocations'), searchParams)
+            }
+            return
+        }
         const searchParams = buildEmailMetricLogSearchParams(metricKey, dateFrom.toISOString(), dateTo.toISOString())
-        if (searchParams && props.id) {
+        if (searchParams) {
             router.actions.push(urls.workflow(props.id, 'logs'), searchParams)
         }
     }
