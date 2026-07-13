@@ -37,6 +37,7 @@ import {
 } from './maxTypes'
 import {
     actionToMaxContextPayload,
+    activeSceneLogicHasMaxContext,
     dashboardToMaxContext,
     errorTrackingIssueToMaxContextPayload,
     evaluationToMaxContextPayload,
@@ -525,7 +526,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 (state): MaxContextInput[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, {})
 
-                    if (activeSceneLogic && 'maxContext' in activeSceneLogic.selectors) {
+                    if (activeSceneLogicHasMaxContext(activeSceneLogic)) {
                         try {
                             const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, {})
                             return activeSceneLogic.selectors.maxContext(
@@ -533,8 +534,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || {}
                             )
                         } catch (error) {
-                            // Surface the failure instead of silently returning empty context.
-                            reportSceneContextError(error)
+                            // A logic caught mid-unmount throws a benign "Can not find path" — treat
+                            // that as a transient race and skip it quietly. Surface everything else
+                            // so genuine context-build bugs don't get swallowed.
+                            if (!(error instanceof Error && error.message.includes('Can not find path'))) {
+                                reportSceneContextError(error)
+                            }
                         }
                     }
                     return []

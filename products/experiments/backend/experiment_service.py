@@ -1,5 +1,6 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+import time
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
@@ -42,7 +43,7 @@ from posthog.exceptions import (
 )
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
-from posthog.models.person.util import validate_person_uuids_exist
+from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -151,6 +152,26 @@ _DEPRECATED_PARAMETERS_KEYS = frozenset(
 )
 
 
+def _deprecated_parameters_keys_in_request(request: Any) -> list[str]:
+    """The deprecated flag-config keys still sent through the raw request body's `parameters` dict, sorted.
+
+    Reads the raw request body, not validated_data: ExperimentSerializer folds/strips deprecated
+    `parameters` input before validation, so only the raw body reveals whether a client still writes
+    flag config through the old dialect. Raw presence deliberately includes faithful projection echoes,
+    since an echoed key is a key the client read back from the projection.
+    """
+    try:
+        body = request.data
+    except Exception:
+        return []
+    if not isinstance(body, dict):
+        return []
+    params = body.get("parameters")
+    if not isinstance(params, dict):
+        return []
+    return sorted(set(params) & _DEPRECATED_PARAMETERS_KEYS)
+
+
 def _deprecated_fields_in_request(request: Any) -> dict[str, Any]:
     """Which deprecated create-API fields the client sent, as `experiment created` event props.
 
@@ -175,10 +196,9 @@ def _deprecated_fields_in_request(request: Any) -> dict[str, Any]:
         sent.append("filters")
 
     props: dict[str, Any] = {"experiment_create_deprecated_fields": sent}
-    if isinstance(params, dict):
-        deprecated_param_keys = sorted(set(params) & _DEPRECATED_PARAMETERS_KEYS)
-        if deprecated_param_keys:
-            props["experiment_create_deprecated_parameters_keys"] = deprecated_param_keys
+    deprecated_param_keys = _deprecated_parameters_keys_in_request(request)
+    if deprecated_param_keys:
+        props["experiment_create_deprecated_parameters_keys"] = deprecated_param_keys
     return props
 
 
@@ -1026,6 +1046,26 @@ class ExperimentService:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _report_lifecycle_event(
+        self,
+        experiment: Experiment,
+        event_name: str,
+        *,
+        request: Any | None,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit a lifecycle analytics event with the experiment's standard metadata.
+
+        No-ops for non-HTTP callers (``request`` is None). ``report_user_action`` is referenced as a
+        module-level name so tests can patch it at this module's path.
+        """
+        if request is None:
+            return
+        metadata = experiment.get_analytics_metadata()
+        if extra_metadata:
+            metadata.update(extra_metadata)
+        report_user_action(self.user, event_name, metadata, team=experiment.team, request=request)
+
     def _report_experiment_created(
         self,
         experiment: Experiment,
@@ -1062,18 +1102,11 @@ class ExperimentService:
         *,
         request: Any | None = None,
     ) -> None:
-        if request is None:
-            return
-
-        analytics_metadata = experiment.get_analytics_metadata()
-        analytics_metadata["launch_date"] = experiment.start_date.isoformat() if experiment.start_date else None
-
-        report_user_action(
-            self.user,
+        self._report_lifecycle_event(
+            experiment,
             "experiment launched",
-            analytics_metadata,
-            team=experiment.team,
             request=request,
+            extra_metadata={"launch_date": experiment.start_date.isoformat() if experiment.start_date else None},
         )
 
     def _ensure_feature_flag(
@@ -1373,62 +1406,77 @@ class ExperimentService:
             experiment.secondary_metrics_ordered_uuids = secondary_ordering
             experiment.save(update_fields=["primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"])
 
+    @staticmethod
+    def _saved_metric_uuids_by_type(
+        query_metadata_pairs: Iterable[tuple[dict | None, dict | None]],
+    ) -> dict[str, set[str]]:
+        """Group saved-metric query uuids into ``{"primary": set, "secondary": set}``.
+
+        A link's metric type comes from its metadata (``metadata["type"]``), defaulting to
+        ``"primary"``; anything that isn't ``"primary"`` counts as secondary. Pairs with no query
+        or no uuid are skipped.
+        """
+        by_type: dict[str, set[str]] = {"primary": set(), "secondary": set()}
+        for query, metadata in query_metadata_pairs:
+            if not query:
+                continue
+            uuid = query.get("uuid")
+            if not uuid:
+                continue
+            metric_type = (metadata or {}).get("type", "primary")
+            by_type["primary" if metric_type == "primary" else "secondary"].add(uuid)
+        return by_type
+
+    def _assert_ordering_covers_metrics(
+        self,
+        *,
+        primary_metrics: list[dict],
+        secondary_metrics: list[dict],
+        saved_metric_links: list,
+        primary_ordering: list[str] | None,
+        secondary_ordering: list[str] | None,
+    ) -> None:
+        """Assert each ordering array contains every UUID of its metrics (inline + saved).
+
+        Shared by the create and update paths, which differ only in where the metrics and
+        ordering arrays are sourced from.
+        """
+        expected_primary = {uuid for m in primary_metrics if (uuid := m.get("uuid"))}
+        expected_secondary = {uuid for m in secondary_metrics if (uuid := m.get("uuid"))}
+
+        saved_by_type = self._saved_metric_uuids_by_type(
+            (link.saved_metric.query, link.metadata) for link in saved_metric_links
+        )
+        expected_primary |= saved_by_type["primary"]
+        expected_secondary |= saved_by_type["secondary"]
+
+        for field_name, metric_label, expected_uuids, ordering in (
+            ("primary_metrics_ordered_uuids", "primary", expected_primary, primary_ordering),
+            ("secondary_metrics_ordered_uuids", "secondary", expected_secondary, secondary_ordering),
+        ):
+            if not expected_uuids:
+                continue
+            if ordering is None:
+                raise ValidationError(
+                    f"{field_name} is null but {metric_label} metrics exist. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
+            missing = expected_uuids - set(ordering)
+            if missing:
+                raise ValidationError(
+                    f"{field_name} is missing UUIDs: {sorted(missing)}. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
+
     def _validate_metric_ordering_on_create(self, experiment: Experiment) -> None:
         """Validate that ordering arrays contain all metric UUIDs (create path)."""
-        primary_ordering = experiment.primary_metrics_ordered_uuids
-        secondary_ordering = experiment.secondary_metrics_ordered_uuids
-
-        primary_metrics = experiment.metrics or []
-        secondary_metrics = experiment.metrics_secondary or []
-
-        saved_metrics = list(experiment.experimenttosavedmetric_set.select_related("saved_metric").all())
-
-        expected_primary_uuids: set[str] = set()
-        expected_secondary_uuids: set[str] = set()
-
-        for metric in primary_metrics:
-            if uuid := metric.get("uuid"):
-                expected_primary_uuids.add(uuid)
-
-        for metric in secondary_metrics:
-            if uuid := metric.get("uuid"):
-                expected_secondary_uuids.add(uuid)
-
-        for link in saved_metrics:
-            saved_metric = link.saved_metric
-            uuid = saved_metric.query.get("uuid") if saved_metric.query else None
-            if uuid:
-                metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-                if metric_type == "primary":
-                    expected_primary_uuids.add(uuid)
-                else:
-                    expected_secondary_uuids.add(uuid)
-
-        if expected_primary_uuids:
-            if primary_ordering is None:
-                raise ValidationError(
-                    "primary_metrics_ordered_uuids is null but primary metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_primary_uuids - set(primary_ordering)
-            if missing:
-                raise ValidationError(
-                    f"primary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-
-        if expected_secondary_uuids:
-            if secondary_ordering is None:
-                raise ValidationError(
-                    "secondary_metrics_ordered_uuids is null but secondary metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_secondary_uuids - set(secondary_ordering)
-            if missing:
-                raise ValidationError(
-                    f"secondary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
+        self._assert_ordering_covers_metrics(
+            primary_metrics=experiment.metrics or [],
+            secondary_metrics=experiment.metrics_secondary or [],
+            saved_metric_links=list(experiment.experimenttosavedmetric_set.select_related("saved_metric").all()),
+            primary_ordering=experiment.primary_metrics_ordered_uuids,
+            secondary_ordering=experiment.secondary_metrics_ordered_uuids,
+        )
 
     # ------------------------------------------------------------------
     # Launch
@@ -1548,7 +1596,7 @@ class ExperimentService:
             experiment, disable_if_active=disable_feature_flag, can_write_feature_flag=can_write_feature_flag
         )
 
-        self._report_experiment_archived(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment archived", request=request)
 
         return experiment
 
@@ -1631,23 +1679,6 @@ class ExperimentService:
         experiment.feature_flag_auto_archived = True
         experiment.save(update_fields=["feature_flag_auto_archived"])
 
-    def _report_experiment_archived(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment archived",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
-
     # ------------------------------------------------------------------
     # Unarchive
     # ------------------------------------------------------------------
@@ -1669,7 +1700,7 @@ class ExperimentService:
 
         self._unarchive_linked_feature_flag(experiment, can_write_feature_flag=can_write_feature_flag)
 
-        self._report_experiment_unarchived(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment unarchived", request=request)
 
         return experiment
 
@@ -1705,23 +1736,6 @@ class ExperimentService:
         experiment.feature_flag_auto_archived = False
         experiment.save(update_fields=["feature_flag_auto_archived"])
 
-    def _report_experiment_unarchived(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment unarchived",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
-
     # ------------------------------------------------------------------
     # Pause / Resume
     # ------------------------------------------------------------------
@@ -1748,7 +1762,7 @@ class ExperimentService:
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
 
-        self._report_experiment_paused(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment paused", request=request)
 
         return experiment
 
@@ -1774,43 +1788,9 @@ class ExperimentService:
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
 
-        self._report_experiment_resumed(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment resumed", request=request)
 
         return experiment
-
-    def _report_experiment_paused(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment paused",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
-
-    def _report_experiment_resumed(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment resumed",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
 
     # ------------------------------------------------------------------
     # Freeze exposure
@@ -1841,7 +1821,7 @@ class ExperimentService:
         persons, so a person cohort cannot freeze the exposed set. Experiments whose
         exposed set contains a material share of anonymous (personless) users are
         rejected too, since cohort membership is person-keyed and freezing would drop
-        those users' variants (see _assert_exposed_persons_resolvable).
+        those users' variants (see _resolve_exposed_persons).
 
         Runs in two phases because the snapshot build can take tens of seconds — plenty of
         time for a concurrent freeze, pause, end, or flag edit to land. Phase 1 (unlocked)
@@ -1855,11 +1835,20 @@ class ExperimentService:
         ``request`` is required because FeatureFlagSerializer needs a real request
         with authentication and session context to persist the flag change.
         """
+        # Phase timings are logged at the end: the freeze spans several backends (ClickHouse scan,
+        # personhog RPCs, cohort build with its cache side effects, flag save) whose relative cost
+        # can't be reconstructed from any single backend's logs — see experiment_freeze_exposure_timing.
+        freeze_started_at = time.monotonic()
+
         # Phase 1 — unlocked: fail obviously-invalid requests before the expensive snapshot build.
         self._validate_freeze_exposure_state(experiment)
+        # Separate checkpoint so scan_ms measures only the ClickHouse scan — the guard above can
+        # lazy-load the flag row, and folding that into scan_ms would misattribute it.
+        scan_started_at = time.monotonic()
 
         # 1. Snapshot the actually-exposed set (bounded by time + count; raises if too large to freeze in-request).
         exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
+        scan_done_at = time.monotonic()
         if not exposed_person_uuids:
             # An empty snapshot cohort ANDed into every release group would un-enroll every user.
             raise ValidationError(
@@ -1867,12 +1856,16 @@ class ExperimentService:
                 "Wait until the experiment has recorded exposures."
             )
 
-        # 2. Fail closed if a material share of the exposed set has no person profile: cohort
-        # membership is person-keyed, so those users would silently lose their variant.
-        self._assert_exposed_persons_resolvable(exposed_person_uuids)
+        # 2. Resolve the exposed set to person ids, failing closed if a material share has no
+        # person profile: cohort membership is person-keyed, so those users would silently lose
+        # their variant. The resolved pairs feed the snapshot insert directly, so the persons
+        # aren't fetched from personhog a second time.
+        resolved_person_pairs = self._resolve_exposed_persons(exposed_person_uuids)
+        resolve_done_at = time.monotonic()
 
         # 3. Materialize it into a static cohort synchronously, so the flag never points at an unpopulated cohort.
-        exposure_snapshot = self._create_exposure_snapshot_cohort(experiment, exposed_person_uuids)
+        exposure_snapshot = self._create_exposure_snapshot_cohort(experiment, resolved_person_pairs)
+        cohort_build_done_at = time.monotonic()
 
         # Phase 2 — locked: any failure here drops the snapshot cohort, which is referenced only by
         # the flag change attempted below — a failed freeze should leave nothing behind.
@@ -1937,10 +1930,26 @@ class ExperimentService:
         # Refresh so the experiment's nested flag reflects the narrowed filters when serialized.
         locked_flag.refresh_from_db()
         experiment.feature_flag = locked_flag
+        flag_save_done_at = time.monotonic()
 
         # end_date intentionally left null — metrics keep flowing.
 
-        self._report_experiment_exposure_frozen(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment exposure frozen", request=request)
+
+        # flag_save_ms includes the transaction commit, so it carries the on-commit flag cache
+        # rebuilds; cohort_build_ms carries the cohort dependency cache warm-up triggered by the
+        # snapshot cohort's creation.
+        logger.info(
+            "experiment_freeze_exposure_timing",
+            team_id=self.team.pk,
+            experiment_id=experiment.pk,
+            exposed_count=len(exposed_person_uuids),
+            scan_ms=round((scan_done_at - scan_started_at) * 1000),
+            resolve_ms=round((resolve_done_at - scan_done_at) * 1000),
+            cohort_build_ms=round((cohort_build_done_at - resolve_done_at) * 1000),
+            flag_save_ms=round((flag_save_done_at - cohort_build_done_at) * 1000),
+            total_ms=round((time.monotonic() - freeze_started_at) * 1000),
+        )
 
         return experiment
 
@@ -2072,23 +2081,30 @@ class ExperimentService:
 
         return [str(row[0]) for row in response.results]
 
-    def _assert_exposed_persons_resolvable(self, person_uuids: list[str]) -> None:
-        """Fail closed when a material share of the exposed set has no person profile.
+    def _resolve_exposed_persons(self, person_uuids: list[str]) -> list[tuple[int, str]]:
+        """Resolve exposed person UUIDs to (person_id, uuid) pairs, failing closed when a
+        material share of the exposed set has no person profile.
 
         Cohort membership is person-keyed, and flag evaluation resolves distinct_id to person
         before checking it, so an exposed user without a person row (anonymous "personless"
-        traffic, or a since-deleted person) can never match the snapshot cohort. The cohort
-        insert silently skips such users, and post-freeze the narrowed flag stops serving them:
-        freezing would break "everyone already enrolled keeps their variant" for exactly that
-        share of the population. Typical for experiments exposed on logged-out surfaces, where
-        the share can be the majority. A small unresolved share is tolerated as deletion/merge
-        noise; beyond FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE the freeze is rejected, before any
-        cohort is created.
+        traffic, or a since-deleted person) can never match the snapshot cohort. Post-freeze the
+        narrowed flag would stop serving such users: freezing would break "everyone already
+        enrolled keeps their variant" for exactly that share of the population. Typical for
+        experiments exposed on logged-out surfaces, where the share can be the majority. A small
+        unresolved share is tolerated as deletion/merge noise; beyond
+        FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE the freeze is rejected, before any cohort is created.
+
+        The returned pairs are what the snapshot cohort is built from — resolution and insert
+        share one (field-masked) personhog pass instead of fetching the persons twice. Membership
+        is therefore snapshotted at resolve time: a person deleted or merged in the moments before
+        the insert is written as an inert row rather than skipped. The user-facing outcome is
+        unchanged from insert-time resolution (their distinct_id no longer resolves to a cohort
+        member either way), and the cohort stays consistent with the count this guard approved.
         """
-        resolved_count = len(validate_person_uuids_exist(self.team.id, person_uuids))
-        unresolved_count = len(person_uuids) - resolved_count
+        resolved_person_pairs = get_person_ids_and_uuids_by_uuids(self.team.id, person_uuids)
+        unresolved_count = len(person_uuids) - len(resolved_person_pairs)
         if unresolved_count == 0:
-            return
+            return resolved_person_pairs
         unresolved_share = unresolved_count / len(person_uuids)
         logger.warning(
             "experiment_freeze_exposure_unresolved_persons",
@@ -2103,12 +2119,14 @@ class ExperimentService:
                 "cannot be held in a cohort. Freezing would remove their variant. Freezing exposure "
                 "requires an experiment whose exposed users are identified."
             )
+        return resolved_person_pairs
 
-    def _create_exposure_snapshot_cohort(self, experiment: Experiment, person_uuids: list[str]) -> Cohort:
+    def _create_exposure_snapshot_cohort(self, experiment: Experiment, id_uuid_pairs: list[tuple[int, str]]) -> Cohort:
         """Create a static cohort frozen to the given already-exposed persons (synchronous, no Celery).
 
         Static is required — behavioral cohorts are rejected by feature-flag validation, and a static
-        snapshot is exactly what freezes enrollment.
+        snapshot is exactly what freezes enrollment. Takes the (person_id, uuid) pairs resolved by
+        _resolve_exposed_persons so the insert doesn't re-fetch the persons from personhog.
         """
         cohort = Cohort.objects.create(
             team=self.team,
@@ -2119,7 +2137,9 @@ class ExperimentService:
         try:
             # raise_on_error: the batching helper otherwise swallows mid-batch failures and returns
             # normally, and a partially populated snapshot would evict every user missing from it.
-            cohort.insert_users_list_by_uuid(person_uuids, team_id=self.team.id, raise_on_error=True)
+            cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
+                id_uuid_pairs, team_id=self.team.id, raise_on_error=True
+            )
         except Exception:
             # The cohort row exists but isn't referenced by anything yet — drop it so a failed
             # population doesn't leave an empty static cohort behind.
@@ -2229,23 +2249,6 @@ class ExperimentService:
             cohort.deleted = True
             cohort.save(update_fields=["deleted"])
 
-    def _report_experiment_exposure_frozen(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment exposure frozen",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
-
     def unfreeze_exposure(self, experiment: Experiment, *, request: Any) -> Experiment:
         """Reopen enrollment on an exposure-frozen experiment.
 
@@ -2258,6 +2261,8 @@ class ExperimentService:
         this path (see Experiment.is_exposure_frozen). The snapshot cohort is soft-deleted after
         the flag save so it doesn't accumulate as clutter.
         """
+        unfreeze_started_at = time.monotonic()
+
         if experiment.is_draft:
             raise ValidationError("Experiment has not been launched yet.")
         if experiment.is_stopped:
@@ -2284,30 +2289,26 @@ class ExperimentService:
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
         flag.refresh_from_db()
         experiment.feature_flag = flag
+        flag_save_done_at = time.monotonic()
 
         # Only after the flag no longer references them: soft-delete the now-orphaned snapshots.
         self._delete_orphaned_snapshot_cohorts(cohort_ids)
+        cohort_cleanup_done_at = time.monotonic()
 
-        self._report_experiment_exposure_unfrozen(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment exposure unfrozen", request=request)
+
+        # flag_save_ms carries the on-commit flag cache rebuilds; cohort_cleanup_ms carries the
+        # orphan check plus the cohort-delete cache side effects (dependency cache warm-up).
+        logger.info(
+            "experiment_unfreeze_exposure_timing",
+            team_id=self.team.pk,
+            experiment_id=experiment.pk,
+            flag_save_ms=round((flag_save_done_at - unfreeze_started_at) * 1000),
+            cohort_cleanup_ms=round((cohort_cleanup_done_at - flag_save_done_at) * 1000),
+            total_ms=round((time.monotonic() - unfreeze_started_at) * 1000),
+        )
 
         return experiment
-
-    def _report_experiment_exposure_unfrozen(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment exposure unfrozen",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
 
     # ------------------------------------------------------------------
     # End
@@ -2531,7 +2532,7 @@ class ExperimentService:
 
         experiment.save()
 
-        self._report_experiment_reset(experiment, request=request)
+        self._report_lifecycle_event(experiment, "experiment reset", request=request)
 
         return experiment
 
@@ -2580,23 +2581,6 @@ class ExperimentService:
         flag.refresh_from_db()
         experiment.feature_flag = flag
         self._delete_orphaned_snapshot_cohorts(cohort_ids)
-
-    def _report_experiment_reset(
-        self,
-        experiment: Experiment,
-        *,
-        request: Any | None = None,
-    ) -> None:
-        if request is None:
-            return
-
-        report_user_action(
-            self.user,
-            "experiment reset",
-            experiment.get_analytics_metadata(),
-            team=experiment.team,
-            request=request,
-        )
 
     # ------------------------------------------------------------------
     # Ship variant
@@ -2763,20 +2747,15 @@ class ExperimentService:
         release_to_everyone: bool = False,
         request: Any | None = None,
     ) -> None:
-        if request is None:
-            return
-
-        metadata = experiment.get_analytics_metadata()
-        metadata["variant_key"] = variant_key
-        metadata["release_to_everyone"] = release_to_everyone
-        metadata["parameters"] = self._parameters_with_variant_detail(experiment)
-
-        report_user_action(
-            self.user,
+        self._report_lifecycle_event(
+            experiment,
             "experiment variant shipped",
-            metadata,
-            team=experiment.team,
             request=request,
+            extra_metadata={
+                "variant_key": variant_key,
+                "release_to_everyone": release_to_everyone,
+                "parameters": self._parameters_with_variant_detail(experiment),
+            },
         )
 
     # ------------------------------------------------------------------
@@ -2798,6 +2777,7 @@ class ExperimentService:
         serializer_context: dict | None = None,
         allow_unknown_events: bool = False,
         event_source: EventSource | None = None,
+        deprecated_flag_config_changed: bool = False,
     ) -> Experiment:
         """Update an experiment with full business-logic validation.
 
@@ -2810,6 +2790,10 @@ class ExperimentService:
 
         ``event_source`` attributes the "experiment updated" event for non-HTTP callers,
         mirroring ``create_experiment``.
+
+        ``deprecated_flag_config_changed`` records (for the "experiment updated" event) that the
+        serializer copy-forward turned deprecated ``parameters`` flag config into a real flag write;
+        the direct-caller derivation below sets it too. It is the gate for retiring the copy-forward.
         """
         update_feature_flag_params = update_data.pop("update_feature_flag_params", False)
 
@@ -2888,7 +2872,10 @@ class ExperimentService:
         # silently dropped (and the gate bypassed). No double-write on the HTTP path: the serializer
         # strips these keys from `parameters` and passes an explicit `feature_flag_config`.
         if feature_flag_config is None:
-            feature_flag_config = self._feature_flag_config_from_parameters(update_data.get("parameters"))
+            derived_flag_config = self._feature_flag_config_from_parameters(update_data.get("parameters"))
+            if derived_flag_config is not None:
+                feature_flag_config = derived_flag_config
+                deprecated_flag_config_changed = True
 
         self._validate_update_payload(experiment, update_data, feature_flag, feature_flag_config)
 
@@ -2962,15 +2949,9 @@ class ExperimentService:
                     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all()
                 }
 
-                for link in existing_links.values():
-                    if link.saved_metric.query:
-                        uuid = link.saved_metric.query.get("uuid")
-                        if uuid:
-                            metric_type = (link.metadata or {}).get("type", "primary")
-                            if metric_type == "primary":
-                                old_saved_metric_uuids["primary"].add(uuid)
-                            else:
-                                old_saved_metric_uuids["secondary"].add(uuid)
+                old_saved_metric_uuids = self._saved_metric_uuids_by_type(
+                    (link.saved_metric.query, link.metadata) for link in existing_links.values()
+                )
 
                 new_saved_metric_ids = {sm["id"] for sm in saved_metrics_data}
                 existing_saved_metric_ids = set(existing_links.keys())
@@ -3059,9 +3040,18 @@ class ExperimentService:
             changed_fields = self._compute_changed_fields(
                 experiment, before_update=before_update, before_saved_metrics=before_saved_metrics
             )
-            if changed_fields and changed_fields != RUNNING_TIME_ONLY_CHANGED_FIELDS:
+            # A deprecated flag-only PATCH strips its keys from `parameters` before the row is saved, so
+            # it can leave `changed_fields` empty while still moving flag config. Report anyway when a
+            # deprecated flag write landed, else the deprecation-bake signal under-counts legacy traffic.
+            if (
+                changed_fields and changed_fields != RUNNING_TIME_ONLY_CHANGED_FIELDS
+            ) or deprecated_flag_config_changed:
                 self._report_experiment_updated(
-                    experiment, changed_fields=changed_fields, request=report_request, event_source=event_source
+                    experiment,
+                    changed_fields=changed_fields,
+                    request=report_request,
+                    event_source=event_source,
+                    deprecated_config_changed=deprecated_flag_config_changed,
                 )
 
         return experiment
@@ -3192,6 +3182,7 @@ class ExperimentService:
         changed_fields: list[str],
         request: Any | None = None,
         event_source: EventSource | None = None,
+        deprecated_config_changed: bool = False,
     ) -> None:
         if request is None and event_source is None:
             return
@@ -3200,6 +3191,15 @@ class ExperimentService:
         metadata["changed_fields"] = changed_fields
         if event_source is not None:
             metadata["source"] = event_source
+        # Deprecation-bake telemetry: `_keys` counts who still writes flag config through `parameters`
+        # (echoes included, the projection-reader proxy); `_changed` counts only writes that actually
+        # moved flag config, the signal for flipping the copy-forward to reject. Request-only, matching
+        # the create path.
+        if request is not None:
+            deprecated_keys = _deprecated_parameters_keys_in_request(request)
+            if deprecated_keys:
+                metadata["experiment_update_deprecated_parameters_keys"] = deprecated_keys
+            metadata["experiment_update_deprecated_config_changed"] = deprecated_config_changed
 
         report_user_action(
             self.user,
@@ -3360,6 +3360,15 @@ class ExperimentService:
         source_group_type_index = source_experiment.feature_flag.aggregation_group_type_index
         if source_group_type_index is not None:
             clone_filters["aggregation_group_type_index"] = source_group_type_index
+        # Inherit only the overall rollout percentage; without this the create path falls back to
+        # DEFAULT_ROLLOUT_PERCENTAGE and a 20%-rolled-out experiment would clone to 100%.
+        # Release-condition targeting (group properties, extra groups) intentionally does not clone:
+        # the experiment input surface restricts groups to a single empty-properties entry and
+        # _ensure_feature_flag only reads groups[0].rollout_percentage, so passing more through would
+        # not survive flag creation anyway. Edit the flag directly to copy targeting.
+        source_groups = source_experiment.feature_flag.get_filters().get("groups")
+        if source_groups and source_groups[0].get("rollout_percentage") is not None:
+            clone_filters["groups"] = [{"properties": [], "rollout_percentage": source_groups[0]["rollout_percentage"]}]
         feature_flag_config = {
             "filters": clone_filters,
             # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
@@ -4135,17 +4144,15 @@ class ExperimentService:
                 sm.id: sm
                 for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids_list, team_id=self.team.id)
             }
-
-            for sm_data in saved_metrics_data:
-                saved_metric = saved_metrics.get(sm_data["id"])
-                if saved_metric and saved_metric.query:
-                    uuid = saved_metric.query.get("uuid")
-                    if uuid:
-                        metric_type = (sm_data.get("metadata") or {}).get("type", "primary")
-                        if metric_type == "primary":
-                            new_primary_uuids.add(uuid)
-                        else:
-                            new_secondary_uuids.add(uuid)
+            new_uuids = self._saved_metric_uuids_by_type(
+                (
+                    saved_metric.query if (saved_metric := saved_metrics.get(sm_data["id"])) else None,
+                    sm_data.get("metadata"),
+                )
+                for sm_data in saved_metrics_data
+            )
+            new_primary_uuids = new_uuids["primary"]
+            new_secondary_uuids = new_uuids["secondary"]
 
         added_primary = new_primary_uuids - old_saved_metric_uuids["primary"]
         removed_primary = old_saved_metric_uuids["primary"] - new_primary_uuids
@@ -4212,62 +4219,15 @@ class ExperimentService:
 
     def _validate_metric_ordering_on_update(self, experiment: Experiment, update_data: dict) -> None:
         """Validate ordering arrays contain all metric UUIDs (update path)."""
-        primary_ordering = update_data.get("primary_metrics_ordered_uuids", experiment.primary_metrics_ordered_uuids)
-        secondary_ordering = update_data.get(
-            "secondary_metrics_ordered_uuids", experiment.secondary_metrics_ordered_uuids
+        self._assert_ordering_covers_metrics(
+            primary_metrics=update_data.get("metrics", experiment.metrics) or [],
+            secondary_metrics=update_data.get("metrics_secondary", experiment.metrics_secondary) or [],
+            saved_metric_links=list(experiment.experimenttosavedmetric_set.select_related("saved_metric").all()),
+            primary_ordering=update_data.get("primary_metrics_ordered_uuids", experiment.primary_metrics_ordered_uuids),
+            secondary_ordering=update_data.get(
+                "secondary_metrics_ordered_uuids", experiment.secondary_metrics_ordered_uuids
+            ),
         )
-
-        primary_metrics = update_data.get("metrics", experiment.metrics) or []
-        secondary_metrics = update_data.get("metrics_secondary", experiment.metrics_secondary) or []
-
-        saved_metrics = list(experiment.experimenttosavedmetric_set.select_related("saved_metric").all())
-
-        expected_primary_uuids: set[str] = set()
-        expected_secondary_uuids: set[str] = set()
-
-        for metric in primary_metrics:
-            if uuid := metric.get("uuid"):
-                expected_primary_uuids.add(uuid)
-
-        for metric in secondary_metrics:
-            if uuid := metric.get("uuid"):
-                expected_secondary_uuids.add(uuid)
-
-        for link in saved_metrics:
-            saved_metric = link.saved_metric
-            uuid = saved_metric.query.get("uuid") if saved_metric.query else None
-            if uuid:
-                metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-                if metric_type == "primary":
-                    expected_primary_uuids.add(uuid)
-                else:
-                    expected_secondary_uuids.add(uuid)
-
-        if expected_primary_uuids:
-            if primary_ordering is None:
-                raise ValidationError(
-                    "primary_metrics_ordered_uuids is null but primary metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_primary_uuids - set(primary_ordering)
-            if missing:
-                raise ValidationError(
-                    f"primary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-
-        if expected_secondary_uuids:
-            if secondary_ordering is None:
-                raise ValidationError(
-                    "secondary_metrics_ordered_uuids is null but secondary metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_secondary_uuids - set(secondary_ordering)
-            if missing:
-                raise ValidationError(
-                    f"secondary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
 
     def _build_serializer_context(self) -> dict:
         """Build minimal DRF serializer context for internal service use."""

@@ -785,6 +785,72 @@ continued line
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
     })
 
+    it('opens links on modifier-click while editing but not on plain click', () => {
+        const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null)
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('See [docs](https://posthog.com/docs)') })
+        )
+        const link = container.querySelector('.MarkdownNotebook__text-block a[href]') as HTMLAnchorElement
+        expect(link).toBeInstanceOf(HTMLAnchorElement)
+
+        fireEvent.click(link)
+        expect(windowOpen).not.toHaveBeenCalled()
+
+        fireEvent.click(link, { metaKey: true })
+        expect(windowOpen).toHaveBeenCalledWith('https://posthog.com/docs', '_blank', 'noopener')
+
+        // View mode keeps native navigation: the handler must not add a second open
+        windowOpen.mockClear()
+        const { container: viewContainer } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('See [docs](https://posthog.com/docs)'),
+                mode: 'view',
+            })
+        )
+        const viewLink = viewContainer.querySelector('.MarkdownNotebook__text-block a[href]') as HTMLAnchorElement
+        expect(viewLink).toBeInstanceOf(HTMLAnchorElement)
+        fireEvent.click(viewLink, { metaKey: true })
+        expect(windowOpen).not.toHaveBeenCalled()
+
+        windowOpen.mockRestore()
+    })
+
+    it('opens the link editor automatically when the selection is inside a link, without stealing focus', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('See [docs](https://posthog.com/docs) here') })
+        )
+        const anchor = getBodyTextBlock(container).querySelector('a')
+        expect(anchor).toBeInstanceOf(HTMLAnchorElement)
+
+        selectTextNode(getFirstTextNode(anchor as HTMLElement), 0, 4, true)
+
+        const input = container.querySelector('[aria-label="Link URL"]') as HTMLInputElement
+        expect(input).toBeInstanceOf(HTMLInputElement)
+        expect(input.value).toEqual('https://posthog.com/docs')
+        expect(window.document.activeElement).not.toBe(input)
+    })
+
+    it('applies the link and cancels the keystroke when pressing Enter in the link editor', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Hello world out there'), onChange })
+        )
+
+        selectTextNode(getFirstTextNode(getBodyTextBlock(container)), 0, 5, true)
+
+        const toolbar = container.querySelector('.MarkdownNotebook__format-toolbar') as HTMLElement
+        fireEvent.click(toolbar.querySelector('[aria-label="Link"]') as HTMLButtonElement)
+
+        const input = container.querySelector('[aria-label="Link URL"]') as HTMLInputElement
+        fireEvent.change(input, { target: { value: 'https://posthog.com' } })
+
+        // The keystroke must be cancelled: once focus returns to the editor, an uncancelled
+        // Enter inserts a paragraph over the restored selection and wipes the linked text
+        const enterNotCancelled = fireEvent.keyDown(input, { key: 'Enter' })
+        expect(enterNotCancelled).toBe(false)
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('[Hello](https://posthog.com) world out there'))
+    })
+
     it('groups consecutive text, heading, and list rows into text surfaces', () => {
         const { container } = render(
             createElement(MarkdownNotebook, {

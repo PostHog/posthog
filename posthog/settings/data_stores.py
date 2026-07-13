@@ -209,6 +209,9 @@ for route in product_routes:
         writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}_{db}"
 
     if not writer_url:
+        # Intentional fail-open outside deployed cloud: self-hosted runs product
+        # models on the default database. On cloud, check_product_db_routes_configured
+        # fails the deploy's migrate step for non-optional routes instead.
         continue
 
     PRODUCT_DB_WRITER_URLS[db] = writer_url
