@@ -50,10 +50,6 @@ def _is_retryable_clickhouse_exception(e: Exception) -> bool:
                 ErrorCodes.NO_REPLICA_HAS_PART,  # 234
                 ErrorCodes.NO_ACTIVE_REPLICAS,  # 254
                 439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
-                # Tables can reject new mutations via number_of_mutations_to_throw while others are in
-                # flight. MutationRunner waits for capacity before enqueueing, but a mutation can still
-                # land in the gap between that check and our ALTER, so retry instead of failing the run.
-                692,  # TOO_MANY_MUTATIONS
             )
         )
         # queries that exceed memory limits can be retried if they were killed due to total server
