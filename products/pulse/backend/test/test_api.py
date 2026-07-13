@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
+from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -12,7 +13,13 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.slo.types import SloOperation
 
+from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import BriefConfig, ProductBrief
+
+_TRENDS_QUERY = {
+    "kind": "InsightVizNode",
+    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+}
 
 
 def _temporal_client() -> MagicMock:
@@ -115,22 +122,39 @@ class TestPulseAPI(APIBaseTest):
         assert str(other_brief.id) not in [row["id"] for row in response.json()["results"]]
 
     def test_config_crud_roundtrip(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        goal_insight = Insight.objects.create(team=self.team, name="Subscriptions created", query=_TRENDS_QUERY)
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/pulse/brief_configs/",
-            {"name": "Feature flags focus", "focus_prompt": "flags team", "anchors": {"insights": ["abc123"]}},
+            {
+                "name": "Feature flags focus",
+                "focus_prompt": "flags team",
+                "anchors": {"insights": ["abc123"]},
+                "goal": "Increase subscription usage",
+                "goal_metric": {"insight_short_id": goal_insight.short_id},
+            },
+            format="json",
         )
         assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        assert create_response.json()["goal"] == "Increase subscription usage"
+        assert create_response.json()["goal_metric"] == {"insight_short_id": goal_insight.short_id}
         config_id = create_response.json()["id"]
+        # API input is {insight_short_id}; the stored shape is discriminated on "type" so
+        # non-insight goal sources can be added later without a migration, and reads drop it.
+        stored = BriefConfig.objects.for_team(self.team.pk).get(id=config_id)
+        assert stored.goal_metric == {"type": "insight", "insight_short_id": goal_insight.short_id}
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/pulse/brief_configs/")
         assert list_response.status_code == status.HTTP_200_OK
         assert [row["id"] for row in list_response.json()["results"]] == [config_id]
 
         patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/pulse/brief_configs/{config_id}/", {"name": "Renamed"}
+            f"/api/projects/{self.team.id}/pulse/brief_configs/{config_id}/",
+            {"name": "Renamed", "goal_metric": None},
+            format="json",
         )
         assert patch_response.status_code == status.HTTP_200_OK
         assert patch_response.json()["name"] == "Renamed"
+        assert patch_response.json()["goal_metric"] is None
 
         with team_scope(self.team.pk, canonical=True):
             brief = ProductBrief.objects.create(
@@ -166,7 +190,7 @@ class TestPulseAPI(APIBaseTest):
     def test_config_focus_prompt_length_capped(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/pulse/brief_configs/",
-            {"name": "too long", "focus_prompt": "x" * 2001},
+            {"name": "too long", "goal": "grow", "focus_prompt": "x" * 2001},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "focus_prompt"
@@ -177,7 +201,7 @@ class TestPulseAPI(APIBaseTest):
         # Valid knobs persist; an out-of-range knob is rejected at the serializer (wiring guard).
         response = self.client.post(
             f"/api/projects/{self.team.id}/pulse/brief_configs/",
-            {"name": "Tuned", "settings": {"confidence_threshold": 0.8}},
+            {"name": "Tuned", "goal": "grow", "settings": {"confidence_threshold": 0.8}},
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -185,7 +209,7 @@ class TestPulseAPI(APIBaseTest):
 
         bad = self.client.post(
             f"/api/projects/{self.team.id}/pulse/brief_configs/",
-            {"name": "Bad", "settings": {"confidence_threshold": 5.0}},
+            {"name": "Bad", "goal": "grow", "settings": {"confidence_threshold": 5.0}},
             format="json",
         )
         assert bad.status_code == status.HTTP_400_BAD_REQUEST
@@ -206,7 +230,102 @@ class TestPulseAPI(APIBaseTest):
         # opportunity against a stale baseline — reject it at the edge.
         response = self.client.post(
             f"/api/projects/{self.team.id}/pulse/brief_configs/",
-            {"name": "bad gate", "accountability_min_age_days": 0},
+            {"name": "bad gate", "goal": "grow", "accountability_min_age_days": 0},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "accountability_min_age_days"
+
+    @parameterized.expand(
+        [
+            ("not_a_dict", "increase usage"),
+            ("missing_short_id", {}),
+            ("blank_short_id", {"insight_short_id": ""}),
+            ("null_short_id", {"insight_short_id": None}),
+        ]
+    )
+    def test_config_rejects_invalid_goal_metric_shape(
+        self, _name: str, goal_metric: object, _mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/",
+            {"name": "Goals", "goal": "grow", "goal_metric": goal_metric},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"].startswith("goal_metric")
+        assert not BriefConfig.objects.for_team(self.team.pk).exists()
+
+    def test_config_rejects_goal_metric_insight_not_in_team(
+        self, _mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign_insight = Insight.objects.create(team=other_team, name="Foreign")
+        for short_id in [foreign_insight.short_id, "missing1"]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/pulse/brief_configs/",
+                {"name": "Goals", "goal": "grow", "goal_metric": {"insight_short_id": short_id}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, short_id
+            assert "does not exist or does not belong to your team" in str(response.json())
+        assert not BriefConfig.objects.for_team(self.team.pk).exists()
+
+    def test_config_rejects_non_trends_goal_metric(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        funnel_insight = Insight.objects.create(
+            team=self.team,
+            name="Signup funnel",
+            query={"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": []}},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/",
+            {"name": "Goals", "goal": "grow", "goal_metric": {"insight_short_id": funnel_insight.short_id}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "must be a trends insight" in str(response.json())
+        assert not BriefConfig.objects.for_team(self.team.pk).exists()
+
+    @parameterized.expand([("missing", None), ("empty", ""), ("whitespace_only", "   ")])
+    def test_config_requires_a_goal(
+        self, _name: str, goal: str | None, _mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        # Pursuing a goal is the point of a focus, so every config must state one.
+        payload: dict[str, object] = {"name": "Goals"}
+        if goal is not None:
+            payload["goal"] = goal
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/brief_configs/", payload, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "goal"
+        assert not BriefConfig.objects.for_team(self.team.pk).exists()
+
+    def test_config_cannot_clear_an_existing_goal(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/",
+            {"name": "Goals", "goal": "grow"},
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/{created.json()['id']}/",
+            {"goal": ""},
+            format="json",
+        )
+        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
+        assert patch_response.json()["attr"] == "goal"
+
+    def test_patch_rejects_metric_on_goalless_legacy_config(
+        self, _mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        # Goals are required now, but rows created before enforcement can be goalless. Attaching a
+        # metric to one without also setting a goal must still be rejected — the metric is unread
+        # without a goal. This is the only path that reaches the object-level backstop.
+        goal_insight = Insight.objects.create(team=self.team, name="Subscriptions created", query=_TRENDS_QUERY)
+        with team_scope(self.team.pk, canonical=True):
+            legacy = BriefConfig.objects.create(team=self.team, name="Legacy", goal="")
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/{legacy.id}/",
+            {"goal_metric": {"insight_short_id": goal_insight.short_id}},
+            format="json",
+        )
+        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
+        assert "A goal metric requires a goal." in str(patch_response.json())

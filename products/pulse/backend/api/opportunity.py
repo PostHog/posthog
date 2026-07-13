@@ -49,6 +49,7 @@ class OpportunitySerializer(serializers.ModelSerializer):
             "summary",
             "suggested_action",
             "evidence",
+            "goal_relevant",
             "first_seen_brief",
             "created_at",
             "created_by",
@@ -62,6 +63,9 @@ class OpportunitySerializer(serializers.ModelSerializer):
             "status": {"help_text": "Lifecycle status: open, dismissed, acted, or resolved."},
             "title": {"help_text": "Short, actionable opportunity title."},
             "summary": {"help_text": "What was observed and why it matters."},
+            "goal_relevant": {
+                "help_text": "Whether this opportunity plausibly advances the focus goal of the brief it surfaced in."
+            },
             "first_seen_brief": {"help_text": "The brief this opportunity first surfaced in."},
         }
 

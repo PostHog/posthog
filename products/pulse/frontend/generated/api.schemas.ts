@@ -14,6 +14,11 @@ export interface BriefAnchorsApi {
     insights?: string[]
 }
 
+export interface BriefGoalMetricApi {
+    /** Short ID of the team-owned trends insight tracking progress toward the goal. */
+    insight_short_id: string
+}
+
 export interface BriefSettingsApi {
     /**
      * Minimum absolute percent change for a movement to count as significant. Default 20.
@@ -128,6 +133,10 @@ export interface BriefConfigApi {
     focus_prompt?: string
     /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
     anchors?: BriefAnchorsApi
+    /** Free-text goal this focus drives toward, e.g. "increase subscription usage". Briefs open with progress toward it. */
+    goal: string
+    /** Insight whose trend measures progress toward the goal. Null when the goal is qualitative. */
+    goal_metric?: BriefGoalMetricApi | null
     /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
     settings?: BriefSettingsApi
     /** Whether this config generates briefs. */
@@ -170,6 +179,10 @@ export interface PatchedBriefConfigApi {
     focus_prompt?: string
     /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
     anchors?: BriefAnchorsApi
+    /** Free-text goal this focus drives toward, e.g. "increase subscription usage". Briefs open with progress toward it. */
+    goal?: string
+    /** Insight whose trend measures progress toward the goal. Null when the goal is qualitative. */
+    goal_metric?: BriefGoalMetricApi | null
     /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
     settings?: BriefSettingsApi
     /** Whether this config generates briefs. */
@@ -240,6 +253,57 @@ export interface PeriodApi {
     days?: number
 }
 
+/**
+ * * `none` - none
+ * * `ok` - ok
+ * * `unavailable` - unavailable
+ */
+export type MetricStateEnumApi = (typeof MetricStateEnumApi)[keyof typeof MetricStateEnumApi]
+
+export const MetricStateEnumApi = {
+    None: 'none',
+    Ok: 'ok',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * Frozen goal-metric snapshot from generation: where the goal metric stood when the brief ran.
+ * Read-only projection of the stored GoalStatus (generation/goal.py).
+ */
+export interface BriefGoalStatusApi {
+    /** 'none' (qualitative goal, no metric), 'ok' (rates below are populated), or 'unavailable' (a metric is configured but could not be read this period).
+     *
+     * * `none` - none
+     * * `ok` - ok
+     * * `unavailable` - unavailable */
+    metric_state: MetricStateEnumApi
+    /**
+     * Name of the insight tracking the goal, when one is configured.
+     * @nullable
+     */
+    metric_label?: string | null
+    /**
+     * Short ID of the goal-metric insight, for linking through to it.
+     * @nullable
+     */
+    insight_short_id?: string | null
+    /**
+     * Per-day rate over the brief's period, e.g. '4.2/day avg'.
+     * @nullable
+     */
+    current_rate?: string | null
+    /**
+     * Per-day rate over the preceding period, for comparison.
+     * @nullable
+     */
+    previous_rate?: string | null
+    /**
+     * Percentage change of current vs previous rate; null off a zero baseline.
+     * @nullable
+     */
+    delta_pct?: number | null
+}
+
 export interface ProductBriefListApi {
     readonly id: string
     /**
@@ -263,6 +327,8 @@ export interface ProductBriefListApi {
     readonly period: PeriodApi
     /** Names of the brief sources that contributed items. */
     readonly sources_used: readonly string[]
+    /** Frozen goal-metric progress snapshot from when the brief was generated. Null for config-less briefs and briefs generated from an empty gather. */
+    readonly goal_status: BriefGoalStatusApi | null
     /**
      * Error detail when status is failed.
      * @nullable
@@ -357,6 +423,8 @@ export interface ProductBriefApi {
     readonly accountability: readonly AccountabilityStatusLineApi[]
     /** Names of the brief sources that contributed items. */
     readonly sources_used: readonly string[]
+    /** Frozen goal-metric progress snapshot from when the brief was generated. Null for config-less briefs and briefs generated from an empty gather. */
+    readonly goal_status: BriefGoalStatusApi | null
     /**
      * Error detail when status is failed.
      * @nullable
@@ -441,6 +509,8 @@ export interface OpportunityApi {
     readonly suggested_action: string
     /** Evidence links backing the opportunity: type, ref, label, and url per entry. */
     readonly evidence: readonly ResourceLinkApi[]
+    /** Whether this opportunity plausibly advances the focus goal of the brief it surfaced in. */
+    readonly goal_relevant: boolean
     /** The brief this opportunity first surfaced in. */
     readonly first_seen_brief: string
     readonly created_at: string

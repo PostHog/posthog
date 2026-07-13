@@ -3,12 +3,16 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
+
+import { InsightType } from '~/types'
 
 import {
     pulseBriefsGenerateCreate,
@@ -19,7 +23,13 @@ import {
     pulseBriefConfigsList,
     pulseBriefConfigsPartialUpdate,
 } from './generated/api'
-import type { BriefConfigApi, BriefSectionApi, ProductBriefApi, ProductBriefListApi } from './generated/api.schemas'
+import type {
+    BriefConfigApi,
+    BriefGoalStatusApi,
+    BriefSectionApi,
+    ProductBriefApi,
+    ProductBriefListApi,
+} from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
 import type { pulseLogicType } from './pulseLogicType'
 
@@ -55,9 +65,19 @@ export interface BriefConfigForm {
     name: string
     focus_prompt: string
     dashboards: number[]
+    goal: string
+    // Short ID of the picked trends insight, or '' for a qualitative goal. Chosen via the
+    // insight picker (goalMetricInsightOptions); still validated server-side.
+    goal_metric_short_id: string
 }
 
-const EMPTY_CONFIG_FORM: BriefConfigForm = { name: '', focus_prompt: '', dashboards: [] }
+const EMPTY_CONFIG_FORM: BriefConfigForm = {
+    name: '',
+    focus_prompt: '',
+    dashboards: [],
+    goal: '',
+    goal_metric_short_id: '',
+}
 
 export const pulseLogic = kea<pulseLogicType>([
     path(['products', 'pulse', 'frontend', 'pulseLogic']),
@@ -67,6 +87,7 @@ export const pulseLogic = kea<pulseLogicType>([
     actions({
         selectConfig: (configId: string | null) => ({ configId }),
         selectBrief: (briefId: string | null) => ({ briefId }),
+        setGoalMetricSearch: (search: string) => ({ search }),
         setAiConsentRequired: (aiConsentRequired: boolean) => ({ aiConsentRequired }),
         setBriefsHasMore: (hasMore: boolean) => ({ hasMore }),
         startPolling: true,
@@ -84,15 +105,24 @@ export const pulseLogic = kea<pulseLogicType>([
     forms(({ actions, values }) => ({
         configForm: {
             defaults: EMPTY_CONFIG_FORM,
-            errors: ({ name }: BriefConfigForm) => ({
+            errors: ({ name, goal }: BriefConfigForm) => ({
                 name: name.trim() ? undefined : 'Please enter a name',
+                // Goals are required — pursuing one is the point of a focus.
+                goal: goal.trim() ? undefined : 'Please enter a goal',
             }),
             submit: async (formValues: BriefConfigForm) => {
                 const editing = values.editingConfig
                 // Only the dashboards anchor is editable here — spread the existing anchors so
                 // insight anchors set through the API survive a save from this form.
                 const anchors = { ...editing?.anchors, dashboards: formValues.dashboards }
-                const payload = { name: formValues.name.trim(), focus_prompt: formValues.focus_prompt, anchors }
+                const goalMetricShortId = formValues.goal_metric_short_id.trim()
+                const payload = {
+                    name: formValues.name.trim(),
+                    focus_prompt: formValues.focus_prompt,
+                    anchors,
+                    goal: formValues.goal.trim(),
+                    goal_metric: goalMetricShortId ? { insight_short_id: goalMetricShortId } : null,
+                }
                 const saved = editing
                     ? await pulseBriefConfigsPartialUpdate(currentProjectId(), editing.id, payload)
                     : await pulseBriefConfigsCreate(currentProjectId(), payload)
@@ -100,7 +130,7 @@ export const pulseLogic = kea<pulseLogicType>([
             },
         },
     })),
-    loaders(({ actions }) => ({
+    loaders(({ actions, values }) => ({
         briefConfigs: [
             [] as BriefConfigApi[],
             {
@@ -145,6 +175,27 @@ export const pulseLogic = kea<pulseLogicType>([
                 },
             },
         ],
+        // Trends-only insights for the goal-metric picker — the metric contract is trends-only, so
+        // the search filters server-side rather than surfacing metrics that would fail validation.
+        goalMetricInsights: [
+            [] as { short_id: string; name: string }[],
+            {
+                loadGoalMetricInsights: async (_, breakpoint) => {
+                    await breakpoint(300) // debounce search-as-you-type
+                    const response = await api.insights.list({
+                        saved: true,
+                        insight: InsightType.TRENDS,
+                        limit: LIST_PAGE_SIZE,
+                        ...(values.goalMetricSearch ? { search: values.goalMetricSearch } : {}),
+                    })
+                    breakpoint()
+                    return response.results.map((insight) => ({
+                        short_id: insight.short_id,
+                        name: insight.name || insight.derived_name || insight.short_id,
+                    }))
+                },
+            },
+        ],
     })),
     reducers({
         selectedConfigId: [
@@ -157,6 +208,12 @@ export const pulseLogic = kea<pulseLogicType>([
             null as string | null,
             {
                 selectBrief: (_, { briefId }) => briefId,
+            },
+        ],
+        goalMetricSearch: [
+            '',
+            {
+                setGoalMetricSearch: (_, { search }) => search,
             },
         ],
         aiConsentRequired: [
@@ -274,6 +331,33 @@ export const pulseLogic = kea<pulseLogicType>([
             (s) => [s.briefDetail],
             (briefDetail): readonly BriefSectionApi[] => briefDetail?.sections ?? [],
         ],
+        goalMetricInsightOptions: [
+            (s) => [s.goalMetricInsights],
+            (goalMetricInsights): LemonInputSelectOption[] =>
+                goalMetricInsights.map((insight) => ({ key: insight.short_id, label: insight.name })),
+        ],
+        // The goal of the config the shown brief was generated for — the subtle header line above
+        // the brief detail. Null when the brief is config-less or its config has no goal.
+        briefDetailGoal: [
+            (s) => [s.briefDetail, s.briefConfigs],
+            (briefDetail, briefConfigs): string | null => {
+                if (!briefDetail?.config) {
+                    return null
+                }
+                const goal = briefConfigs.find((config) => config.id === briefDetail.config)?.goal?.trim()
+                return goal || null
+            },
+        ],
+        // The frozen goal-metric snapshot for the shown brief, only when it carries readable figures
+        // ('ok'). Qualitative goals ('none') and unreadable metrics ('unavailable') show the goal
+        // text alone — there is nothing to plot.
+        briefDetailGoalStatus: [
+            (s) => [s.briefDetail],
+            (briefDetail): BriefGoalStatusApi | null => {
+                const status = briefDetail?.goal_status
+                return status && status.metric_state === 'ok' ? status : null
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         loadBriefsSuccess: ({ briefs }) => {
@@ -368,7 +452,14 @@ export const pulseLogic = kea<pulseLogicType>([
                 name: config?.name ?? '',
                 focus_prompt: config?.focus_prompt ?? '',
                 dashboards: config?.anchors?.dashboards ?? [],
+                goal: config?.goal ?? '',
+                goal_metric_short_id: config?.goal_metric?.insight_short_id ?? '',
             })
+            // Reset the picker search; its listener loads the first page of trends insights.
+            actions.setGoalMetricSearch('')
+        },
+        setGoalMetricSearch: () => {
+            actions.loadGoalMetricInsights(null)
         },
         configSaved: ({ config, created }) => {
             posthog.capture(created ? 'pulse config created' : 'pulse config updated', {
@@ -383,6 +474,13 @@ export const pulseLogic = kea<pulseLogicType>([
         submitConfigFormFailure: ({ error }) => {
             // Field-level validation failures already render inline — only toast API errors.
             if (error instanceof ApiError) {
+                // The API keys goal-metric errors under `goal_metric` (the payload field), but the
+                // form field is `goal_metric_short_id`, so kea-forms can't auto-map it. Route it
+                // manually so the offending input shows the error inline instead of only a toast.
+                if (error.attr?.startsWith('goal_metric') && error.detail) {
+                    actions.setConfigFormManualErrors({ goal_metric_short_id: error.detail })
+                    return
+                }
                 posthog.captureException(error)
                 lemonToast.error(error.detail || 'Saving the brief config failed')
             }

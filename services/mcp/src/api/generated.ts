@@ -12057,6 +12057,11 @@ export namespace Schemas {
       insights?: string[];
     }
 
+    export interface BriefGoalMetric {
+      /** Short ID of the team-owned trends insight tracking progress toward the goal. */
+      insight_short_id: string;
+    }
+
     export interface BriefSettings {
       /**
          * Minimum absolute percent change for a movement to count as significant. Default 20.
@@ -12116,6 +12121,10 @@ export namespace Schemas {
       focus_prompt?: string;
       /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
       anchors?: BriefAnchors;
+      /** Free-text goal this focus drives toward, e.g. "increase subscription usage". Briefs open with progress toward it. */
+      goal: string;
+      /** Insight whose trend measures progress toward the goal. Null when the goal is qualitative. */
+      goal_metric?: BriefGoalMetric | null;
       /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
       settings?: BriefSettings;
       /** Whether this config generates briefs. */
@@ -12133,6 +12142,58 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * * `none` - none
+     * * `ok` - ok
+     * * `unavailable` - unavailable
+     */
+    export type MetricStateEnum = typeof MetricStateEnum[keyof typeof MetricStateEnum];
+
+
+    export const MetricStateEnum = {
+      None: 'none',
+      Ok: 'ok',
+      Unavailable: 'unavailable',
+    } as const;
+
+    /**
+     * Frozen goal-metric snapshot from generation: where the goal metric stood when the brief ran.
+     * Read-only projection of the stored GoalStatus (generation/goal.py).
+     */
+    export interface BriefGoalStatus {
+      /** 'none' (qualitative goal, no metric), 'ok' (rates below are populated), or 'unavailable' (a metric is configured but could not be read this period).
+       *
+       * * `none` - none
+       * * `ok` - ok
+       * * `unavailable` - unavailable */
+      metric_state: MetricStateEnum;
+      /**
+         * Name of the insight tracking the goal, when one is configured.
+         * @nullable
+         */
+      metric_label?: string | null;
+      /**
+         * Short ID of the goal-metric insight, for linking through to it.
+         * @nullable
+         */
+      insight_short_id?: string | null;
+      /**
+         * Per-day rate over the brief's period, e.g. '4.2/day avg'.
+         * @nullable
+         */
+      current_rate?: string | null;
+      /**
+         * Per-day rate over the preceding period, for comparison.
+         * @nullable
+         */
+      previous_rate?: string | null;
+      /**
+         * Percentage change of current vs previous rate; null off a zero baseline.
+         * @nullable
+         */
+      delta_pct?: number | null;
     }
 
     export interface BriefSectionCitation {
@@ -33330,6 +33391,8 @@ export namespace Schemas {
       readonly suggested_action: string;
       /** Evidence links backing the opportunity: type, ref, label, and url per entry. */
       readonly evidence: readonly ResourceLink[];
+      /** Whether this opportunity plausibly advances the focus goal of the brief it surfaced in. */
+      readonly goal_relevant: boolean;
       /** The brief this opportunity first surfaced in. */
       readonly first_seen_brief: string;
       readonly created_at: string;
@@ -35277,6 +35340,8 @@ export namespace Schemas {
       readonly period: Period;
       /** Names of the brief sources that contributed items. */
       readonly sources_used: readonly string[];
+      /** Frozen goal-metric progress snapshot from when the brief was generated. Null for config-less briefs and briefs generated from an empty gather. */
+      readonly goal_status: BriefGoalStatus | null;
       /**
          * Error detail when status is failed.
          * @nullable
@@ -39443,6 +39508,10 @@ export namespace Schemas {
       focus_prompt?: string;
       /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
       anchors?: BriefAnchors;
+      /** Free-text goal this focus drives toward, e.g. "increase subscription usage". Briefs open with progress toward it. */
+      goal?: string;
+      /** Insight whose trend measures progress toward the goal. Null when the goal is qualitative. */
+      goal_metric?: BriefGoalMetric | null;
       /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
       settings?: BriefSettings;
       /** Whether this config generates briefs. */
@@ -46450,6 +46519,8 @@ export namespace Schemas {
       readonly accountability: readonly AccountabilityStatusLine[];
       /** Names of the brief sources that contributed items. */
       readonly sources_used: readonly string[];
+      /** Frozen goal-metric progress snapshot from when the brief was generated. Null for config-less briefs and briefs generated from an empty gather. */
+      readonly goal_status: BriefGoalStatus | null;
       /**
          * Error detail when status is failed.
          * @nullable

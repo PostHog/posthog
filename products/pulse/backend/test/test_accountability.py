@@ -29,7 +29,7 @@ _TRENDS_QUERY = {
 
 _BASELINE = {"pct_change": -30.0, "baseline_total": 700.0, "current_total": 490.0, "period_days": 7}
 
-_CALCULATE_PATH = "products.pulse.backend.generation.accountability.calculate_for_query_based_insight"
+_CALCULATE_PATH = "products.pulse.backend.sources.anchored_insights.calculate_for_query_based_insight"
 
 
 class TestCollectAccountability(BaseTest):
@@ -299,7 +299,7 @@ class TestCollectAccountability(BaseTest):
         # hanging the whole section.
         self._opportunity()
         with patch(
-            "products.pulse.backend.generation.accountability._execute_within_timeout",
+            "products.pulse.backend.sources.anchored_insights._execute_within_timeout",
             side_effect=FuturesTimeoutError(),
         ):
             lines = collect_accountability(self.team)

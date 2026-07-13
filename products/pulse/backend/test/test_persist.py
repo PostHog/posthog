@@ -11,6 +11,7 @@ from posthog.schema_enums import AlertState
 from products.alerts.backend.models import AlertConfiguration
 from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
+from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.persist import _fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import (
@@ -26,7 +27,9 @@ from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, Sourc
 _EVIDENCE = EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label="Pageviews", url="/project/1/insights/abc")
 
 
-def _out(fingerprint_hint: str = "abc:0", evidence_refs: list[str] | None = None) -> BriefOut:
+def _out(
+    fingerprint_hint: str = "abc:0", evidence_refs: list[str] | None = None, goal_relevant: bool = False
+) -> BriefOut:
     refs = ["c1"] if evidence_refs is None else evidence_refs
     return BriefOut(
         sections=[BriefSectionOut(kind="what_happened", title="t", markdown="m", citations=["c1"], confidence=0.9)],
@@ -39,6 +42,7 @@ def _out(fingerprint_hint: str = "abc:0", evidence_refs: list[str] | None = None
                 evidence_refs=refs,
                 fingerprint_hint=fingerprint_hint,
                 confidence=0.9,
+                goal_relevant=goal_relevant,
             )
         ],
     )
@@ -72,15 +76,16 @@ class TestPersistBriefOutput(BaseTest):
         # A real insight with the cited short_id so the link resolves its FK.
         with team_scope(self.team.pk, canonical=True):
             insight = Insight.objects.create(team=self.team, name="Pageviews", short_id="abc")
-        brief = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        brief = persist_brief_output(brief=self._brief(), out=_out(goal_relevant=True), items=[_item()])
         assert brief.status == ProductBrief.Status.READY
         assert len(brief.sections) == 1
         # Section citations resolve to structured refs the client renders directly — no id parsing.
-        assert brief.sections[0]["citations"] == [_EVIDENCE]
+        assert brief.sections[0]["citations"] == [_EVIDENCE.citation]
         assert brief.sources_used == ["anchored_insights"]
         opportunity = self._opportunities().get()
         assert opportunity.baseline == {"pct_change": -30.0, "baseline_total": 700.0, "current_total": 490.0}
         assert opportunity.metric_ref == {"insight_short_id": "abc"}
+        assert opportunity.goal_relevant is True
         # The LLM summary is wrapped in the structured advisory action envelope.
         assert opportunity.action == {
             "type": ActionType.ADVISORY.value,
@@ -214,6 +219,7 @@ class TestPersistBriefOutput(BaseTest):
                     evidence_refs=["c1", "c2"],
                     fingerprint_hint="alert:x",
                     confidence=0.9,
+                    goal_relevant=False,
                 )
             ],
         )
@@ -221,3 +227,32 @@ class TestPersistBriefOutput(BaseTest):
         links = {link.resource_type: link for link in self._links()}
         assert links[ResourceType.ALERT].alert_id == alert.id
         assert links[ResourceType.SUBSCRIPTION].subscription_id == subscription.id
+
+    def test_persists_goal_status_snapshot(self) -> None:
+        brief = self._brief()
+        goal_status = GoalStatus(
+            goal="grow signups",
+            metric_state="ok",
+            insight_short_id="abc",
+            metric_label="Signups",
+            current_rate="4.2/day avg",
+            previous_rate="3.0/day avg",
+            delta_pct=40.0,
+        )
+        persist_brief_output(brief=brief, out=_out(), items=[_item()], goal_status=goal_status)
+        brief.refresh_from_db()
+        assert brief.goal_status == {
+            "goal": "grow signups",
+            "metric_state": "ok",
+            "insight_short_id": "abc",
+            "metric_label": "Signups",
+            "current_rate": "4.2/day avg",
+            "previous_rate": "3.0/day avg",
+            "delta_pct": 40.0,
+        }
+
+    def test_no_goal_status_persists_null(self) -> None:
+        brief = self._brief()
+        persist_brief_output(brief=brief, out=_out(), items=[_item()])
+        brief.refresh_from_db()
+        assert brief.goal_status is None

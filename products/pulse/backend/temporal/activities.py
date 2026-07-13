@@ -13,10 +13,12 @@ from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.config import MAX_ITEMS
 from products.pulse.backend.generation.accountability import MIN_AGE_DAYS, OpportunityStatusLine, collect_accountability
+from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
 from products.pulse.backend.generation.persist import _fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
 from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
+from products.pulse.backend.sources.anchored_insights import InsightResultsCache
 from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
@@ -163,6 +165,10 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
     resolved = resolve_period(brief.period, dt.datetime.now(dt.UTC), last_run)
     items = [SourceItem(**item) for item in inputs.items]
     status_lines: list[OpportunityStatusLine] = []
+    goal_status: GoalStatus | None = None
+    # One insight-results cache shared across the goal and accountability reads so an insight
+    # referenced by both executes once (and both share the per-insight wall-clock cap).
+    results_cache = InsightResultsCache(brief.team)
     # Accountability is not movement-gated — past suggestions matter every period. Only an empty
     # gather skips it, since synthesize short-circuits without items anyway. Best-effort: a broken
     # re-score degrades to no accountability section, never a failed brief.
@@ -170,10 +176,20 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         try:
             min_age_days = brief.config.accountability_min_age_days if brief.config else MIN_AGE_DAYS
             status_lines = await database_sync_to_async(collect_accountability, thread_sensitive=False)(
-                brief.team, min_age_days
+                brief.team, min_age_days, results_cache=results_cache
             )
         except Exception:
             logger.exception("pulse_accountability_failed", team_id=brief.team_id, brief_id=str(brief.id))
+        # Goal status frames the brief around the config's goal. Best-effort like accountability:
+        # a broken read degrades to a figure-less goal block, never a failed brief. Config-less
+        # briefs carry no goal. The resolved lookback is the goal window, matching the gather.
+        if brief.config is not None:
+            try:
+                goal_status = await database_sync_to_async(collect_goal_status, thread_sensitive=False)(
+                    brief.team, brief.config, resolved.lookback_days, results_cache
+                )
+            except Exception:
+                logger.exception("pulse_goal_status_failed", team_id=brief.team_id, brief_id=str(brief.id))
     out = await synthesize_brief(
         team=brief.team,
         user=brief.created_by,
@@ -184,9 +200,10 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         lookback_days=resolved.lookback_days,
         # Past suggestions the team engaged with — steers relevance, same list we persist for the panel.
         status_lines=status_lines,
+        goal_status=goal_status,
     )
     await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
-        brief=brief, out=out, items=items, status_lines=status_lines
+        brief=brief, out=out, items=items, status_lines=status_lines, goal_status=goal_status
     )
     created = await database_sync_to_async(_created_opportunities, thread_sensitive=False)(brief)
     await _emit_opportunity_signals(brief, out, created)

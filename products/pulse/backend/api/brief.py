@@ -1,5 +1,5 @@
 import asyncio
-from typing import cast
+from typing import Any, cast, get_args
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -13,6 +13,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.schema import NodeKind
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -22,7 +24,9 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import sync_connect
 
 from products.pulse.backend.config import WORKFLOW_EXECUTION_TIMEOUT
+from products.pulse.backend.generation.goal import MetricState
 from products.pulse.backend.models import BriefConfig, ProductBrief
+from products.pulse.backend.sources.anchored_insights import resolve_metric_insight
 from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME, GenerateBriefWorkflowInputs
 
 PULSE_FEATURE_FLAG = "pulse"
@@ -90,6 +94,13 @@ class BriefSettingsSerializer(serializers.Serializer):
     )
 
 
+class BriefGoalMetricSerializer(serializers.Serializer):
+    insight_short_id = serializers.CharField(
+        allow_blank=False,
+        help_text="Short ID of the team-owned trends insight tracking progress toward the goal.",
+    )
+
+
 class BriefConfigSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the config.")
     anchors = BriefAnchorsSerializer(
@@ -100,6 +111,19 @@ class BriefConfigSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Per-config tunables overriding the system defaults. Omitted knobs keep their default.",
     )
+    # Required, non-blank: pursuing a goal is the point of a focus, so every config states one.
+    # partial_update skips required, so a PATCH that omits goal keeps the stored one; a PATCH
+    # sending "" is rejected by allow_blank=False, so an existing goal can't be cleared.
+    goal = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        help_text='Free-text goal this focus drives toward, e.g. "increase subscription usage". Briefs open with progress toward it.',
+    )
+    goal_metric = BriefGoalMetricSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Insight whose trend measures progress toward the goal. Null when the goal is qualitative.",
+    )
 
     class Meta:
         model = BriefConfig
@@ -108,6 +132,8 @@ class BriefConfigSerializer(serializers.ModelSerializer):
             "name",
             "focus_prompt",
             "anchors",
+            "goal",
+            "goal_metric",
             "settings",
             "enabled",
             "deleted",
@@ -131,6 +157,74 @@ class BriefConfigSerializer(serializers.ModelSerializer):
                 "help_text": "How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.",
             },
         }
+
+    def validate_goal(self, value: str) -> str:
+        # allow_blank=False rejects "", but a whitespace-only goal is just as absent.
+        if not value.strip():
+            raise serializers.ValidationError("This field may not be blank.")
+        return value
+
+    def validate_goal_metric(self, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return value
+        # A metric must be a live insight in the caller's team, resolved via the same helper the
+        # collectors read the metric with.
+        insight = resolve_metric_insight(self.context["get_team"](), value["insight_short_id"])
+        if insight is None:
+            raise serializers.ValidationError("This insight does not exist or does not belong to your team.")
+        # Reject at write time what the collector can only silently degrade on later: the goal
+        # metric contract is trends-only, matching the field's help_text. Guard the query shape —
+        # the JSONField can hold a non-dict, and .get() on that would 500 instead of validating.
+        query = insight.query if isinstance(insight.query, dict) else {}
+        source = query.get("source")
+        source_kind = source.get("kind") if isinstance(source, dict) else None
+        if source_kind != NodeKind.TRENDS_QUERY:
+            raise serializers.ValidationError("The goal metric must be a trends insight.")
+        # Store the discriminated shape so non-insight goal sources (events, experiment
+        # conversions) can be added later without a migration. The API input stays
+        # {insight_short_id}; the "type" key is internal and dropped from reads.
+        return {"type": "insight", "insight_short_id": value["insight_short_id"]}
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # goal is required and non-clearable at the field level, so this only bites a legacy row
+        # (blank goal predating enforcement) that a PATCH tries to attach a metric to. Explicit-key
+        # fallbacks so a PATCH sending only one of the pair validates the resulting row.
+        goal = attrs.get("goal", self.instance.goal if self.instance else "")
+        goal_metric = attrs.get("goal_metric", self.instance.goal_metric if self.instance else None)
+        if goal_metric and not goal.strip():
+            # Without a goal the metric is never read — reject instead of silently no-oping.
+            raise serializers.ValidationError({"goal_metric": ["A goal metric requires a goal."]})
+        return attrs
+
+
+class BriefGoalStatusSerializer(serializers.Serializer):
+    """Frozen goal-metric snapshot from generation: where the goal metric stood when the brief ran.
+    Read-only projection of the stored GoalStatus (generation/goal.py)."""
+
+    # ChoiceField (not CharField) so the fixed MetricState set flows downstream as a string enum,
+    # letting the frontend gate (metric_state === 'ok') be compiler-checked.
+    metric_state = serializers.ChoiceField(
+        # Derived from the MetricState Literal (generation/goal.py) so the two can't drift.
+        choices=list(get_args(MetricState)),
+        help_text="'none' (qualitative goal, no metric), 'ok' (rates below are populated), or 'unavailable' (a metric is configured but could not be read this period).",
+    )
+    metric_label = serializers.CharField(
+        allow_null=True, required=False, help_text="Name of the insight tracking the goal, when one is configured."
+    )
+    insight_short_id = serializers.CharField(
+        allow_null=True, required=False, help_text="Short ID of the goal-metric insight, for linking through to it."
+    )
+    current_rate = serializers.CharField(
+        allow_null=True, required=False, help_text="Per-day rate over the brief's period, e.g. '4.2/day avg'."
+    )
+    previous_rate = serializers.CharField(
+        allow_null=True, required=False, help_text="Per-day rate over the preceding period, for comparison."
+    )
+    delta_pct = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text="Percentage change of current vs previous rate; null off a zero baseline.",
+    )
 
 
 class PeriodSerializer(serializers.Serializer):
@@ -189,6 +283,11 @@ class AccountabilityStatusLineSerializer(serializers.Serializer):
 
 class ProductBriefSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who requested the brief.")
+    goal_status = BriefGoalStatusSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Frozen goal-metric progress snapshot from when the brief was generated. Null for config-less briefs and briefs generated from an empty gather.",
+    )
     period = PeriodSerializer(read_only=True, help_text="The resolved-at-gather period spec the brief covers.")
     sections = BriefSectionSerializer(
         many=True,
@@ -217,6 +316,7 @@ class ProductBriefSerializer(serializers.ModelSerializer):
             "sections",
             "accountability",
             "sources_used",
+            "goal_status",
             "error",
             "created_at",
             "created_by",
