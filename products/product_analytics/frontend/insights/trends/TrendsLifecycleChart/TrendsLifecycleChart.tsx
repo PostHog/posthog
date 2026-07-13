@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { getBarColorFromStatus } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -183,6 +183,8 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         [clickDeps]
     )
 
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
             const sharedProps = {
@@ -224,7 +226,13 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="bar"
+            />
+        )
     }
 
     const showAnnotations = !inSharedMode
@@ -238,6 +246,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-lifecycle-graph"
             onError={handleChartError}

@@ -17,7 +17,7 @@ from posthog.test.base import (
 )
 from unittest import mock
 from unittest.case import skip
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, PropertyMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -56,6 +56,7 @@ from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
@@ -889,11 +890,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "explicit order=-id should override relevance ranking and put newer insight first"
         )
 
-    def test_list_filter_by_search_returns_union_exact_first_with_match_type(self):
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("dashboard overview", "sales dashboard", "dahsboard metrics", "Engineering metrics"):
             Insight.objects.create(name=name, team=self.team, filters={"events": [{"id": "$pageview"}]})
 
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=dashboard")
+        # The frontend always sends order=-last_modified_at; the fix must hold under it, since
+        # that re-sort is what buried exact matches beneath similar ones in the first place.
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=dashboard&order=-last_modified_at")
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
 
@@ -901,11 +904,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert match_type_by_name == {
             "dashboard overview": "exact",
             "sales dashboard": "exact",
-            "dahsboard metrics": "similar",
-        }
-
-        match_types = [r["search_match_type"] for r in results]
-        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+        }, "similar matches must be hidden when exact matches exist"
 
     def test_list_filter_by_search_match_type_absent_without_search(self):
         Insight.objects.create(name="Alpha", team=self.team, filters={"events": [{"id": "$pageview"}]})
@@ -4986,3 +4985,110 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(error_message, str(response.json()))
+
+
+class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def _create_insight(self, name: str = "My insight") -> Insight:
+        return Insight.objects.create(team=self.team, name=name, saved=True, created_by=self.user)
+
+    def _bulk_delete(self, ids: list[int]) -> Any:
+        return self.client.post(f"/api/environments/{self.team.id}/insights/bulk_delete/", {"ids": ids}, format="json")
+
+    def _bulk_restore(self, ids: list[int]) -> Any:
+        return self.client.post(f"/api/environments/{self.team.id}/insights/bulk_restore/", {"ids": ids}, format="json")
+
+    def test_bulk_delete_soft_deletes_insights(self) -> None:
+        one = self._create_insight("one")
+        two = self._create_insight("two")
+
+        response = self._bulk_delete([one.id, two.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual({item["id"] for item in body["deleted"]}, {one.id, two.id})
+        self.assertEqual(body["skipped"], [])
+        self.assertTrue(Insight.objects_including_soft_deleted.get(id=one.id).deleted)
+        self.assertTrue(Insight.objects_including_soft_deleted.get(id=two.id).deleted)
+
+    def test_bulk_delete_hides_dashboard_tiles_and_removes_alerts(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        insight = self._create_insight()
+        tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="alert")
+
+        response = self._bulk_delete([insight.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
+        self.assertFalse(AlertConfiguration.objects.filter(id=alert.id).exists())
+
+    def test_bulk_delete_reports_unknown_ids_as_skipped(self) -> None:
+        insight = self._create_insight()
+
+        response = self._bulk_delete([insight.id, 9_999_999])
+
+        body = response.json()
+        self.assertEqual([item["id"] for item in body["deleted"]], [insight.id])
+        self.assertEqual(body["skipped"], [{"id": 9_999_999, "reason": "Insight not found"}])
+
+    def test_bulk_delete_skips_insights_without_edit_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        editable = self._create_insight("editable")
+        restricted = self._create_insight("restricted")
+        AccessControl.objects.create(resource="insight", resource_id=restricted.id, team=self.team, access_level="none")
+
+        self.client.force_login(member)
+        response = self._bulk_delete([editable.id, restricted.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual([item["id"] for item in body["deleted"]], [editable.id])
+        self.assertEqual([item["id"] for item in body["skipped"]], [restricted.id])
+        self.assertTrue(Insight.objects_including_soft_deleted.get(id=editable.id).deleted)
+        self.assertFalse(Insight.objects_including_soft_deleted.get(id=restricted.id).deleted)
+
+    def test_bulk_delete_rejects_empty_ids(self) -> None:
+        response = self._bulk_delete([])
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_bulk_restore_restores_insights_and_tiles(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        insight = self._create_insight()
+        tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+
+        self.assertEqual(self._bulk_delete([insight.id]).status_code, status.HTTP_200_OK)
+        self.assertTrue(Insight.objects_including_soft_deleted.get(id=insight.id).deleted)
+        self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
+
+        response = self._bulk_restore([insight.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([item["id"] for item in response.json()["restored"]], [insight.id])
+        self.assertFalse(Insight.objects_including_soft_deleted.get(id=insight.id).deleted)
+        self.assertFalse(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
+
+    def test_bulk_restore_skips_tiles_on_dashboards_the_user_cannot_edit(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        insight = self._create_insight()
+        tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        self.assertEqual(self._bulk_delete([insight.id]).status_code, status.HTTP_200_OK)
+
+        # Simulate the requester only having view access to the dashboard the insight sits on.
+        with patch(
+            "posthog.user_permissions.UserDashboardPermissions.effective_privilege_level",
+            new_callable=PropertyMock,
+            return_value=Dashboard.PrivilegeLevel.CAN_VIEW,
+        ):
+            response = self._bulk_restore([insight.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([item["id"] for item in response.json()["restored"]], [insight.id])
+        self.assertFalse(Insight.objects_including_soft_deleted.get(id=insight.id).deleted)
+        # The insight comes back, but its tile on a dashboard the user can only view stays hidden.
+        self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)

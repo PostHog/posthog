@@ -37,8 +37,8 @@ export function buildFunnelStepsBarConfig(options: FunnelStepsBarConfigOptions =
         margins: options.margins,
         yTickFormatter: (value) => `${Math.round(value)}%`,
         tooltip: { placement: options.tooltipPlacement ?? 'top' },
+        barCornerRadius: 10,
         bars: {
-            cornerRadius: 10,
             track: true,
             shadow: { color: 'rgba(0,0,0,0.15)', blur: 6, offsetY: -2 },
             bandPadding: FUNNEL_STEPS_BAND_PADDING,
@@ -107,7 +107,7 @@ export function buildFunnelStepsBars<TMeta = unknown>(
         data: variant.data,
         color: variant.color,
         meta: variant.meta,
-        ...(variant.trackData ? { trackData: variant.trackData } : {}),
+        trackData: variant.trackData,
     }))
     return {
         series,

@@ -455,7 +455,7 @@ function IdleGrid(): JSX.Element {
             // capability cards are always the same height. Only shown at @xl+ where columns sit in a row.
             className={cn(
                 'flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none h-full',
-                hasExtraMarginTop && 'mt-2'
+                hasExtraMarginTop && 'mt-8'
             )}
             tabIndex={-1}
             onFocus={(e) => {
@@ -558,7 +558,7 @@ export function HomepageInput(): JSX.Element {
                             than squeezing their heights, which would reflow the cards/grid mid-animation.
                             gap-6 spaces the badges from the row below — it's part of the flex column's
                             laid-out height, so it's counted in the collapse and the vertical centering. */}
-                        <div className="overflow-hidden flex flex-col gap-6">
+                        <div className="overflow-hidden flex flex-col items-center gap-6">
                             <CapabilityBadges
                                 className="shrink-0"
                                 capabilities={capabilities}

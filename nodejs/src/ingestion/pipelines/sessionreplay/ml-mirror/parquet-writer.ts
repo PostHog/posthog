@@ -1,6 +1,7 @@
 /** Encodes block-metadata rows into a Snappy-compressed Parquet buffer for upload to the ML bucket. */
-import { ParquetSchema, ParquetWriter } from '@dsnp/parquetjs'
-import { Writable } from 'stream'
+import { ParquetSchema } from '@dsnp/parquetjs'
+
+import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 import { COLUMNS } from './block-metadata-columns'
 import { MlBlockMetadataRow } from './block-metadata-row'
@@ -43,22 +44,6 @@ function toParquetRecord(row: MlBlockMetadataRow): Record<string, unknown> {
     return record
 }
 
-export async function rowsToParquetBuffer(rows: MlBlockMetadataRow[]): Promise<Buffer> {
-    const chunks: Buffer[] = []
-    const sink = new Writable({
-        write(chunk: Buffer, _encoding, callback) {
-            chunks.push(chunk)
-            callback()
-        },
-    })
-    // parquetjs types want an fs.WriteStream, but it only calls write/end/on at runtime, which Writable provides.
-    const writer = await ParquetWriter.openStream(
-        SCHEMA,
-        sink as unknown as Parameters<typeof ParquetWriter.openStream>[1]
-    )
-    for (const row of rows) {
-        await writer.appendRow(toParquetRecord(row))
-    }
-    await writer.close()
-    return Buffer.concat(chunks)
+export function rowsToParquetBuffer(rows: MlBlockMetadataRow[]): Promise<Buffer> {
+    return parquetRecordsToBuffer(SCHEMA, rows.map(toParquetRecord))
 }

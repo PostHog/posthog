@@ -5,7 +5,6 @@ import { useMemo } from 'react'
 import { IconPlusSmall } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -29,6 +28,8 @@ import {
     isInsightQueryNode,
 } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
+
+import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
 
 import { InsightSceneMenuBar } from './SidePanel/InsightSceneMenuBar'
 import { InsightSidePanelContent } from './SidePanel/InsightSidePanelContent'

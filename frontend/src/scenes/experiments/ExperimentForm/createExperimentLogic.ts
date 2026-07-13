@@ -21,9 +21,12 @@ import {
 } from '~/queries/schema/schema-general'
 import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
 
+import type { ExperimentFeatureFlagFiltersApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { getExperimentVariants, toExperimentWritePayload, toFlagVariantsInput } from '../utils'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
@@ -109,11 +112,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
         setFeatureFlagConfig: (config: {
             feature_flag_key?: string
-            feature_flag_variants?: MultivariateFlagVariant[]
-            parameters?: {
-                feature_flag_variants?: MultivariateFlagVariant[]
-                ensure_experience_continuity?: boolean
-            }
+            variants?: MultivariateFlagVariant[]
+            rollout_percentage?: number
+            ensure_experience_continuity?: boolean
         }) => ({ config }),
         saveExperiment: true,
         saveExperimentStarted: true,
@@ -139,20 +140,29 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         ...criteria,
                     },
                 }),
-                setFeatureFlagConfig: (state, { config }) => ({
-                    ...state,
-                    ...(config.feature_flag_key !== undefined && {
-                        feature_flag_key: config.feature_flag_key,
-                    }),
-                    parameters: {
-                        ...state.parameters,
-                        // Handle both flat structure (feature_flag_variants) and nested (parameters.*)
-                        ...(config.feature_flag_variants !== undefined && {
-                            feature_flag_variants: config.feature_flag_variants,
+                setFeatureFlagConfig: (state, { config }) => {
+                    const currentConfig = state.feature_flag_config ?? {}
+                    const filters: ExperimentFeatureFlagFiltersApi = { ...currentConfig.filters }
+                    if (config.variants !== undefined) {
+                        filters.multivariate = { variants: toFlagVariantsInput(config.variants) }
+                    }
+                    if (config.rollout_percentage !== undefined) {
+                        filters.groups = [{ properties: [], rollout_percentage: config.rollout_percentage }]
+                    }
+                    return {
+                        ...state,
+                        ...(config.feature_flag_key !== undefined && {
+                            feature_flag_key: config.feature_flag_key,
                         }),
-                        ...(config.parameters && config.parameters),
-                    },
-                }),
+                        feature_flag_config: {
+                            ...currentConfig,
+                            filters,
+                            ...(config.ensure_experience_continuity !== undefined && {
+                                ensure_experience_continuity: config.ensure_experience_continuity,
+                            }),
+                        },
+                    }
+                },
                 updateFeatureFlagKey: (state, { key }) => ({ ...state, feature_flag_key: key }),
                 resetExperiment: () => ({ ...NEW_EXPERIMENT }),
             },
@@ -319,7 +329,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 // Show toast with what's wrong
                 const validation = validateVariants({
                     flagKey: values.experiment.feature_flag_key,
-                    variants: values.experiment.parameters?.feature_flag_variants ?? [],
+                    variants: getExperimentVariants(values.experiment),
                     featureFlagKeyValidation: values.featureFlagKeyValidation,
                     mode: values.mode,
                 })
@@ -335,6 +345,27 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
             // Set loading state after all validation passes
             actions.saveExperimentStarted()
+
+            // Whether the key is available decides whether flag config is sent (an available key
+            // means the backend creates the flag and applies the config; an existing key means the
+            // experiment links to that flag as-is and explicit config is rejected). A missing or
+            // stale availability check must not decide this silently: re-run it, and fail loud if
+            // it still can't complete.
+            const flagKey = values.experiment.feature_flag_key
+            const panelLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            if (values.featureFlagKeyValidation?.key !== flagKey) {
+                try {
+                    await panelLogic.asyncActions.validateFeatureFlagKey(flagKey)
+                } catch {
+                    // Handled below: featureFlagKeyValidation stays stale or null.
+                }
+            }
+            const keyValidation = panelLogic.values.featureFlagKeyValidation
+            if (keyValidation?.key !== flagKey) {
+                lemonToast.error("Couldn't verify the feature flag key. Please try again.")
+                actions.saveExperimentFailure()
+                return
+            }
 
             try {
                 const savedMetrics = [
@@ -352,8 +383,13 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     })),
                 ]
 
-                const experimentPayload: Experiment = {
-                    ...values.experiment,
+                // A key confirmed available means the backend will create the flag and can apply
+                // config to it; a taken key means the experiment links to the pre-existing flag
+                // as-is, and the API rejects explicit flag config.
+                const experimentPayload = {
+                    ...toExperimentWritePayload(values.experiment, {
+                        omitFlagConfig: keyValidation.valid !== true,
+                    }),
                     saved_metrics_ids: savedMetrics,
                 }
 

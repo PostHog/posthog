@@ -39,6 +39,9 @@ export const KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES = `${prefix}clickhouse_ses
 // anonymized block metadata mirrored to the ML account (consumed by the Parquet sink, not ClickHouse)
 export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_ml_block_metadata${suffix}`
 
+// raw inlined replay images: ml-mirror producer -> image-scrub worker
+export const KAFKA_SESSION_REPLAY_IMAGE_SCRUB = `${prefix}session_replay_image_scrub${suffix}`
+
 // write performance events to ClickHouse
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 // write heatmap events to ClickHouse
@@ -51,6 +54,9 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 
 // per-invocation result rows for hog functions and hog flows
 export const KAFKA_HOG_INVOCATION_RESULTS = `${prefix}clickhouse_hog_invocation_results${suffix}`
+
+// metadata rows for sent message assets (rendered emails stored in object storage)
+export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}`
 
 // CDP topics
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`

@@ -50,6 +50,10 @@ class ExternalDataSourceEntry(_Section):
     status: str
     prefix: str
     created_at: str | None
+    # `last_run_at` (most recent completed sync) and `latest_error` disambiguate a source stuck
+    # in `Running` that has never synced from a healthy one — `status` alone conflates them.
+    last_run_at: str | None
+    latest_error: str | None
 
 
 class SignalSourceConfigEntry(_Section):
@@ -261,13 +265,17 @@ class BusinessKnowledge(_Section):
 
 
 class TopEvent(_Section):
+    # `window_days` rides on every row (not the block, since `top_events` is a flat list)
+    # so a scout can't read a `count` without seeing that it's windowed, not lifetime — a
+    # thin count during a capture gap must not read as a genuinely low-volume project.
+    window_days: int
     event: str
     count: int
     distinct_users: int
     recent_24h_count: int
     recent_24h_users: int
-    first_seen: str | None
-    last_seen: str | None
+    first_seen_in_window: str | None
+    last_seen_in_window: str | None
 
 
 class Inventory(_Section):

@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
@@ -274,6 +275,25 @@ def handle_evaluation_context_suggestions(request: request.Request, team: Team) 
             )
 
     return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
+
+
+def validate_secret_token_generation(team: Team, user: User) -> None:
+    """Rotating an existing legacy secret token stays allowed for safe migration, but minting a
+    first one is blocked once the team has access to project secret API keys."""
+    if team.secret_api_token or team.secret_api_token_backup:
+        return
+    if posthoganalytics.feature_enabled(
+        "project-secret-api-keys",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    ):
+        raise exceptions.ValidationError(
+            "The feature flags secure API key is deprecated. Create a project secret API key with the "
+            "feature_flag:read scope instead."
+        )
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -1276,7 +1296,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError(
                     {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
                 )
-        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave"):
+        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave", "slack_nudge_enabled"):
             if toggle_key in value:
                 value[toggle_key] = bool(value[toggle_key])
         if "slack_alert_channel_id" in value:
@@ -1607,6 +1627,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 name=str(instance.name),
                 changes=changes,
             ),
+        )
+
+        report_conversations_settings_changes(
+            cast(User, self.context["request"].user),
+            before_update.get("conversations_settings"),
+            updated_team,
         )
 
         return updated_team
@@ -1981,6 +2007,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
+        validate_secret_token_generation(team, cast(User, request.user))
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
@@ -2360,6 +2387,26 @@ class ProjectEnvironmentsViewSet(TeamViewSet):
         )
 
 
+def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
+    """Fire one "support setting changed" event per changed conversations_settings key.
+
+    Shared by the team and project serializers — both endpoints can PATCH the settings.
+    """
+    old_settings = before_settings or {}
+    new_settings = team.conversations_settings or {}
+    changed_keys = sorted(
+        k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
+    )
+    # One event per changed setting so insights can break down by `setting`.
+    for key in changed_keys:
+        new_value = new_settings.get(key)
+        properties: dict[str, Any] = {"setting": key}
+        # Only non-string values are safe to report — the dict holds free text and the widget token.
+        if isinstance(new_value, (bool, int, float, type(None))):
+            properties["value"] = new_value
+        report_user_action(user, "support setting changed", properties, team=team)
+
+
 def handle_conversations_token_on_update(
     validated_data: dict[str, Any],
     current_conversations_enabled: bool | None,
@@ -2464,7 +2511,7 @@ class PremiumMultiEnvironmentPermission(BasePermission):
 
         if request.data.get("is_demo"):
             # Allow one demo team per organization
-            if project.organization.teams.filter(is_demo=True).count() > 0:
+            if project.organization.teams.filter(is_demo=True).exists():
                 return False
             return True
 

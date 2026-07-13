@@ -79,8 +79,8 @@ describe('RetentionService', () => {
             expect(results.get(2, 'b')).toEqual({ resolved: true, retentionPeriod: '1y' })
             expect(mockRedisClient.mget).toHaveBeenCalledTimes(1)
             expect(mockRedisClient.mget).toHaveBeenCalledWith([
-                '@posthog/replay/session-retention-a',
-                '@posthog/replay/session-retention-b',
+                '@posthog/replay/session-retention-1-a',
+                '@posthog/replay/session-retention-2-b',
             ])
             expect(mockTeamService.getRetentionPeriodByTeamId).not.toHaveBeenCalled()
             expect(mockPipeline.set).not.toHaveBeenCalled()
@@ -102,13 +102,13 @@ describe('RetentionService', () => {
             // Each resolved value is written back to its own key with a TTL.
             expect(mockPipeline.set).toHaveBeenCalledTimes(3)
             expect(mockPipeline.set).toHaveBeenCalledWith(
-                '@posthog/replay/session-retention-a',
+                '@posthog/replay/session-retention-1-a',
                 '30d',
                 'EX',
                 24 * 60 * 60
             )
             expect(mockPipeline.set).toHaveBeenCalledWith(
-                '@posthog/replay/session-retention-c',
+                '@posthog/replay/session-retention-2-c',
                 '1y',
                 'EX',
                 24 * 60 * 60
@@ -151,8 +151,32 @@ describe('RetentionService', () => {
             // Only the miss is written back to Redis.
             expect(mockPipeline.set).toHaveBeenCalledTimes(1)
             expect(mockPipeline.set).toHaveBeenCalledWith(
-                '@posthog/replay/session-retention-miss',
+                '@posthog/replay/session-retention-1-miss',
                 '30d',
+                'EX',
+                24 * 60 * 60
+            )
+        })
+
+        it('scopes the cache key by team so the same session id across teams cannot collide', async () => {
+            // Same session id under two teams: team 1 hits the cache (30d), team 2 misses (→ 1y).
+            mockRedisClient.mget = jest.fn().mockResolvedValue(['30d', null])
+
+            const results = await retentionService.resolveSessionRetentions(sessionSet([1, 's'], [2, 's']))
+
+            // The shared session id is read under two distinct, team-scoped keys.
+            expect(mockRedisClient.mget).toHaveBeenCalledWith([
+                '@posthog/replay/session-retention-1-s',
+                '@posthog/replay/session-retention-2-s',
+            ])
+            // Each team resolves to its own retention — no cross-team bleed from the cache.
+            expect(results.get(1, 's')).toEqual({ resolved: true, retentionPeriod: '30d' })
+            expect(results.get(2, 's')).toEqual({ resolved: true, retentionPeriod: '1y' })
+            // Only team 2's miss is written back, under its own team-scoped key.
+            expect(mockPipeline.set).toHaveBeenCalledTimes(1)
+            expect(mockPipeline.set).toHaveBeenCalledWith(
+                '@posthog/replay/session-retention-2-s',
+                '1y',
                 'EX',
                 24 * 60 * 60
             )

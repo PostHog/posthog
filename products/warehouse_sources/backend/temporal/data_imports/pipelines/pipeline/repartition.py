@@ -19,10 +19,12 @@ import math
 import asyncio
 import dataclasses
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 import deltalake as deltalake
+import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -55,6 +57,17 @@ TEMP_URI_SUFFIX = "__repartitioned"
 
 class RepartitionUnpartitionableError(Exception):
     """The table has no column suitable for partitioning — repartition is skipped, not retried."""
+
+
+class RepartitionSupersededError(Exception):
+    """A newer repartition attempt has claimed this schema — this stale attempt must stop.
+
+    An activity that Temporal heartbeat-times-out keeps running as a zombie (heartbeat failures are
+    swallowed by HeartbeaterSync), so its retry starts while it is still rewriting. Two writers on the
+    same table corrupt each other's temp `_delta_log` and defeat the swap's row-count verification.
+    The schema row's `repartition_claim` is the fence: the newest claimant owns the table, and every
+    destructive step re-checks the claim and raises this to make older attempts stand down.
+    """
 
 
 @dataclasses.dataclass(frozen=True)
@@ -106,6 +119,92 @@ def _table_row_count(delta_table: deltalake.DeltaTable) -> int:
         # Fall back to a metadata-only count if the stat is unavailable.
         return delta_table.to_pyarrow_dataset().count_rows()
     return sum(n or 0 for n in actions.column("num_records").to_pylist())
+
+
+async def _valid_delta_row_count(uri: str, storage_options: dict[str, str]) -> int | None:
+    """Open `uri` and return its row count, or None if it isn't a readable, complete Delta table.
+
+    None means the folder is absent, not a Delta table, or its `_delta_log` is inconsistent (a
+    DeltaError / FileNotFoundError from an interrupted write or swap). Used to gate destructive swap
+    steps on the temp/live tables actually being intact, so a partial `__repartitioned` temp can never
+    be copied over a good live table.
+    """
+    try:
+        is_delta = await asyncio.to_thread(
+            deltalake.DeltaTable.is_deltatable, table_uri=uri, storage_options=storage_options
+        )
+        if not is_delta:
+            return None
+        dt = await asyncio.to_thread(deltalake.DeltaTable, table_uri=uri, storage_options=storage_options)
+        return await asyncio.to_thread(_table_row_count, dt)
+    except (deltalake.exceptions.DeltaError, FileNotFoundError):
+        return None
+
+
+async def _purge_s3_prefix(s3: Any, uri: str) -> None:
+    """Delete every object under `uri`, resilient to S3 recursive-delete gaps.
+
+    A lone `_rm(uri, recursive=True)` can leave objects behind on S3-compatible stores (directory
+    markers, and — mid-write — partial `_delta_log` files). Strays are corrupting: a later
+    `write_deltalake` append onto a half-cleared temp then sees a malformed table ("No table metadata
+    or protocol found in delta log"), and a swap copy that lands on top of undeleted live files leaves
+    a merged `_delta_log` whose row count is wrong ("swap verification failed: live > expected").
+    Enumerate and delete explicitly first, then a best-effort recursive sweep.
+
+    The dircache is dropped first: delta-rs writes through its own Rust object store, so s3fs's
+    listing cache never learns about those files — a cached listing would leave exactly them behind.
+    """
+    s3.invalidate_cache()
+    if not await s3._exists(uri):
+        return
+    files = await s3._find(uri)
+    if files:
+        await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
+    if await s3._exists(uri):
+        await s3._rm(uri, recursive=True)
+
+
+async def _purge_stale_temp_tables(s3: Any, live_uri: str) -> None:
+    """Delete every `{live_uri}__repartitioned*` temp variant before a fresh rebuild.
+
+    Temp URIs are claim-scoped (`__repartitioned_<token>`), so a superseded or crashed attempt leaves
+    an orphaned temp folder under its own token. Sweeping by name prefix clears them all — including
+    the legacy unsuffixed `__repartitioned` — so orphans never accumulate S3 cost and a stale temp can
+    never be mistaken for (or interleave with) the one this attempt is about to build.
+    """
+    s3.invalidate_cache()
+    parent, _, table_dir = live_uri.rstrip("/").rpartition("/")
+    if not parent or not table_dir:
+        return
+    files = await s3._find(parent, prefix=f"{table_dir}{TEMP_URI_SUFFIX}")
+    if files:
+        await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
+
+
+def _temp_uri_for(live_uri: str, claim_token: str | None) -> str:
+    suffix = f"{TEMP_URI_SUFFIX}_{claim_token[:8]}" if claim_token else TEMP_URI_SUFFIX
+    return f"{live_uri}{suffix}"
+
+
+def _current_claim_token(schema: ExternalDataSchema) -> str | None:
+    schema.refresh_from_db(fields=["sync_type_config"])
+    claim = schema.repartition_claim
+    return claim.get("token") if claim else None
+
+
+async def _ensure_claim(schema: ExternalDataSchema, claim_token: str | None) -> None:
+    """Raise `RepartitionSupersededError` if a newer attempt has claimed the schema.
+
+    Re-reads the schema row (the single, strongly-consistent coordination point — S3 has no locking)
+    and compares tokens. `claim_token=None` means the caller opted out of fencing (tests, ad-hoc use).
+    """
+    if claim_token is None:
+        return
+    current = await asyncio.to_thread(_current_claim_token, schema)
+    if current != claim_token:
+        raise RepartitionSupersededError(
+            f"repartition claim lost (ours={claim_token[:8]} current={str(current)[:8]}) schema_id={schema.id}"
+        )
 
 
 def select_repartition_target(
@@ -187,11 +286,14 @@ async def _rewrite_into_temp(
     target: RepartitionTarget,
     batch_size: int,
     logger: FilteringBoundLogger,
+    ensure_claim: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a fresh temp table under the new partition scheme.
 
     Returns (rows_written, resolved_target). The first batch resolves any auto-detected mode/format/
     keys so every subsequent batch is bucketed identically (a per-batch auto-detect could disagree).
+    `ensure_claim` runs before every batch write so a superseded attempt stops within one batch
+    instead of appending into (and corrupting) the newer attempt's rebuild.
     """
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
     reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
@@ -200,6 +302,8 @@ async def _rewrite_into_temp(
     rows_written = 0
 
     while True:
+        if ensure_claim is not None:
+            await ensure_claim()
         batch = await asyncio.to_thread(_read_next_batch, reader)
         if batch is None:
             break
@@ -257,6 +361,7 @@ async def repartition_table_in_place(
     logger: FilteringBoundLogger,
     *,
     batch_size: int = DEFAULT_REPARTITION_BATCH_SIZE,
+    claim_token: str | None = None,
 ) -> dict[str, Any]:
     """Rewrite the schema's Delta table under `target`'s finer partition scheme, in place, from S3.
 
@@ -264,16 +369,41 @@ async def repartition_table_in_place(
     `repartition_swap` marker (resume re-drives the swap from the intact temp table). On success,
     persists the new partition settings and clears the controller markers. Returns a stats dict for
     observability. Raises `RepartitionUnpartitionableError` (terminal) if no partition mode applies.
+
+    `claim_token` fences out zombie attempts: the temp table is scoped to the token so concurrent
+    writers can never share one, and the claim is re-checked before every batch write and every
+    destructive step (raising `RepartitionSupersededError` when a newer attempt has taken over).
     """
     live_uri = await helper.get_table_uri()
-    temp_uri = f"{live_uri}{TEMP_URI_SUFFIX}"
     storage_options = helper.get_storage_options()
 
-    # Resume path: a prior attempt already built + validated temp and recorded the swap marker.
+    async def ensure_claim() -> None:
+        await _ensure_claim(schema, claim_token)
+
+    # Resume path: a prior attempt already built + validated temp and recorded the swap marker. The
+    # marker's temp_uri is authoritative — it may be scoped to the attempt that built it.
     swap = schema.repartition_swap
     resuming = bool(swap and swap.get("state") == "ready")
+    temp_uri = (swap or {}).get("temp_uri") if resuming else None
+    if not temp_uri:
+        temp_uri = _temp_uri_for(live_uri, claim_token)
 
-    old_delta = await helper.get_delta_table()
+    await ensure_claim()
+
+    try:
+        old_delta = await helper.get_delta_table()
+    except (deltalake.exceptions.DeltaError, FileNotFoundError) as e:
+        # Live's `_delta_log` is unreadable (an OOM-crashed merge or interrupted swap). If a swap was
+        # already staged we can still recover from temp below; otherwise skip and let the import
+        # activity's handle_corrupted_delta_log revive it — don't count this as a repartition failure.
+        if not resuming:
+            await logger.awarning(
+                f"repartition: live table unreadable, skipping (will be revived) schema_id={schema.id}: {e}",
+                schema_id=str(schema.id),
+            )
+            return {"outcome": "skipped", "reason": "live_unreadable"}
+        old_delta = None
+
     if old_delta is None:
         # Live table missing. If a swap was already in progress (temp built + marker recorded), an
         # interrupted prior run may have deleted live *after* recording the marker but before copying
@@ -289,8 +419,9 @@ async def repartition_table_in_place(
                 live_uri=live_uri,
                 storage_options=storage_options,
                 logger=logger,
+                ensure_claim=ensure_claim,
             )
-        await logger.ainfo("repartition: no delta table, skipping", schema_id=str(schema.id))
+        await logger.ainfo(f"repartition: no delta table, skipping schema_id={schema.id}", schema_id=str(schema.id))
         return {"outcome": "skipped", "reason": "no_delta_table"}
 
     partition_bytes = await asyncio.to_thread(measure_partition_bytes, old_delta)
@@ -306,14 +437,29 @@ async def repartition_table_in_place(
     }
 
     if resuming:
-        resolved = target
-        rows_written = old_row_count
-        await logger.ainfo("repartition: resuming from swap marker", schema_id=str(schema.id))
-    else:
-        # Fresh build: clear any stale temp folder, then stream the live table into it.
-        async with aget_s3_client() as s3:
-            if await s3._exists(temp_uri):
-                await s3._rm(temp_uri, recursive=True)
+        # Validate the temp the marker points at is actually complete. An interrupted swap or cleanup can
+        # leave it partial or corrupt; resuming from it would copy a broken table over live and loop
+        # forever. When it's bad, discard it and fall through to a fresh rebuild — live is intact here.
+        temp_rows = await _valid_delta_row_count(temp_uri, storage_options)
+        if temp_rows == old_row_count:
+            resolved = target
+            rows_written = old_row_count
+            await logger.ainfo(f"repartition: resuming from valid temp schema_id={schema.id}", schema_id=str(schema.id))
+        else:
+            await logger.awarning(
+                f"repartition: resume marker points at an invalid temp (rows={temp_rows} "
+                f"expected={old_row_count}), discarding and rebuilding fresh schema_id={schema.id}",
+                schema_id=str(schema.id),
+            )
+            await asyncio.to_thread(schema.clear_repartition_swap)
+            resuming = False
+            # Rebuild under our own claim-scoped temp; the stale one is swept with the orphans below.
+            temp_uri = _temp_uri_for(live_uri, claim_token)
+
+    if not resuming:
+        # Fresh build: sweep every stale/orphaned temp variant, then stream the live table into ours.
+        async with aget_s3_client(fresh_instance=True) as s3:
+            await _purge_stale_temp_tables(s3, live_uri)
 
         rows_written, resolved = await _rewrite_into_temp(
             old_delta=old_delta,
@@ -322,11 +468,11 @@ async def repartition_table_in_place(
             target=target,
             batch_size=batch_size,
             logger=logger,
+            ensure_claim=ensure_claim,
         )
 
         # Validate before any destructive action — temp must hold every row.
-        new_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=temp_uri, storage_options=storage_options)
-        new_row_count = await asyncio.to_thread(_table_row_count, new_delta)
+        new_row_count = await _valid_delta_row_count(temp_uri, storage_options)
         if new_row_count != old_row_count:
             raise ValueError(
                 f"repartition row-count mismatch: temp={new_row_count} live={old_row_count} "
@@ -334,6 +480,7 @@ async def repartition_table_in_place(
             )
 
         # Marker makes the swap idempotent: temp stays the source of truth until it's confirmed live.
+        await ensure_claim()
         await asyncio.to_thread(
             schema.set_repartition_swap, {"state": "ready", "temp_uri": temp_uri, "live_uri": live_uri}
         )
@@ -345,6 +492,7 @@ async def repartition_table_in_place(
         live_uri=live_uri,
         storage_options=storage_options,
         expected_rows=old_row_count,
+        ensure_claim=ensure_claim,
     )
 
     # Persist the new scheme and clear controller state. set_partitioning_enabled saves + pops overrides.
@@ -364,7 +512,11 @@ async def repartition_table_in_place(
     helper.get_delta_table.cache_clear()
 
     await logger.ainfo(
-        "repartition: completed",
+        f"repartition: completed schema_id={schema.id} rows={rows_written} "
+        f"mode={before['partition_mode']}->{resolved.partition_mode} "
+        f"format={before['partition_format']}->{resolved.partition_format} "
+        f"count={before['partition_count']}->{resolved.partition_count} "
+        f"size={before['partition_size']}->{resolved.partition_size}",
         schema_id=str(schema.id),
         rows=rows_written,
         mode=f"{before['partition_mode']}->{resolved.partition_mode}",
@@ -398,6 +550,7 @@ async def _resume_swap_with_missing_live(
     live_uri: str,
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
+    ensure_claim: Callable[[], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     """Finish a swap whose live table was already deleted by an interrupted prior run.
 
@@ -406,23 +559,28 @@ async def _resume_swap_with_missing_live(
     source of truth, so its own row count is the swap's expectation. If temp is *also* gone there is
     nothing left to recover (both folders lost): clear the markers and skip so the next sync rebuilds.
     """
-    async with aget_s3_client() as s3:
-        temp_present = await s3._exists(temp_uri)
-    if not temp_present:
+    expected_rows = await _valid_delta_row_count(temp_uri, storage_options)
+    if expected_rows is None:
+        # Both live and a usable temp are gone (temp missing or its `_delta_log` is corrupt) — nothing
+        # left to recover. Clear the markers and skip so the next sync rebuilds the table from source.
         await asyncio.to_thread(schema.clear_repartition_swap)
         await asyncio.to_thread(schema.clear_repartition_pending)
-        await logger.ainfo("repartition: live and temp both missing, skipping", schema_id=str(schema.id))
+        await logger.ainfo(
+            f"repartition: live missing and temp unrecoverable, skipping schema_id={schema.id}",
+            schema_id=str(schema.id),
+        )
         return {"outcome": "skipped", "reason": "no_delta_table"}
 
-    await logger.ainfo("repartition: live missing mid-swap, resuming from temp", schema_id=str(schema.id))
-    temp_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=temp_uri, storage_options=storage_options)
-    expected_rows = await asyncio.to_thread(_table_row_count, temp_delta)
+    await logger.ainfo(
+        f"repartition: live missing mid-swap, resuming from temp schema_id={schema.id}", schema_id=str(schema.id)
+    )
 
     await _swap_temp_into_live(
         temp_uri=temp_uri,
         live_uri=live_uri,
         storage_options=storage_options,
         expected_rows=expected_rows,
+        ensure_claim=ensure_claim,
     )
 
     await asyncio.to_thread(
@@ -438,7 +596,11 @@ async def _resume_swap_with_missing_live(
     await asyncio.to_thread(schema.stamp_last_repartition_at)
     helper.get_delta_table.cache_clear()
 
-    await logger.ainfo("repartition: recovered from interrupted swap", schema_id=str(schema.id), rows=expected_rows)
+    await logger.ainfo(
+        f"repartition: recovered from interrupted swap schema_id={schema.id} rows={expected_rows}",
+        schema_id=str(schema.id),
+        rows=expected_rows,
+    )
     return {"outcome": "completed", "row_count": expected_rows, "recovered": True}
 
 
@@ -448,6 +610,7 @@ async def _swap_temp_into_live(
     live_uri: str,
     storage_options: dict[str, str],
     expected_rows: int,
+    ensure_claim: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Atomically-enough replace `live_uri` with the contents of `temp_uri`.
 
@@ -458,11 +621,28 @@ async def _swap_temp_into_live(
     Files are copied one at a time preserving their path relative to temp — a single recursive
     `copy(prefix, prefix)` trips over directory-marker objects on S3-compatible stores.
     """
+    # Never destroy live for an incomplete temp: confirm temp is a readable Delta table holding every
+    # expected row before deleting live. A partial/corrupt temp (from an interrupted rewrite or swap)
+    # would otherwise be copied over live and leave both broken. Raising is safe — the caller
+    # re-validates temp on the next run and rebuilds fresh from the still-intact live.
+    temp_rows = await _valid_delta_row_count(temp_uri, storage_options)
+    if temp_rows != expected_rows:
+        raise ValueError(
+            f"repartition swap: refusing to swap, temp is incomplete "
+            f"(rows={temp_rows} expected={expected_rows} temp_uri={temp_uri})"
+        )
+
+    # Deleting live is the point of no return — a superseded attempt must never reach it.
+    if ensure_claim is not None:
+        await ensure_claim()
+
     temp_prefix = temp_uri.replace("s3://", "").rstrip("/")
-    async with aget_s3_client() as s3:
+    async with aget_s3_client(fresh_instance=True) as s3:
         if await s3._exists(temp_uri):
-            if await s3._exists(live_uri):
-                await s3._rm(live_uri, recursive=True)
+            # Fully clear live before the copy. A leftover file from an incomplete recursive delete
+            # merges into the copied `_delta_log` and inflates the row count past `expected_rows`,
+            # tripping the verification below and looping the repartition forever.
+            await _purge_s3_prefix(s3, live_uri)
             files = await s3._find(temp_uri)
             for f in files:
                 rel = f[len(temp_prefix) :]
@@ -474,11 +654,5 @@ async def _swap_temp_into_live(
     if live_rows != expected_rows:
         raise ValueError(f"repartition swap verification failed: live={live_rows} expected={expected_rows}")
 
-    async with aget_s3_client() as s3:
-        # Delete the temp files explicitly (a recursive prefix delete can leave directory-marker
-        # objects behind on some S3-compatible stores), then a best-effort recursive sweep.
-        temp_files = await s3._find(temp_uri)
-        if temp_files:
-            await s3._rm([f"s3://{f.lstrip('/')}" for f in temp_files])
-        if await s3._exists(temp_uri):
-            await s3._rm(temp_uri, recursive=True)
+    async with aget_s3_client(fresh_instance=True) as s3:
+        await _purge_s3_prefix(s3, temp_uri)

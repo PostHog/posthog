@@ -24,6 +24,10 @@ export function funnelConversionRate(count: number, basisCount: number): number 
 export interface FunnelBarHorizontalSegmentMeta {
     isDropOff: boolean
     breakdownIndex: number | null
+    /** Compare mode: the period a segment belongs to. Set on the breakdown + compare aggregate
+     *  drop-off band — its `breakdownIndex` is null (it spans every value of the period), so this
+     *  is what lets a click scope the persons modal to the right period. */
+    compareLabel?: 'current' | 'previous'
 }
 
 /** Series for one step's single-band bar. Each series' `data` has exactly one value. */
@@ -63,7 +67,8 @@ export function buildFunnelBarHorizontalDropOff(
     segments: Series<FunnelBarHorizontalSegmentMeta>[],
     entryLevelPercent: number,
     color: string,
-    breakdownIndex: number | null = null
+    breakdownIndex: number | null = null,
+    compareLabel?: 'current' | 'previous'
 ): Series<FunnelBarHorizontalSegmentMeta> {
     const covered = segments.reduce((sum, s) => sum + (s.data[0] ?? 0), 0)
     return {
@@ -72,7 +77,7 @@ export function buildFunnelBarHorizontalDropOff(
         data: [Math.max(0, entryLevelPercent - covered)],
         color,
         visibility: { tooltip: false },
-        meta: { isDropOff: true, breakdownIndex },
+        meta: { isDropOff: true, breakdownIndex, compareLabel },
         trackData: [entryLevelPercent],
     }
 }

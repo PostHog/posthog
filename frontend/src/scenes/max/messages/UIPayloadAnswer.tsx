@@ -36,6 +36,7 @@ import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 import { isDangerousOperationResponse, normalizeDangerousOperationResponse } from '../approvalOperationUtils'
 import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'
 import { maxLogic } from '../maxLogic'
+import { AnnotatedScreenshotView, parseAnnotatedScreenshot } from './adapters/AnnotatedScreenshotView'
 import { ErrorTrackingFiltersSummary } from './ErrorTrackingFiltersSummary'
 import { ErrorTrackingIssueCard } from './ErrorTrackingIssueCard'
 import { MaxErrorTrackingWidgetLogicProps, maxErrorTrackingWidgetLogic } from './maxErrorTrackingWidgetLogic'
@@ -77,6 +78,21 @@ export function UIPayloadAnswer({
     if (toolName === 'search_error_tracking_issues') {
         const filters = toolPayload as MaxErrorTrackingSearchResponse
         return <ErrorTrackingFiltersWidget toolCallId={toolCallId} filters={filters} embedded={embedded} />
+    }
+    if (toolName === 'summarize_website_interactions') {
+        const data = parseAnnotatedScreenshot((toolPayload as { screenshot?: unknown } | null)?.screenshot)
+        if (!data) {
+            return null
+        }
+        return embedded ? (
+            <div className="overflow-hidden rounded border bg-surface-primary p-2">
+                <AnnotatedScreenshotView data={data} />
+            </div>
+        ) : (
+            <MessageTemplate type="ai" wrapperClassName="w-full">
+                <AnnotatedScreenshotView data={data} />
+            </MessageTemplate>
+        )
     }
 
     // Check if this is a dangerous operation requiring approval

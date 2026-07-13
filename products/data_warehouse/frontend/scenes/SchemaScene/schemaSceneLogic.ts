@@ -163,6 +163,10 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             (s) => [s.schemaData],
             (schemaData): boolean => !!schemaData?.source?.supports_column_selection,
         ],
+        supportsRowFilters: [
+            (s) => [s.schemaData],
+            (schemaData): boolean => !!schemaData?.source?.supports_row_filters,
+        ],
         breadcrumbs: [
             (s) => [s.schemaData, (_, props) => props.sourceId],
             (schemaData, sourceId): Breadcrumb[] => {

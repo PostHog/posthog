@@ -103,6 +103,22 @@ class TestBuildDefaultSchemas:
         )
         assert schemas == [{"name": "discounts", "should_sync": False}]
 
+    def test_default_off_table_left_disabled(self) -> None:
+        # A source marks a table should_sync_default=False when syncing it needs grants beyond
+        # what source creation validated (e.g. GitHub org tables). One-shot setup force-enabling
+        # it would make the first sync fail; it must start disabled like the picker leaves it.
+        schemas = build_default_schemas(
+            [
+                SourceSchema(
+                    name="teams",
+                    supports_incremental=False,
+                    supports_append=False,
+                    should_sync_default=False,
+                )
+            ]
+        )
+        assert schemas == [{"name": "teams", "should_sync": False}]
+
     def test_never_defaults_to_cdc(self) -> None:
         schemas = build_default_schemas(
             [

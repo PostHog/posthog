@@ -71,16 +71,26 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # Matched on the stable permission name (also covers `bigquery.tables.updateData`), not
             # the volatile temp-table id.
             "bigquery.tables.update": "BigQuery denied write access to a temporary table PostHog creates in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account write access (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
-            # Before it can write into the `__posthog_import_...` temp tables, `_run_destination_query_with_job_retry`
-            # (WRITE_TRUNCATE, on incremental / view / row-filtered reads) needs to *create* them in the
-            # dataset they live in. A service account with only read access is denied with "Permission
-            # bigquery.tables.create denied on dataset <id>". Like `bigquery.tables.update` this is a
-            # write-side denial, distinct from the read-side ones the "Access Denied:" key below covers —
-            # and that key would match this message first and misdirect the customer to grant *read* access
-            # (Data Viewer), which can't create a table. Keep this key above "Access Denied:" so the
-            # write-specific guidance wins. Deterministic IAM config problem — retrying can't grant the
-            # permission. Matched on the stable permission name, not the volatile dataset id.
-            "bigquery.tables.create": "BigQuery denied permission to create a temporary table in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account write access (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
+            # Creating the `__posthog_import_...` temp tables (the `WRITE_TRUNCATE` destination in
+            # `_run_destination_query_with_job_retry`, on incremental / view / row-filtered reads) needs
+            # create access on the dataset those tables live in. When the service account only has read
+            # access, BigQuery rejects it with "Permission bigquery.tables.create denied on dataset
+            # <id>" — the create-side twin of the `bigquery.tables.update` denial above. Like that key,
+            # it also starts with "Access Denied:", so it must sit above that key or the customer is told
+            # to grant *read* access (Data Viewer), which can't fix a *create* failure. Deterministic IAM
+            # config problem — retrying can't grant the permission. Matched on the stable permission name,
+            # not the volatile dataset id.
+            "bigquery.tables.create": "BigQuery denied permission to create a temporary table PostHog needs in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account permission to create tables (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
+            # BigQuery rejects query-job creation (POST .../jobs) with "Access Denied: Project <id>:
+            # User does not have bigquery.jobs.create permission in project <id>." when the service
+            # account can read the data but can't run query jobs in the project the jobs bill to. We
+            # create query jobs throughout the sync (primary-key discovery, row counts, temp-table
+            # copies), so this fails before any rows are read. Like the tables.update key above, the
+            # generic "Access Denied:" key would match first and misdirect the customer to grant
+            # *read* access (Data Viewer), which can't grant job creation — so keep this key above it.
+            # Deterministic IAM config problem; retrying can't grant the permission. Matched on the
+            # stable permission name, not the volatile project id.
+            "bigquery.jobs.create": "BigQuery denied your service account permission to run query jobs — it's missing the bigquery.jobs.create permission on the project it queries. Read access alone isn't enough, because PostHog runs query jobs to sync your data. Please grant your service account permission to run jobs (for example the BigQuery Job User role) on that project, then reconnect the source.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's
@@ -166,6 +176,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # rename it back, or remove it from the sync. Matched on the stable "Not found: Table"
             # wording rather than the volatile table id.
             "Not found: Table": "BigQuery couldn't find a table this source is syncing — it was deleted or renamed after the source was set up. Restore or rename the table in BigQuery, or remove it from this source's synced tables, then re-enable the source.",
+            # Raised from `bq_client.get_table(...)` in `_build_source_response` (and other calls) when
+            # the GCP project the source references no longer exists — it was deleted, or the Project ID
+            # in the service account key file (or the configured dataset project) is wrong. The google
+            # exception stringifies as "... Project <id> is not found. Make sure it references valid GCP
+            # project that hasn't been deleted.", which the table/dataset "Not found" keys don't cover, so
+            # it slips through and retries forever. Retrying can't conjure a missing project; the user
+            # must fix the project reference. Matched on the stable guidance wording rather than the
+            # volatile project id that appears earlier in the message.
+            "Make sure it references valid GCP project": "BigQuery couldn't find the Google Cloud project this source references — it may have been deleted, or the Project ID in your service account key file (or the configured dataset project) may be incorrect. Verify the project exists in Google Cloud and correct the project details in your source configuration, then reconnect the source.",
             # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
             # more than the three `project.dataset.table` components. This happens when the
             # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then

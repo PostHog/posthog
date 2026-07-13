@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -93,6 +94,8 @@ describe('customPropertyDefinitionsLogic', () => {
         jest.spyOn(window, 'open').mockReturnValue(null)
     })
 
+    afterEach(resumeKeaLoadersErrors)
+
     it('loads definitions on mount', async () => {
         useMocks(defaultMocks())
         mountLogic()
@@ -116,6 +119,7 @@ describe('customPropertyDefinitionsLogic', () => {
             description: '',
             displayType: 'currency',
             isBigNumber: true,
+            options: [],
             sourceMode: 'data_warehouse',
             savedQuery: 'view-1',
             sourceColumn: 'mrr',
@@ -213,6 +217,21 @@ describe('customPropertyDefinitionsLogic', () => {
             .toMatchValues({ definitions: [] })
     })
 
+    it('treats an already-deleted definition (404) as a successful delete', async () => {
+        silenceKeaLoadersErrors() // the 404 loader failure is the scenario under test
+        useMocks({
+            ...defaultMocks(),
+            delete: { ...defaultMocks().delete, [DEFINITION_URL]: () => [404, { detail: 'Not found.' }] },
+        })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsSuccess'])
+        // A 404 refreshes the table instead of surfacing a failure toast/exception.
+        await expectLogic(logic, () => logic.actions.deleteDefinition({ id: 'def-1' })).toDispatchActions([
+            'deleteDefinitionFailure',
+            'loadDefinitions',
+        ])
+    })
+
     it('exposes the selected view columns for the pickers', async () => {
         useMocks(defaultMocks())
         mountLogic()
@@ -303,6 +322,7 @@ describe('customPropertyDefinitionsLogic', () => {
     })
 
     it('fails the workflow CTA with a field error when the name is missing', async () => {
+        silenceKeaLoadersErrors() // the MissingNameError loader failure is the scenario under test
         useMocks(defaultMocks())
         mountLogic()
         logic.actions.openCreateModal()
