@@ -88,8 +88,9 @@ def _reset_build_state_after_fork() -> None:
     # held (fork only clones the calling thread), deadlocking its first lazy build. Web
     # and celery build eagerly pre-fork so they never hit this; the deliberately-lazy
     # fork points (e.g. dagster's multiprocessing/billiard workers) are the exposed ones.
-    # _walked_schema_nodes must also be cleared: it's keyed by id(), and fork resets the
-    # allocator's id space in the child, so stale entries could alias a live node's id.
+    # _walked_schema_nodes must also be cleared: the walk memoizes a node before pushing
+    # its children, and the walking thread doesn't survive fork — so a child forked
+    # mid-walk would otherwise skip subtrees whose classes were never built.
     global _build_lock
     _build_lock = threading.RLock()
     _currently_building.classes = set()
