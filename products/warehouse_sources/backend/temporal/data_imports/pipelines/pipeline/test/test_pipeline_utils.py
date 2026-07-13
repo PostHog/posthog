@@ -136,10 +136,10 @@ def test_table_from_py_list_inconsistent_types_with_str_and_dict():
     "schema",
     [
         None,
-        pa.schema([("id", pa.int64()), ("data", pa.string())]),
+        pa.schema([pa.field("id", pa.int64()), pa.field("data", pa.string())]),
         # A source may declare a non-string type for a column that arrives as dicts; the
         # serialized column must coerce the schema field to string or from_pydict fails.
-        pa.schema([("id", pa.int64()), ("data", pa.struct([("a", pa.int64())]))]),
+        pa.schema([pa.field("id", pa.int64()), pa.field("data", pa.struct([pa.field("a", pa.int64())]))]),
     ],
 )
 def test_table_from_py_list_dict_column_preserves_original_documents(schema):
