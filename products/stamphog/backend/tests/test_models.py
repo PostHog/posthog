@@ -11,8 +11,12 @@ from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRep
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
 
-def _make_repo_config(team: Team, repository: str = "PostHog/posthog") -> StamphogRepoConfig:
-    return StamphogRepoConfig.objects.unscoped().create(team_id=team.id, repository=repository, installation_id="123")
+def _make_repo_config(
+    team: Team, repository: str = "PostHog/posthog", installation_id: str = "123"
+) -> StamphogRepoConfig:
+    return StamphogRepoConfig.objects.unscoped().create(
+        team_id=team.id, repository=repository, installation_id=installation_id
+    )
 
 
 def _make_pull_request(team: Team, repo_config: StamphogRepoConfig, pr_number: int = 1) -> PullRequest:
@@ -36,9 +40,11 @@ class TestStamphogRepoConfigModel(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def test_same_repository_allowed_across_teams(self) -> None:
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
-        _make_repo_config(self.team, "PostHog/posthog")
-        # Should not raise: uniqueness is scoped per team, not global.
-        _make_repo_config(other_team, "PostHog/posthog")
+        _make_repo_config(self.team, "PostHog/posthog", installation_id="123")
+        # Should not raise: the (team_id, repository) uniqueness is scoped per team, not global.
+        # Each team has its own GitHub App installation, so the (provider, installation_id,
+        # repository) identity stays distinct across teams too.
+        _make_repo_config(other_team, "PostHog/posthog", installation_id="456")
 
     def test_for_team_excludes_other_teams_rows(self) -> None:
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
