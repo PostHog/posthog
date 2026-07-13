@@ -106,6 +106,24 @@ export function facetFilterValues(group: UniversalFiltersGroup | undefined, sour
 }
 
 /**
+ * Values currently selected for any facet — routes the service facet to the dedicated
+ * serviceNames field and everything else to its filterGroup property filter.
+ */
+export function facetSelectedValues(
+    group: UniversalFiltersGroup | undefined,
+    serviceNames: string[] | undefined | null,
+    source: FacetSource
+): string[] {
+    if (source.type === 'column') {
+        if (source.column === 'service_name') {
+            return serviceNames ?? []
+        }
+        return facetFilterValues(group, { type: 'column', column: source.column })
+    }
+    return facetFilterValues(group, source)
+}
+
+/**
  * Add or remove `value` from a facet's filterGroup selection, returning a new filterGroup.
  * Multi-select is one property filter per key with an array value.
  */
@@ -203,5 +221,45 @@ export const FACETS: FacetConfig[] = [
     HOST_FACET,
 ]
 
-// List-shaping helpers for rendering the rail (grouping, name search, merging selected values
-// into fetched options) land with their consumer, the Facet/FacetRail components.
+/**
+ * Filter facets by a free-text query matching the field name or its group (case-insensitive
+ * substring) — powers the rail's "search facets" box. A blank query returns everything, so
+ * `facetsByGroup` then drops any group left with no matching facets for free.
+ */
+export function filterFacetsByName(facets: FacetConfig[], query: string): FacetConfig[] {
+    const needle = query.trim().toLowerCase()
+    if (!needle) {
+        return facets
+    }
+    return facets.filter(
+        (facet) => facet.title.toLowerCase().includes(needle) || facet.group.toLowerCase().includes(needle)
+    )
+}
+
+/**
+ * Ensure every selected value of a dynamic facet renders even when absent from the fetched list —
+ * a filter from a URL or saved view can reference a value with no matches in the current scope
+ * (or one below the top-N cutoff), and without a visible row it can't be seen or toggled off.
+ * Missing values are prepended with a zero count.
+ */
+export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: string[]): FacetOption[] {
+    const fetchedValues = new Set(fetched.map((option) => option.value))
+    const missing = selected
+        .filter((value) => !fetchedValues.has(value))
+        .map((value) => ({ value, label: value, count: 0 }))
+    return missing.length > 0 ? [...missing, ...fetched] : fetched
+}
+
+/** Group facets by `group`, preserving first-appearance order of both groups and facets. */
+export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] {
+    const groups: [string, FacetConfig[]][] = []
+    for (const facet of facets) {
+        const existing = groups.find(([group]) => group === facet.group)
+        if (existing) {
+            existing[1].push(facet)
+        } else {
+            groups.push([facet.group, [facet]])
+        }
+    }
+    return groups
+}
