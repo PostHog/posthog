@@ -98,6 +98,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_partitioned_table,
     _is_read_replica,
     _is_unsupported_function_error,
+    _is_unsupported_statement_timeout_error,
     _next_recovery_conflict_chunk_size,
     _normalize_function_names,
     _pk_uniqueness_probe_timeout_error,
@@ -1464,6 +1465,7 @@ class TestRaiseIfSetupConnectionBroken:
     def test_broken_connection_raises_retryable_dropped_error(self):
         connection = mock.MagicMock()
         connection.broken = True
+        connection._num_transactions = 0
 
         with pytest.raises(psycopg.OperationalError) as exc_info:
             _raise_if_setup_connection_broken(cast(Any, connection))
@@ -1474,11 +1476,27 @@ class TestRaiseIfSetupConnectionBroken:
         message = str(exc_info.value)
         assert not any(key in message for key in PostgresSource().get_non_retryable_errors())
 
+    def test_leaked_transaction_counter_raises_retryable_dropped_error(self):
+        # A drop while psycopg was entering/leaving a probe's transaction() block leaves the
+        # nesting counter incremented without flipping `broken` — the exact state (`INERROR`,
+        # not BAD) that made the exit-commit raise the masked ProgrammingError in production.
+        connection = mock.MagicMock()
+        connection.broken = False
+        connection._num_transactions = 1
+
+        with pytest.raises(psycopg.OperationalError) as exc_info:
+            _raise_if_setup_connection_broken(cast(Any, connection))
+
+        assert _is_connection_dropped_error(exc_info.value) is True
+        message = str(exc_info.value)
+        assert not any(key in message for key in PostgresSource().get_non_retryable_errors())
+
     def test_healthy_connection_is_a_noop(self):
         connection = mock.MagicMock()
         connection.broken = False
+        connection._num_transactions = 0
 
-        # A healthy connection must not raise.
+        # A healthy connection with no leaked transaction nesting must not raise.
         _raise_if_setup_connection_broken(cast(Any, connection))
 
 
@@ -6427,6 +6445,25 @@ class TestIsUnsupportedFunctionError:
         assert _is_unsupported_function_error(error, "row_security_active") is expected
 
 
+class TestIsUnsupportedStatementTimeoutError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (
+                psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported'),
+                True,
+            ),
+            # A wire-compatible engine may surface it as a generic error rather than FeatureNotSupported.
+            (Exception('setting configuration parameter "statement_timeout" not supported'), True),
+            # A genuine timeout cancellation must stay captured/retryable — it isn't an engine limitation.
+            (psycopg.errors.QueryCanceled("canceling statement due to statement timeout"), False),
+            (Exception("connection reset by peer"), False),
+        ],
+    )
+    def test_recognises_unsupported_statement_timeout(self, error, expected):
+        assert _is_unsupported_statement_timeout_error(error) is expected
+
+
 class TestRlsActiveFromConnErrorHandling:
     @staticmethod
     def _conn_raising(exc: Exception):
@@ -6440,6 +6477,20 @@ class TestRlsActiveFromConnErrorHandling:
         # A Postgres-wire engine without `row_security_active` is an expected shape: degrade to no
         # RLS warnings without flooding error tracking.
         conn = self._conn_raising(psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG))
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_unsupported_statement_timeout_error_is_not_captured(self):
+        # A Postgres-wire engine that rejects the best-effort `SET statement_timeout` (CrateDB,
+        # Materialize, etc.) is an expected shape: degrade to no RLS warnings without flooding
+        # error tracking.
+        conn = self._conn_raising(
+            psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
+        )
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:
@@ -6491,6 +6542,22 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_not_called()
+
+    def test_feature_not_supported_after_timeout_guard_is_still_captured(self):
+        # The statement_timeout tolerance is scoped to the SET guard only. A FeatureNotSupported from
+        # a catalog query after it is a genuinely unexpected shape and must still surface, not be
+        # blanket-swallowed.
+        conn = mock.MagicMock()
+        conn.closed = False
+        conn.broken = False
+        cursor = conn.cursor.return_value.__enter__.return_value
+        cursor.execute.side_effect = [None, psycopg.errors.FeatureNotSupported("cannot open cursor on this engine")]
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_called_once()
 
 
 class TestGetRowsInitialConnectRetry:
