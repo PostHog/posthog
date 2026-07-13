@@ -259,6 +259,7 @@ rules:
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
+                              |ChannelFeedMessage
                               |EmailChannel
                               |EvaluationReport
                               |Text
@@ -542,6 +543,7 @@ rules:
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
+                        |ChannelFeedMessage
                         |EmailChannel
                         |EvaluationReport
                         |Text
