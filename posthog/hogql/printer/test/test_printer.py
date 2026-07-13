@@ -50,6 +50,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.hogqlx import convert_tag_to_hx
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
@@ -610,6 +611,20 @@ class TestPrinter(BaseTest):
         else:
             assert "assumeNotNull(" in sql
             assert "toString(" in sql
+
+    def test_type_aware_simplification_stays_off_via_production_default_modifiers(self):
+        # Tripwire for the default flip: this exercises the real default path
+        # (create_default_modifiers_for_team), so turning the simplifier on by default is forced to
+        # be a deliberate, reviewed change that updates this test.
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql = self._select("SELECT assumeNotNull(1) AS a, toString('x') AS b FROM events", context)
+
+        assert "assumeNotNull(" in sql
+        assert "toString(" in sql
 
     def test_hogql_properties(self):
         self.assertEqual(

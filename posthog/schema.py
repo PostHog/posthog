@@ -4994,7 +4994,7 @@ class HogQLQueryModifiers(BaseModel):
         description=(
             "Remove provably redundant casts and nullability wrappers (e.g."
             " `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull`"
-            " fallbacks) using inferred expression types *"
+            " fallbacks) using inferred expression types"
         ),
     )
     useMaterializedViews: bool | None = None
