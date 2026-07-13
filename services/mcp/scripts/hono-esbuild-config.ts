@@ -2,16 +2,18 @@ import type { BuildOptions, Plugin } from 'esbuild'
 // Shared esbuild config for the Hono runtime. `build-hono.ts` runs it once for
 // production; `dev-hono.ts` wraps it in `context().watch()` for the dev loop.
 //
-// Almost no externals: ioredis and every other prod dep is pure-JS (or has a
-// Node-target shim esbuild handles). Bundling everything lets the runtime image
-// ship a single .mjs with no node_modules at all. The exceptions are the
-// code-execution toolchain deps (`typescript`, `esbuild`), which cannot survive
-// inlining: esbuild's JS API locates its binary relative to `__filename` (absent
-// in an ESM bundle, and it refuses to run bundled), and TypeScript's services
-// break under CJS→ESM conversion (`SyntaxTreeCache is not a constructor`) and
-// resolve lib .d.ts files relative to their own module path. Both are imported
-// lazily and only on the dev/test execution path, where node_modules exists;
-// the production Hono image never runs the local executor (spec §3.3/§3.4).
+// Almost no externals: ioredis, sucrase (the script-lowering path — pure JS by
+// design so it inlines into every bundle, spec §4.8), and every other prod dep
+// is pure-JS or has a Node-target shim esbuild handles. Bundling everything
+// lets the runtime image ship a single .mjs with no node_modules at all. The
+// one exception is `typescript`, which the server-side compile gate imports
+// lazily and which cannot survive inlining: its services break under CJS→ESM
+// conversion (`SyntaxTreeCache is not a constructor`) and it resolves lib
+// .d.ts files relative to its own module path. That is fine only because
+// node_modules exists wherever the gate runs (dev server, tests, the server
+// image); the distributed CLI never injects the gate. Keep toolchain packages
+// like it external or off the runtime path entirely — esbuild, for example,
+// refuses to run bundled and would break silently if a src file imported it.
 import { resolve } from 'path'
 
 export const honoOutfile = resolve(process.cwd(), 'dist/hono-server.mjs')
@@ -47,7 +49,7 @@ export function honoEsbuildOptions(opts: HonoEsbuildOptions = {}): BuildOptions 
         format: 'esm',
         outfile: opts.outfile ?? honoOutfile,
         sourcemap: opts.sourcemap ?? true,
-        external: ['typescript', 'esbuild'],
+        external: ['typescript'],
         plugins: [cfWorkersStub, ...(opts.extraPlugins ?? [])],
         loader: { '.html': 'text', '.md': 'text', '.json': 'json' },
         define: { 'process.env.NODE_ENV': opts.dev ? '"development"' : '"production"' },

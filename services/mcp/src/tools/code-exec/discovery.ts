@@ -62,6 +62,8 @@ const FETCH_HINT =
 
 export interface Discovery {
     resolve(input: string, sessionScopes: string[]): string
+    /** Reverse mapping (MCP tool name → SDK method id); `null` for tools with no SDK counterpart. */
+    methodIdForTool(toolName: string): string | null
 }
 
 /** Annotate a signature with the session's scope standing, e.g. `[requires feature_flag:write ✓]`. */
@@ -116,6 +118,13 @@ export function createDiscovery(index: DiscoveryIndex): Discovery {
     const methodsById = new Map<string, DiscoveryMethod>()
     for (const method of index.methods) {
         methodsById.set(method.id.toLowerCase(), method)
+    }
+    // First mapping wins: a tool backing several SDK methods keeps a stable answer.
+    const methodIdByToolName = new Map<string, string>()
+    for (const method of index.methods) {
+        if (method.toolName && !methodIdByToolName.has(method.toolName)) {
+            methodIdByToolName.set(method.toolName, method.id)
+        }
     }
 
     const resolveExact = (token: string): ResolvedTarget | null => {
@@ -227,12 +236,16 @@ export function createDiscovery(index: DiscoveryIndex): Discovery {
         // The compiled regex carries no `g`/`y` flag, so it is stateless and
         // safe to reuse across candidates.
         const matcher = buildMatcher(query)
+        // `toolName` keeps legacy MCP tool names resolving (spec §4.3): agents
+        // carry them in from skills, playbooks, and prior sessions, and under
+        // code-first `search <legacy name>` aliases into this matcher.
         const methodMatches = index.methods.filter(
             (method) =>
                 matcher(method.id) ||
                 matcher(method.signature) ||
                 matcher(method.title) ||
                 matcher(method.description) ||
+                (method.toolName !== null && matcher(method.toolName)) ||
                 method.referencedTypes.some(matcher)
         )
         const typeMatches = index.types.filter((type) => matcher(type.name)).map((type) => type.name)
@@ -274,6 +287,9 @@ export function createDiscovery(index: DiscoveryIndex): Discovery {
     }
 
     return {
+        methodIdForTool(toolName) {
+            return methodIdByToolName.get(toolName) ?? null
+        },
         resolve(input, sessionScopes) {
             const trimmed = input.trim()
             // Compatibility with the retired `types show <targets>` sub-verb.
@@ -309,4 +325,16 @@ export async function getGeneratedDiscoveryIndex(): Promise<DiscoveryIndex> {
         generatedIndex = module.default as unknown as DiscoveryIndex
     }
     return generatedIndex
+}
+
+let generatedDiscovery: Discovery | null = null
+
+/**
+ * Process-level `Discovery` over the generated index. The lookup maps are
+ * built once per process, not per request — `resolve` takes the session scopes
+ * per call, so a single instance serves every session.
+ */
+export async function getGeneratedDiscovery(): Promise<Discovery> {
+    generatedDiscovery ??= createDiscovery(await getGeneratedDiscoveryIndex())
+    return generatedDiscovery
 }

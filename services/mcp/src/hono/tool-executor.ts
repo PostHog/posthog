@@ -7,13 +7,7 @@ import {
     isToolCallPayload,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
-import {
-    type ClassifierTable,
-    MemoryPlanStore,
-    type PlanStore,
-    RedisPlanStore,
-    createPlanTokenCodec,
-} from '@/lib/code-exec'
+import { type ClassifierTable, MemoryPlanStore, type PlanStore, RedisPlanStore } from '@/lib/code-exec'
 import {
     handleToolError,
     MissingOrganizationContextError,
@@ -26,11 +20,23 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
-import { loadSigningKeyFromEnv, NonceLedger, type SignedStateCodec } from '@/lib/signed-state'
-import { CODE_EXECUTION_FEATURE_FLAG } from '@/tools/code-exec/constants'
+import { checkScript } from '@/tools/code-exec/compile-gate'
+import { CODE_EXECUTION_FEATURE_FLAG, CODE_FIRST_FEATURE_FLAG } from '@/tools/code-exec/constants'
 import { LocalVmExecutor, type SandboxExecutor } from '@/tools/code-exec/executor'
-import { type CodeExecutionRuntime, createCodeExecutionRuntime } from '@/tools/code-exec/runtime'
-import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
+import {
+    type CodeExecutionDiscovery,
+    type CodeExecutionRuntime,
+    createCodeExecutionDiscovery,
+    createCodeExecutionRuntime,
+    type InnerToolDispatcher,
+} from '@/tools/code-exec/runtime'
+import {
+    createExecTool,
+    dispatchInnerTool,
+    formatInputValidationError,
+    type ExecInnerCallTracker,
+    type ExecVerbTracker,
+} from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
@@ -52,25 +58,31 @@ interface ResolvedTool {
 
 interface ExecMetricState {
     innerToolName: string | undefined
+    /** Verb-dimension analytics (spec §4.6 Phase 0), accumulated via the `trackVerb` seam. */
+    verb?: string
+    runStatus?: string
+    planMutations?: number
+    fastPath?: boolean
+    deprecatedVerb?: boolean
 }
 
 /**
- * Process-level dependencies of the code-execution verbs — the codec, plan
- * store, nonce ledger, and executor are all request-independent, so they are
- * built once and reused across `exec` calls.
+ * Process-level dependencies of the code-execution verbs — the plan store and
+ * executor are request-independent, so they are built once and reused across
+ * `exec` calls. The executor is `null` where scripts cannot run (production
+ * until the Modal pool, spec §3.3): the runtime still serves the no-sandbox
+ * fast path there (spec §4.2).
  */
 interface CodeExecutionSharedParts {
-    codec: SignedStateCodec
     planStore: PlanStore
-    nonceLedger: NonceLedger | null
-    executor: SandboxExecutor
+    executor: SandboxExecutor | null
 }
 
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
     private readonly redis: RedisLike | undefined
-    private codeExecutionParts: CodeExecutionSharedParts | null | undefined
+    private codeExecutionParts: CodeExecutionSharedParts | undefined
 
     constructor(catalog: ToolCatalog, instructionsBuilder: InstructionsBuilder, redis?: RedisLike) {
         this.catalog = catalog
@@ -351,6 +363,7 @@ export class ToolExecutor {
                 {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
+                    ...execVerbAnalyticsProperties(execMetrics),
                 },
                 intentMeta
             )
@@ -368,7 +381,7 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification),
+                { ...errorAnalyticsProperties(classification), ...execVerbAnalyticsProperties(execMetrics) },
                 intentMeta
             )
 
@@ -417,6 +430,11 @@ export class ToolExecutor {
                 )
             }
         }
+        // Accumulate verb-dimension updates onto the shared metric state so both
+        // trackToolCall paths (success and error) can stamp `$mcp_exec_*` properties.
+        const trackVerb: ExecVerbTracker = (update) => {
+            Object.assign(execMetrics, update)
+        }
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 
         // CLI `info execute-sql` returns the tool's static description from the catalog.
@@ -431,77 +449,128 @@ export class ToolExecutor {
                 : tool
         )
 
+        // Fast-path seam (spec §4.2): call-shaped `run` scripts dispatch through
+        // the same pipeline as `call`, so attribution, UI payloads, and output
+        // formatting stay byte-identical.
+        const toolDispatcher: InnerToolDispatcher = {
+            canDispatch: (toolName, input) => {
+                const tool = execTools.find((t) => t.name === toolName)
+                return tool !== undefined && tool.schema.safeParse(input).success
+            },
+            dispatch: async (toolName, input, opts) => {
+                const tool = execTools.find((t) => t.name === toolName)
+                if (!tool) {
+                    throw new Error(`Tool "${toolName}" is not available in this session`)
+                }
+                return dispatchInnerTool({
+                    tool,
+                    context: state.context,
+                    input,
+                    mcpConsumer: clientContext.mcpConsumer,
+                    isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                    trackInnerCall,
+                    suppressUiPayload: opts?.suppressUiPayload,
+                })
+            },
+        }
+
         const execTool = createExecTool(
             execTools,
             state.context,
-            this.instructionsBuilder.buildExecToolDescription(),
+            this.instructionsBuilder.buildExecToolDescription(state),
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
-                codeExecution: this.resolveCodeExecutionRuntime(state),
+                codeExecutionDiscovery: this.resolveCodeExecutionDiscovery(state),
+                codeExecutionRuntime: this.resolveCodeExecutionRuntime(state, toolDispatcher),
+                codeFirst: state.toolFeatureFlags?.[CODE_FIRST_FEATURE_FLAG] === true,
+                trackVerb,
             }
         )
 
         return {
             name: 'exec',
             schema: execTool.schema,
-            handler: (ctx, args) => execTool.handler(ctx, args as { command: string }),
+            handler: (ctx, args) => execTool.handler(ctx, args as { command: string; script?: string }),
             _meta: execTool._meta,
         }
     }
 
     /**
-     * Build the code-execution runtime for this request, or `undefined` when
-     * the `mcp-code-execution` flag is off or the process can't support it
-     * (missing signing key, or a non-dev/test environment where the local VM
-     * executor refuses to run — the production substrate is the Modal sandbox
-     * pool, a follow-up). Absence simply hides the verbs.
+     * The static-artifact half of the code-execution surface (spec §4.4):
+     * `types` and the code-first aliases read only the generated discovery
+     * index, so they are gated on the flag alone — never on whether this
+     * process can execute scripts.
      */
-    private resolveCodeExecutionRuntime(state: ResolvedState): CodeExecutionRuntime | undefined {
+    private resolveCodeExecutionDiscovery(state: ResolvedState): CodeExecutionDiscovery | undefined {
+        if (state.toolFeatureFlags?.[CODE_EXECUTION_FEATURE_FLAG] !== true) {
+            return undefined
+        }
+        return createCodeExecutionDiscovery({ sessionScopes: state.apiKeyScopes })
+    }
+
+    /**
+     * Build the stateful code-execution runtime (`run`/`apply`) for this
+     * request, or `undefined` when the `mcp-code-execution` flag is off. The
+     * runtime is wired even where scripts can't execute (production until the
+     * Modal sandbox pool, spec §3.3) — call-shaped scripts dispatch through
+     * the no-sandbox fast path there, and everything else gets a targeted
+     * sandbox-unavailable answer (spec §4.2).
+     */
+    private resolveCodeExecutionRuntime(
+        state: ResolvedState,
+        toolDispatcher: InnerToolDispatcher
+    ): CodeExecutionRuntime | undefined {
         if (state.toolFeatureFlags?.[CODE_EXECUTION_FEATURE_FLAG] !== true) {
             return undefined
         }
         const parts = this.getCodeExecutionParts()
-        if (!parts) {
-            return undefined
-        }
         return createCodeExecutionRuntime({
             realFetch: (input, init) => state.context.api.fetchRaw(input, init),
             // Same identity `confirmed_action` binds its tokens to.
             getSub: () => state.context.getDistinctId(),
-            codec: parts.codec,
+            // Session project/org, exactly as the tool handlers resolve them —
+            // keeps the sandbox and fast-path stacks on one target project and
+            // pins plans to the project the user confirms.
+            getProjectId: () => state.context.stateManager.getProjectId(),
+            getOrgId: () => state.context.stateManager.getOrgID(),
             planStore: parts.planStore,
-            nonceLedger: parts.nonceLedger,
-            sessionScopes: state.apiKeyScopes,
-            executor: parts.executor,
+            ...(parts.executor ? { executor: parts.executor } : {}),
+            // The server always injects the real typecheck gate — `typescript`
+            // is bundle-external here and node_modules exists on the image.
+            compileGate: { check: checkScript },
+            toolDispatcher,
             // The generated artifact matches `ClassifierTable` field-for-field, but
             // JSON import inference widens the `idFields[].type` literals to string.
             classifierTable: classifierTableJson as unknown as ClassifierTable,
         })
     }
 
-    private getCodeExecutionParts(): CodeExecutionSharedParts | null {
-        if (this.codeExecutionParts !== undefined) {
-            return this.codeExecutionParts
-        }
-        try {
+    private getCodeExecutionParts(): CodeExecutionSharedParts {
+        if (this.codeExecutionParts === undefined) {
             this.codeExecutionParts = {
-                codec: createPlanTokenCodec(loadSigningKeyFromEnv()),
-                // Without Redis this falls back to process memory: plans and nonce
-                // burns don't survive a restart and don't replicate — single-replica
-                // (local dev / tests) only.
+                // Without Redis this falls back to process memory: plans (and their
+                // consumed tombstones) don't survive a restart and don't replicate —
+                // single-replica (local dev / tests) only.
                 planStore: this.redis ? new RedisPlanStore(this.redis) : new MemoryPlanStore(),
-                nonceLedger: this.redis ? new NonceLedger(this.redis) : null,
-                executor: new LocalVmExecutor(),
+                executor: this.buildExecutor(),
             }
-        } catch (err) {
-            console.error(`[mcp] code execution disabled — ${(err as Error).message}`)
-            this.codeExecutionParts = null
         }
         return this.codeExecutionParts
+    }
+
+    private buildExecutor(): SandboxExecutor | null {
+        try {
+            return new LocalVmExecutor()
+        } catch (err) {
+            console.error(
+                `[mcp] no sandbox executor here — run/apply limited to the fast path (single-call scripts) — ${(err as Error).message}`
+            )
+            return null
+        }
     }
 
     private async callRenderUiTool(
@@ -620,5 +689,21 @@ function errorAnalyticsProperties(classification: ToolErrorClassification): Reco
     return {
         $mcp_error_type: classification.errorType,
         ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
+    }
+}
+
+/**
+ * Verb-dimension properties for the exec `$mcp_tool_call` event (spec §4.6
+ * Phase 0): which verb dispatched, the structured run/apply outcome, plan
+ * mutation count, and the fast-path flag. Every field is conditional — a
+ * request that never reached the exec handler (schema rejection) stamps none.
+ */
+function execVerbAnalyticsProperties(metrics: ExecMetricState): Record<string, unknown> {
+    return {
+        ...(metrics.verb !== undefined ? { $mcp_exec_verb: metrics.verb } : {}),
+        ...(metrics.runStatus !== undefined ? { $mcp_exec_run_status: metrics.runStatus } : {}),
+        ...(metrics.planMutations !== undefined ? { $mcp_exec_plan_mutations: metrics.planMutations } : {}),
+        ...(metrics.fastPath !== undefined ? { $mcp_exec_fast_path: metrics.fastPath } : {}),
+        ...(metrics.deprecatedVerb !== undefined ? { $mcp_exec_deprecated_verb: metrics.deprecatedVerb } : {}),
     }
 }

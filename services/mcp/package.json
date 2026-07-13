@@ -64,6 +64,7 @@
         "prosemirror-collab": "^1.3.1",
         "prosemirror-model": "^1.25.2",
         "prosemirror-transform": "^1.10.4",
+        "sucrase": "^3.35.1",
         "typescript": "catalog:",
         "uuid": "^11.1.1",
         "yaml": "^2.9.0",

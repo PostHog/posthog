@@ -99,6 +99,19 @@ export const FIXTURE_TABLE: ClassifierTable = {
             scopes: ['query:read'],
             idFields: [],
         },
+        {
+            id: 'dashboards.delete',
+            method: 'DELETE',
+            pathTemplate: '/api/projects/{project_id}/dashboards/{id}/',
+            pathAliases: [],
+            readOnly: false,
+            destructive: true,
+            softDelete: false,
+            objectType: 'dashboard',
+            displayNameFields: ['name'],
+            scopes: ['dashboard:write'],
+            idFields: [{ name: 'id', type: 'number' }],
+        },
     ],
 }
 

@@ -1,23 +1,31 @@
 /**
- * Sandbox executor seam for the code-execution verbs, plus the local dev/test
+ * Sandbox executor seam for the code-execution verbs, plus the local
  * implementation. `LocalVmExecutor` runs the agent script in a `node:vm`
  * context whose only importable module is a preconfigured `@posthog/sdk` bound
  * to the plan/enforce transport fetch — scripts can never escape the transport,
  * because `createClient` is wrapped to force-override `fetch`, `host`, and
  * `apiKey` no matter what the script passes.
  *
- * `node:vm` is NOT a security boundary; this executor exists for development
- * and tests only and refuses to construct anywhere else (spec §3.3/§3.4 — the
- * production substrate is the Modal sandbox pool, a follow-up).
+ * Scripts are lowered with sucrase (pure JS, inlined into every bundle — the
+ * distributed CLI has no node_modules, so the toolchain cannot be
+ * bundle-external; spec §4.8), with the CJS output wrapped in one async IIFE
+ * so top-level await works against the vm `module`/`exports`/`require` shim.
+ *
+ * `node:vm` is NOT a security boundary; this executor refuses to construct
+ * outside development/test unless `trustedLocal` is set — the explicit CLI
+ * opt-in for the user's own machine (spec §4.8). The hosted production
+ * substrate is the Modal sandbox pool, a follow-up (spec §3.3/§3.4).
  */
 
 import vm from 'node:vm'
+import { transform } from 'sucrase'
 
 import * as sdk from '@posthog/sdk'
 import type { CreateClientOptions } from '@posthog/sdk'
 
 import type { FetchLike } from '@/lib/code-exec'
-import { env } from '@/lib/env'
+
+import { localVmExecutionSupported } from './availability'
 
 export interface SandboxExecutionRequest {
     /** Original TypeScript source (compiled here when `compiledJs` is absent). */
@@ -27,6 +35,15 @@ export interface SandboxExecutionRequest {
     /** Transport every SDK call must flow through (plan or enforce mode). */
     transportFetch: FetchLike
     timeoutMs: number
+    /**
+     * Session-scoped default project/org for the sandboxed client. Without
+     * them the SDK falls back to `GET /api/users/@me/` (the user's web current
+     * team), which can diverge from the MCP session's active project — the
+     * same script would then target different projects depending on whether it
+     * fast-paths (tool handlers read session state) or sandboxes.
+     */
+    projectId?: string
+    organizationId?: string
 }
 
 export interface SandboxExecutionResult {
@@ -43,7 +60,7 @@ export interface SandboxExecutor {
 export class SandboxUnavailableError extends Error {
     constructor() {
         super(
-            'The local VM executor is development/test-only — production code execution requires the Modal sandbox pool (not wired up yet).'
+            'The local VM executor only runs in development/test or with an explicit trusted-local opt-in — hosted production code execution requires the Modal sandbox pool (not wired up yet).'
         )
         this.name = 'SandboxUnavailableError'
     }
@@ -55,88 +72,6 @@ const SANDBOX_HOST = 'https://sandbox.invalid'
 
 /** Cap on captured console output so a logging loop cannot flood the response. */
 const MAX_CONSOLE_CHARS = 20_000
-
-/**
- * Rewrite the agent's ES module into a CJS-shaped script:
- *
- *   - `import` declarations become `require(...)` destructurings (served only
- *     by the sandbox's require shim);
- *   - `export default <expr>` becomes `module.exports.default = <expr>`;
- *   - everything else — including top-level `await` — is wrapped in one async
- *     IIFE stored on `module.exports.__run`, awaited by the executor.
- *
- * This is what makes top-level await work: esbuild refuses to emit CJS from a
- * module with top-level await, so the module syntax is lowered here (via the
- * TypeScript AST, statement text preserved verbatim) before esbuild only has
- * to strip types.
- */
-export async function rewriteModuleToCjs(source: string): Promise<string> {
-    // Lazy for the same reason as the compile gate: typescript is heavy and
-    // only the code-execution path needs it.
-    const ts = (await import('typescript')).default
-    const sourceFile = ts.createSourceFile('script.ts', source, ts.ScriptTarget.ES2022, true)
-
-    const requires: string[] = []
-    const body: string[] = []
-
-    for (const statement of sourceFile.statements) {
-        if (ts.isImportDeclaration(statement)) {
-            if (!ts.isStringLiteral(statement.moduleSpecifier)) {
-                continue
-            }
-            const specifier = JSON.stringify(statement.moduleSpecifier.text)
-            const clause = statement.importClause
-            if (!clause || clause.isTypeOnly) {
-                continue
-            }
-            if (clause.name) {
-                requires.push(`const ${clause.name.text} = require(${specifier}).default;`)
-            }
-            if (clause.namedBindings) {
-                if (ts.isNamespaceImport(clause.namedBindings)) {
-                    requires.push(`const ${clause.namedBindings.name.text} = require(${specifier});`)
-                } else {
-                    const named = clause.namedBindings.elements
-                        .filter((element) => !element.isTypeOnly)
-                        .map((element) =>
-                            element.propertyName
-                                ? `${element.propertyName.text}: ${element.name.text}`
-                                : element.name.text
-                        )
-                    if (named.length > 0) {
-                        requires.push(`const { ${named.join(', ')} } = require(${specifier});`)
-                    }
-                }
-            }
-            continue
-        }
-
-        if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
-            body.push(`module.exports.default = ${statement.expression.getText(sourceFile)};`)
-            continue
-        }
-
-        const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined
-        const hasExport = modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) === true
-        const hasDefault = modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) === true
-        const statementText = source.slice(statement.getStart(sourceFile), statement.end)
-
-        if (hasExport && hasDefault) {
-            // `export default function f() {}` / `export default class C {}` —
-            // stripping the modifiers leaves a valid function/class expression.
-            body.push(`module.exports.default = ${statementText.replace(/^export\s+default\s+/, '')};`)
-            continue
-        }
-        if (hasExport) {
-            // Named exports carry no contract; keep the declaration, drop the keyword.
-            body.push(statementText.replace(/^export\s+/, ''))
-            continue
-        }
-        body.push(statementText)
-    }
-
-    return `${requires.join('\n')}\nmodule.exports.__run = (async () => {\n${body.join('\n')}\n})();`
-}
 
 /**
  * Extract an error message across realms: an `Error` thrown inside the vm
@@ -197,11 +132,20 @@ function createCapturedConsole(lines: string[]): Pick<Console, 'log' | 'info' | 
     }
 }
 
+export interface LocalVmExecutorOptions {
+    /**
+     * Explicit opt-in for the user's own machine (spec §4.8): only the CLI
+     * entrypoint may set it — never derive it from env, or the production
+     * server could accidentally unlock local execution.
+     */
+    trustedLocal?: boolean
+}
+
 export class LocalVmExecutor implements SandboxExecutor {
-    constructor() {
-        // Fail-closed allowlist, mirroring `resolveFeatureFlagOverrides`: an
-        // unset NODE_ENV must not unlock local execution.
-        if (env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test') {
+    constructor(options: LocalVmExecutorOptions = {}) {
+        // Shared probe (`availability.ts`) so the instructions builder and this
+        // fail-closed check can never disagree about where scripts may run.
+        if (!options.trustedLocal && !localVmExecutionSupported()) {
             throw new SandboxUnavailableError()
         }
     }
@@ -209,12 +153,16 @@ export class LocalVmExecutor implements SandboxExecutor {
     async execute(request: SandboxExecutionRequest): Promise<SandboxExecutionResult> {
         const consoleOutput: string[] = []
         try {
-            const compiledJs = request.compiledJs ?? (await this.compile(request.source))
+            const compiledJs = request.compiledJs ?? this.compile(request.source)
 
             // `createClient` force-overrides transport/host/key so a script that
             // passes its own `fetch` or `host` still cannot leave the transport.
+            // The session project/org ride along as defaults (a script may still
+            // scope a call explicitly) so implicit scoping matches the fast path.
             const createClient = (options: CreateClientOptions = {}): sdk.PostHogClient =>
                 sdk.createClient({
+                    ...(request.projectId !== undefined ? { projectId: request.projectId } : {}),
+                    ...(request.organizationId !== undefined ? { organizationId: request.organizationId } : {}),
                     ...options,
                     apiKey: SANDBOX_API_KEY,
                     host: SANDBOX_HOST,
@@ -264,15 +212,16 @@ export class LocalVmExecutor implements SandboxExecutor {
         }
     }
 
-    private async compile(source: string): Promise<string> {
-        const cjsShaped = await rewriteModuleToCjs(source)
-        // Lazy like `typescript` above: esbuild is external to the Hono bundle
-        // (its API locates the binary via __filename, so it cannot be inlined)
-        // and only the dev/test execution path may load it.
-        const { transform } = await import('esbuild')
-        // Only type stripping remains — the module syntax is already lowered.
-        const result = await transform(cjsShaped, { loader: 'ts', format: 'cjs', target: 'es2022' })
-        return result.code
+    /**
+     * Lower TS + ES module syntax to CJS served by the require shim, then wrap
+     * everything in one async IIFE on `module.exports.__run` — `execute` awaits
+     * it before reading `exports.default`, which is what makes top-level await
+     * work in a CJS-shaped script. `disableESTransforms` keeps modern syntax
+     * (optional chaining, class fields) verbatim — the runtime is node ≥ 22.
+     */
+    private compile(source: string): string {
+        const { code } = transform(source, { transforms: ['typescript', 'imports'], disableESTransforms: true })
+        return `module.exports.__run = (async () => {\n${code}\n})();`
     }
 
     private async withTimeout(promise: Promise<unknown>, timeoutMs: number): Promise<void> {

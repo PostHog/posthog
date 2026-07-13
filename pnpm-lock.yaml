@@ -4755,6 +4755,9 @@ importers:
       prosemirror-transform:
         specifier: ^1.10.4
         version: 1.10.4
+      sucrase:
+        specifier: ^3.35.1
+        version: 3.35.1
       typescript:
         specifier: 6.0.3
         version: 6.0.3

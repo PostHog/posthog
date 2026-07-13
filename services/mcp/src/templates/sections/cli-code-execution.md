@@ -1,16 +1,10 @@
-### Code execution (`types` / `run` / `apply`)
-
-For multi-step workflows (read → filter → mutate many objects), write one TypeScript script against `@posthog/sdk` instead of many `call` round trips.
+### Script execution (`run` / `apply`)
 
 ```text
-types <query>                                    # search SDK methods and types (regex or substring); signatures are scope-annotated for this token
-types <TypeName... | domain.method | domain>     # exact names (space-separated for several) return full TS declarations; references come back as fetch hints
-run <typescript source>                          # compile-check, then execute the script
-apply <plan token>                               # apply a previously returned plan after the user confirms
+run <typescript source>   # compile-check, then execute
+apply <plan-id>           # apply a confirmed plan
 ```
 
-`types` picks its mode by exactness: if every token names an exact symbol you get those declarations and nothing more; anything else is a search. Output is char-capped — truncations name the exact follow-up `types` call, so never guess a cut-off declaration.
+Script contract: `import { client } from '@posthog/sdk'` (the only import), top-level `await` is fine, `export default` the result. Get signatures from `types` first — never guess. A single SDK call with literal args skips the sandbox and returns the tool's formatted output; other scripts see full API objects.
 
-Script contract: `import { client } from '@posthog/sdk'`, top-level `await` is fine, and the script must `export default` the value to return. Only `@posthog/sdk` can be imported. Discover the exact method signatures with `types` first — do not guess them.
-
-Plan/apply contract: a read-only script returns its output immediately. A script that attempts mutations does NOT apply them — it returns a plan (the exact set of changes), a provisional output, and a single-use plan token (10 minute expiry). Show the plan to the user and only after their explicit confirmation run `apply <token>`. If the apply reports divergence ("the world changed") or the token expired, re-run the script to get a fresh plan — never retry `apply` blindly.
+A mutating script applies nothing: it returns a plan and a single-use plan id (three words, 10-minute expiry). Show the plan to the user; only after their explicit confirmation run `apply <plan-id>`. On divergence ("the world changed") or expiry, re-run the script for a fresh plan — never retry `apply` blindly.

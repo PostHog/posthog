@@ -7,7 +7,8 @@ import { ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
-import type { CodeExecutionRuntime } from './code-exec/runtime'
+import type { CodeExecutionDiscovery, CodeExecutionRuntime, ExecApplyStatus, ExecRunStatus } from './code-exec/runtime'
+import { EXECUTE_SQL_TOOL_NAME } from './posthogAiTools/executeSql'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
@@ -27,7 +28,7 @@ const MAX_SEARCH_PATTERN_LENGTH = 400
  *  "create"; cap the returned names so a vague query can't dump the catalog. */
 const MAX_RANKED_SEARCH_RESULTS = 25
 
-type ExecSchema = ReturnType<typeof makeExecSchema>
+export type ExecSchema = ReturnType<typeof makeExecSchema>
 
 export interface ExecInnerCallProperties {
     duration_ms: number
@@ -47,6 +48,23 @@ export interface ExecInnerCallProperties {
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
+/**
+ * Verb-dimension analytics update (spec §4.6 Phase 0): the dispatcher reports
+ * the verb as soon as it parses, then run/apply add their structured outcome.
+ * Consumers accumulate updates and stamp them onto the `$mcp_tool_call` event
+ * as `$mcp_exec_*` properties.
+ */
+export interface ExecVerbMetaUpdate {
+    verb?: string
+    runStatus?: ExecRunStatus | ExecApplyStatus
+    planMutations?: number
+    fastPath?: boolean
+    /** True exactly when a legacy verb dispatched under the active code-first surface. */
+    deprecatedVerb?: boolean
+}
+
+export type ExecVerbTracker = (update: ExecVerbMetaUpdate) => void
+
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     /**
@@ -57,23 +75,105 @@ export interface ExecToolOptions {
      */
     isInlineExecUiHost?: boolean
     /**
-     * Code-execution runtime backing the `run` / `apply` / `types` verbs.
-     * Wired only when the `mcp-code-execution` flag is on; when absent the
-     * dispatcher behaves exactly as before (the verbs read as unknown commands).
+     * Static-artifact half of the code-execution surface (spec §4.4), backing
+     * `types`, the code-first aliases, and the `sql` gate. Wired whenever the
+     * `mcp-code-execution` flag is on — it needs only the generated discovery
+     * index, never an executor. Absent (flag off), the verbs read as unknown
+     * commands, exactly as before.
      */
-    codeExecution?: CodeExecutionRuntime
+    codeExecutionDiscovery?: CodeExecutionDiscovery
+    /**
+     * Stateful half (`run` / `apply`), wired wherever the flag is on — even
+     * without a sandbox executor it serves call-shaped scripts through the
+     * fast path (spec §4.2). When absent (discovery-only sessions, e.g. the
+     * keyless CLI catalog) both verbs stay unknown commands and the advertised
+     * roster carries the discovery-only subset instead of failing midway
+     * (spec §4.4).
+     */
+    codeExecutionRuntime?: CodeExecutionRuntime
+    /**
+     * Code-first surface (the `mcp-code-first` flag, spec §4.3): legacy verbs go
+     * hidden with deprecation footers and `info`/`schema`/`search` alias to the
+     * `types` renderings. Inert unless `codeExecutionDiscovery` is wired (the
+     * aliases resolve through the discovery index) AND the runtime can execute
+     * scripts — the same conjunction that selects the code-first instruction
+     * arm, so dispatch behavior and served instructions can never disagree
+     * (a footer steering to `run <multi-line script>` on a fast-path-only
+     * server would recommend scripts that server rejects).
+     */
+    codeFirst?: boolean
+    /** Verb-dimension analytics sink (spec §4.6 Phase 0); absent means no verb tracking. */
+    trackVerb?: ExecVerbTracker
 }
 
-function unknownCommandError(verb: string, codeExecutionEnabled: boolean): Error {
-    const verbs = codeExecutionEnabled
-        ? 'tools, search, info, schema, call, types, run, apply'
-        : 'tools, search, info, schema, call'
-    return new Error(`Unknown command: "${verb}". Supported commands: ${verbs}`)
+/**
+ * Closed verb allowlist for `$mcp_exec_verb`. The raw verb is agent-controlled
+ * input — normalizing anything else to `unknown` keeps the event property's
+ * cardinality bounded.
+ */
+const EXEC_VERBS = new Set(['tools', 'search', 'info', 'schema', 'call', 'types', 'run', 'apply', 'sql'])
+
+/** The pre-code-exec verbs that become a hidden compatibility layer under code-first (spec §4.3). */
+const LEGACY_VERBS = new Set(['tools', 'search', 'info', 'schema', 'call'])
+
+/** Footer for legacy discovery verbs whose modern equivalent is `types` (spec §4.3). */
+const TYPES_DEPRECATION_FOOTER =
+    'Deprecated command — use `types <query | TypeName | domain.method | domain>` for SDK discovery instead.'
+
+function normalizeExecVerb(verb: string): string {
+    return EXEC_VERBS.has(verb) ? verb : 'unknown'
 }
 
-function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
+/**
+ * Normalized `$mcp_exec_verb` for a raw exec command string — callers that
+ * build their analytics properties by hand (the CLI) share the dispatcher's
+ * allowlist instead of re-deriving it.
+ */
+export function parseExecVerb(command: string): string {
+    return normalizeExecVerb(parseCommand(command).verb)
+}
+
+/** Which code-execution halves this session actually has (spec §4.4). */
+interface CodeExecutionAvailability {
+    /** Discovery half wired — `types` (and `sql`) dispatch. */
+    types: boolean
+    /** Executor-backed half wired — `run`/`apply` dispatch. */
+    runApply: boolean
+}
+
+function unknownCommandError(verb: string, opts: CodeExecutionAvailability & { codeFirst: boolean }): Error {
+    // The roster mirrors what the dispatcher below actually accepts: a server
+    // without an executor advertises `types`/`sql` but never `run`/`apply`.
+    // Under code-first the legacy verbs still dispatch but disappear from the
+    // advertised roster (spec §4.3 hidden compatibility layer).
+    const verbs = opts.codeFirst
+        ? ['types', ...(opts.runApply ? ['run', 'apply'] : []), 'sql']
+        : [
+              'tools',
+              'search',
+              'info',
+              'schema',
+              'call',
+              ...(opts.types ? ['types'] : []),
+              ...(opts.runApply ? ['run', 'apply'] : []),
+              ...(opts.types || opts.runApply ? ['sql'] : []),
+          ]
+    return new Error(`Unknown command: "${verb}". Supported commands: ${verbs.join(', ')}`)
+}
+
+/**
+ * Kept short on purpose: the description lands inside the serialized
+ * `inputSchema`, which claude.ai's registry silently caps at ~16K chars.
+ */
+export const SCRIPT_PARAM_DESCRIPTION =
+    'TypeScript source for `run` — avoids JSON-string escaping inside `command`. When set, `command` must be exactly "run".'
+
+function makeExecSchema(
+    commandReference: string
+): z.ZodObject<{ command: z.ZodString; script: z.ZodOptional<z.ZodString> }> {
     return z.object({
         command: z.string().describe(commandReference),
+        script: z.string().optional().describe(SCRIPT_PARAM_DESCRIPTION),
     })
 }
 
@@ -241,6 +341,152 @@ function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny>
     return tool
 }
 
+export interface DispatchInnerToolOptions {
+    tool: Tool<ZodObjectAny>
+    context: Context
+    input: Record<string, unknown>
+    forceJson?: boolean
+    mcpConsumer: string | undefined
+    isInlineExecUiHost: boolean
+    trackInnerCall?: ExecInnerCallTracker
+    /** Force the text branch even when the tool has a UI app — plan/apply receipts embed the output as text. */
+    suppressUiPayload?: boolean
+}
+
+/**
+ * Shared dispatch pipeline behind the `call` verb, the code-execution fast
+ * path, and the `sql` verb: output-format folding, schema validation, handler
+ * dispatch with timing, UI-app payload handling, and TOON/JSON serialization.
+ * The fast path's contract is that a call-shaped `run` script behaves
+ * byte-identically to `call`, so all three verbs must share this body.
+ */
+export async function dispatchInnerTool(options: DispatchInnerToolOptions): Promise<unknown> {
+    const { tool, context, trackInnerCall } = options
+    let input = { ...options.input }
+
+    // `output_format` is hidden from exec-mode schemas — `--json` owns output
+    // encoding. Honor a stray `output_format: "json"` as `--json` instead of
+    // letting the handler skip the formatter only for the result to be
+    // TOON-encoded anyway.
+    let strayOutputFormat: unknown
+    if ('output_format' in input) {
+        ;({ output_format: strayOutputFormat, ...input } = input)
+    }
+    const useJson =
+        options.forceJson === true ||
+        strayOutputFormat === 'json' ||
+        tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+    // Fold the flag back into the tool's own `output_format` field when it has
+    // one: formatter-toggle tools then skip the server-side formatter (clean raw
+    // JSON, no `__formatted_results_override` duplication), and tools where the
+    // field is a real backend param (dashboard-insights-run) keep full function.
+    if (useJson && schemaHasOutputFormat(tool.schema)) {
+        input.output_format = 'json'
+    }
+
+    // Same validation gate as the non-exec MCP path (`tool-executor.ts`) —
+    // otherwise bad input reaches the HTTP layer and builds URLs like
+    // `.../actions/undefined/`, a misleading 404 that hides the offending
+    // field. Dispatch the parsed output so coerced values and defaults apply.
+    const validation = tool.schema.safeParse(input, { reportInput: true })
+    if (!validation.success) {
+        const message = formatInputValidationError(tool.name, validation.error)
+        trackInnerCall?.(tool.name, {
+            duration_ms: 0,
+            success: false,
+            output_format: useJson ? 'json' : 'text',
+            error_message: message,
+            validation_error: true,
+        })
+        // Typed so the executor's catch skips exception capture and
+        // classifies it as `validation`, not `internal`.
+        throw new ToolInputValidationError(message)
+    }
+    input = validation.data as Record<string, unknown>
+
+    const startedAt = Date.now()
+    let result: unknown
+    try {
+        result = await tool.handler(context, input)
+    } catch (err) {
+        trackInnerCall?.(tool.name, {
+            duration_ms: Date.now() - startedAt,
+            success: false,
+            output_format: useJson ? 'json' : 'text',
+            error_message: err instanceof Error ? err.message : String(err),
+            input,
+        })
+        throw err
+    }
+    const durationMs = Date.now() - startedAt
+
+    // If the inner tool has a UI app attached AND the caller self-identifies as
+    // PostHog Code (the UI-apps host), emit a full `CallToolResult` payload
+    // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
+    // the `exec` tool registered in single-exec mode, so the UI metadata has to
+    // ride on the per-call response. Gated on the consumer because other
+    // single-exec callers (direct Claude Code, cline, Slack- and posthog_ai-launched
+    // runs, etc.) don't render UI apps — they should see plain text.
+    const isInlineUiAppHost = isPostHogCodeConsumer(options.mcpConsumer) || options.isInlineExecUiHost === true
+    if (tool._meta?.ui?.resourceUri && isInlineUiAppHost && options.suppressUiPayload !== true) {
+        const isStringResult = typeof result === 'string'
+        const distinctId = isStringResult ? undefined : await context.getDistinctId()
+        const payload = markExecPayload(
+            buildToolResultPayload({
+                handlerResult: result,
+                toolMeta: tool._meta,
+                toolName: tool.name,
+                params: useJson ? { ...input, output_format: 'json' } : input,
+                // Inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork)
+                // surface `structuredContent` to the model in preference to the
+                // text content, which would bury the compact formatted table
+                // under the raw JSON. Always re-home the UI app's data onto
+                // `_meta` (see APP_DATA_META_KEY) so the model reads the optimized
+                // table (or the TOON text when unformatted) and the chart still renders.
+                forceUiDataToMeta: true,
+                distinctId,
+                includeUiResponseMeta: true,
+            })
+        )
+        trackInnerCall?.(tool.name, {
+            duration_ms: durationMs,
+            success: true,
+            output_format: 'structured',
+            input_tokens: estimateTokens(input),
+            output_tokens: estimateResponseTokens(payload),
+            input,
+        })
+        return payload
+    }
+
+    // Serialize once so the token estimate measures the exact text
+    // returned to the client, not the raw object.
+    let outputText: string
+    if (useJson) {
+        outputText = JSON.stringify(result)
+    } else {
+        // Optimized mode: when the handler attached a backend-formatted table
+        // via `__formatted_results_override`, return ONLY that string. The raw
+        // `results`/`_posthogUrl` payload would otherwise duplicate the table
+        // and crowd it out — buildToolResultPayload makes the same choice for
+        // the non-exec path, this keeps exec consistent.
+        const formattedOverride =
+            result !== null && typeof result === 'object'
+                ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+                : undefined
+        outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+    }
+    trackInnerCall?.(tool.name, {
+        duration_ms: durationMs,
+        success: true,
+        output_format: useJson ? 'json' : 'text',
+        input_tokens: estimateTokens(input),
+        output_tokens: estimateTokens(outputText),
+        input,
+    })
+    return outputText
+}
+
 export function createExecTool(
     allTools: Tool<ZodObjectAny>[],
     context: Context | undefined,
@@ -267,15 +513,55 @@ export function createExecTool(
         },
         handler: async (_context: Context, params: z.infer<ExecSchema>) => {
             const { verb, rest } = parseCommand(params.command)
+            const discovery = options.codeExecutionDiscovery
+            const runtime = options.codeExecutionRuntime
+            const availability: CodeExecutionAvailability = {
+                types: discovery !== undefined,
+                runApply: runtime !== undefined,
+            }
+            // Code-first is inert without discovery (its aliases and footers
+            // resolve through the discovery index) and without full script
+            // execution: the instructions formatter serves the legacy arm
+            // wherever the sandbox is absent, so activating code-first dispatch
+            // there would contradict the prompt the agent is reading.
+            const codeFirstDiscovery =
+                options.codeFirst === true && runtime?.canExecuteScripts === true ? discovery : undefined
+            const codeFirst = codeFirstDiscovery !== undefined
+            // Report the verb before dispatch so usage errors, unknown commands,
+            // and thrown handler errors still carry `$mcp_exec_verb`.
+            options.trackVerb?.({
+                verb: normalizeExecVerb(verb),
+                deprecatedVerb: codeFirst && LEGACY_VERBS.has(verb),
+            })
+
+            const script = params.script?.trim()
+            if (script && (verb !== 'run' || rest !== '')) {
+                throw new Error(
+                    'The `script` parameter carries the TypeScript source for `run` — when it is set, `command` must be exactly "run" with no inline source.'
+                )
+            }
+
+            // One-line deprecation footer on legacy-verb responses under
+            // code-first, naming the exact modern equivalent (spec §4.3).
+            const withDeprecationFooter = (output: string, footer: string): string =>
+                codeFirst ? `${output}\n\n${footer}` : output
 
             switch (verb) {
                 case 'tools': {
-                    return JSON.stringify(allTools.map((t) => t.name))
+                    return withDeprecationFooter(JSON.stringify(allTools.map((t) => t.name)), TYPES_DEPRECATION_FOOTER)
                 }
 
                 case 'search': {
                     if (!rest) {
                         throw new Error('Usage: search <words or regex_pattern>')
+                    }
+                    if (codeFirstDiscovery) {
+                        // Alias to the `types` rendering (spec §4.3): the discovery
+                        // index is the code-first search surface.
+                        return [
+                            `Deprecated: \`search\` — use \`types ${rest}\` instead. Showing its results:`,
+                            await codeFirstDiscovery.types(rest),
+                        ].join('\n')
                     }
                     // Bound the user-supplied pattern length to limit the blast
                     // radius of a pathological (catastrophic-backtracking) regex.
@@ -349,6 +635,17 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
+                    if (codeFirstDiscovery) {
+                        const methodId = await codeFirstDiscovery.methodIdForTool(infoArgs)
+                        if (methodId) {
+                            return [
+                                `Deprecated: \`info\` — use \`types ${methodId}\` instead. Showing its output:`,
+                                await codeFirstDiscovery.types(methodId),
+                            ].join('\n')
+                        }
+                        // No SDK counterpart (e.g. SSE-backed tools) — legacy
+                        // rendering below, with the footer still pointing at `types`.
+                    }
                     const tool = findTool(allTools, infoArgs)
                     const fullSchema = stripOutputFormatProperty(z.toJSONSchema(tool.schema) as Record<string, unknown>)
                     // YAML for the top shape, but inputSchema stays as a JSON
@@ -370,7 +667,7 @@ export function createExecTool(
                     const fullOutput = serialize(topShape, fullSchema)
 
                     if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
-                        return fullOutput
+                        return withDeprecationFooter(fullOutput, TYPES_DEPRECATION_FOOTER)
                     }
 
                     // Schema too large — return summary with drill-down hints.
@@ -378,7 +675,7 @@ export function createExecTool(
                     // `schema` before populating it, so no separate directive is
                     // needed here.
                     const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
-                    return serialize(topShape, summary)
+                    return withDeprecationFooter(serialize(topShape, summary), TYPES_DEPRECATION_FOOTER)
                 }
 
                 case 'schema': {
@@ -386,6 +683,18 @@ export function createExecTool(
                         throw new Error('Usage: schema <tool_name> [field_path]')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
+                    if (codeFirstDiscovery) {
+                        const methodId = await codeFirstDiscovery.methodIdForTool(schemaToolName)
+                        if (methodId) {
+                            const pathNote = fieldPath
+                                ? ' Drill-down paths are ignored — follow the named types instead.'
+                                : ''
+                            return [
+                                `Deprecated: \`schema\` — use \`types ${methodId}\` instead.${pathNote} Showing its output:`,
+                                await codeFirstDiscovery.types(methodId),
+                            ].join('\n')
+                        }
+                    }
                     const schemaTool = findTool(allTools, schemaToolName)
                     const fullJsonSchema = stripOutputFormatProperty(
                         z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
@@ -395,7 +704,10 @@ export function createExecTool(
                         // The bare `schema <tool>` view is always a summary. Any
                         // field that still needs drilling carries the imperative
                         // in its own `hint`, so the summary stands on its own.
-                        return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
+                        return withDeprecationFooter(
+                            JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName)),
+                            TYPES_DEPRECATION_FOOTER
+                        )
                     }
 
                     const resolved = resolveSchemaPath(fullJsonSchema, fieldPath)
@@ -409,17 +721,20 @@ export function createExecTool(
                         schema: resolved,
                     })
                     if (serialized.length <= TOKEN_CHAR_LIMIT) {
-                        return serialized
+                        return withDeprecationFooter(serialized, TYPES_DEPRECATION_FOOTER)
                     }
 
                     // Field schema too large — return a summary instead. The
                     // summary's complex sub-fields carry the drill-down `hint`,
                     // so the response shape stays the same as the inline case
                     // (`{ field, schema }`) — no separate top-level note.
-                    return JSON.stringify({
-                        field: fieldPath,
-                        schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
-                    })
+                    return withDeprecationFooter(
+                        JSON.stringify({
+                            field: fieldPath,
+                            schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
+                        }),
+                        TYPES_DEPRECATION_FOOTER
+                    )
                 }
 
                 case 'call': {
@@ -452,164 +767,101 @@ export function createExecTool(
                         }
                     }
 
-                    // `output_format` is hidden from exec-mode schemas — `--json` owns output
-                    // encoding. Honor a stray `output_format: "json"` as `--json` instead of
-                    // letting the handler skip the formatter only for the result to be
-                    // TOON-encoded anyway.
-                    let strayOutputFormat: unknown
-                    if ('output_format' in input) {
-                        ;({ output_format: strayOutputFormat, ...input } = input)
-                    }
-                    const useJson =
-                        forceJson ||
-                        strayOutputFormat === 'json' ||
-                        tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
-                    // Fold the flag back into the tool's own `output_format` field when it has
-                    // one: formatter-toggle tools then skip the server-side formatter (clean raw
-                    // JSON, no `__formatted_results_override` duplication), and tools where the
-                    // field is a real backend param (dashboard-insights-run) keep full function.
-                    if (useJson && schemaHasOutputFormat(tool.schema)) {
-                        input.output_format = 'json'
-                    }
-
-                    // Same validation gate as the non-exec MCP path (`tool-executor.ts`) —
-                    // otherwise bad input reaches the HTTP layer and builds URLs like
-                    // `.../actions/undefined/`, a misleading 404 that hides the offending
-                    // field. Dispatch the parsed output so coerced values and defaults apply.
-                    const validation = tool.schema.safeParse(input, { reportInput: true })
-                    if (!validation.success) {
-                        const message = formatInputValidationError(tool.name, validation.error)
-                        trackInnerCall?.(tool.name, {
-                            duration_ms: 0,
-                            success: false,
-                            output_format: useJson ? 'json' : 'text',
-                            error_message: message,
-                            validation_error: true,
-                        })
-                        // Typed so the executor's catch skips exception capture and
-                        // classifies it as `validation`, not `internal`.
-                        throw new ToolInputValidationError(message)
-                    }
-                    input = validation.data as Record<string, unknown>
-
-                    const startedAt = Date.now()
-                    let result: unknown
-                    try {
-                        result = await tool.handler(context, input)
-                    } catch (err) {
-                        trackInnerCall?.(tool.name, {
-                            duration_ms: Date.now() - startedAt,
-                            success: false,
-                            output_format: useJson ? 'json' : 'text',
-                            error_message: err instanceof Error ? err.message : String(err),
-                            input,
-                        })
-                        throw err
-                    }
-                    const durationMs = Date.now() - startedAt
-
-                    // If the inner tool has a UI app attached AND the caller self-identifies as
-                    // PostHog Code (the UI-apps host), emit a full `CallToolResult` payload
-                    // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
-                    // the `exec` tool registered in single-exec mode, so the UI metadata has to
-                    // ride on the per-call response. Gated on the consumer because other
-                    // single-exec callers (direct Claude Code, cline, Slack- and posthog_ai-launched
-                    // runs, etc.) don't render UI apps — they should see plain text.
-                    const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
-                    if (tool._meta?.ui?.resourceUri && isInlineUiAppHost) {
-                        const isStringResult = typeof result === 'string'
-                        const distinctId = isStringResult ? undefined : await context.getDistinctId()
-                        const payload = markExecPayload(
-                            buildToolResultPayload({
-                                handlerResult: result,
-                                toolMeta: tool._meta,
-                                toolName: tool.name,
-                                params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork)
-                                // surface `structuredContent` to the model in preference to the
-                                // text content, which would bury the compact formatted table
-                                // under the raw JSON. Always re-home the UI app's data onto
-                                // `_meta` (see APP_DATA_META_KEY) so the model reads the optimized
-                                // table (or the TOON text when unformatted) and the chart still renders.
-                                forceUiDataToMeta: true,
-                                distinctId,
-                                includeUiResponseMeta: true,
-                            })
-                        )
-                        trackInnerCall?.(tool.name, {
-                            duration_ms: durationMs,
-                            success: true,
-                            output_format: 'structured',
-                            input_tokens: estimateTokens(input),
-                            output_tokens: estimateResponseTokens(payload),
-                            input,
-                        })
-                        return payload
-                    }
-
-                    // Serialize once so the token estimate measures the exact text
-                    // returned to the client, not the raw object.
-                    let outputText: string
-                    if (useJson) {
-                        outputText = JSON.stringify(result)
-                    } else {
-                        // Optimized mode: when the handler attached a backend-formatted table
-                        // via `__formatted_results_override`, return ONLY that string. The raw
-                        // `results`/`_posthogUrl` payload would otherwise duplicate the table
-                        // and crowd it out — buildToolResultPayload makes the same choice for
-                        // the non-exec path, this keeps exec consistent.
-                        const formattedOverride =
-                            result !== null && typeof result === 'object'
-                                ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
-                                : undefined
-                        outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
-                    }
-                    trackInnerCall?.(tool.name, {
-                        duration_ms: durationMs,
-                        success: true,
-                        output_format: useJson ? 'json' : 'text',
-                        input_tokens: estimateTokens(input),
-                        output_tokens: estimateTokens(outputText),
+                    const result = await dispatchInnerTool({
+                        tool,
+                        context,
                         input,
+                        forceJson,
+                        mcpConsumer,
+                        isInlineExecUiHost: options.isInlineExecUiHost === true,
+                        trackInnerCall,
                     })
-                    return outputText
+                    // UI-app payloads are objects — a footer can't ride on them.
+                    if (!codeFirstDiscovery || typeof result !== 'string') {
+                        return result
+                    }
+                    const methodId = await codeFirstDiscovery.methodIdForTool(tool.name)
+                    // In-context teaching (spec §4.3): the footer carries the exact
+                    // `run` equivalent, with the JSON input as the literal argument.
+                    const footer = methodId
+                        ? `Deprecated: \`call\` — the code-first equivalent: run import { client } from '@posthog/sdk'; export default await client.${methodId}(${JSON.stringify(input)})`
+                        : 'Deprecated: `call` — prefer `run <typescript source>`; this tool has no SDK method yet, so `call` keeps working for it.'
+                    return `${result}\n\n${footer}`
                 }
 
                 case 'types': {
-                    const runtime = options.codeExecution
-                    if (!runtime) {
-                        throw unknownCommandError(verb, false)
+                    if (!discovery) {
+                        throw unknownCommandError(verb, { ...availability, codeFirst })
                     }
                     if (!rest) {
                         throw new Error('Usage: types <query | TypeName... | domain.method | domain>')
                     }
-                    return runtime.types(rest)
+                    return discovery.types(rest)
                 }
 
                 case 'run': {
-                    const runtime = options.codeExecution
                     if (!runtime) {
-                        throw unknownCommandError(verb, false)
+                        // No runtime wired (discovery-only session, e.g. the
+                        // keyless CLI catalog): run/apply are not in the
+                        // advertised roster, so an attempt reads as unknown —
+                        // the error's roster is the redirect.
+                        throw unknownCommandError(verb, { ...availability, codeFirst })
                     }
-                    if (!rest) {
-                        throw new Error('Usage: run <typescript source>')
+                    const source = rest || script || ''
+                    if (!source) {
+                        throw new Error(
+                            'Usage: run <typescript source> — or pass the source via the `script` parameter with command "run"'
+                        )
                     }
-                    return runtime.run(rest)
+                    const outcome = await runtime.run(source)
+                    options.trackVerb?.({
+                        runStatus: outcome.meta.status,
+                        fastPath: outcome.meta.fastPath,
+                        ...(outcome.meta.planMutations !== undefined
+                            ? { planMutations: outcome.meta.planMutations }
+                            : {}),
+                    })
+                    return outcome.output
                 }
 
                 case 'apply': {
-                    const runtime = options.codeExecution
                     if (!runtime) {
-                        throw unknownCommandError(verb, false)
+                        throw unknownCommandError(verb, { ...availability, codeFirst })
                     }
                     if (!rest) {
-                        throw new Error('Usage: apply <plan token>')
+                        throw new Error('Usage: apply <plan-id>')
                     }
-                    return runtime.apply(rest)
+                    const outcome = await runtime.apply(rest)
+                    options.trackVerb?.({ runStatus: outcome.meta.status })
+                    return outcome.output
+                }
+
+                case 'sql': {
+                    // Available whenever the code-execution surface is on — the verb is
+                    // sugar for a fast-pathed `client.query.sql(...)` (spec §4.3) whose
+                    // dispatch needs neither half, so an executor-less server keeps it.
+                    if (!discovery && !runtime) {
+                        throw unknownCommandError(verb, { ...availability, codeFirst })
+                    }
+                    if (!rest) {
+                        throw new Error('Usage: sql <hogql>')
+                    }
+                    if (!context) {
+                        throw new Error('Cannot call PostHog tools without an API context')
+                    }
+                    const tool = findTool(allTools, EXECUTE_SQL_TOOL_NAME)
+                    return dispatchInnerTool({
+                        tool,
+                        context,
+                        input: { query: rest },
+                        mcpConsumer,
+                        isInlineExecUiHost: options.isInlineExecUiHost === true,
+                        trackInnerCall,
+                    })
                 }
 
                 default:
-                    throw unknownCommandError(verb, options.codeExecution !== undefined)
+                    throw unknownCommandError(verb, { ...availability, codeFirst })
             }
         },
     }

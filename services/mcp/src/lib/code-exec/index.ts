@@ -51,14 +51,18 @@ export { createEnforceTransport, PlanDivergenceError } from './plan-enforcer'
 export type { CurrentObjects } from './plan-render'
 export { renderPlanText, renderReceiptText } from './plan-render'
 
-export type { DecodePlanTokenResult, PlanTokenPayload } from './plan-token'
-export {
-    createPlanTokenCodec,
-    decodePlanToken,
-    encodePlanToken,
-    PLAN_TOKEN_PURPOSE,
-    PLAN_TOKEN_TTL_SECONDS,
-} from './plan-token'
+export { generatePlanPhrase, normalizePlanPhrase, PLAN_PHRASE_TTL_SECONDS, PLAN_PHRASE_WORD_COUNT } from './plan-phrase'
 
-export type { MemoryPlanStoreOptions, PlanStore, PlanStoreRedis, RedisPlanStoreOptions, StoredPlan } from './plan-store'
+export type {
+    MemoryPlanStoreOptions,
+    PlanStore,
+    PlanStoreRedis,
+    RedisPlanStoreOptions,
+    StoredCallPlan,
+    StoredPlan,
+    StoredScriptPlan,
+} from './plan-store'
 export { MemoryPlanStore, RedisPlanStore } from './plan-store'
+
+export type { FilePlanStoreOptions } from './file-plan-store'
+export { FilePlanStore } from './file-plan-store'

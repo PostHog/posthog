@@ -1,14 +1,22 @@
 # Plan: `@posthog/sdk` (TypeScript) on the MCP codegen pipeline + code-execution MCP
 
-Status: proposal; first implementation landed behind the `mcp-code-execution` feature flag.
+Status: proposal; implementation landed behind the `mcp-code-execution` feature flag, with the code-first surface mechanics behind a separate `mcp-code-first` flag.
 Owner: Max AI / MCP.
 
-Implemented so far (all dark behind the flag):
+Implemented so far (all dark behind the flags):
 `packages/sdk` (§2, generated surface + typed query wrappers);
 the codegen artifacts (§2.3/§3.5/§3.6.2 — discovery index, mutation classifier table, rolled-up SDK `.d.ts`, emitted by the SDK generator into `services/mcp/src/generated/code-exec/`);
-the plan/apply engine (§3.6 — recorder/enforcer transports, sentinel binding, signed plan tokens, plan store) in `services/mcp/src/lib/code-exec/`;
-and the exec verbs `types`, `types show`, `run`, `apply` (§3.2) with the compile gate and a dev/test-only local VM executor in `services/mcp/src/tools/code-exec/`.
-Not yet implemented: the production sandbox substrate (Modal pool, §3.3), the standalone API proxy endpoint + ephemeral tokens (§3.4 — the current transports run in-process), field-diff plan rendering and the plan-review UI app (§3.6.6), and npm publishing (§2.7).
+the plan/apply engine (§3.6 — recorder/enforcer transports, sentinel binding, three-word plan ids, plan store with single-use consumption) in `services/mcp/src/lib/code-exec/`;
+the exec verbs `types` (single verb; the earlier `types show` sub-verb is retired, see §3.2), `run`, `apply` (§3.2) with sucrase script lowering, an injected compile gate, and a local VM executor (dev/test-only on the server, trusted-local in the CLI) in `services/mcp/src/tools/code-exec/`;
+the no-sandbox fast path for call-shaped scripts (§4.2 — available wherever the flag is on, including executor-less production: sandbox-requiring scripts there get a targeted redirect, and plans are pinned to the session project they were confirmed against);
+the `sql` verb, the optional `script` parameter, and the `mcp-code-first` compatibility mechanics (§4.3 — discovery verbs aliased to `types`, `call` kept with a generated-`run` deprecation footer; active only where full script execution exists, matching the instruction arms);
+discovery/executor decoupling with the `fast-path`/`full` availability levels (§4.4) and the code-first instruction variant (§4.4/§4.6 Phase 3 — flag-off output byte-identical);
+the Phase 0 exec analytics (§4.6 — verb, run status, plan mutation count, fast-path and deprecated-verb flags);
+and the CLI local execution mode (§4.8 — `types`/`run`/`apply` subcommands, file-backed plan store, in-process execution on the user's machine).
+Not yet implemented: the production sandbox substrate (Modal pool, §3.3), the standalone API proxy endpoint + ephemeral tokens (§3.4 — the current transports run in-process), field-diff plan rendering and the plan-review UI app (§3.6.6), npm publishing (§2.7), and the §4.5 execution-ergonomics layer (transport wrapper, result handles — §4.6 Phase 2).
+
+§4 records the surface-redesign decision adopted once the exec verbs landed end to end: code execution becomes the primary agent-facing interface (one mental model — TypeScript against `@posthog/sdk`), with a no-sandbox fast path for call-shaped scripts and the legacy `tools`/`search`/`info`/`schema`/`call` verbs demoted to a hidden compatibility layer.
+It supersedes the "additive" positioning in §3.2 ("existing verbs stay") and §3.7 ("`execute-sql` remains the read path").
 
 Two deliverables:
 
@@ -219,14 +227,14 @@ Extend the single-`exec` paradigm rather than adding many tools:
 - `exec run <typescript source>` — execute a script in a sandbox.
   The source is **compile-checked before dispatch** (see below); scripts that don't typecheck never reach the sandbox.
   Read-only scripts return the script's `export default` value (serialized + token-capped) plus captured `console` output directly.
-  Scripts that attempt mutations return a **plan** — the recorded mutation set rendered as a diff, plus the script's _provisional output_ (§3.6.1) — and a signed confirmation token instead of applied results; see §3.6.
-- `exec apply <confirmation token>` — execute a previously planned script for real, with the confirmed plan enforced as a contract (§3.6).
-- `exec types <query>` — search the SDK surface: matches type names, method signatures, JSDoc, and the **full tool metadata** (curated descriptions, titles, categories from the YAML definitions — richer than what fits in code comments).
-  Returns one-line signatures (`featureFlags.update(id: number, body: PatchedFeatureFlag): Promise<FeatureFlag> — Update a feature flag. [requires feature_flag:write ✓]`) so the agent can pick what to expand.
-- `exec types show <symbol | domain.method | domain>` — return the requested declaration **plus its related types, greedily filled to the token budget** (BFS over the reference graph from the precomputed closure: direct references first, then transitive), so one call usually answers instead of a drill-down sequence.
-  Only members that exceed the budget are truncated, each carrying a `hint` naming the follow-up path.
-  A bare `domain` argument dumps the whole resource class signature the same way.
-- Existing verbs stay: trivial one-shot operations don't need a sandbox round trip.
+  Scripts that attempt mutations return a **plan** — the recorded mutation set rendered as a diff, plus the script's _provisional output_ (§3.6.1) — and a single-use plan id instead of applied results; see §3.6.
+- `exec apply <plan-id>` — execute a previously planned script for real, with the confirmed plan enforced as a contract (§3.6); the id is a three-word phrase (§3.6.4).
+- `exec types <query | TypeName... | domain.method | domain>` — one verb for both discovery questions, disambiguated by exactness (revised: the original design had a `types show` sub-verb returning the declaration plus its reference closure greedily BFS-filled to a token budget; live use showed that floods the agent with types it didn't ask for, so expansion is now lean and the sub-verb is retired, with a leading `show` token still accepted for compatibility).
+  The input is tokenized on whitespace/commas; **if every token resolves exactly** (method id → type name → domain prefix) the verb enters fetch mode, otherwise the whole input is one search pattern.
+  **Fetch mode** returns exactly the requested declarations, nothing more: a type renders its declaration followed by a references hint (`References: A, B — run "types A B" for declarations`) instead of inlined bodies; a method renders its one-line signature + description + references hint; a bare domain lists the resource's method signatures.
+  **Search mode** matches type names, method signatures, JSDoc, and the **full tool metadata** (curated descriptions, titles, categories from the YAML definitions — richer than what fits in code comments), returning one-line signatures (`featureFlags.update(id: number, body: PatchedFeatureFlag): Promise<FeatureFlag> — Update a feature flag. [requires feature_flag:write ✓]`) plus matching type names, so the agent picks exact symbols to fetch next.
+  Responses are capped at a fixed character limit: whole declarations are included in request order while they fit, and anything cut is named in a truncation hint carrying the follow-up call (an oversized single declaration truncates at the cap and points at its referenced types) — the response never exceeds the cap, and every truncation names the next command, so agents never need to offload results elsewhere.
+- ~~Existing verbs stay: trivial one-shot operations don't need a sandbox round trip.~~ Superseded by §4: trivial one-shot operations are served by the fast path (§4.2) — a call-shaped `run` script dispatches through the existing tool handler with `call`-equivalent latency and no sandbox — and the legacy verbs become a hidden compatibility layer (§4.3).
 - Contingent (if client transport behavior forces an async model, §3.7): `exec status <execution id>` / `exec cancel <execution id>` for long-running scripts, and `exec result <resource id>` for paging spilled results.
 
 **Compile gate.**
@@ -304,7 +312,7 @@ The agent-facing discovery interface should be TypeScript declarations + JSDoc, 
 
 Mechanics (backed by the discovery index from §2.3):
 
-- The index record per method carries more than the code shows: symbol, one-line signature, the SDK JSDoc, **and the full tool metadata** (curated description, title, category, required scopes) from the YAML definitions — descriptions are searchable in full even where the emitted JSDoc truncates them. Search runs over all of it; results are one-line signatures grouped by domain, scope-annotated for the session's token (§3.2). Expansion (`types show`) serves the precomputed declaration slice with its reference closure greedily filled to the token budget, with `hint` markers only on members that didn't fit — mirroring the existing `summarizeSchema` UX so agents don't need new habits.
+- The index record per method carries more than the code shows: symbol, one-line signature, the SDK JSDoc, **and the full tool metadata** (curated description, title, category, required scopes) from the YAML definitions — descriptions are searchable in full even where the emitted JSDoc truncates them. Search runs over all of it; results are one-line signatures grouped by domain, scope-annotated for the session's token (§3.2). Expansion (exact symbols passed to `types`) serves precisely the requested declaration slices, with referenced type names surfaced as fetch hints rather than inlined bodies, under a fixed response character cap (§3.2) — hints mirror the existing `summarizeSchema` UX so agents don't need new habits.
 - The index is built at codegen time (a TS-morph/compiler-API pass over the generated `.d.ts`), shipped as a static artifact with the MCP image and the CLI — search is a lookup, never runtime type-walking.
 - Full per-domain `.d.ts` slices also ship as MCP resources for clients that prefer loading whole files into context; the v2 skills bundle gets a `writing-posthog-scripts` skill with patterns (pagination loops, error handling, `export default` contract).
 - JSON Schema doesn't disappear: the MCP protocol requires it for tool registration (v1 clients, `exec info`/`schema` verbs keep working). It stops being the thing agents _read_ and remains the thing protocols _validate against_.
@@ -326,7 +334,7 @@ The proxy passes reads through to the real API untouched and intercepts mutation
 - **Zero mutations recorded** → the plan run _was_ the real run.
   Return the script's results directly; no confirmation, no second pass.
   Read-only scripts — the majority — pay nothing for this feature.
-- **Mutations recorded** → store the script server-side and return the rendered plan, the script's **provisional output** (its `export default` value as computed during the plan pass, clearly labeled as provisional since it was produced against synthetic mutation responses and sentinel IDs), and a signed confirmation token.
+- **Mutations recorded** → store the script server-side and return the rendered plan, the script's **provisional output** (its `export default` value as computed during the plan pass, clearly labeled as provisional since it was produced against synthetic mutation responses and sentinel IDs), and a single-use plan id (§3.6.4).
   The provisional output is what lets both the agent and the user judge that the script's _logic_ is right — the plan shows what would change, the provisional output shows what the script concluded — before anything is applied.
   Permission errors from reads (and scope checks against planned mutations, §3.2) also surface here, so a script doomed by a missing scope is caught before confirmation, not during apply.
 
@@ -384,16 +392,19 @@ Known limit: scripts that _branch on mutation results_ can produce different mut
 The enforcer catches this as plan divergence — the honest failure mode — and the agent re-plans; access recording (stage 2) additionally flags such plans as low-confidence before anything is confirmed.
 The dominant agent script shape (read → compute → mutate, mutations as dataflow leaves) is unaffected.
 
-#### 3.6.4 Confirmation token
+#### 3.6.4 Confirmation reference: a three-word plan id
 
-The signed-state machinery from `confirmed_action` is reused as-is (`MCP_SIGNED_STATE_KEY`, HMAC-SHA256):
+(Revised: the original design reused the `confirmed_action` HMAC signed-state machinery — a ~600-char `eyJ…` token carrying `{plan hash, script hash}` claims. Live use showed that costs the agent ~150–200 LLM tokens of verbatim copying per mutation flow for no security benefit, because the store, not the signature, was always the root of trust: the script and plan live server-side and `apply` cannot run without loading them. The signed token is replaced by a stored-capability reference.)
 
-- Signed payload: `{plan hash, script hash, user identity, resolved scope set, TTL, single-use nonce}` — hashes only; the script and full plan live in Redis, keeping the token small.
-- The signed-state default TTL is 300 s by deliberate doctrine ("tuning is a code change, not a deployment knob"); the codec accepts per-instance `ttlSeconds`, so plan tokens get their own purpose-bound codec with a plan-appropriate TTL rather than a config override.
-- The plan hash is computed over the normalized mutation list (stable field ordering, sentinels canonicalized), so the token is bound to the exact confirmed plan.
-- The script is stored server-side keyed by its hash (Redis, TTL'd — the same session infra the Hono runtime already uses), so the agent cannot submit different code at apply time.
-- `exec apply` verifies the signature, burns the nonce, loads the stored script, and runs the enforce pass.
-- Expired token → the harness auto-re-plans and returns the fresh plan **plus a delta against the stale plan**; it never silently re-confirms.
+`run` returns a **three-word plan id** (`apply cat-assistant-tree` — words drawn from a vendored 1296-word passphrase list), and the plan record itself carries everything the old token proved:
+
+- **Storage**: the script + plan + user identity are stored server-side (Redis on the hosted path, files in CLI local mode §4.8) under the key `<sub>:<phrase>`, TTL 600 s. The agent cannot submit different code at apply time because apply executes the _stored_ script — unchanged from the original design.
+- **User binding**: the key embeds the caller's identity (`sub`), so a phrase is only resolvable by the identity that minted it — cross-user guessing is structurally impossible, and applying your own plan is not an escalation.
+- **Unguessability**: 3 words from 1296 ≈ 31 bits (~2.2 B combinations) per user, against a 10-minute TTL, single-use consumption, and an authenticated, rate-limited endpoint. No HMAC needed; `MCP_SIGNED_STATE_KEY` is no longer a code-exec dependency (the `confirmed_action` machinery elsewhere is untouched).
+- **Single-use**: `apply` atomically consumes the record before executing (matching the old burn-nonce-before-execute semantics), leaving a consumed tombstone for the remaining TTL so a second apply gets a distinct "already been applied — a plan id is single-use" message; unknown, expired, and mistyped ids collapse into one not-found message.
+- The plan hash is still computed over the normalized mutation list (stable field ordering, sentinels canonicalized) and stored on the plan record — it drives enforce-mode matching, no longer token claims.
+- Expired id → the harness auto-re-plans and returns the fresh plan **plus a delta against the stale plan**; it never silently re-confirms.
+- Ergonomics: apply input is normalized (case, whitespace/underscores → dashes), so `apply Cat Assistant Tree` resolves; three short words survive chat-relay and human retyping in a way a 600-char blob does not.
 
 #### 3.6.5 Partial failure and resume
 
@@ -420,7 +431,7 @@ Optionally the harness writes an annotation summarizing the change set.
 - Default: every mutating script requires confirmation.
 - Org-level relaxation: auto-apply plans containing only non-destructive creates (annotations, insights, notebooks); always confirm plans containing updates, deletes, or anything flagged `destructive`.
   The classifier's annotations drive the split.
-- The CLI (`posthog-cli api run`, Phase A) implements the same plan/apply verbs locally so behavior is identical in trusted and sandboxed runtimes, with `--yes` for scripted/CI use.
+- The CLI (`posthog-cli api run`, Phase A) implements the same plan/apply verbs locally so behavior is identical in trusted and sandboxed runtimes, with `--yes` for scripted/CI use. Concrete design in §4.8.
   Skills teach one workflow, not two.
 
 #### 3.6.8 Build order and open questions
@@ -428,7 +439,7 @@ Optionally the harness writes an annotation summarizing the change set.
 Build order:
 
 1. Classifier table emission + proxy record/enforce modes + sentinel binding.
-   Pure server-side; golden-script tests: read-only passthrough, create-chain binding, divergence abort, nonce reuse, expired-token re-plan.
+   Pure server-side; golden-script tests: read-only passthrough, create-chain binding, divergence abort, plan-id reuse, expired-id re-plan.
 2. `exec run` returning plans, `exec apply`, text rendering, receipts.
 3. Field-diff rendering, plan-review UI app, org policy knobs.
 
@@ -446,15 +457,169 @@ Open questions to settle before Phase B:
 - **SDK version pinning in the sandbox**: the sandbox image vendors a specific `@posthog/sdk` build; it must be regenerated/redeployed on the same cadence as the MCP image (both come from `hogli build:openapi` outputs, so the existing `cd-mcp-image.yml` flow extends naturally).
 - **Proxy rate caps vs SDK retry**: the SDK retries 429s with up to a 30 s wait budget — a proxy that answers cap breaches with 429 makes sandboxed scripts silently sleep away their wall-clock. The proxy must deny with a non-retryable status (or `Retry-After: 0` semantics) for per-execution cap breaches.
 - **SSE parity gap**: MCP tools built on `requestSSE` (session-recording summarization) have no SDK/code-mode counterpart; those remain tool-call-only until the SDK grows a streaming story. Document per tool.
-- **Relationship to SQL-first v2**: complementary, not competing — `execute-sql` remains the read path; code execution is the orchestration/mutation path. Instructions should steer agents accordingly.
+- **Relationship to SQL-first v2**: complementary, not competing. Under §4, SQL keeps first-class standing inside the code-first grammar — a dedicated `sql <hogql>` verb (fast-pathing to the `execute-sql` handler) plus `client.query.sql()` for use inside scripts (§4.3) — rather than remaining a separately-taught modality.
 
 ### 3.8 Phasing
 
-| Phase | Deliverable                                                                                                                                                                                                             |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A     | SDK ships (§2); type-search discovery (`exec types` / `types show`, discovery index) + script-writing skill; `posthog-cli api run` for local/trusted execution (no sandbox needed — user's own machine, user's own key) |
-| B     | API proxy endpoint + ephemeral token minting on the Hono runtime (usable by phase A CLI too, as an opt-in hardened mode); mutation classifier + proxy plan/enforce modes with golden-script tests (§3.6.8 step 1)       |
-| C     | `exec run` (plan-returning) + `exec apply` on the Docker/Modal sandbox pool behind a feature flag, text plan rendering + receipts, PostHog Code + Claude Code as first consumers                                        |
-| D     | Field-diff rendering + plan-review UI app + org policy knobs, result spilling to resources, latency work (isolate substrate evaluation), GA + docs                                                                      |
+| Phase | Deliverable                                                                                                                                                                                                              |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A     | SDK ships (§2); type-search discovery (`exec types`, discovery index) + script-writing skill; `posthog-cli api run` for local/trusted execution (no sandbox needed — user's own machine, user's own key; design in §4.8) |
+| B     | API proxy endpoint + ephemeral token minting on the Hono runtime (usable by phase A CLI too, as an opt-in hardened mode); mutation classifier + proxy plan/enforce modes with golden-script tests (§3.6.8 step 1)        |
+| C     | `exec run` (plan-returning) + `exec apply` on the Docker/Modal sandbox pool behind a feature flag, text plan rendering + receipts, PostHog Code + Claude Code as first consumers                                         |
+| D     | Field-diff rendering + plan-review UI app + org policy knobs, result spilling to resources, latency work (isolate substrate evaluation), GA + docs                                                                       |
 
 Phase A alone already delivers most of the agent value in coding-agent contexts (Claude Code, PostHog Code run scripts locally via the CLI); B/C extend it to hosted, untrusted contexts (claude.ai, Slack agents, cloud runs).
+
+§4.6 refines this phasing for the surface redesign: an analytics-first Phase 0, the fast path shipping to production before the sandbox exists, and A/B-gated instruction flips.
+
+---
+
+## 4. Surface redesign: code-first exec
+
+Status: adopted direction, decided after the §3.2 verbs landed end to end behind the flag.
+
+With `mcp-code-execution` on, the server ships two parallel stacks describing the same 617 operations: JSON-schema discovery (`info`/`schema` plus mandatory drill-down prose) with per-tool `call`, and TS discovery (`types`) with scripted `run`/`apply`.
+Two discovery languages, two execution paths, and two confirmation systems (`call --confirm` vs `apply <token>`) spend instruction budget and agent attention without buying capability — every tool has an SDK method and vice versa, generated from the same artifacts.
+This section is the plan of record for collapsing that to one surface.
+
+### 4.1 Thesis: one mental model, two execution strategies
+
+The agent always writes TypeScript against `@posthog/sdk`; the **server** picks the execution strategy.
+The load-bearing observation: **the sandbox and the security boundary are different components.**
+All API traffic flows through the server-side transport (§3.4 proxy; today the in-process recorder/enforcer transports), which does all mutation gating, scope enforcement, and credential isolation.
+The sandbox exists for exactly one purpose — running arbitrary untrusted JavaScript.
+A script that requires no JavaScript execution requires no sandbox, and single API calls with literal arguments (the dominant shape of agent traffic today) are statically recognizable as exactly that.
+
+- **Fast path** (§4.2): call-shaped scripts dispatch through the existing generated tool handlers — one HTTP request, no sandbox, zero user code executed. Same latency, TOON-optimized output, UI-app attachment, and inner-tool analytics attribution as `call` today.
+- **Sandbox path**: everything else (loops, filters, variables, multi-call dataflow) takes compile gate → plan/apply exactly as specified in §3.6.
+
+The agent never chooses between modalities, so the "use call for simple things" fork disappears from the instructions.
+The fast path is what makes the code-first position credible: without it, every "list 3 flags" pays a sandbox boot; with it, code-first ships to production **before** the Modal pool exists, because the fast path never executes user code (the `LocalVmExecutor` dev-only restriction does not apply).
+
+### 4.2 The fast path
+
+A script qualifies iff its AST (already produced by `rewriteModuleToCjs`'s TS-compiler parse) matches a single SDK call with literal arguments:
+
+```ts
+import { client } from '@posthog/sdk'
+export default await client.<domain>.<method>(<args>)   // args: JSON-literal constructible only
+```
+
+Rules, deliberately strict:
+
+- Exactly one SDK call expression, and it is the `export default` expression (or one `const x = await …; export default x` pair).
+- Arguments are string/number/boolean/null literals, array/object literals thereof, or substitution-free template literals. Any identifier, computed value, ternary, or method chain → sandbox path.
+- No other statements with effects (type-only imports and comments are fine).
+
+Execution: resolve `domain.method` → `toolName` via the discovery index (it already carries `toolName` per method) → validate the extracted args against the tool's Zod schema (better error messages than `tsc`; the fast path skips the compile gate entirely) → dispatch the existing tool handler.
+Latency: one AST parse (~5 ms) plus one HTTP request — identical to `call`.
+
+Mutating fast-path calls do **not** bypass plan/apply — one uniform confirmation contract is worth more than saving a round trip.
+Their plan is degenerate: the single extracted mutation, rendered instantly, with no synthetic responses and no provisional-output caveats; `apply` replays the call directly through the handler, again with no sandbox.
+Single-mutation workflows therefore work end to end in production with zero sandbox dependency.
+
+Do not widen the subset toward an interpreter: constant folding of literals is the ceiling; anything touching identifiers goes to the sandbox (a "small TS interpreter" is a second sandbox with none of the isolation).
+
+### 4.3 Verb grammar
+
+```text
+types <query | TypeName... | domain.method | domain>
+                                             # all tokens exact → the requested declarations (references as hints);
+                                             # anything else → search (methods + types + tool metadata), scope-annotated;
+                                             # response char-capped, truncations name the follow-up call (§3.2)
+run <typescript source>                      # THE interface. Fast-pathed if call-shaped; sandboxed otherwise.
+                                             # Read-only → output directly. Mutating → plan + plan-id.
+apply <plan-id>                              # execute a confirmed plan (three-word id, §3.6.4)
+sql <hogql>                                  # sugar for client.query.sql(...) via the fast path
+```
+
+- **`types` absorbs `search`, `info`, and `schema`.** The index searches full tool metadata including legacy tool names, so `types feature-flag-update` still resolves. `info`/`schema` were mitigations for JSON Schema verbosity; TS declarations are the systemic fix (§3.5). During migration, `info X` / `schema X [path]` / `search q` alias to the `types` renderings with a one-line deprecation note (drill-down paths are ignored — follow named types instead).
+- **`sql` is the one concession to non-TS syntax.** HogQL inside a TS template literal inside a JSON string is three escaping layers, and the breaking layer (backticks/`${}`) breaks silently. HogQL is still code; the verb is implementation-wise a pre-parsed fast path into `client.query.sql()` that preserves the `execute-sql` prompt template and TOON output.
+- **Hidden compatibility layer.** `call`, `info`, `schema`, `tools`, `search` keep working but disappear from `unknownCommandError`, all templates, and the tool blurb; each response gains a footer with the exact `run` equivalent (the fast-path resolver can generate it — in-context teaching) and emits deprecated-verb analytics. The Rust CLI vendors the dispatcher at build time, so released binaries keep legacy verbs regardless; server-side removal follows the §4.6 criteria, except `call` which stays indefinitely (SSE tools, CLI, ~50 lines).
+- **The honest exception:** SSE-backed tools (session-recording summarization) have no SDK counterpart (§3.7) and stay reachable via `call`, annotated as such in `types` results.
+- **Escaping escape hatch:** an optional `script` parameter on the exec input schema (`{command: "run", script: "…"}`) removes the TS-inside-JSON-string escaping problem for weak harnesses at ~200 chars of budget. Recommended.
+
+Confirmation as implemented: a mutating fast-path script returns a one-entry plan + the same single-use plan id, and `apply` branches on plan kind (script → sandbox enforce pass; single call → direct handler dispatch), refusing either kind when the active project changed since the plan was minted.
+`call` keeps its `--confirm` destructive gate and dispatches directly — it only gains the deprecation footer — so `call --confirm` dies with the verb itself, not before; unifying `call` onto plan/apply remains open.
+Policy tiering per §3.6.7 still applies (org-level auto-apply for non-destructive creates).
+
+### 4.4 Discovery decoupling and the instructions rewrite
+
+**Decouple discovery from the executor.** The discovery index is a static artifact, but `resolveCodeExecutionRuntime` originally gated it together with the executor — an accident of wiring, since split: `types` (plus the aliases and `sql`) ships to 100% of single-exec clients on the flag alone, and `run`/`apply` dispatch everywhere the flag is on — the fast path (§4.2) serves call-shaped scripts even where no executor exists, while sandbox-requiring scripts there get a targeted redirect instead of an unknown command, with the instructions (`full` vs `fast-path` script sections) matching each process's actual execution capability.
+TS-first discovery is a pure win independent of the sandbox timeline.
+
+**Instructions collapse to one modality.** Today's `command` reference spends ~4–5 K chars on rules that compensate for JSON-schema guessing (the MANDATORY info-before-call block, the schema-drill-down protocol, the policing bad-examples).
+Cut: `cli-schema-drilldown.md`, `tool-search.md`, `schema-workflow.md` (tool-inspection parts), `cli-syntax.md`, most of `cli-examples.md`/`examples.md` — roughly 12–13 K reclaimed.
+Spend ~10–11 K on: a verb table + script contract section; **a generated cheat sheet of the top ~25 SDK method signatures by usage** (the highest-leverage addition — makes the common 80% of operations zero-discovery, one memorized one-liner instead of today's mandatory `info` round trip); a plan/apply protocol section; a discovery section; an `sql` section; and three worked transcripts (discovery → read, fast-path read, bulk mutation → plan → apply).
+Net target ~22–24 K serialized — comfortable headroom under the 32,600-char claude.ai cap, with the budget test unchanged and enforcing.
+Data-taxonomy prose (`cli-data-discovery.md`, verify events/properties before analytics) survives untouched: it is orthogonal to API-surface discovery and applies identically to `sql`, fast-path queries, and scripts.
+
+### 4.5 Execution ergonomics
+
+Judged by one metric: round trips × tokens × failure probability per completed task.
+In current-impact order (the first four fix defects observed in live use):
+
+1. **Result handles.** Every successful `run` stores its full untruncated `export default` server-side (Redis, same infra as the plan store; sliding TTL, per-session cap). The 48 K truncation message becomes a pointer (`results get last --path flags --offset 0 --limit 50`) instead of a dead end that forces a full re-run; `run --into <name>` names a handle; `results.get<T>('name')` reads one inside a later script (a GET through the transport, classified as a read). Kills the worst loop in the current design: truncation → rewrite → re-run.
+2. **Runtime-error dossier.** Today errors return only `error.message`. Add: source-line mapping through the CJS rewrite (it preserves statement text verbatim, so the mapping is cheap), a ring buffer of the last ~5 API calls (body excerpt for non-2xx — the Django validation error is exactly what fixes a 400 one-shot; a keys+types shape sketch for 2xx), inlined relevant type declarations on TS2339/TS2345 compile errors (recovery in 1 round trip instead of error → `types` fetch → fix), a diagnostics cap (~10), and a `--timeout` flag (≤120 s) whose timeout message names the in-flight call.
+3. **Plan rendering.** `renderPlanText` already supports `currentObjects` diffs but nothing passes them — hence the observed `UPDATE feature flag #0 (name: )` for a rollout-only PATCH. Wire a plan-pass read cache + targeted GETs (capped) so updates render `rollout: 50 → 100` with the current object's display name; aggregate bulk plans by (objectType, operation, changed-field set) with samples — deletes always enumerate; substitute sentinel values in provisional output with `<id of new feature_flag #2 — assigned on apply>` instead of leaking `-900001`; receipts return real created ids + app URLs. `plan show <token> [--page N]` reads the stored plan without re-planning.
+4. **Discovery polish.** Worked examples + named recipes (`types recipe:<name>`, full runnable scripts with `// EDIT:` markers) in the index build; explicit `⚠ response is untyped — probe first` warnings on the ~86 `Promise<unknown>` methods (the §3.2 serializer-enrichment workstream remains the real fix). (The earlier BFS-ordering and `--budget`/`--brief` ideas are moot under the lean fetch contract in §3.2 — agents pull exactly the types they name.)
+5. **`client.taxonomy.*`.** Promote `read-data-schema` into the SDK (`taxonomy.events/properties/propertyValues`) so event/property verification fuses into the analytics script itself — the verified-query pattern in one round trip, with self-reporting failure ("no event matching 'signup' — candidates: …"). Today this is a `call`-only tool and a forced modality switch.
+6. **Latency tiers.** The plan pass is side-effect-free by construction (mutations never leave the process), so its security requirement is host isolation, not effect isolation: run every plan pass on cheap warm single-run-scoped workers (fresh fork per run, credential-poor, transport-pipe-only egress; target <500 ms), and reserve Modal for the post-confirmation `apply` pass where 5–15 s hides behind the human reading the plan. Converts the §3.7 warm-pool line from launch blocker to optimization. The `SandboxExecutor` seam already supports two executors (`planExecutor`/`applyExecutor`).
+7. **`--trace`.** Opt-in per-run API-call log (method/path/status/latency/size + rate-limit headroom), auto-abbreviated on error. The same transport wrapper implements the error dossier's ring buffer **and** the per-underlying-API-call `$mcp_tool_call` analytics §3.4 already calls for — one seam, three consumers; build it first.
+
+### 4.6 Rollout
+
+**Phase 0 — analytics (no behavior change).** You cannot deprecate what you cannot measure, and today `types`/`run`/`apply` collapse into the `exec` bucket of `$mcp_tool_call` with no verb dimension. Add: `$mcp_exec_verb`, run status (`run`: `compile_error | read_only | plan_issued | failed | sandbox_unavailable`; `apply`: `applied | already_applied | not_found | diverged | failed` — expiry reports `not_found`, since single-use consumption cannot distinguish an expired id from a mistyped one), plan mutation count, fast-path hit flag, deprecated-verb flag; attribute fast-pathed runs to their inner tool exactly like `call` (dashboard continuity). Then answer empirically: what fraction of `call` traffic is fast-path-shaped (prior: ≥85%), and per-harness compile-error rates.
+
+**Phase 1 — fast path + discovery decoupling.** Production-safe pre-Modal (§4.2). `sql` verb, `query.sql()` + `taxonomy.*` SDK methods, `types` aliases for `info`/`schema`/`search`. The CLI local execution mode (§4.8) ships in parallel with Phases 0–1 — it shares no infrastructure with the hosted rollout and unblocks coding-agent code exec immediately.
+
+**Phase 2 — ergonomics core.** Transport wrapper (dossier + trace + per-method analytics), result handles, plan-rendering fixes. Pays off regardless of which surface wins.
+
+**Phase 3 — code-first instructions behind a separate `mcp-code-first` flag,** independent of `mcp-code-execution` so the instruction flip can trail the runtime. A/B per organization against the current surface on: task completion proxy, tokens per session, error-loop depth, discovery-calls-before-first-success, fast-path hit rate, per-harness compile-error rate. Legacy verbs go hidden with deprecation footers in the code-first arm. Per-consumer instruction variants (client-profile machinery exists) are the escape valve for harnesses that measurably can't write escaped TS — not a global `call` resurrection.
+
+**Phase 4 — sandbox GA and deprecation.** Modal for `apply` (per the §4.5 tier split), warm workers for plan passes. Remove a hidden verb when 30-day usage is <0.5–1% of exec calls and skills/evals/playbooks show zero references; `call` stays.
+
+Maps onto §3.8: Phase 0–1 land inside Phase A/B; Phase 3 is the surface half of Phase C; Phase 4 aligns with C/D.
+Tools-mode roster clients are untouched throughout (they register per-tool and never see verbs; the fast path _is_ their handlers, so nothing can be deleted from under them).
+
+### 4.7 Risks specific to the redesign
+
+- **Weak code-gen harnesses** — the hardest one. Multi-line escaped TS in a JSON string is strictly harder than `call tool {json}` for small models. Mitigations: the cheat sheet (common case = memorized one-liner), the `script` parameter, deprecation footers that print the exact `run` equivalent, per-consumer variants. The Phase 3 A/B is the arbiter; if a harness roster fails, it gets a variant, not a surface revert.
+- **Nearly-call-shaped fallthrough** — agents write `limit: 2+1` or a variable and silently pay the sandbox. Measure fast-path hit rate per harness from day one; widen only with evidence and never past literal folding.
+- **Two dispatch stacks drifting** — fast path → MCP handler (filtered, TOON) vs sandbox → SDK → proxy (full objects). Same method, different response shape. Document ("scripts see full API objects"); converge handlers onto the SDK (§2.8 step 2) as the structural fix.
+- **Compile-gate strictness vs weak response types** — until the serializer-enrichment workstream lands, agents blocked by `unknown`-typed fields will cast to `any`; treat `any`-casts as warnings, not rejections, in the interim.
+- **Instruction-budget regression** — every section swap re-runs the budget test; keep ≥2 K slack under 32,600.
+- **Discovery long tail** — agents that found obscure tools via `search` must find them via `types`; the index searches a superset of `search`'s fields so this should be neutral or better, but verify with the types→run funnel before Phase 4 deprecations.
+
+### 4.8 Local execution mode (CLI) — Phase A made concrete
+
+The §3.8 Phase A line ("`posthog-cli api run` for local/trusted execution") and the §3.6.7 CLI-parity requirement become a concrete design: the code-exec verbs (`types` / `run` / `apply`) ship in the API CLI (`posthog-cli api …`, which already embeds the same `createExecTool` dispatcher), executing scripts **in-process on the user's machine**.
+This is the fastest route to production code execution for the dominant consumer segment (coding agents), and it has **no Modal dependency**.
+
+**Trust model.**
+The hosted sandbox exists because hosted agent scripts are untrusted code running on PostHog's infrastructure next to other tenants' credentials.
+On the user's own machine neither concern applies: the only credential a script could exfiltrate is the user's own key, already in their env, and coding-agent harnesses (Claude Code, Cursor) already execute arbitrary shell commands there — the harness's permission system is the security boundary, exactly as for every other local tool.
+The executor's forced transport is kept anyway as a prompt-injection mitigation: `createClient` is force-wrapped so `fetch`/`host`/`apiKey` cannot be overridden and only `@posthog/sdk` resolves, so even a steered script cannot talk to anything but the PostHog API.
+The `node:vm` wrapper is a convenience seam here, not a security boundary — and locally it doesn't need to be one.
+
+**The distribution constraint that shapes the design.**
+The distributed CLI is a single esbuild bundle (built from `services/mcp`, embedded into the Rust `posthog-cli` via `cli/build.rs`, materialized to `~/.posthog/api-cli/<version>/posthog-api-cli.mjs`, and executed by the system `node`) with **no `node_modules` beside it** — bundle-external packages are unresolvable at runtime.
+Consequences:
+
+- **Script lowering unifies on sucrase (all environments).** The executor's current lowering (TypeScript-AST module rewrite + esbuild `transform`) depends on two bundle-external packages and can never run in the distributed CLI. It is replaced everywhere by sucrase (`transforms: ['typescript', 'imports']` — pure JS, inlined into every bundle), with the CJS output wrapped in one async IIFE for top-level await. One lowering path for server dev, tests, and CLI; `esbuild` leaves the runtime path entirely.
+- **The compile gate becomes an injected dependency of the runtime.** The server injects the real `ts.LanguageService` gate (`typescript` stays bundle-external there; node_modules exists on the server image and in dev). The CLI injects none — keeping `typescript` and the ~4.3 MB `SDK_DTS` artifact out of the bundle — and falls back to the two contract lints (no `require(`; must `export default`) plus runtime errors, noting that the typecheck was skipped. The discovery index (~4 MB) and classifier table do ship in the CLI bundle: `types` and plan classification work fully offline from the API.
+- **Plan/apply must survive process exit** (the CLI is one-shot per invocation). Plan records live as files under `~/.posthog/code-exec/` (respecting `$POSTHOG_HOME`, the Rust CLI's existing home-dir convention), keyed by the three-word plan id (§3.6.4 — filename-safe by construction), with the same TTL and single-use semantics as the hosted path: `run` prints the plan + id, a later `apply <plan-id>` invocation loads and enforces it, consumption leaves a tombstone file so reuse and expiry are rejected identically. No signing key and no nonce ledger — the §3.6.4 revision removed both from code exec.
+
+**Executor gating.**
+`LocalVmExecutor` keeps its fail-closed `NODE_ENV` check; the CLI passes an explicit `trustedLocal` opt-in that only the CLI entrypoint sets.
+The hosted server path is unchanged and still refuses local execution outside development/test.
+
+**CLI surface.**
+Same verbs, same contracts as the hosted exec tool, plus file ergonomics (inline TS in argv is quoting hell for agents): `run --file <path>` and `run -` (stdin), and `--yes` to apply a plan in the same invocation for scripted/CI use (§3.6.7's knob).
+`types` works without an API key (static index); `run`/`apply` require one.
+Analytics parity: the CLI emits verb-labelled `$mcp_tool_call` events with its existing `$mcp_mode: 'cli'` / `$mcp_consumer: 'posthog-cli'` stamps, so local code-exec adoption lands in the same dashboards as the hosted verbs (§4.6 Phase 0).
+
+**Boundaries.**
+No Rust-side changes are required (credential env injection and bundle embedding already suffice).
+A locally-distributed stdio MCP server is deliberately **not** part of this: MCP distribution stays remote-first; the CLI is the local execution channel, and a local MCP wrapper is reconsidered only if agents fluent in `exec run` measurably fail to adopt the CLI invocation path.
+Version skew is bounded by the existing bundle-vendoring cadence — the discovery index and classifier in a released CLI are as fresh as that release, which is acceptable for a surface that fails soft (an unknown method errors with a search hint; the API remains the source of truth for validation).
