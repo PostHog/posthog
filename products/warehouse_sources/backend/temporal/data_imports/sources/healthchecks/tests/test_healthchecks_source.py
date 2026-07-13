@@ -137,6 +137,36 @@ class TestHealthchecksSource:
         assert is_valid is False
         assert error_message == "Invalid Healthchecks base URL"
 
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source.is_cloud")
+    @mock.patch.object(HealthchecksSource, "is_database_host_valid")
+    def test_validate_credentials_rejects_http_on_cloud(self, mock_host_valid, mock_is_cloud):
+        # On Cloud the required API key would travel in cleartext to a customer-supplied http:// host.
+        mock_host_valid.return_value = (True, None)
+        mock_is_cloud.return_value = True
+        config = HealthchecksSourceConfig(api_key="key", base_url="http://hc.internal:8000")
+
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == "Healthchecks base URL must use https"
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source.validate_healthchecks_credentials"
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source.is_cloud")
+    @mock.patch.object(HealthchecksSource, "is_database_host_valid")
+    def test_validate_credentials_allows_http_when_self_hosted(self, mock_host_valid, mock_is_cloud, mock_validate):
+        # Self-hosted deployments may reach their instance over http on their own network.
+        mock_host_valid.return_value = (True, None)
+        mock_is_cloud.return_value = False
+        mock_validate.return_value = (True, None)
+        config = HealthchecksSourceConfig(api_key="key", base_url="http://hc.internal:8000")
+
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is True
+        assert error_message is None
+
     def test_get_resumable_source_manager_binds_resume_config(self):
         inputs = mock.MagicMock()
         manager = self.source.get_resumable_source_manager(inputs)

@@ -72,7 +72,22 @@ class TestNormalizeBaseUrl:
     def test_valid(self, value, expected):
         assert normalize_base_url(value) == expected
 
-    @pytest.mark.parametrize("value", ["ftp://example.com", "https://"])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "ftp://example.com",
+            "https://",
+            # SSRF host-confusion tricks: the parsed hostname (validated by the SSRF allowlist)
+            # must not diverge from the host the HTTP client dials. Reject backslashes (raw and
+            # encoded), userinfo, and query/fragment so the allowlist can't be bypassed.
+            "http://169.254.169.254\\@example.com/",
+            "http://169.254.169.254%5c@example.com/",
+            "http://user@169.254.169.254",
+            "http://example.com@169.254.169.254",
+            "https://example.com?@169.254.169.254",
+            "https://example.com#@169.254.169.254",
+        ],
+    )
     def test_invalid_raises(self, value):
         with pytest.raises(ValueError):
             normalize_base_url(value)
@@ -120,7 +135,7 @@ class TestFetch:
         session = mock.MagicMock()
         session.get.return_value = _response({}, status_code=status_code)
         # Skip tenacity's real backoff sleeps so the retry exhausts instantly.
-        _fetch.retry.sleep = lambda *_: None
+        _fetch.retry.sleep = lambda *_: None  # type: ignore[attr-defined]
         with pytest.raises(HealthchecksRetryableError):
             _fetch(session, "https://healthchecks.io/api/v3/checks/", {}, mock.MagicMock())
         # 5 attempts (stop_after_attempt) before it gives up and reraises.
@@ -129,7 +144,9 @@ class TestFetch:
     def test_client_error_raises_for_status(self):
         session = mock.MagicMock()
         resp = _response({"error": "missing api key"}, status_code=401)
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized for url")
+        resp.raise_for_status.side_effect = requests.HTTPError(
+            "401 Client Error: Unauthorized for url", response=requests.Response()
+        )
         session.get.return_value = resp
         with pytest.raises(requests.HTTPError):
             _fetch(session, "https://healthchecks.io/api/v3/checks/", {}, mock.MagicMock())

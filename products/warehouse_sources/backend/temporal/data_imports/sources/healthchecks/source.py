@@ -9,6 +9,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
+from posthog.cloud_utils import is_cloud
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
     SourceResponse,
@@ -26,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.healthchec
     HealthchecksResumeConfig,
     healthchecks_source,
     hostname_of,
+    scheme_of,
     validate_credentials as validate_healthchecks_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.settings import (
@@ -135,15 +138,26 @@ Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance U
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
-    def validate_credentials(
-        self, config: HealthchecksSourceConfig, team_id: int, schema_name: Optional[str] = None
-    ) -> tuple[bool, str | None]:
+    def _validate_base_url(self, base_url: str | None, team_id: int) -> tuple[bool, str | None]:
         try:
-            host_valid, host_error = self.is_database_host_valid(hostname_of(config.base_url), team_id)
+            host_valid, host_error = self.is_database_host_valid(hostname_of(base_url), team_id)
+            scheme = scheme_of(base_url)
         except ValueError:
             return False, "Invalid Healthchecks base URL"
         if not host_valid:
             return False, host_error
+        # On Cloud the required API key would otherwise be sent in cleartext to a customer-supplied
+        # http:// host. Self-hosted deployments (not is_cloud) may still use http on their own network.
+        if is_cloud() and scheme != "https":
+            return False, "Healthchecks base URL must use https"
+        return True, None
+
+    def validate_credentials(
+        self, config: HealthchecksSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
+        base_url_valid, base_url_error = self._validate_base_url(config.base_url, team_id)
+        if not base_url_valid:
+            return False, base_url_error
 
         return validate_healthchecks_credentials(config.base_url, config.api_key)
 
@@ -156,9 +170,9 @@ Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance U
         resumable_source_manager: ResumableSourceManager[HealthchecksResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        host_valid, host_error = self.is_database_host_valid(hostname_of(config.base_url), inputs.team_id)
-        if not host_valid:
-            raise ValueError(host_error or "Invalid Healthchecks base URL")
+        base_url_valid, base_url_error = self._validate_base_url(config.base_url, inputs.team_id)
+        if not base_url_valid:
+            raise ValueError(base_url_error or "Invalid Healthchecks base URL")
 
         return healthchecks_source(
             base_url=config.base_url,

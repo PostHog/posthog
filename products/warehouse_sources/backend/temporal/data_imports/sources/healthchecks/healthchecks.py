@@ -37,19 +37,38 @@ def normalize_base_url(base_url: str | None) -> str:
     """Normalize the (optional) instance URL and reject anything that isn't plain http(s).
 
     Defaults to healthchecks.io; self-hosted deployments pass their own base URL.
+
+    Rejects URLs where the host `urlparse` reports could diverge from the host the HTTP
+    client actually dials, which would let a caller slip past the downstream SSRF allowlist
+    (which validates the parsed hostname). Backslashes are treated as path separators by
+    browsers and some clients but not by `urlparse`, so `http://169.254.169.254\\@internal`
+    parses as host `internal` while the client connects to `169.254.169.254`. Userinfo
+    (`user@host`) hides the real host after an `@`, and a query/fragment has no place in a
+    base URL — all are refused.
     """
     host = (base_url or "").strip() or DEFAULT_BASE_URL
     if "://" not in host:
         host = f"https://{host}"
+    # Catch raw and percent-encoded backslashes before urlparse silently keeps them.
+    if "\\" in host or "%5c" in host.lower():
+        raise ValueError(f"Invalid Healthchecks base URL: {base_url}")
     host = host.rstrip("/")
     parsed = urlparse(host)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(f"Invalid Healthchecks base URL: {base_url}")
+    if parsed.username is not None or parsed.password is not None or "@" in parsed.netloc:
+        raise ValueError(f"Invalid Healthchecks base URL: {base_url}")
+    if parsed.query or parsed.fragment or parsed.params:
         raise ValueError(f"Invalid Healthchecks base URL: {base_url}")
     return host
 
 
 def hostname_of(base_url: str | None) -> str:
     return urlparse(normalize_base_url(base_url)).hostname or ""
+
+
+def scheme_of(base_url: str | None) -> str:
+    return urlparse(normalize_base_url(base_url)).scheme
 
 
 def _api_base(base_url: str | None) -> str:
