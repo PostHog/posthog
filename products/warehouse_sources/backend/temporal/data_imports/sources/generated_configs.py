@@ -1187,7 +1187,7 @@ class ElasticsearchSourceConfig(config.Config):
 
 @config.config
 class ElevenLabsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

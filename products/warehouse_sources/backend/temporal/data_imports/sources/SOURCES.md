@@ -145,6 +145,7 @@ the row lists both.
 | e_conomic               | HTTP                        | requests                                                        | ✅                          |
 | easypost                | HTTP                        | requests                                                        | ✅                          |
 | easypromos              | HTTP                        | requests                                                        | ✅                          |
+| elevenlabs              | HTTP                        | requests                                                        | ✅                          |
 | freshcaller             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk               | HTTP                        | requests                                                        | ✅                          |
 | freshsales              | HTTP                        | requests                                                        | ✅                          |
@@ -524,7 +525,6 @@ doesn't conflict with concurrent PRs.
 - dynamodb
 - e2b
 - ebay
-- elevenlabs
 - eloqua
 - employment_hero
 - encharge
