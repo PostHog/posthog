@@ -32,7 +32,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
-from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
+from posthog.helpers.trigram_search import (
+    MAX_SEARCH_LENGTH,
+    NAME_FIELD,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+)
 from posthog.models import User
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -112,6 +117,7 @@ class ThresholdSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=255,
         help_text="Optional name for the threshold.",
     )
 
@@ -245,6 +251,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     name = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=255,
         help_text="Human-readable name for the alert.",
     )
     # nosemgrep: unscoped-primary-key-related-field — User model is not team-scoped; validate_subscribed_users() checks team membership
@@ -911,6 +918,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
 
         return queryset
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
     @staticmethod
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:

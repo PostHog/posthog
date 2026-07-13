@@ -12,9 +12,9 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.signals.backend.facade.api import SignalReportSummary, get_recent_reports
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalSourceConfig
 
-_FETCH_SCOUT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_products"
+_FETCH_REPORT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_products"
 
 
 class TestGetRecentReports(BaseTest):
@@ -35,11 +35,11 @@ class TestGetRecentReports(BaseTest):
         defaults.update(kwargs)
         return SignalReport.objects.create(**defaults)
 
-    def _recent(self, scout_ids: set[str] | None = None, **kwargs: Any) -> list[SignalReportSummary]:
-        if scout_ids is None:
-            scout_ids = {str(report_id) for report_id in SignalReport.objects.values_list("id", flat=True)}
+    def _recent(self, report_ids: set[str] | None = None, **kwargs: Any) -> list[SignalReportSummary]:
+        if report_ids is None:
+            report_ids = {str(report_id) for report_id in SignalReport.objects.values_list("id", flat=True)}
         kwargs.setdefault("since", timezone.now() - timedelta(days=7))
-        with patch(_FETCH_SCOUT_IDS, return_value=scout_ids):
+        with patch(_FETCH_REPORT_IDS, return_value=report_ids):
             return get_recent_reports(self.team.id, **kwargs)
 
     def test_returns_report_summaries_newest_first(self) -> None:
@@ -58,20 +58,21 @@ class TestGetRecentReports(BaseTest):
             signal_count=3,
         )
 
-    def test_scoped_to_scout_derived_reports(self) -> None:
-        scout_report = self._report(title="Scout finding")
-        self._report(title="Report formed from pulse's own signals")
+    def test_scoped_to_all_source_products(self) -> None:
+        report = self._report(title="Cross-product finding")
 
-        with patch(_FETCH_SCOUT_IDS, return_value={str(scout_report.id)}) as fetch_mock:
+        with patch(_FETCH_REPORT_IDS, return_value={str(report.id)}) as fetch_mock:
             results = get_recent_reports(self.team.id, since=timezone.now() - timedelta(days=7))
 
-        assert [result.id for result in results] == [str(scout_report.id)]
-        assert fetch_mock.call_args.args[1] == ["signals_scout"]
+        assert [result.id for result in results] == [str(report.id)]
+        # Every source product feeds briefs.
+        requested_products = fetch_mock.call_args.args[1]
+        assert set(requested_products) == {p.value for p in SignalSourceConfig.SourceProduct}
 
-    def test_no_scout_reports_returns_empty(self) -> None:
+    def test_no_reports_returns_empty(self) -> None:
         self._report()
 
-        assert self._recent(scout_ids=set()) == []
+        assert self._recent(report_ids=set()) == []
 
     @parameterized.expand(
         [

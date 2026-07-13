@@ -13,21 +13,49 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.api.services.query import ExecutionMode
+from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.models.team import Team
 
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import Opportunity
-from products.pulse.backend.sources.anchored_insights import (
-    calculate_insight_results,
-    series_daily_values,
-    split_score_windows,
-)
 
 logger = structlog.get_logger(__name__)
 
 MIN_AGE_DAYS = 7
 MAX_STATUS_LINES = 10
 METRIC_UNAVAILABLE = "metric no longer available"
+
+
+# Insight execution + window math, self-contained here: the movement-scoring source these once
+# lived in was rewritten to a strategy class that no longer exposes them, and accountability's
+# then-vs-now re-score needs the same read the brief did.
+def calculate_insight_results(insight: Insight, team: Team) -> list[Any]:
+    calculation = calculate_for_query_based_insight(
+        insight,
+        team=team,
+        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user=None,
+    )
+    return calculation.result if isinstance(calculation.result, list) else []
+
+
+def series_daily_values(series_result: Any, period_days: int) -> list[float] | None:
+    # None means a non-trends shape. Slices before float conversion so a long history isn't converted whole.
+    if not isinstance(series_result, dict) or "data" not in series_result:
+        return None
+    return [float(v) for v in series_result["data"][-2 * period_days :]]
+
+
+def split_score_windows(values: list[float]) -> tuple[list[float], list[float]] | None:
+    # Split into (baseline, current) halves. Callers pre-trim to 2×period_days via series_daily_values.
+    if len(values) % 2:
+        values = values[1:]  # drop the oldest sample so the two windows compare equal lengths
+    if len(values) < 2:
+        return None
+    half = len(values) // 2
+    return values[:half], values[half:]
+
 
 # A single stuck insight query can't hang the shared synthesize activity: cap each execution,
 # and cap the whole re-scoring pass so the LLM call after it keeps its slice of the 5-min budget.

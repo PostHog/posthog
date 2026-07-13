@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.models.team import Team
 
-from products.pulse.backend.models import Opportunity
+from products.pulse.backend.models import Opportunity, ProductBrief, ResourceLink, ResourceType
 
 _TRANSITION_EVENTS = {
     "dismiss": "opportunity_dismissed",
@@ -34,8 +34,10 @@ class TestOpportunityAPI(APIBaseTest):
         team: Team | None = None,
     ) -> Opportunity:
         team = team or self.team
+        brief = ProductBrief.objects.for_team(team.pk).create(team=team, trigger=ProductBrief.Trigger.ON_DEMAND)
         return Opportunity.objects.for_team(team.pk).create(
             team=team,
+            first_seen_brief=brief,
             kind=kind,
             status=opportunity_status,
             title="Recover the signup drop",
@@ -140,23 +142,25 @@ class TestOpportunityAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["id"] for row in response.json()["results"]] == [str(dismissed.id)]
 
-    def test_evidence_serializes_as_typed_refs(self) -> None:
-        # The typed evidence serializer must round-trip real evidence content without erroring —
-        # a missing/renamed field would 500 the retrieve that the frontend depends on.
-        opportunity = Opportunity.objects.for_team(self.team.pk).create(
+    def test_evidence_serializes_as_resource_links(self) -> None:
+        # Evidence is served from ResourceLink rows now; the serializer must round-trip
+        # type/ref/label/url without erroring — a 500 here breaks the panel the frontend renders.
+        opportunity = self._opportunity()
+        ResourceLink.objects.for_team(self.team.pk).create(
             team=self.team,
-            kind=Opportunity.Kind.BUILD,
-            status=Opportunity.Status.OPEN,
-            title="t",
-            summary="s",
-            fingerprint=f"build:{uuid.uuid4()}",
-            evidence=[{"type": "insight", "ref": "abc123", "label": "Pageviews"}],
+            opportunity=opportunity,
+            resource_type=ResourceType.INSIGHT,
+            ref="abc123",
+            label="Pageviews",
+            url="/insights/abc123",
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/pulse/opportunities/{opportunity.id}/")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["evidence"] == [{"type": "insight", "ref": "abc123", "label": "Pageviews"}]
+        assert response.json()["evidence"] == [
+            {"type": "insight", "ref": "abc123", "label": "Pageviews", "url": "/insights/abc123"}
+        ]
 
     def test_opportunities_are_team_scoped(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")

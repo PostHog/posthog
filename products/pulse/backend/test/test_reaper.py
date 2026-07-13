@@ -12,7 +12,7 @@ from products.pulse.backend.reaper import STALE_AFTER, mark_stale_briefs_failed
 class TestStaleBriefReaper(BaseTest):
     def _brief(self, status: str, age: dt.timedelta) -> ProductBrief:
         brief = ProductBrief.objects.for_team(self.team.pk).create(
-            team=self.team, status=status, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7
+            team=self.team, status=status, trigger=ProductBrief.Trigger.ON_DEMAND
         )
         # .update() bypasses auto_now, so it actually backdates the row.
         ProductBrief.all_teams.filter(id=brief.id).update(updated_at=timezone.now() - age)
@@ -38,7 +38,7 @@ class TestStaleBriefReaper(BaseTest):
     def test_batch_cap_reaps_up_to_the_cap_and_a_later_run_drains_the_rest(self) -> None:
         for _ in range(3):
             self._brief(ProductBrief.Status.GENERATING, STALE_AFTER + dt.timedelta(minutes=5))
-        with mock.patch("products.pulse.backend.reaper.BATCH_SIZE", 2):
+        with mock.patch("products.pulse.backend.reaper.REAP_BATCH_CAP", 2):
             first = mark_stale_briefs_failed()
             second = mark_stale_briefs_failed()
         assert first == 2  # capped

@@ -1,5 +1,3 @@
-from typing import get_args
-
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -18,30 +16,27 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.pulse.backend.api.brief import PULSE_FEATURE_FLAG
 from products.pulse.backend.models import Opportunity
-from products.pulse.backend.sources.base import EvidenceType
 
 logger = structlog.get_logger(__name__)
 
 
-class EvidenceRefSerializer(serializers.Serializer):
-    # Mirrors the EvidenceRef TypedDict (sources/base.py) so the frontend gets a typed ref
-    # instead of an opaque dict it has to narrow by hand.
-    type = serializers.ChoiceField(
-        choices=list(get_args(EvidenceType)),
-        help_text="The kind of PostHog resource this ref points at (insight, dashboard, annotation, ...).",
-    )
+class ResourceLinkSerializer(serializers.Serializer):
+    # Evidence link on an opportunity — the relational replacement for the old evidence JSON.
+    # `type` mirrors the section-citation shape the frontend already renders (type/ref/label/url).
+    type = serializers.CharField(source="resource_type", help_text="The kind of PostHog resource this link points at.")
     ref = serializers.CharField(help_text="Stable identifier of the referenced resource (e.g. an insight short id).")
-    label = serializers.CharField(
-        allow_blank=True, help_text="Human-readable label for the resource, if one was captured."
-    )
+    label = serializers.CharField(allow_blank=True, help_text="Human-readable label for the resource.")
+    url = serializers.CharField(allow_blank=True, help_text="Deep link into the app, or empty when there is none.")
 
 
 class OpportunitySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the opportunity.")
-    evidence = EvidenceRefSerializer(
+    suggested_action = serializers.SerializerMethodField(help_text="The concrete next step suggested for the team.")
+    evidence = ResourceLinkSerializer(
+        source="resource_links",
         many=True,
         read_only=True,
-        help_text="Evidence refs backing the opportunity: type, ref, and label per entry.",
+        help_text="Evidence links backing the opportunity: type, ref, label, and url per entry.",
     )
 
     class Meta:
@@ -67,9 +62,12 @@ class OpportunitySerializer(serializers.ModelSerializer):
             "status": {"help_text": "Lifecycle status: open, dismissed, acted, or resolved."},
             "title": {"help_text": "Short, actionable opportunity title."},
             "summary": {"help_text": "What was observed and why it matters."},
-            "suggested_action": {"help_text": "The concrete next step suggested for the team."},
-            "first_seen_brief": {"help_text": "The brief this opportunity first surfaced in, if any."},
+            "first_seen_brief": {"help_text": "The brief this opportunity first surfaced in."},
         }
+
+    def get_suggested_action(self, obj: Opportunity) -> str:
+        # The LLM's free-text next step, wrapped by persist in the structured action envelope.
+        return (obj.action or {}).get("summary", "")
 
 
 class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
@@ -82,7 +80,12 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Opportunity.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[Opportunity]) -> QuerySet[Opportunity]:
-        scoped = Opportunity.objects.for_team(self.team_id).select_related("created_by").order_by("-created_at")
+        scoped = (
+            Opportunity.objects.for_team(self.team_id)
+            .select_related("created_by")
+            .prefetch_related("resource_links")
+            .order_by("-created_at")
+        )
         if self.action == "list":
             scoped = self._apply_list_filters(scoped)
         return scoped

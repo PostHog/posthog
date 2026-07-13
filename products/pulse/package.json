@@ -1,13 +1,12 @@
 {
     "name": "@posthog/products-pulse",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:",
         "posthog-js": "catalog:"
     },
     "devDependencies": {

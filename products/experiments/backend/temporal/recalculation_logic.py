@@ -13,6 +13,7 @@ from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import ExperimentQuery
@@ -23,7 +24,6 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
-from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
@@ -263,38 +263,39 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
         )
         primary_metrics_count = len(experiment.metrics or [])
         secondary_metrics_count = len(experiment.metrics_secondary or [])
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=distinct_id,
-                event="experiment results refresh completed",
-                properties={
-                    "experiment_id": experiment.id,
-                    "team_id": team.id,
-                    "recalculation_id": str(recalc.id),
-                    "status": recalc.status,
-                    "total_metrics": recalc.total_metrics,
-                    "succeeded_metrics": update.succeeded_metrics,
-                    "failed_metrics": update.failed_metrics,
-                    "total_duration_ms": total_duration_ms,
-                    "execution_duration_ms": execution_duration_ms,
-                    "queue_duration_ms": queue_duration_ms,
-                    "trigger": recalc.trigger,
-                    "execution_mode": "recalculation",
-                    # Legacy-named aliases + missing properties for parity with the frontend
-                    # 'experiment results refresh completed' event, so the original experiments
-                    # dashboards work against workflow runs with the same property names.
-                    "triggered_by": recalc.trigger,
-                    "successful_count": update.succeeded_metrics,
-                    "errored_count": update.failed_metrics,
-                    "cached_count": 0,
-                    "total_metrics_count": recalc.total_metrics,
-                    "primary_metrics_count": primary_metrics_count,
-                    "secondary_metrics_count": secondary_metrics_count,
-                    "experiment_status": experiment.status or experiment.computed_status,
-                    "experiment_duration_hours": experiment_duration_hours,
-                },
-                groups=groups(organization=team.organization, team=team),
-            )
+        # Global client, like most Temporal workflows: the worker is long-lived, so its background flush
+        # runs fine, and a scoped client's synchronous shutdown stalls the activity (~2x flush_interval).
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="experiment results refresh completed",
+            properties={
+                "experiment_id": experiment.id,
+                "team_id": team.id,
+                "recalculation_id": str(recalc.id),
+                "status": recalc.status,
+                "total_metrics": recalc.total_metrics,
+                "succeeded_metrics": update.succeeded_metrics,
+                "failed_metrics": update.failed_metrics,
+                "total_duration_ms": total_duration_ms,
+                "execution_duration_ms": execution_duration_ms,
+                "queue_duration_ms": queue_duration_ms,
+                "trigger": recalc.trigger,
+                "execution_mode": "recalculation",
+                # Legacy-named aliases + missing properties for parity with the frontend
+                # 'experiment results refresh completed' event, so the original experiments
+                # dashboards work against workflow runs with the same property names.
+                "triggered_by": recalc.trigger,
+                "successful_count": update.succeeded_metrics,
+                "errored_count": update.failed_metrics,
+                "cached_count": 0,
+                "total_metrics_count": recalc.total_metrics,
+                "primary_metrics_count": primary_metrics_count,
+                "secondary_metrics_count": secondary_metrics_count,
+                "experiment_status": experiment.status or experiment.computed_status,
+                "experiment_duration_hours": experiment_duration_hours,
+            },
+            groups=groups(organization=team.organization, team=team),
+        )
     except Exception:
         logger.warning(
             "experiment_results_refresh_completed_capture_failed",
@@ -397,24 +398,23 @@ def _capture_experiment_metric_event(
             if experiment.created_by and experiment.created_by.distinct_id
             else f"team_{team.id}"
         )
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=distinct_id,
-                event=event,
-                properties={
-                    "experiment_id": experiment.id,
-                    "team_id": team.id,
-                    "metric_uuid": metric_uuid,
-                    "metric_kind": (metric_dict or {}).get("metric_type"),
-                    "is_primary": metric_type == "primary",
-                    "execution_mode": "recalculation",
-                    "context": "ui",
-                    "mechanism": "orchestrated",
-                    "trigger": trigger,
-                    **extra_properties,
-                },
-                groups=groups(organization=team.organization, team=team),
-            )
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event=event,
+            properties={
+                "experiment_id": experiment.id,
+                "team_id": team.id,
+                "metric_uuid": metric_uuid,
+                "metric_kind": (metric_dict or {}).get("metric_type"),
+                "is_primary": metric_type == "primary",
+                "execution_mode": "recalculation",
+                "context": "ui",
+                "mechanism": "orchestrated",
+                "trigger": trigger,
+                **extra_properties,
+            },
+            groups=groups(organization=team.organization, team=team),
+        )
     except Exception:
         logger.warning(
             "experiment_metric_event_capture_failed",

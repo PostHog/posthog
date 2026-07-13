@@ -9,20 +9,15 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { BriefConfigApi, ProductBriefApi } from './generated/api.schemas'
-import {
-    BRIEF_ALREADY_GENERATING_MESSAGE,
-    CITATION_TYPES,
-    MAX_CONSECUTIVE_POLL_FAILURES,
-    pulseLogic,
-} from './pulseLogic'
+import type { BriefConfigApi, ProductBriefListApi } from './generated/api.schemas'
+import { BRIEF_ALREADY_GENERATING_MESSAGE, MAX_CONSECUTIVE_POLL_FAILURES, pulseLogic } from './pulseLogic'
 
 const generatingBrief = {
     id: 'brief-1',
     config: null,
     status: 'generating',
     trigger: 'on_demand',
-    period_days: 7,
+    period: { period_type: 'last_n_days', days: 7 },
     sections: [],
     sources_used: [],
     error: null,
@@ -39,7 +34,7 @@ const readyBrief = {
             kind: 'what_happened',
             title: 'Signups dipped',
             markdown: 'Signup conversion dropped 12%.',
-            citations: ['insight:abc123'],
+            citations: [{ type: 'insight', ref: 'abc123', label: 'Signups', url: '/project/1/insights/abc123' }],
             confidence: 0.9,
         },
     ],
@@ -109,8 +104,8 @@ describe('pulseLogic', () => {
             .toNotHaveDispatchedActions(['briefsRefreshed'])
     })
 
-    it('stops polling with an error toast after consecutive all-failed poll rounds', async () => {
-        const errorSpy = jest.spyOn(lemonToast, 'error')
+    it('marks a brief failed after consecutive poll failures, then stops polling', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
         useMocks({
             get: { '/api/projects/:team_id/pulse/briefs/:id/': () => [500, {}] },
         })
@@ -124,17 +119,48 @@ describe('pulseLogic', () => {
                 logic.actions.pollGeneratingBriefs()
             })
                 .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['stopPolling'])
+                .toNotHaveDispatchedActions(['markBriefFailed'])
         }
 
-        // The failure ceiling stops the interval and surfaces the stuck state.
+        // The failure ceiling marks the stuck brief failed rather than spinning on "generating" forever.
         await expectLogic(logic, () => {
             logic.actions.pollGeneratingBriefs()
         })
             .toFinishAllListeners()
-            .toDispatchActions(['stopPolling'])
-        expect(errorSpy).toHaveBeenCalled()
-        expect(logic.values.briefs[0].status).toEqual('generating')
+            .toDispatchActions(['markBriefFailed'])
+        expect(logic.values.briefs[0].status).toEqual('failed')
+        expect(captureSpy).toHaveBeenCalledWith('pulse brief poll gave up', { brief_id: 'brief-1' })
+
+        // With nothing left generating, the next tick ends the interval.
+        await expectLogic(logic, () => {
+            logic.actions.pollGeneratingBriefs()
+        }).toDispatchActions(['stopPolling'])
+    })
+
+    it('fails only the unreachable brief while a sibling keeps updating', async () => {
+        const briefOk: ProductBriefListApi = { ...generatingBrief, id: 'brief-ok' } as unknown as ProductBriefListApi
+        const briefBad: ProductBriefListApi = { ...generatingBrief, id: 'brief-bad' } as unknown as ProductBriefListApi
+        useMocks({
+            get: {
+                '/api/projects/:team_id/pulse/briefs/:id/': (info) =>
+                    info.request.url.includes('brief-bad') ? [500, {}] : [200, { ...briefOk, status: 'ready' }],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners() // let the mount-time loads settle before seeding
+        logic.actions.loadBriefsSuccess([briefOk, briefBad])
+        logic.actions.startPolling()
+
+        // A shared failure counter would reset every time the sibling succeeds, so the bad brief
+        // would never trip the ceiling — the per-brief counter must still fail it.
+        for (let round = 1; round <= MAX_CONSECUTIVE_POLL_FAILURES; round++) {
+            await expectLogic(logic, () => {
+                logic.actions.pollGeneratingBriefs()
+            }).toFinishAllListeners()
+        }
+
+        const byId = Object.fromEntries(logic.values.briefs.map((brief) => [brief.id, brief]))
+        expect(byId['brief-ok'].status).toEqual('ready')
+        expect(byId['brief-bad'].status).toEqual('failed')
     })
 
     it('surfaces the consent banner on an AI data processing 400 without starting polling', async () => {
@@ -221,6 +247,8 @@ describe('pulseLogic', () => {
             expect(captured[endpoint === 'post' ? 'patch' : 'post']).toBeNull()
             expect(captured[endpoint]!.name).toEqual('Updated name')
             expect(captured[endpoint]!.anchors).toEqual(expectedAnchors)
+            // A newly created config is auto-selected; editing an existing one leaves selection untouched.
+            expect(logic.values.selectedConfigId).toEqual(endpoint === 'post' ? 'cfg-new' : null)
         }
     )
 
@@ -254,75 +282,5 @@ describe('pulseLogic', () => {
         })
             .toDispatchActions(['configDeleted'])
             .toMatchValues({ selectedConfigId: null, briefConfigs: [] })
-    })
-
-    it.each([
-        [
-            'citation without separator',
-            { kind: 'k', title: 't', markdown: 'm', citations: ['noseparator'], confidence: 0.5 },
-            { kind: 'k', title: 't', markdown: 'm', citations: [{ type: '', ref: 'noseparator' }], confidence: 0.5 },
-        ],
-        [
-            'citation with leading separator',
-            { kind: 'k', title: 't', markdown: 'm', citations: [':leading'], confidence: 0.5 },
-            { kind: 'k', title: 't', markdown: 'm', citations: [{ type: '', ref: ':leading' }], confidence: 0.5 },
-        ],
-        [
-            'section missing kind, title, and markdown',
-            {},
-            { kind: '', title: '', markdown: '', citations: [], confidence: 0 },
-        ],
-        [
-            'non-array citations and non-number confidence',
-            { kind: 'k', title: 't', markdown: 'm', citations: 'nope', confidence: 'high' },
-            { kind: 'k', title: 't', markdown: 'm', citations: [], confidence: 0 },
-        ],
-    ])('parses malformed brief sections: %s', (_name, section, expected) => {
-        logic.actions.loadBriefDetailSuccess({ ...readyBrief, sections: [section] } as unknown as ProductBriefApi)
-        expect(logic.values.briefDetailSections[0]).toEqual(expected)
-    })
-
-    it.each<[string, string, string | undefined]>([
-        ['insight', 'abc123', '/insights/abc123'],
-        ['dashboard', '5', '/dashboard/5'],
-        ['flag', '123', '/feature_flags/123'],
-        ['experiment', '45', '/experiments/45'],
-        ['annotation', '77', '/data-management/annotations/77'],
-        // Opportunity refs are internal UUIDs — every one links to the pulse scene.
-        ['opportunity', '11111111-1111-1111-1111-111111111111', '/pulse'],
-        // A hallucinated non-numeric ref renders unlinked instead of a dead /NaN link.
-        ['flag', 'not-a-number', undefined],
-        // Empty-string and "0" are finite numbers but not real ids — must not link to resource 0.
-        ['flag', '', undefined],
-        ['experiment', '0', undefined],
-    ])('maps %s:%s citations to a scene URL', (type, ref, expected) => {
-        expect(CITATION_TYPES[type].url(ref)).toEqual(expected)
-    })
-
-    it('reports product_brief_viewed once per brief', async () => {
-        const captureSpy = jest.spyOn(posthog, 'capture')
-
-        await expectLogic(logic, () => {
-            logic.actions.loadBriefDetailSuccess(readyBrief as unknown as ProductBriefApi)
-            logic.actions.loadBriefDetailSuccess(readyBrief as unknown as ProductBriefApi)
-        }).toFinishAllListeners()
-
-        const viewedCalls = captureSpy.mock.calls.filter(([event]) => event === 'product_brief_viewed')
-        expect(viewedCalls).toHaveLength(1)
-        expect(viewedCalls[0][1]).toMatchObject({ brief_id: 'brief-1', status: 'ready' })
-    })
-
-    it('does not report product_brief_viewed for a generating brief', async () => {
-        const captureSpy = jest.spyOn(posthog, 'capture')
-
-        await expectLogic(logic, () => {
-            logic.actions.loadBriefDetailSuccess(generatingBrief as unknown as ProductBriefApi)
-        }).toFinishAllListeners()
-
-        expect(captureSpy.mock.calls.filter(([event]) => event === 'product_brief_viewed')).toHaveLength(0)
-    })
-
-    it('has no citation table entry for unknown types, which render unlinked', () => {
-        expect(CITATION_TYPES['signal_report']).toBeUndefined()
     })
 })

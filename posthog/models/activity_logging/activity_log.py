@@ -80,6 +80,7 @@ ActivityScope = Literal[
     "ExternalDataSchema",
     "Evaluation",
     "LLMTrace",
+    "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
@@ -91,6 +92,8 @@ ActivityScope = Literal[
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "StreamlitApp",
+    "Metric",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -383,9 +386,23 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    {
+        # Admin AI-gateway top-ups are staff-only; keep the staff email, credit reason,
+        # and wallet balance out of the org-scoped activity log endpoints.
+        "scope": "AIGatewayCredit",
+        "activities": ["credit_added"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "Metric": [
+        # Derived/throttled fields, not user-meaningful change diffs.
+        "last_run_at",
+        "source_insight_query_hash",
+        "referenced_table_names",
+    ],
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",

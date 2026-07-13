@@ -78,6 +78,7 @@ rules:
                               |BatchExportFileDownload
                               |BatchExportOnDemand
                               |BatchImport
+                              |BriefConfig
                               |ButtonTile
                               |ChangeRequest
                               |ClusteringConfig
@@ -146,6 +147,7 @@ rules:
                               |ExportedRecording
                               |ExternalDataJob
                               |ExternalDataSchema
+                              |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |FeatureFlag
                               |TeamExperimentsConfig
@@ -190,18 +192,22 @@ rules:
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageTemplate
+                              |Metric
                               |MCPAnalyticsSubmission
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
                               |MCPSession
+                              |Opportunity
                               |OptOutSyncConfig
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookNodeRun
                               |ObjectMediaPreview
                               |ParserRecipe
                               |PendingSourceCredential
                               |PluginConfig
+                              |ProductBrief
                               |ProductTour
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
@@ -210,10 +216,15 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationLabel
+                              |ReplayObservationUsage
                               |ReplayScanner
+                              |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
+                              |SandboxCustomImage
                               |SandboxEnvironment
+                              |ResourceLink
                               |ScoreDefinition
                               |SavedHeatmap
                               |ScheduledChange
@@ -246,10 +257,12 @@ rules:
                               |Tag
                               |Tagger
                               |Task
+                              |TaskArtifact
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
                               |TaskThreadMessage
+                              |TaskThreadMessageMention
                               |Channel
                               |EmailChannel
                               |EvaluationReport
@@ -259,6 +272,7 @@ rules:
                               |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
+                              |ZendeskImportJob
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -356,6 +370,7 @@ rules:
                         |BatchExportFileDownload
                         |BatchExportOnDemand
                         |BatchImport
+                        |BriefConfig
                         |ButtonTile
                         |ChangeRequest
                         |ClusteringConfig
@@ -424,6 +439,7 @@ rules:
                         |ExportedRecording
                         |ExternalDataJob
                         |ExternalDataSchema
+                        |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
                         |TeamExperimentsConfig
@@ -465,17 +481,21 @@ rules:
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
+                        |Metric
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
                         |MCPSession
+                        |Opportunity
                         |OptOutSyncConfig
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookNodeRun
                         |ObjectMediaPreview
                         |ParserRecipe
                         |PendingSourceCredential
                         |PluginConfig
+                        |ProductBrief
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
@@ -484,10 +504,15 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationLabel
+                        |ReplayObservationUsage
                         |ReplayScanner
+                        |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
+                        |SandboxCustomImage
                         |SandboxEnvironment
+                        |ResourceLink
                         |ScoreDefinition
                         |SavedHeatmap
                         |ScheduledChange
@@ -520,10 +545,12 @@ rules:
                         |Tag
                         |Tagger
                         |Task
+                        |TaskArtifact
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
                         |TaskThreadMessage
+                        |TaskThreadMessageMention
                         |Channel
                         |EmailChannel
                         |EvaluationReport
@@ -533,6 +560,7 @@ rules:
                         |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
+                        |ZendeskImportJob
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview
@@ -649,7 +677,6 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
-                              |ReplayObservationUsage
                               |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
@@ -718,7 +745,6 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
-                        |ReplayObservationUsage
                         |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference

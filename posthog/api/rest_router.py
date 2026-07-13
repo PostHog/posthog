@@ -41,6 +41,7 @@ from . import (
     hog,
     identity_provider_config,
     ingestion_warnings,
+    ingestion_warnings_v2,
     instance_settings,
     instance_status,
     integration,
@@ -218,6 +219,13 @@ register_legacy_dual_route_team_nested_viewset(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
     "environment_ingestion_warnings",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"ingestion_warnings_v2",
+    ingestion_warnings_v2.IngestionWarningsV2ViewSet,
+    "project_ingestion_warnings_v2",
     ["team_id"],
 )
 

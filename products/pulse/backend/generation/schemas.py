@@ -20,7 +20,7 @@ class BriefSectionOut(BaseModel):
     kind: str = Field(description="Section kind, e.g. 'what_happened' or 'what_to_build_next'.")
     title: str = Field(description="Short, specific section heading.")
     markdown: str = Field(description="Section body in markdown.")
-    citations: list[str] = Field(description="Evidence refs from the input, verbatim, e.g. 'insight:abc123'.")
+    citations: list[str] = Field(description="Citation ids (e.g. 'c1') from the input, copied verbatim.")
     confidence: float = Field(description="Confidence in this section, 0.0-1.0.")
 
 
@@ -29,7 +29,7 @@ class OpportunityOut(BaseModel):
     title: str = Field(description="Short, actionable opportunity title.")
     summary: str = Field(description="What was observed and why it matters.")
     suggested_action: str = Field(description="The concrete next step a product team should take.")
-    evidence_refs: list[str] = Field(description="Evidence refs from the input, verbatim.")
+    evidence_refs: list[str] = Field(description="Citation ids (e.g. 'c1') from the input, copied verbatim.")
     fingerprint_hint: str = Field(description="The fingerprint_hint of the source item, copied through unchanged.")
     confidence: float = Field(description="Confidence in this opportunity, 0.0-1.0.")
 

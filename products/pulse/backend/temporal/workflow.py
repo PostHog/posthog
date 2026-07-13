@@ -1,11 +1,17 @@
-import datetime as dt
-
 import temporalio.common
 import temporalio.workflow
 import temporalio.exceptions
 
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.pulse.backend.config import (
+    GATHER_ACTIVITY_TIMEOUT,
+    GATHER_MAX_ATTEMPTS,
+    MARK_FAILED_ACTIVITY_TIMEOUT,
+    MARK_FAILED_MAX_ATTEMPTS,
+    SYNTHESIZE_ACTIVITY_TIMEOUT,
+    SYNTHESIZE_MAX_ATTEMPTS,
+)
 from products.pulse.backend.temporal.activities import (
     gather_brief_inputs_activity,
     mark_brief_failed_activity,
@@ -36,22 +42,21 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
             items: list[dict] = await temporalio.workflow.execute_activity(
                 gather_brief_inputs_activity,
                 inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+                start_to_close_timeout=GATHER_ACTIVITY_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=GATHER_MAX_ATTEMPTS),
             )
             return await temporalio.workflow.execute_activity(
                 synthesize_brief_activity,
                 SynthesizeActivityInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, items=items),
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                # A failed synthesis is not retried: retrying double-spends LLM calls.
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                start_to_close_timeout=SYNTHESIZE_ACTIVITY_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=SYNTHESIZE_MAX_ATTEMPTS),
             )
         except Exception as exc:
             # Without this, a failed run strands the brief in GENERATING forever.
             await temporalio.workflow.execute_activity(
                 mark_brief_failed_activity,
                 MarkBriefFailedInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, error=_error_message(exc)),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=MARK_FAILED_ACTIVITY_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=MARK_FAILED_MAX_ATTEMPTS),
             )
             raise

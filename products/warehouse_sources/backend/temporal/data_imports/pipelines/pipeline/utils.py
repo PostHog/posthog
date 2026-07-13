@@ -1121,14 +1121,20 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                         field_index, arrow_schema.field(field_index).with_type(overflow_arr.type)
                     )
 
-        # If one type is a list, then make everything into a list
+        # If one type is a list, wrap scalars into single-element lists and JSON-stringify the column.
+        # Element types can differ across rows (e.g. a WordPress field returned as a bool in one row
+        # and an object in another), which no single pyarrow list type can hold, so serialize directly
+        # rather than via an intermediate list array that would raise ArrowInvalid on the mismatch.
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:
-            list_array = pa.array(
-                [s if isinstance(s, list) else [s] for s in _to_list_array(columnar_table_data[field_name])]
+            json_array = pa.array(
+                [
+                    None if s is None else _json_dumps(s if isinstance(s, list) else [s])
+                    for s in _to_list_array(columnar_table_data[field_name])
+                ]
             )
-            columnar_table_data[field_name] = list_array
-            py_type = list
-            unique_types_in_column = {list}
+            columnar_table_data[field_name] = json_array
+            py_type = str
+            unique_types_in_column = {str}
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 

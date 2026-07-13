@@ -11,7 +11,12 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.annotations.backend.models import Annotation
-from products.pulse.backend.sources.annotations import MAX_ANNOTATIONS, AnnotationsSource
+from products.pulse.backend.config import DEFAULT_BRIEF_SETTINGS
+from products.pulse.backend.models import BriefConfig
+from products.pulse.backend.sources.annotations import AnnotationsSource
+from products.pulse.backend.sources.base import EvidenceRef, EvidenceType
+
+_DEFAULT_MAX_ANNOTATIONS = DEFAULT_BRIEF_SETTINGS.max_annotations
 
 
 class TestAnnotationsGather(BaseTest):
@@ -29,16 +34,18 @@ class TestAnnotationsGather(BaseTest):
     def test_gather_returns_context_item(self) -> None:
         annotation = self._annotation()
 
-        items = AnnotationsSource().gather(self.team, None, period_days=7)
+        items = AnnotationsSource().gather(self.team, None, lookback_days=7)
 
         assert len(items) == 1
         item = items[0]
         assert item.source == "annotations"
         assert item.kind == "context"
         assert item.title == "Shipped v2.3"
-        assert item.numbers == {}
-        assert item.evidence == [{"type": "annotation", "ref": str(annotation.id), "label": "Shipped v2.3"}]
-        assert item.fingerprint_hint == f"annotations:{annotation.id}"
+        assert item.metrics == {}
+        assert item.evidence == [
+            EvidenceRef(type=EvidenceType.ANNOTATION, ref=str(annotation.id), label="Shipped v2.3", url="")
+        ]
+        assert item.fingerprint_hint == f"annotation:{annotation.id}"
 
     @parameterized.expand(
         [
@@ -53,14 +60,14 @@ class TestAnnotationsGather(BaseTest):
     def test_gather_filtering(self, _name: str, overrides: dict[str, Any], expected_count: int) -> None:
         self._annotation(**overrides)
 
-        items = AnnotationsSource().gather(self.team, None, period_days=7)
+        items = AnnotationsSource().gather(self.team, None, lookback_days=7)
 
         assert len(items) == expected_count
 
     def test_no_date_marker_falls_back_to_created_at(self) -> None:
         self._annotation(date_marker=None)  # created_at defaults to now — in period
 
-        items = AnnotationsSource().gather(self.team, None, period_days=7)
+        items = AnnotationsSource().gather(self.team, None, lookback_days=7)
 
         assert len(items) == 1
 
@@ -68,7 +75,7 @@ class TestAnnotationsGather(BaseTest):
         sibling_team = Team.objects.create(organization=self.organization, name="Sibling")
         self._annotation(team=sibling_team, scope=Annotation.Scope.ORGANIZATION, content="Org-wide incident")
 
-        items = AnnotationsSource().gather(self.team, None, period_days=7)
+        items = AnnotationsSource().gather(self.team, None, lookback_days=7)
 
         assert [item.title for item in items] == ["Org-wide incident"]
 
@@ -79,24 +86,33 @@ class TestAnnotationsGather(BaseTest):
         sibling_team = Team.objects.create(organization=self.organization, name="Sib")
         self._annotation(team=sibling_team)
 
-        items = AnnotationsSource().gather(self.team, None, period_days=7)
+        items = AnnotationsSource().gather(self.team, None, lookback_days=7)
 
         assert items == []
 
     def test_cap_keeps_newest(self) -> None:
-        for hours_ago in range(MAX_ANNOTATIONS + 3):
+        for hours_ago in range(_DEFAULT_MAX_ANNOTATIONS + 3):
             self._annotation(days_ago=hours_ago / 24, content=f"annotation {hours_ago}")
 
-        items = AnnotationsSource().gather(self.team, None, period_days=7)
+        items = AnnotationsSource().gather(self.team, None, lookback_days=7)
 
-        assert len(items) == MAX_ANNOTATIONS
+        assert len(items) == _DEFAULT_MAX_ANNOTATIONS
         assert items[0].title == "annotation 0"
-        assert all(item.title != f"annotation {MAX_ANNOTATIONS}" for item in items)
+        assert all(item.title != f"annotation {_DEFAULT_MAX_ANNOTATIONS}" for item in items)
+
+    def test_config_overrides_cap_per_request(self) -> None:
+        for i in range(5):
+            self._annotation(days_ago=i / 24, content=f"annotation {i}")
+
+        config = BriefConfig(team=self.team, settings={"max_annotations": 2})
+        items = AnnotationsSource().gather(self.team, config, lookback_days=7)
+
+        assert len(items) == 2
 
     def test_long_content_truncated_in_title(self) -> None:
         self._annotation(content="x" * 300)
 
-        items = AnnotationsSource().gather(self.team, None, period_days=7)
+        items = AnnotationsSource().gather(self.team, None, lookback_days=7)
 
         assert len(items[0].title) == 100
         assert items[0].description.startswith("x" * 200)

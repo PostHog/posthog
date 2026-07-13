@@ -14,6 +14,51 @@ export interface BriefAnchorsApi {
     insights?: string[]
 }
 
+export interface BriefSettingsApi {
+    /**
+     * Minimum absolute percent change for a movement to count as significant. Default 20.
+     * @minimum 1
+     * @maximum 1000
+     */
+    min_abs_change_pct?: number
+    /**
+     * Minimum per-sample baseline volume before a movement is considered. Default 10.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    min_baseline_value?: number
+    /**
+     * Maximum anchor insights gathered per brief. Default 10.
+     * @minimum 1
+     * @maximum 100
+     */
+    max_anchor_insights?: number
+    /**
+     * How many recent dashboards to pull insights from when no anchors are set. Default 3.
+     * @minimum 1
+     * @maximum 20
+     */
+    fallback_dashboard_count?: number
+    /**
+     * Minimum confidence for a section or opportunity to survive the gate. Default 0.6.
+     * @minimum 0
+     * @maximum 1
+     */
+    confidence_threshold?: number
+    /**
+     * Maximum opportunities kept per brief. Default 3.
+     * @minimum 1
+     * @maximum 20
+     */
+    max_opportunities?: number
+    /**
+     * Maximum annotations gathered as context per brief. Default 20.
+     * @minimum 1
+     * @maximum 100
+     */
+    max_annotations?: number
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -83,13 +128,15 @@ export interface BriefConfigApi {
     focus_prompt?: string
     /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
     anchors?: BriefAnchorsApi
+    /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
+    settings?: BriefSettingsApi
     /** Whether this config generates briefs. */
     enabled?: boolean
     /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
     deleted?: boolean
     /**
      * How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.
-     * @minimum -2147483648
+     * @minimum 1
      * @maximum 2147483647
      */
     accountability_min_age_days?: number
@@ -123,13 +170,15 @@ export interface PatchedBriefConfigApi {
     focus_prompt?: string
     /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
     anchors?: BriefAnchorsApi
+    /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
+    settings?: BriefSettingsApi
     /** Whether this config generates briefs. */
     enabled?: boolean
     /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
     deleted?: boolean
     /**
      * How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.
-     * @minimum -2147483648
+     * @minimum 1
      * @maximum 2147483647
      */
     accountability_min_age_days?: number
@@ -166,6 +215,31 @@ export const ProductBriefTriggerEnumApi = {
     Scheduled: 'scheduled',
 } as const
 
+/**
+ * * `last_n_days` - last_n_days
+ * * `since_last_run` - since_last_run
+ */
+export type PeriodTypeEnumApi = (typeof PeriodTypeEnumApi)[keyof typeof PeriodTypeEnumApi]
+
+export const PeriodTypeEnumApi = {
+    LastNDays: 'last_n_days',
+    SinceLastRun: 'since_last_run',
+} as const
+
+export interface PeriodApi {
+    /** How the brief window is chosen: a fixed lookback (last_n_days) or since the last ready brief.
+     *
+     * * `last_n_days` - last_n_days
+     * * `since_last_run` - since_last_run */
+    period_type: PeriodTypeEnumApi
+    /**
+     * Lookback length in days. Required and used only when period_type is last_n_days.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
+}
+
 export interface ProductBriefListApi {
     readonly id: string
     /**
@@ -185,8 +259,8 @@ export interface ProductBriefListApi {
      * * `on_demand` - On Demand
      * * `scheduled` - Scheduled */
     readonly trigger: ProductBriefTriggerEnumApi
-    /** Number of days the brief covers. */
-    readonly period_days: number
+    /** The resolved-at-gather period spec the brief covers. */
+    readonly period: PeriodApi
     /** Names of the brief sources that contributed items. */
     readonly sources_used: readonly string[]
     /**
@@ -210,7 +284,29 @@ export interface PaginatedProductBriefListListApi {
     results: ProductBriefListApi[]
 }
 
-export type ProductBriefApiSectionsItem = { [key: string]: unknown }
+export interface BriefSectionCitationApi {
+    /** Cited resource type, e.g. insight or dashboard. */
+    type: string
+    /** Stable id of the cited resource within its type. */
+    ref: string
+    /** Human-readable name of the cited resource, for display. */
+    label: string
+    /** Deep link into the app, or empty when the resource has no navigable target. */
+    url: string
+}
+
+export interface BriefSectionApi {
+    /** Section kind, e.g. what_happened or what_to_build_next. */
+    kind: string
+    /** Short section heading. */
+    title: string
+    /** Section body rendered as markdown. */
+    markdown: string
+    /** PostHog resources this section cites as evidence. */
+    citations: BriefSectionCitationApi[]
+    /** Model confidence in this section, 0.0-1.0. */
+    confidence: number
+}
 
 export interface AccountabilityStatusLineApi {
     /** ID of the opportunity this status line re-scores. */
@@ -253,10 +349,10 @@ export interface ProductBriefApi {
      * * `on_demand` - On Demand
      * * `scheduled` - Scheduled */
     readonly trigger: ProductBriefTriggerEnumApi
-    /** Number of days the brief covers. */
-    readonly period_days: number
-    /** Generated brief sections: kind, title, markdown, citations, confidence. */
-    readonly sections: readonly ProductBriefApiSectionsItem[]
+    /** The resolved-at-gather period spec the brief covers. */
+    readonly period: PeriodApi
+    /** Generated brief sections, most important first. */
+    readonly sections: readonly BriefSectionApi[]
     /** Then-vs-now re-scores of past opportunities surfaced with this brief. */
     readonly accountability: readonly AccountabilityStatusLineApi[]
     /** Names of the brief sources that contributed items. */
@@ -279,12 +375,8 @@ export interface GenerateBriefRequestApi {
      * @nullable
      */
     config_id?: string | null
-    /**
-     * Number of days the brief should cover. Defaults to 7.
-     * @minimum 1
-     * @maximum 90
-     */
-    period_days?: number
+    /** Period the brief should cover. Defaults to the last 7 days. */
+    period?: PeriodApi
 }
 
 /**
@@ -315,42 +407,15 @@ export const OpportunityStatusEnumApi = {
     Resolved: 'resolved',
 } as const
 
-/**
- * * `insight` - insight
- * * `dashboard` - dashboard
- * * `annotation` - annotation
- * * `alert` - alert
- * * `subscription` - subscription
- * * `signal_report` - signal_report
- * * `opportunity` - opportunity
- */
-export type EvidenceRefTypeEnumApi = (typeof EvidenceRefTypeEnumApi)[keyof typeof EvidenceRefTypeEnumApi]
-
-export const EvidenceRefTypeEnumApi = {
-    Insight: 'insight',
-    Dashboard: 'dashboard',
-    Annotation: 'annotation',
-    Alert: 'alert',
-    Subscription: 'subscription',
-    SignalReport: 'signal_report',
-    Opportunity: 'opportunity',
-} as const
-
-export interface EvidenceRefApi {
-    /** The kind of PostHog resource this ref points at (insight, dashboard, annotation, ...).
-     *
-     * * `insight` - insight
-     * * `dashboard` - dashboard
-     * * `annotation` - annotation
-     * * `alert` - alert
-     * * `subscription` - subscription
-     * * `signal_report` - signal_report
-     * * `opportunity` - opportunity */
-    type: EvidenceRefTypeEnumApi
+export interface ResourceLinkApi {
+    /** The kind of PostHog resource this link points at. */
+    type: string
     /** Stable identifier of the referenced resource (e.g. an insight short id). */
     ref: string
-    /** Human-readable label for the resource, if one was captured. */
+    /** Human-readable label for the resource. */
     label: string
+    /** Deep link into the app, or empty when there is none. */
+    url: string
 }
 
 export interface OpportunityApi {
@@ -374,13 +439,10 @@ export interface OpportunityApi {
     readonly summary: string
     /** The concrete next step suggested for the team. */
     readonly suggested_action: string
-    /** Evidence refs backing the opportunity: type, ref, and label per entry. */
-    readonly evidence: readonly EvidenceRefApi[]
-    /**
-     * The brief this opportunity first surfaced in, if any.
-     * @nullable
-     */
-    readonly first_seen_brief: string | null
+    /** Evidence links backing the opportunity: type, ref, label, and url per entry. */
+    readonly evidence: readonly ResourceLinkApi[]
+    /** The brief this opportunity first surfaced in. */
+    readonly first_seen_brief: string
     readonly created_at: string
     /** User who created the opportunity. */
     readonly created_by: UserBasicApi | null

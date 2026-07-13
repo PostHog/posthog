@@ -1,0 +1,217 @@
+# Stamphog merge-gate policy - see .stamphog/README.md for how changes are
+# proposed and reviewed. Keep pattern scalars single-quoted so regex
+# backslashes survive YAML parsing.
+version: 1
+deny:
+    auth:
+        description: 'Authentication and authorization surfaces.'
+        rationale: "Only file paths hard-deny; titles surface as scrutiny flags. Past participles (authenticated/authorized) live in titles-only because as path patterns they hard-deny the wrong things (web analytics' authorized_urls.py is domain config, not the auth system). session/token/permission are path-only with tighter compounds because they match too broadly in titles and non-auth paths (SessionAnalysisWarning, tokenizer, permission helpers)."
+        match:
+            any:
+                - 'auth'
+                - 'login'
+                - 'signup'
+                - 'oauth'
+                - 'saml'
+                - 'sso'
+                - 'oidc'
+                - 'credential'
+                - 'password'
+                - '2fa'
+                - 'mfa'
+                - 'authentication'
+                - 'authenticate'
+                - 'authorize'
+                - 'authorization'
+                - 'two[_-]?factor'
+            titles:
+                - 'authenticated'
+                - 'authorized'
+            paths:
+                - 'session_auth'
+                - 'session_token'
+                - 'auth/session'
+                - 'auth/token'
+                - 'permission'
+        exempt_path_prefixes:
+            - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
+    crypto_secrets:
+        description: 'Cryptography, secrets, and key material.'
+        rationale: 'key/secret/cert/signing are too broad for titles (key matches keyboard, hotkey, localStorage key), so they are path-only with compound patterns.'
+        match:
+            any:
+                - 'crypto'
+                - 'encrypt'
+                - 'decrypt'
+                - 'vault'
+            paths:
+                - 'secret'
+                - 'api[_-]?key'
+                - 'secret[_-]?key'
+                - 'private[_-]?key'
+                - 'signing[_-]?key'
+                - 'certificate'
+                - '\.env'
+                - '\.pem'
+    migrations:
+        description: 'Database and schema migrations.'
+        rationale: 'The migrations/ substring is load-bearing - it also catches rust *_migrations/ dirs applied by sqlx at deploy.'
+        match:
+            paths:
+                - 'migrations/'
+                - 'schema_change'
+    infra_cicd:
+        description: 'Infrastructure, CI, and deployment artifacts.'
+        rationale: 'routing and bare deploy are excluded on purpose: every historical match was app-level (DRF routers, message-routing tests, deploy-timing docs), never infrastructure. Narrow deploy literals (bin/deploy, deploy.sh, .github/pr-deploy) cover real deployment artifacts without the false positives.'
+        match:
+            any:
+                - 'terraform'
+                - 'kubernetes'
+                - 'helm'
+            paths:
+                - 'k8s'
+                - 'dockerfile'
+                - 'docker-compose'
+                - '\.github/workflows'
+                - '\.github/pr-deploy'
+                - 'iam'
+                - 'cloudflare'
+                - 'cdn'
+                - 'waf'
+                - '(?:^|/)bin/deploy'
+                - 'deploy\.sh'
+    billing:
+        description: 'Payments and billing.'
+        rationale: 'subscription is excluded on purpose: in this repo it means scheduled insight/report deliveries, not payments. Real billing surfaces still match via the other words.'
+        match:
+            any:
+                - 'billing'
+                - 'payment'
+                - 'stripe'
+                - 'invoice'
+                - 'pricing'
+        exempt_path_prefixes:
+            - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
+    public_api:
+        description: 'Public API contracts and schemas.'
+        rationale: 'Changes to the published API surface need human review.'
+        match:
+            any:
+                - 'openapi'
+                - 'api_schema'
+                - 'swagger'
+                - 'public_api'
+    deps_toolchain:
+        description: 'Dependency lockfiles and toolchain/build files.'
+        rationale: "All path-only literal filenames. Manifests deliberately don't hard-deny: without a lockfile change they cannot pull in third-party code, and manifest scripts/hooks are guarded by the reviewer prompt and kept out of the T0 fast path. requirements.txt stays (pins installed code directly). .nvmrc/.tool-versions stay (they change the runtime for every CI job). Makefile/Dockerfile stay (they execute)."
+        # NOTE: partially code-sourced. The lockfile-name path patterns are derived
+        # in the loader from DEPENDENCY_ECOSYSTEMS (re.escape over every ecosystem's
+        # lockfiles) and spliced in ahead of the literals below - do not copy them
+        # here. Only the non-derived literal patterns live in this file.
+        match:
+            paths:
+                - 'requirements[-\w]*\.(txt|in)'
+                - 'Makefile'
+                - 'Dockerfile'
+                - '\.tool-versions'
+                - '\.nvmrc'
+    stamphog_policy:
+        description: "Stamphog's own policy files, engine, and gate inputs."
+        rationale: "Changes to the merge gate's own policy or engine always require human review - the gate cannot be trusted to approve edits to itself. Ownership sources (CODEOWNERS, product.yaml owners) are gate inputs: an ownership edit changes which team the reviewer treats as owning future PRs, and product.yaml would otherwise ride the .yaml allow-list to a T0 auto-approve (Jul 2026 review finding)."
+        match:
+            paths:
+                - '\.stamphog/'
+                - 'AGENT_APPROVALS\.md'
+                - 'tools/pr-approval-agent/'
+                - 'CODEOWNERS'
+                - 'product\.yaml'
+allow:
+    path_patterns:
+        - 'docs/'
+        - 'README'
+        - 'CHANGELOG'
+        - 'LICENSE'
+        - 'CONTRIBUTING'
+        - '.github/CODEOWNERS'
+        - '.gitignore'
+        - '.editorconfig'
+        - 'generated/'
+        - '__snapshots__/'
+    extensions_only:
+        - '.cfg'
+        - '.csv'
+        - '.gif'
+        - '.ico'
+        - '.ini'
+        - '.jpeg'
+        - '.jpg'
+        - '.json'
+        - '.lock'
+        - '.md'
+        - '.mdx'
+        - '.png'
+        - '.rst'
+        - '.snap'
+        - '.svg'
+        - '.toml'
+        - '.txt'
+        - '.webp'
+        - '.yaml'
+        - '.yml'
+size_gate:
+    max_lines: 800
+    max_files: 30
+tiers:
+    t1_subclasses:
+        T1a-trivial:
+            max_lines: 20
+            max_files: 3
+            breadth: 'single-area'
+        T1b-small:
+            max_lines: 100
+            max_files: 5
+            breadth: 'not-cross-cutting'
+        T1c-medium:
+            max_lines: 300
+            max_files: 15
+            breadth: 'not-cross-cutting'
+dismiss:
+    trivial_extensions:
+        - '.md'
+        - '.mdx'
+    trivial_name_prefixes:
+        - 'readme'
+        - 'changelog'
+    test_regex: '(?:^|/)(?:__tests__|tests?|fixtures)/|(?:^|/)test_[^/]+\.py$|_test\.(py|go)$|\.test\.(ts|tsx|js|jsx)$|\.spec\.(ts|tsx|js|jsx)$|(?:^|/)conftest\.py$'
+    generated_regex: '(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|\.gen\.(ts|tsx|js|jsx)$|\.generated\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/'
+overrides:
+    'size_gate.max_files':
+        ceiling: 50
+# Author-familiarity signal - judgment layer only, never a gate. Non-delegable
+# (absent from `overrides`). STRONG = blame overlap ≥ min_blame_overlap_pct;
+# MODERATE = both of its keys satisfied; else NONE.
+# Rationale: calibrated against 120 days of refused/escalated verdict outcomes
+# (Jul 2026 backtest). Blame overlap was the only metric that rose monotonically
+# with the human rubber-stamp rate; prior-PR counts, previously-modified-file
+# fractions, and recency were flat at every cutoff, so STRONG is blame-only and
+# MODERATE is advisory. Tuning these is a YAML-only diff.
+familiarity:
+    strong:
+        min_blame_overlap_pct: 70
+    moderate:
+        min_prior_prs: 5
+        max_days_since_touch: 180
+# Ownership sources feeding the reviewer's team context - advisory only, never a
+# gate. product.yaml is the canonical owner of products/<name>/** (per the
+# CODEOWNERS-soft header), and the reviewer auto-assigner already merges both
+# sources, so stamphog reads the same merged view (union across sources).
+# Formats: gh-codeowners (a CODEOWNERS-soft file, last-match-wins) and ph-product
+# (products/*/product.yaml owners). Sources are read from the master checkout
+# (the workflow pins ref: master), so a PR editing them cannot influence its own
+# review. Locators must stay repo-relative (no absolute paths, no '..').
+ownership:
+    sources:
+        - path: .github/CODEOWNERS-soft
+          format: gh-codeowners
+        - glob: products/*/product.yaml
+          format: ph-product

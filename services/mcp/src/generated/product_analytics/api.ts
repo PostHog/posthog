@@ -51,7 +51,7 @@ export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.'
+            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https:/\/example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.'
         ),
     sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
 })
@@ -149,7 +149,7 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`."
+            "Search term matched across name, derived_name, description, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram) matches instead. Each result's `search_match_type` is `exact` or `similar`."
         ),
     short_id: zod.string().optional(),
     tags: zod

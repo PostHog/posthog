@@ -20,7 +20,7 @@ from products.pulse.backend.generation.accountability import (
     OpportunityStatusLine,
     collect_accountability,
 )
-from products.pulse.backend.models import Opportunity
+from products.pulse.backend.models import Opportunity, ProductBrief
 
 _TRENDS_QUERY = {
     "kind": "InsightVizNode",
@@ -29,17 +29,21 @@ _TRENDS_QUERY = {
 
 _BASELINE = {"pct_change": -30.0, "baseline_total": 700.0, "current_total": 490.0, "period_days": 7}
 
-_CALCULATE_PATH = "products.pulse.backend.sources.anchored_insights.calculate_for_query_based_insight"
+_CALCULATE_PATH = "products.pulse.backend.generation.accountability.calculate_for_query_based_insight"
 
 
 class TestCollectAccountability(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.insight = Insight.objects.create(team=self.team, name="Signups", query=_TRENDS_QUERY)
+        self.brief = ProductBrief.objects.for_team(self.team.pk).create(
+            team=self.team, trigger=ProductBrief.Trigger.ON_DEMAND
+        )
 
     def _opportunity(self, created_days_ago: int = MIN_AGE_DAYS + 3, **overrides: Any) -> Opportunity:
         defaults: dict[str, Any] = {
             "team": self.team,
+            "first_seen_brief": self.brief,
             "kind": Opportunity.Kind.BUILD,
             "title": "Recover the signup drop",
             "summary": "s",
@@ -262,9 +266,13 @@ class TestCollectAccountability(BaseTest):
     def test_other_team_opportunities_excluded(self, mock_calculate: MagicMock) -> None:
         mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [70.0] * 14}])
         other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_brief = ProductBrief.objects.for_team(other_team.pk).create(
+            team=other_team, trigger=ProductBrief.Trigger.ON_DEMAND
+        )
         opportunity = self._opportunity()
         Opportunity.objects.for_team(other_team.pk).create(
             team=other_team,
+            first_seen_brief=other_brief,
             kind=Opportunity.Kind.BUILD,
             title="Other team",
             summary="s",

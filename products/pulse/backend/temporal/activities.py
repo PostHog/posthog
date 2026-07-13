@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import dataclasses
 
 import structlog
@@ -10,12 +11,13 @@ from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
+from products.pulse.backend.config import MAX_ITEMS
 from products.pulse.backend.generation.accountability import MIN_AGE_DAYS, OpportunityStatusLine, collect_accountability
-from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
+from products.pulse.backend.generation.persist import _fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
 from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
-from products.pulse.backend.sources.base import SourceItem
+from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
     GenerateBriefWorkflowInputs,
@@ -26,14 +28,52 @@ from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
 
-# The cap guards Temporal's ~2 MiB activity payload limit; truncation is priority-aware so a
-# chatty low-priority source can't crowd out actionable items.
-MAX_ITEMS = 50
-KIND_PRIORITY: dict[str, int] = {"health": 0, "signal": 1, "movement": 2, "context": 3}
+# Fallback lookback for a since_last_run brief with no prior run, and the default day count.
+_DEFAULT_LOOKBACK_DAYS = 7
+
+# Priority-aware truncation before the MAX_ITEMS payload cap: a chatty low-priority source can't
+# crowd out actionable items. The assert fails loudly at import if a new SourceItemKind lacks a
+# priority (same import-time enum-coverage guard the KIND_DESCRIPTIONS assert uses) — it would
+# otherwise silently sort last.
+KIND_PRIORITY: dict[str, int] = {
+    SourceItemKind.HEALTH: 0,
+    SourceItemKind.SIGNAL: 1,
+    SourceItemKind.MOVEMENT: 2,
+    SourceItemKind.CONTEXT: 3,
+}
+assert set(KIND_PRIORITY) == set(SourceItemKind)
+
+
+@dataclasses.dataclass
+class ResolvedPeriod:
+    start_date: dt.date
+    end_date: dt.date
+    lookback_days: int
 
 
 class BriefGenerationFailed(Exception):
     """Carries workflow failures into error tracking; the full stack lives in Temporal."""
+
+
+def resolve_period(spec: dict, now: dt.datetime, last_run: dt.datetime | None) -> ResolvedPeriod:
+    """Resolve a period spec to explicit start/end dates and a lookback window.
+
+    since_last_run measures the window from the last READY brief (min 1 day), else the default.
+    """
+    end_date = now.date()
+    period_type = spec.get("type", "last_n_days")
+    if period_type == "since_last_run":
+        if last_run is not None:
+            lookback_days = max(1, (end_date - last_run.date()).days)
+        else:
+            lookback_days = _DEFAULT_LOOKBACK_DAYS
+    else:
+        lookback_days = int(spec.get("days", _DEFAULT_LOOKBACK_DAYS))
+    return ResolvedPeriod(
+        start_date=end_date - dt.timedelta(days=lookback_days),
+        end_date=end_date,
+        lookback_days=lookback_days,
+    )
 
 
 def _get_team(team_id: int) -> Team:
@@ -44,6 +84,17 @@ def _get_config(team: Team, brief_config_id: str | None) -> BriefConfig | None:
     if not brief_config_id:
         return None
     return BriefConfig.objects.for_team(team.pk).filter(id=brief_config_id).first()
+
+
+def _last_ready_run(team_id: int, brief_config_id: str | None) -> dt.datetime | None:
+    # Most recent READY brief for this config (or the zero-config default when no config).
+    return (
+        ProductBrief.objects.for_team(team_id)
+        .filter(config_id=brief_config_id, status=ProductBrief.Status.READY)
+        .order_by("-created_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
 
 
 def _get_brief(team_id: int, brief_id: str) -> ProductBrief:
@@ -64,25 +115,40 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
     if not team.organization.is_ai_data_processing_approved:
         raise ApplicationError("AI data processing not approved for this organization", non_retryable=True)
     config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
+    last_run = await database_sync_to_async(_last_ready_run, thread_sensitive=False)(
+        inputs.team_id, inputs.brief_config_id
+    )
+    resolved = resolve_period(inputs.period, dt.datetime.now(dt.UTC), last_run)
     sources = get_sources()
     items: list[SourceItem] = []
     failed_sources = 0
     for source in sources:
         try:
             gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(
-                team, config, inputs.period_days
+                team, config, resolved.lookback_days
             )
-        except Exception:
-            # One broken source must not kill the brief; the other sources still contribute.
+        except Exception as exc:
+            # One broken source must not kill the brief; the other sources still contribute. Capture
+            # to error tracking too, matching the per-item isolation in the movement scoring strategy.
             logger.exception("pulse_source_gather_failed", team_id=team.id, source=source.name)
+            capture_exception(exc, {"team_id": team.id, "source": source.name, "product": "pulse"})
             failed_sources += 1
             continue
         items.extend(gathered)
     if sources and failed_sources == len(sources):
         # Every source broke: that's a failure to retry. Partial failure in a quiet week is not.
         raise ApplicationError(f"brief gather failed: all {failed_sources} source(s) failed")
-    # Stable sort: highest-priority kinds survive the cap, source order preserved within a kind.
+    # Stable sort by kind priority so the highest-priority kinds survive the MAX_ITEMS payload cap.
     items.sort(key=lambda item: KIND_PRIORITY.get(item.kind, len(KIND_PRIORITY)))
+    if len(items) > MAX_ITEMS:
+        # Priority-based dropping is load-bearing — record it so a "missing item" report is diagnosable.
+        logger.info(
+            "pulse_gather_items_capped",
+            team_id=team.id,
+            total=len(items),
+            kept=MAX_ITEMS,
+            dropped=len(items) - MAX_ITEMS,
+        )
     return [dataclasses.asdict(item) for item in items[:MAX_ITEMS]]
 
 
@@ -91,11 +157,15 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
     brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
     if brief.created_by is None:
         raise ApplicationError("brief has no creating user for LLM attribution", non_retryable=True)
+    last_run = await database_sync_to_async(_last_ready_run, thread_sensitive=False)(
+        inputs.team_id, str(brief.config_id) if brief.config_id else None
+    )
+    resolved = resolve_period(brief.period, dt.datetime.now(dt.UTC), last_run)
     items = [SourceItem(**item) for item in inputs.items]
     status_lines: list[OpportunityStatusLine] = []
-    # Accountability is not movement-gated — past suggestions matter every period. Only an
-    # empty gather skips it, since synthesize short-circuits without items anyway.
-    # Best-effort: a broken re-score degrades to no accountability section.
+    # Accountability is not movement-gated — past suggestions matter every period. Only an empty
+    # gather skips it, since synthesize short-circuits without items anyway. Best-effort: a broken
+    # re-score degrades to no accountability section, never a failed brief.
     if items:
         try:
             min_age_days = brief.config.accountability_min_age_days if brief.config else MIN_AGE_DAYS
@@ -109,11 +179,14 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         user=brief.created_by,
         config=brief.config,
         items=items,
-        period_days=brief.period_days,
+        start_date=resolved.start_date,
+        end_date=resolved.end_date,
+        lookback_days=resolved.lookback_days,
     )
-    created = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
+    await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
         brief=brief, out=out, items=items, status_lines=status_lines
     )
+    created = await database_sync_to_async(_created_opportunities, thread_sensitive=False)(brief)
     await _emit_opportunity_signals(brief, out, created)
     try:
         # ph_scoped_capture, not posthoganalytics.capture: events fire outside request context.
@@ -121,6 +194,12 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
     except Exception:
         logger.exception("pulse_brief_generated_capture_failed", team_id=brief.team_id, brief_id=str(brief.id))
     return brief.status
+
+
+def _created_opportunities(brief: ProductBrief) -> list[Opportunity]:
+    # persist skips existing fingerprints, so the opportunities first surfaced by THIS brief are
+    # exactly the ones it created this run — the list persist no longer returns directly.
+    return list(Opportunity.objects.for_team(brief.team_id).filter(first_seen_brief=brief))
 
 
 def _report_brief_generated(brief: ProductBrief, new_opportunity_count: int) -> None:
@@ -134,7 +213,7 @@ def _report_brief_generated(brief: ProductBrief, new_opportunity_count: int) -> 
                 "brief_id": str(brief.id),
                 "status": brief.status,
                 "trigger": brief.trigger,
-                "period_days": brief.period_days,
+                "period": brief.period,
                 "has_config": brief.config_id is not None,
                 "new_opportunity_count": new_opportunity_count,
             },
@@ -152,7 +231,7 @@ async def _emit_opportunity_signals(brief: ProductBrief, out: BriefOut, created:
     for opp in out.opportunities:
         # First-wins to match persist's dedup: the first opportunity with a fingerprint is the
         # one persisted, so its confidence is the weight that gets emitted.
-        confidence_by_fingerprint.setdefault(opportunity_fingerprint(opp.kind, opp.fingerprint_hint), opp.confidence)
+        confidence_by_fingerprint.setdefault(_fingerprint(opp.kind, opp.fingerprint_hint), opp.confidence)
     # Independent best-effort emits, run concurrently (each still pays its own Temporal connect).
     await asyncio.gather(
         *(_emit_opportunity_signal(brief, opportunity, confidence_by_fingerprint) for opportunity in created)
@@ -173,7 +252,7 @@ async def _emit_opportunity_signal(
             # signals' summary path). The map cannot miss — fingerprints are minted from the
             # same output — so a broken invariant surfaces here as a logged emit failure.
             weight=confidence_by_fingerprint[opportunity.fingerprint],
-            extra={"brief_id": str(brief.id), "evidence": opportunity.evidence},
+            extra={"brief_id": str(brief.id)},
         )
     except Exception:
         logger.exception(

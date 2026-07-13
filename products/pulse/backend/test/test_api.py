@@ -10,6 +10,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
+from posthog.slo.types import SloOperation
 
 from products.pulse.backend.models import BriefConfig, ProductBrief
 
@@ -46,18 +47,28 @@ class TestPulseAPI(APIBaseTest):
     def test_generate_creates_brief_and_starts_workflow(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         client = _temporal_client()
         mock_connect.return_value = client
-        response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/", {"period_days": 14})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/briefs/generate/",
+            {"period": {"period_type": "last_n_days", "days": 14}},
+            format="json",
+        )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         brief = ProductBrief.objects.for_team(self.team.pk).get(id=response.json()["id"])
         assert brief.status == ProductBrief.Status.GENERATING
         assert brief.trigger == ProductBrief.Trigger.ON_DEMAND
-        assert brief.period_days == 14
+        assert brief.period == {"type": "last_n_days", "days": 14}
         client.start_workflow.assert_called_once()
         assert client.start_workflow.call_args.kwargs["task_queue"] == settings.ANALYTICS_PLATFORM_TASK_QUEUE
         assert client.start_workflow.call_args.kwargs["execution_timeout"] is not None
+        # The workflow input carries an SLO config so the interceptor emits started/completed metrics.
+        workflow_input = client.start_workflow.call_args.args[1]
+        assert workflow_input.slo is not None
+        assert workflow_input.slo.operation == SloOperation.PULSE_BRIEF_GENERATION
+        assert workflow_input.slo.resource_id == str(brief.id)
 
+    @patch("products.pulse.backend.api.brief.report_user_action")
     def test_generate_while_running_returns_409_without_orphan_brief(
-        self, mock_connect: MagicMock, _mock_flag: MagicMock
+        self, mock_report: MagicMock, mock_connect: MagicMock, _mock_flag: MagicMock
     ) -> None:
         client = _temporal_client()
         client.start_workflow.side_effect = WorkflowAlreadyStartedError("pulse-brief-x", "pulse-generate-brief")
@@ -65,8 +76,12 @@ class TestPulseAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
         assert response.status_code == status.HTTP_409_CONFLICT
         assert not ProductBrief.objects.for_team(self.team.pk).exists()
+        # Contention is a distinct analytics signal from a successful generate.
+        assert "pulse brief generation contended" in [call.args[1] for call in mock_report.call_args_list]
 
-    def test_generate_dispatch_failure_marks_brief_failed(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+    def test_generate_dispatch_failure_returns_500_with_brief_id_and_status(
+        self, mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
         client = _temporal_client()
         client.start_workflow.side_effect = RuntimeError("temporal down")
         mock_connect.return_value = client
@@ -75,6 +90,8 @@ class TestPulseAPI(APIBaseTest):
         brief = ProductBrief.objects.for_team(self.team.pk).get()
         assert brief.status == ProductBrief.Status.FAILED
         assert "temporal down" in (brief.error or "")
+        # The failed row's id+status is returned so the frontend can surface/deep-link it.
+        assert response.json()["brief"] == {"id": str(brief.id), "status": ProductBrief.Status.FAILED.value}
 
     def test_generate_with_unknown_config_returns_400(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -92,9 +109,7 @@ class TestPulseAPI(APIBaseTest):
     def test_briefs_are_team_scoped(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
         with team_scope(other_team.pk, canonical=True):
-            other_brief = ProductBrief.objects.create(
-                team=other_team, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7
-            )
+            other_brief = ProductBrief.objects.create(team=other_team, trigger=ProductBrief.Trigger.ON_DEMAND)
         response = self.client.get(f"/api/projects/{self.team.id}/pulse/briefs/")
         assert response.status_code == status.HTTP_200_OK
         assert str(other_brief.id) not in [row["id"] for row in response.json()["results"]]
@@ -119,7 +134,7 @@ class TestPulseAPI(APIBaseTest):
 
         with team_scope(self.team.pk, canonical=True):
             brief = ProductBrief.objects.create(
-                team=self.team, config_id=config_id, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7
+                team=self.team, config_id=config_id, trigger=ProductBrief.Trigger.ON_DEMAND
             )
 
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/pulse/brief_configs/{config_id}/")
@@ -155,6 +170,34 @@ class TestPulseAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "focus_prompt"
+
+    def test_config_settings_round_trip_and_range_validated(
+        self, _mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        # Valid knobs persist; an out-of-range knob is rejected at the serializer (wiring guard).
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/",
+            {"name": "Tuned", "settings": {"confidence_threshold": 0.8}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["settings"]["confidence_threshold"] == 0.8
+
+        bad = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/",
+            {"name": "Bad", "settings": {"confidence_threshold": 5.0}},
+            format="json",
+        )
+        assert bad.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_generate_rejects_last_n_days_without_days(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/briefs/generate/",
+            {"period": {"period_type": "last_n_days"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_connect.assert_not_called()
 
     def test_config_accountability_min_age_days_must_be_positive(
         self, _mock_connect: MagicMock, _mock_flag: MagicMock

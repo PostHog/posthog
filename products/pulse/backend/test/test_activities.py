@@ -1,8 +1,8 @@
 import uuid
-import dataclasses
+import datetime as dt
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 from django.conf import settings
 
@@ -13,14 +13,15 @@ from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 
-from products.pulse.backend.generation.accountability import OpportunityStatusLine
+from products.pulse.backend.config import MAX_ITEMS
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
-from products.pulse.backend.sources.base import SourceItem, SourceItemKind
+from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
-    MAX_ITEMS,
     gather_brief_inputs_activity,
+    resolve_period,
     synthesize_brief_activity,
 )
 from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, SynthesizeActivityInputs
@@ -33,15 +34,17 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 class _StubSource:
     name = "stub"
 
-    def gather(self, team, config, period_days) -> list[SourceItem]:
+    def gather(self, team, config, lookback_days) -> list[SourceItem]:
         return [
             SourceItem(
                 source="stub",
-                kind="movement",
+                kind=SourceItemKind.MOVEMENT,
                 title="Pageviews dropped 30%",
                 description="d",
-                numbers={"pct_change": -30.0},
-                evidence=[{"type": "insight", "ref": "abc", "label": "Pageviews"}],
+                metrics={"pct_change": -30.0},
+                evidence=[
+                    EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label="Pageviews", url="/project/1/insights/abc")
+                ],
                 fingerprint_hint="abc:0",
             )
         ]
@@ -50,32 +53,26 @@ class _StubSource:
 class _RaisingSource:
     name = "raising"
 
-    def gather(self, team, config, period_days) -> list[SourceItem]:
-        raise RuntimeError("source exploded")
+    def gather(self, team, config, lookback_days) -> list[SourceItem]:
+        raise RuntimeError("db exploded")
 
 
 class _EmptySource:
     name = "empty"
 
-    def gather(self, team, config, period_days) -> list[SourceItem]:
+    def gather(self, team, config, lookback_days) -> list[SourceItem]:
         return []
 
 
 class _ManyItemsSource:
-    def __init__(self, kind: SourceItemKind, count: int) -> None:
+    def __init__(self, kind: str, count: int) -> None:
         self.name = f"many_{kind}"
-        self._kind: SourceItemKind = kind
+        self._kind = SourceItemKind(kind)
         self._count = count
 
-    def gather(self, team, config, period_days) -> list[SourceItem]:
+    def gather(self, team, config, lookback_days) -> list[SourceItem]:
         return [
-            SourceItem(
-                source=self.name,
-                kind=self._kind,
-                title=f"{self._kind} {i}",
-                description="d",
-                fingerprint_hint=f"{self._kind}:{i}",
-            )
+            SourceItem(source=self.name, kind=self._kind, title=f"{self._kind} {i}", description="d")
             for i in range(self._count)
         ]
 
@@ -89,9 +86,13 @@ def _set_ai_consent(team, approved: bool) -> None:
 @sync_to_async
 def _create_brief(team, user) -> ProductBrief:
     with team_scope(team.pk, canonical=True):
-        return ProductBrief.objects.create(
-            team=team, created_by=user, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7
-        )
+        return ProductBrief.objects.create(team=team, created_by=user, trigger=ProductBrief.Trigger.ON_DEMAND)
+
+
+@sync_to_async
+def _create_userless_brief(team) -> ProductBrief:
+    with team_scope(team.pk, canonical=True):
+        return ProductBrief.objects.create(team=team, created_by=None, trigger=ProductBrief.Trigger.SCHEDULED)
 
 
 @sync_to_async
@@ -104,46 +105,16 @@ def _opportunity_count(team) -> int:
     return Opportunity.objects.for_team(team.pk).count()
 
 
-@sync_to_async
-def _get_opportunity(team) -> Opportunity:
-    return Opportunity.objects.for_team(team.pk).get()
-
-
-@sync_to_async
-def _get_brief_accountability(team, brief_id) -> list:
-    return ProductBrief.objects.for_team(team.pk).get(id=brief_id).accountability
-
-
-@sync_to_async
-def _create_opportunity(team, fingerprint: str) -> Opportunity:
-    with team_scope(team.pk, canonical=True):
-        return Opportunity.objects.create(team=team, kind="build", title="t", summary="s", fingerprint=fingerprint)
-
-
-_STATUS_LINE = OpportunityStatusLine(
-    opportunity_id="11111111-1111-1111-1111-111111111111",
-    kind="build",
-    status="acted",
-    title="Recover the signup drop",
-    age_days=21,
-    baseline_summary="70.0/day avg",
-    current_summary="100.0/day avg",
-    delta_pct=42.9,
-)
-
-
 def _confident_out() -> BriefOut:
     return BriefOut(
-        sections=[
-            BriefSectionOut(kind="what_happened", title="t", markdown="m", citations=["insight:abc"], confidence=0.9)
-        ],
+        sections=[BriefSectionOut(kind="what_happened", title="t", markdown="m", citations=["c1"], confidence=0.9)],
         opportunities=[
             OpportunityOut(
                 kind="build",
                 title="t",
                 summary="s",
                 suggested_action="a",
-                evidence_refs=["insight:abc"],
+                evidence_refs=["c1"],
                 fingerprint_hint="abc:0",
                 confidence=0.9,
             )
@@ -157,23 +128,78 @@ async def test_gather_activity_returns_serialized_items(team) -> None:
     with patch("products.pulse.backend.temporal.activities.get_sources", return_value=[_StubSource()]):
         items = await env.run(
             gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None),
         )
     assert len(items) == 1
     assert items[0]["fingerprint_hint"] == "abc:0"
 
 
-async def test_gather_activity_survives_one_broken_source(team) -> None:
-    await _set_ai_consent(team, True)
+async def test_gather_activity_refuses_without_ai_consent(team) -> None:
+    await _set_ai_consent(team, False)
     env = ActivityEnvironment()
-    with patch(
-        "products.pulse.backend.temporal.activities.get_sources", return_value=[_RaisingSource(), _StubSource()]
-    ):
-        items = await env.run(
+    with pytest.raises(ApplicationError) as exc_info:
+        await env.run(
             gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None),
         )
-    assert [item["fingerprint_hint"] for item in items] == ["abc:0"]
+    assert exc_info.value.non_retryable is True
+
+
+async def test_synthesize_activity_marks_ready(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    with patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
+        )
+    assert status == ProductBrief.Status.READY
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.status == ProductBrief.Status.READY
+    assert await _opportunity_count(team) == 1
+
+
+async def test_synthesize_activity_without_creating_user_raises(team) -> None:
+    # No creating user means no billing/quota attribution for the LLM call — fail non-retryably.
+    brief = await _create_userless_brief(team)
+    env = ActivityEnvironment()
+    with pytest.raises(ApplicationError) as exc_info:
+        await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
+        )
+    assert exc_info.value.non_retryable is True
+
+
+def test_workflow_inputs_carry_slo_config() -> None:
+    # The workflow input must be able to carry an SloConfig for the SloInterceptor to read at start;
+    # a plain input (no SLO) stays valid too.
+    slo = SloConfig(
+        operation=SloOperation.PULSE_BRIEF_GENERATION,
+        area=SloArea.ANALYTIC_PLATFORM,
+        team_id=1,
+        resource_id="brief-1",
+        distinct_id="user-1",
+    )
+    inputs = GenerateBriefWorkflowInputs(team_id=1, brief_id="brief-1", slo=slo)
+    assert inputs.slo is slo
+    assert inputs.slo.operation == SloOperation.PULSE_BRIEF_GENERATION
+    assert GenerateBriefWorkflowInputs(team_id=1, brief_id="brief-1").slo is None
+
+
+def test_resolve_period_since_last_run_vs_last_n_days() -> None:
+    now = dt.datetime(2026, 1, 20, tzinfo=dt.UTC)
+    # last_n_days uses the requested day count regardless of prior runs.
+    fixed = resolve_period({"type": "last_n_days", "days": 14}, now, last_run=dt.datetime(2026, 1, 18, tzinfo=dt.UTC))
+    assert fixed.lookback_days == 14
+    assert fixed.start_date == dt.date(2026, 1, 6)
+    assert fixed.end_date == dt.date(2026, 1, 20)
+    # since_last_run measures the gap to the last ready brief.
+    since = resolve_period({"type": "since_last_run"}, now, last_run=dt.datetime(2026, 1, 15, tzinfo=dt.UTC))
+    assert since.lookback_days == 5
+    # since_last_run with no prior run falls back to the default window.
+    first = resolve_period({"type": "since_last_run"}, now, last_run=None)
+    assert first.lookback_days == 7
 
 
 @pytest.mark.parametrize(
@@ -186,7 +212,7 @@ async def test_gather_activity_survives_one_broken_source(team) -> None:
 async def test_gather_activity_failed_sources(team, sources, expect_raise) -> None:
     await _set_ai_consent(team, True)
     env = ActivityEnvironment()
-    inputs = GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7)
+    inputs = GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None)
     with patch("products.pulse.backend.temporal.activities.get_sources", return_value=sources):
         if expect_raise:
             with pytest.raises(ApplicationError) as exc_info:
@@ -196,171 +222,20 @@ async def test_gather_activity_failed_sources(team, sources, expect_raise) -> No
             assert await env.run(gather_brief_inputs_activity, inputs) == []
 
 
-async def test_gather_activity_cap_keeps_high_priority_kinds(team) -> None:
+async def test_gather_activity_cap_orders_all_three_kinds(team) -> None:
+    # health > movement > context: with all three over the cap, health and movement survive whole
+    # and context is the only kind truncated — a priority swap between movement and context fails this.
     await _set_ai_consent(team, True)
     env = ActivityEnvironment()
-    health_count = 15
-    sources = [_ManyItemsSource("context", 45), _ManyItemsSource("health", health_count)]
+    sources = [_ManyItemsSource("context", 30), _ManyItemsSource("movement", 25), _ManyItemsSource("health", 10)]
     with patch("products.pulse.backend.temporal.activities.get_sources", return_value=sources):
         items = await env.run(
             gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None),
         )
     assert len(items) == MAX_ITEMS
-    health_hints = [item["fingerprint_hint"] for item in items if item["kind"] == "health"]
-    assert health_hints == [f"health:{i}" for i in range(health_count)]
-
-
-async def test_gather_activity_refuses_without_ai_consent(team) -> None:
-    await _set_ai_consent(team, False)
-    env = ActivityEnvironment()
-    with pytest.raises(ApplicationError) as exc_info:
-        await env.run(
-            gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
-        )
-    assert exc_info.value.non_retryable is True
-
-
-async def test_synthesize_activity_marks_ready(team, user) -> None:
-    brief = await _create_brief(team, user)
-    env = ActivityEnvironment()
-    with (
-        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
-        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
-    ):
-        status = await env.run(
-            synthesize_brief_activity,
-            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
-        )
-    assert status == ProductBrief.Status.READY
-    reloaded = await _reload_brief(brief.id)
-    assert reloaded.status == ProductBrief.Status.READY
-    assert await _opportunity_count(team) == 1
-
-
-async def test_synthesize_activity_reports_brief_generated(team, user) -> None:
-    brief = await _create_brief(team, user)
-    env = ActivityEnvironment()
-    scoped_capture = MagicMock()
-    capture_mock = scoped_capture.return_value.__enter__.return_value
-    with (
-        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
-        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
-        patch("products.pulse.backend.temporal.activities.ph_scoped_capture", scoped_capture),
-    ):
-        await env.run(
-            synthesize_brief_activity,
-            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
-        )
-    capture_mock.assert_called_once()
-    kwargs = capture_mock.call_args.kwargs
-    assert kwargs["event"] == "product_brief_generated"
-    assert kwargs["properties"]["status"] == ProductBrief.Status.READY
-    assert kwargs["properties"]["new_opportunity_count"] == 1
-    assert kwargs["properties"]["has_config"] is False
-
-
-@pytest.mark.parametrize("kind", ["movement", "context"])
-async def test_synthesize_activity_collects_accountability_for_any_item_kind(team, user, kind: SourceItemKind) -> None:
-    brief = await _create_brief(team, user)
-    env = ActivityEnvironment()
-    item = SourceItem(source="stub", kind=kind, title="t", description="d", fingerprint_hint="abc:0")
-    with (
-        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
-        patch(
-            "products.pulse.backend.temporal.activities.collect_accountability", return_value=[_STATUS_LINE]
-        ) as collect_mock,
-        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
-    ):
-        status = await env.run(
-            synthesize_brief_activity,
-            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
-        )
-    assert status == ProductBrief.Status.READY
-    collect_mock.assert_called_once()
-    # The collected re-scores are persisted structurally on the brief for the frontend to render.
-    assert await _get_brief_accountability(team, brief.id) == [dataclasses.asdict(_STATUS_LINE)]
-
-
-async def test_synthesize_activity_survives_accountability_collection_failure(team, user) -> None:
-    brief = await _create_brief(team, user)
-    env = ActivityEnvironment()
-    item = SourceItem(source="stub", kind="context", title="t", description="d", fingerprint_hint="abc:0")
-    with (
-        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
-        patch(
-            "products.pulse.backend.temporal.activities.collect_accountability",
-            side_effect=RuntimeError("re-score exploded"),
-        ),
-        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
-    ):
-        status = await env.run(
-            synthesize_brief_activity,
-            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
-        )
-    assert status == ProductBrief.Status.READY
-    # A blown-up re-score degrades to an empty accountability section, not a failed brief.
-    assert await _get_brief_accountability(team, brief.id) == []
-
-
-async def test_synthesize_activity_emits_signal_per_new_opportunity(team, user) -> None:
-    brief = await _create_brief(team, user)
-    env = ActivityEnvironment()
-    with (
-        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
-        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock) as emit_mock,
-    ):
-        await env.run(
-            synthesize_brief_activity,
-            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
-        )
-    opportunity = await _get_opportunity(team)
-    assert emit_mock.await_count == 1
-    kwargs = emit_mock.await_args.kwargs
-    assert kwargs["source_product"] == "pulse"
-    assert kwargs["source_type"] == "opportunity_build"
-    assert kwargs["source_id"] == str(opportunity.id)
-    assert kwargs["description"] == "t\n\ns"
-    assert kwargs["weight"] == 0.9
-    assert kwargs["extra"] == {
-        "brief_id": str(brief.id),
-        "evidence": [{"type": "insight", "ref": "abc", "label": ""}],
-    }
-
-
-async def test_synthesize_activity_does_not_emit_for_deduped_opportunity(team, user) -> None:
-    brief = await _create_brief(team, user)
-    await _create_opportunity(team, fingerprint="build:abc:0")
-    env = ActivityEnvironment()
-    with (
-        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
-        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock) as emit_mock,
-    ):
-        status = await env.run(
-            synthesize_brief_activity,
-            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
-        )
-    assert status == ProductBrief.Status.READY
-    emit_mock.assert_not_awaited()
-
-
-async def test_synthesize_activity_survives_emit_failure(team, user) -> None:
-    brief = await _create_brief(team, user)
-    env = ActivityEnvironment()
-    with (
-        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
-        patch(
-            "products.pulse.backend.temporal.activities.emit_signal",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("signals down"),
-        ),
-    ):
-        status = await env.run(
-            synthesize_brief_activity,
-            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
-        )
-    assert status == ProductBrief.Status.READY
+    kept = {kind: sum(1 for item in items if item["kind"] == kind) for kind in ("health", "movement", "context")}
+    assert kept == {"health": 10, "movement": 25, "context": 15}
 
 
 async def test_workflow_marks_brief_failed_when_gather_fails(team, user) -> None:

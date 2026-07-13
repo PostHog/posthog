@@ -1,47 +1,57 @@
+import datetime as dt
+
 import structlog
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.security.llm_prompt_sanitization import sanitize_user_text
 from posthog.sync import database_sync_to_async
 
-from products.pulse.backend.generation.prompts import SYNTHESIZE_PROMPT, sanitize_for_prompt
+from products.pulse.backend.config import LLM_MAX_RETRIES, LLM_TIMEOUT_SECONDS, SYNTHESIS_MODEL, BriefSettings
+from products.pulse.backend.generation.prompts import PULSE_SYNTHESIS_PROMPT_KEY, SYNTHESIZE_PROMPT, _get_managed_prompt
 from products.pulse.backend.generation.schemas import KIND_DESCRIPTIONS, BriefOut
 from products.pulse.backend.models import BriefConfig
-from products.pulse.backend.sources.base import SourceItem, format_evidence_ref
+from products.pulse.backend.sources.base import SourceItem, build_evidence_index
 
 from ee.hogai.llm import MaxChatOpenAI
 
 logger = structlog.get_logger(__name__)
 
-CONFIDENCE_THRESHOLD = 0.6
-MAX_OPPORTUNITIES = 3
-SYNTHESIS_MODEL = "gpt-4.1"
-_LLM_TIMEOUT_SECONDS = 120
 
-
-def apply_say_less_gate(out: BriefOut) -> BriefOut:
-    confident_opportunities = [o for o in out.opportunities if o.confidence >= CONFIDENCE_THRESHOLD]
+def apply_say_less_gate(out: BriefOut, settings: BriefSettings) -> BriefOut:
+    confident_opportunities = [o for o in out.opportunities if o.confidence >= settings.confidence_threshold]
     return BriefOut(
-        sections=[s for s in out.sections if s.confidence >= CONFIDENCE_THRESHOLD],
-        # Deterministic cap: the prompt asks for at most MAX_OPPORTUNITIES, but the model may not comply.
-        opportunities=sorted(confident_opportunities, key=lambda o: o.confidence, reverse=True)[:MAX_OPPORTUNITIES],
+        sections=[s for s in out.sections if s.confidence >= settings.confidence_threshold],
+        # Deterministic cap: the prompt asks for at most max_opportunities, but the model may not comply.
+        opportunities=sorted(confident_opportunities, key=lambda o: o.confidence, reverse=True)[
+            : settings.max_opportunities
+        ],
     )
 
 
+# Safety caps for sanitized free text at the render boundary; generous — they bound a hostile
+# value, not legitimate content.
+_TITLE_RENDER_MAX = 300
+_DESCRIPTION_RENDER_MAX = 2000
+
+
 def _render_items(items: list[SourceItem]) -> str:
-    # Titles and descriptions carry untrusted free text (annotation content, resource names) —
-    # sanitize at this boundary, for every source. Evidence labels are not rendered (only
-    # type:ref); if they ever are, they must pass through sanitize_for_prompt too. numbers keys
-    # and values are rendered raw: every source puts only system-generated data there (timestamps,
-    # counts); a source that ever stores user-supplied text must sanitize it before this point.
+    evidence_index = build_evidence_index(items)
+    id_by_key = {ev.key: cid for cid, ev in evidence_index.items()}
     blocks = []
     for item in items:
-        numbers = ", ".join(f"{k}={v}" for k, v in item.numbers.items())
-        refs = ", ".join(sanitize_for_prompt(format_evidence_ref(e)) for e in item.evidence)
+        # Titles and descriptions carry untrusted free text (annotation content, resource names) —
+        # sanitize once here, for every source, via the shared helper (same one that guards the
+        # focus prompt). metrics and fingerprint_hint render raw: sources put only system-generated
+        # data there (numbers, IDs); a source storing user text in either must sanitize it upstream.
+        metrics = ", ".join(f"{k}={v}" for k, v in item.metrics.items())
+        citation_ids = ", ".join(id_by_key[e.key] for e in item.evidence)
+        title = sanitize_user_text(item.title, max_len=_TITLE_RENDER_MAX)
+        description = sanitize_user_text(item.description, max_len=_DESCRIPTION_RENDER_MAX)
         blocks.append(
-            f"- [{item.source}/{item.kind}] {sanitize_for_prompt(item.title)}\n"
-            f"  numbers: {numbers}\n  evidence_refs: {refs}\n  fingerprint_hint: {item.fingerprint_hint}\n"
-            f"  {sanitize_for_prompt(item.description)}"
+            f"- [{item.source}/{item.kind}] {title}\n"
+            f"  metrics: {metrics}\n  citation_ids: {citation_ids}\n  fingerprint_hint: {item.fingerprint_hint}\n"
+            f"  {description}"
         )
     return "\n".join(blocks)
 
@@ -52,26 +62,34 @@ async def synthesize_brief(
     user: User,
     config: BriefConfig | None,
     items: list[SourceItem],
-    period_days: int,
+    start_date: dt.date,
+    end_date: dt.date,
+    lookback_days: int,
 ) -> BriefOut:
     # Quiet periods must cost ~nothing: no items, no LLM call.
     if not items:
         return BriefOut(sections=[], opportunities=[])
-    focus_prompt = (config.focus_prompt if config else "") or "the whole product"
-    rendered = SYNTHESIZE_PROMPT.format(
-        # The focus text is fenced in a <team_focus> block; strip the closing tag so
-        # user configuration can't break out of it.
-        focus_prompt=focus_prompt.replace("</team_focus>", ""),
-        period_days=period_days,
-        max_opportunities=MAX_OPPORTUNITIES,
+    settings = BriefSettings.from_config(config)
+    # The focus text is fenced in a <team_focus> block. sanitize_user_text strips invisible chars,
+    # LLM framing tags (including the fence itself), and collapses newlines, so user configuration
+    # can't forge the fence or inject instruction-shaped content; empty falls back to a neutral default.
+    focus_prompt = sanitize_user_text(config.focus_prompt if config else "", max_len=2000) or "the whole product"
+    template = await database_sync_to_async(_get_managed_prompt, thread_sensitive=False)(
+        team, PULSE_SYNTHESIS_PROMPT_KEY, SYNTHESIZE_PROMPT
+    )
+    rendered = template.format(
+        focus_prompt=focus_prompt,
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        lookback_days=lookback_days,
+        max_opportunities=settings.max_opportunities,
         kind_descriptions=", ".join(f'"{kind}" = {description}' for kind, description in KIND_DESCRIPTIONS.items()),
         items_block=_render_items(items),
     )
     llm = MaxChatOpenAI(
         model=SYNTHESIS_MODEL,
-        timeout=_LLM_TIMEOUT_SECONDS,
-        # Worst case 2 attempts x 120s stays under the 5-minute synthesize activity timeout.
-        max_retries=1,
+        timeout=LLM_TIMEOUT_SECONDS,
+        max_retries=LLM_MAX_RETRIES,
         user=user,
         team=team,
         billable=True,
@@ -83,4 +101,4 @@ async def synthesize_brief(
         # Raise so the workflow marks the brief FAILED — a malformed output is not a quiet week.
         logger.error("pulse_synthesize_unexpected_output", team_id=team.id, output_type=type(result).__name__)
         raise ValueError(f"LLM returned unexpected structured output type: {type(result).__name__}")
-    return apply_say_less_gate(result)
+    return apply_say_less_gate(result, settings)

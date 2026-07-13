@@ -18,7 +18,7 @@ const openOpportunity: OpportunityApi = {
     title: 'Recover the signup drop',
     summary: 's',
     suggested_action: 'a',
-    evidence: [{ type: 'insight', ref: 'abc123', label: 'Signups' }],
+    evidence: [{ type: 'insight', ref: 'abc123', label: 'Signups', url: '/insights/abc123' }],
     first_seen_brief: null,
     created_at: '2026-06-01T00:00:00Z',
     created_by: null,

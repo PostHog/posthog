@@ -5,8 +5,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 
-import { CitationTag } from './CitationTag'
 import type { OpportunityApi } from './generated/api.schemas'
 import { OpportunityKindEnumApi, OpportunityStatusEnumApi } from './generated/api.schemas'
 import { opportunitiesLogic, transitionsForStatus } from './opportunitiesLogic'
@@ -61,11 +61,21 @@ export function OpportunitiesPanel(): JSX.Element {
         {
             title: 'Evidence',
             key: 'evidence',
+            // Evidence links resolve to a display label and deep link on the backend (ResourceLink),
+            // so render those directly — same shape and treatment as section citations.
             render: (_, opportunity) => (
                 <div className="flex flex-wrap gap-1">
-                    {opportunity.evidence.map((citation) => (
-                        <CitationTag key={`${citation.type}:${citation.ref}`} citation={citation} />
-                    ))}
+                    {opportunity.evidence.map((link) => {
+                        const key = `${link.type}:${link.ref}`
+                        const tag = <LemonTag>{link.label || key}</LemonTag>
+                        return link.url ? (
+                            <Link key={key} to={link.url}>
+                                {tag}
+                            </Link>
+                        ) : (
+                            <span key={key}>{tag}</span>
+                        )
+                    })}
                 </div>
             ),
         },

@@ -131,28 +131,31 @@ class TestEngineActivities(BaseTest):
         [
             ("not_found",),
             ("disabled",),
-            ("no_delivery",),
         ]
     )
     def test_validate_reasons(self, case: str) -> None:
         if case == "not_found":
             action_id = uuid.uuid4()
-        elif case == "disabled":
-            action_id = _action(self.team, name="off", enabled=False).id
         else:
-            # No delivery_config → nothing to deliver to → skip.
-            action_id = _action(self.team, name="nodelivery").id
+            action_id = _action(self.team, name="off", enabled=False).id
         self.assertEqual(
             act._validate(ValidateVisionActionInputs(vision_action_id=action_id, team_id=self.team.id)), case
         )
 
-    def test_validate_passes_when_delivery_configured(self) -> None:
-        # Regression: the gate used to check the now-vestigial hog_flow_id (always null after the
-        # internal_destination rework), which skipped every action. It must pass when delivery_config is set.
+    @parameterized.expand(
+        [
+            ("with_delivery", True),
+            ("without_delivery", False),
+        ]
+    )
+    def test_validate_passes(self, _label: str, with_delivery: bool) -> None:
+        # Delivery is optional: the persisted run is the in-app artifact (scanner digest, run history),
+        # so an action without delivery_config must still synthesize. The gate also once checked the
+        # vestigial hog_flow_id (always null after the internal_destination rework), skipping everything.
         action = _action(
             self.team,
-            name="delivers",
-            delivery_config=[{"type": "slack", "integration_id": 1, "channel": "#general"}],
+            name=f"validates-{_label}",
+            delivery_config=[{"type": "slack", "integration_id": 1, "channel": "#general"}] if with_delivery else [],
         )
         self.assertIsNone(act._validate(ValidateVisionActionInputs(vision_action_id=action.id, team_id=self.team.id)))
 
@@ -170,7 +173,7 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(run.error, {"message": "x"})
 
     def test_emit_produces_internal_event(self) -> None:
-        action = _action(self.team)
+        action = _action(self.team, delivery_config=[{"type": "slack", "integration_id": 1, "channel": "#general"}])
         run = VisionActionRun(
             vision_action=action, team=self.team, idempotency_key="k", output={"slack": "hello *world*"}
         )
@@ -189,6 +192,17 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(event.uuid, str(run.id))
         self.assertEqual(event.properties["vision_action_id"], str(action.id))
         self.assertEqual(event.properties["slack_text"], "hello *world*")
+
+    def test_emit_noops_without_delivery(self) -> None:
+        # No destinations configured → nothing to emit; the run row itself is the in-app artifact.
+        action = _action(self.team)
+        run = VisionActionRun(vision_action=action, team=self.team, idempotency_key="k2", output={"slack": "x"})
+        run.save()
+
+        with patch.object(act, "produce_internal_event") as mock_emit:
+            act._emit(EmitActionReadyInputs(run_id=run.id, team_id=self.team.id))
+
+        mock_emit.assert_not_called()
 
 
 # --- workflow orchestration (activities mocked at the temporalio.workflow boundary) ---

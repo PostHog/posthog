@@ -383,6 +383,32 @@ class TestRelativeDateParse(TestCase):
             "2019-11-30",
         )
 
+    @parameterized.expand(
+        [
+            ("minus_one", "-1q", "2019-10-31"),
+            ("minus_two", "-2q", "2019-07-31"),
+            ("current_start", "qStart", "2020-01-01"),
+            ("current_end", "qEnd", "2020-03-31"),
+            ("minus_one_start", "-1qStart", "2019-10-01"),
+            ("minus_two_start", "-2qStart", "2019-07-01"),
+            ("minus_one_end", "-1qEnd", "2019-12-31"),
+            ("minus_two_end", "-2qEnd", "2019-09-30"),
+        ]
+    )
+    @freeze_time("2020-01-31")
+    def test_quarter(self, _name, input, expected_date):
+        self.assertEqual(
+            relative_date_parse(input, ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            expected_date,
+        )
+
+    @freeze_time("2020-01-31")
+    def test_quarter_human_friendly_comparison_periods_keeps_week_alignment(self):
+        self.assertEqual(
+            relative_date_parse("-1q", ZoneInfo("UTC"), human_friendly_comparison_periods=True).strftime("%Y-%m-%d"),
+            "2019-11-01",
+        )
+
     @freeze_time("2020-01-31")
     def test_year(self):
         self.assertEqual(

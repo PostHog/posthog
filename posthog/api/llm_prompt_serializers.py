@@ -147,9 +147,18 @@ class LLMPromptPublishSerializer(serializers.Serializer):
         min_value=1,
         help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
     )
+    version_description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        help_text="Optional note describing what changed in this version. Shown in the version history.",
+    )
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
+
+    def validate_version_description(self, value: str) -> str | None:
+        return value.strip() or None
 
     def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         if len(value) == 0:
@@ -183,6 +192,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "name",
             "prompt",
             "version",
+            "version_description",
             "created_by",
             "created_at",
             "updated_at",
@@ -209,6 +219,9 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "name": {"help_text": "Unique prompt name using letters, numbers, hyphens, and underscores only."},
             "prompt": {"help_text": "Prompt payload as JSON or string data."},
+            "version_description": {
+                "help_text": "Optional note describing what changed in this version. Set when the version is published."
+            },
         }
 
     @extend_schema_field(LLMPromptOutlineEntrySerializer(many=True))
@@ -243,6 +256,11 @@ class LLMPromptSerializer(serializers.ModelSerializer):
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
+
+    def validate_version_description(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
@@ -316,6 +334,7 @@ class LLMPromptVersionSummarySerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "version",
+            "version_description",
             "created_by",
             "created_at",
             "is_latest",

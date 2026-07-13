@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -22,6 +22,46 @@ export const EngineeringAnalyticsCiFailureLogsParams = /* @__PURE__ */ zod.objec
 export const EngineeringAnalyticsCiFailureLogsQueryParams = /* @__PURE__ */ zod.object({
     pr_number: zod.number().describe('Pull request number whose CI failure logs to fetch.'),
     repo: zod.string().describe("'owner/name' repository the pull request belongs to."),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+})
+
+/**
+ * The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ */
+export const EngineeringAnalyticsFlakyTestsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe(
+            "Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days."
+        ),
+    date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    limit: zod.number().optional().describe('Maximum number of tests to return (1-200). Defaults to 50.'),
+    min_failed_prs: zod
+        .number()
+        .optional()
+        .describe(
+            'A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.'
+        ),
+    min_rerun_passes: zod
+        .number()
+        .optional()
+        .describe(
+            'A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.'
+        ),
     source_id: zod
         .string()
         .optional()
@@ -108,7 +148,7 @@ export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const EngineeringAnalyticsWorkflowHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -127,6 +167,12 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod
         ),
     date_from: zod.string().optional().describe("Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    run_scope: zod
+        .enum(['all', 'pull_request'])
+        .optional()
+        .describe(
+            "Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400."
+        ),
     source_id: zod
         .string()
         .optional()

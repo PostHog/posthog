@@ -172,11 +172,6 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
     return blocked
 
 
-# ---------------------------------------------------------------------------
-# Cross-product reads: recent scout-derived inbox reports (consumed by Pulse briefs).
-# ---------------------------------------------------------------------------
-
-
 @dataclasses.dataclass(frozen=True)
 class SignalReportSummary:
     """Read-only snapshot of an inbox report, for cross-product consumers."""
@@ -189,27 +184,24 @@ class SignalReportSummary:
 
 
 def get_recent_reports(team_id: int, since: datetime, limit: int = 20) -> list[SignalReportSummary]:
-    """Recent scout-derived, inbox-visible reports with authored content, newest first.
+    """Recent inbox-visible reports with authored content, newest first.
 
-    Scoped to reports backed by signals-scout signals so a consumer that also *emits* signals
-    (Pulse) can never read its own emitted output back as input. Hidden statuses mirror the
-    inbox list surface. Report content is LLM-authored, so this returns [] when the
-    organization has not approved AI data processing — mirroring emit_signal's gate.
+    Covers every signal source product (scout, replay-vision, ...). Hidden statuses mirror the
+    inbox list surface. Report content is LLM-authored, so this returns [] when the organization
+    has not approved AI data processing — mirroring emit_signal's gate.
     """
     from products.signals.backend.temporal.signal_queries import (
-        fetch_report_ids_for_source_products,  # noqa: PLC0415 — keeps the temporal stack off the facade import path
+        fetch_report_ids_for_source_products,  # noqa: PLC0415 — module-level import forms a cycle (signal_queries -> temporal stack -> facade)
     )
 
     team = Team.objects.filter(id=team_id).select_related("organization").first()
     if team is None or not team.organization.is_ai_data_processing_approved:
         return []
-    scout_report_ids = fetch_report_ids_for_source_products(
-        team, [SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value]
-    )
-    if not scout_report_ids:
+    report_ids = fetch_report_ids_for_source_products(team, [p.value for p in SignalSourceConfig.SourceProduct])
+    if not report_ids:
         return []
     reports = (
-        SignalReport.objects.filter(id__in=scout_report_ids, team_id=team_id, created_at__gte=since)
+        SignalReport.objects.filter(id__in=report_ids, team_id=team_id, created_at__gte=since)
         .exclude(status__in=SignalReport.INBOX_HIDDEN_STATUSES)
         .exclude(title__isnull=True)
         .exclude(title="")

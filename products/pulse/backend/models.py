@@ -1,7 +1,56 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+
+
+def default_period() -> dict:
+    # Default lookback: the brief covers the last 7 days, compared against the 7 days before.
+    return {"type": "last_n_days", "days": 7}
+
+
+class ResourceType(models.TextChoices):
+    INSIGHT = "insight"
+    DASHBOARD = "dashboard"
+    ANNOTATION = "annotation"
+    EXPERIMENT = "experiment"
+    ALERT = "alert"
+    SUBSCRIPTION = "subscription"
+    # Events have no Django model, so an event link carries only the cached columns (no FK).
+    EVENT = "event"
+    # A scout/signal-report link: no pulse-owned FK, carries only the cached columns like an event.
+    SIGNAL_REPORT = "signal_report"
+
+
+class ActionType(models.TextChoices):
+    ADVISORY = "advisory"
+    CREATE_PR = "create_pr"
+    INSTRUMENT_EVENT = "instrument_event"
+    CREATE_INSIGHT = "create_insight"
+
+
+class ActionStatus(models.TextChoices):
+    PROPOSED = "proposed"
+    EXECUTING = "executing"
+    DONE = "done"
+    FAILED = "failed"
+
+
+def default_action() -> dict:
+    # Forward-compatible envelope for a future action executor. The model emits only a summary
+    # today; persist wraps it via build_action, so every opportunity starts as a proposed advisory.
+    return {"type": ActionType.ADVISORY.value, "summary": "", "params": {}, "status": ActionStatus.PROPOSED.value}
+
+
+def build_action(summary: str) -> dict:
+    """Wrap the LLM's free-text next step in the structured advisory envelope."""
+    return {
+        "type": ActionType.ADVISORY.value,
+        "summary": summary,
+        "params": {},
+        "status": ActionStatus.PROPOSED.value,
+    }
 
 
 class PulseModel(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -31,6 +80,8 @@ class BriefConfig(PulseModel):
     focus_prompt = models.TextField(blank=True, default="", max_length=2000)
     # Shape: BriefAnchorsSerializer (api/brief.py) — {"dashboards": [int], "insights": [short_id str]}
     anchors = models.JSONField(default=dict)
+    # Per-config tunables overriding config.py defaults; shape/ranges: config.BriefSettings.
+    settings = models.JSONField(default=dict)
     enabled = models.BooleanField(default=True)
     # Soft delete: configs are recoverable and brief history keeps pointing at them.
     deleted = models.BooleanField(default=False)
@@ -50,13 +101,14 @@ class ProductBrief(PulseModel):
         ON_DEMAND = "on_demand"
         SCHEDULED = "scheduled"
 
-    # Configs soft-delete in normal operation; SET_NULL is the backstop for hard deletes
-    # (e.g. via admin) so brief history survives those too.
-    config = models.ForeignKey(BriefConfig, on_delete=models.SET_NULL, null=True, blank=True)
+    # Configs soft-delete in normal operation; a hard delete (e.g. via admin) is deliberate and
+    # cascades to the briefs generated for that config rather than orphaning them.
+    config = models.ForeignKey(BriefConfig, on_delete=models.CASCADE, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.GENERATING)
     trigger = models.CharField(max_length=20, choices=Trigger.choices)
-    # Lookback window: the brief covers the last N days, compared against the N days before.
-    period_days = models.IntegerField(default=7)
+    # Period spec resolved to explicit dates in-activity; shape: {"type": "last_n_days", "days": 7}
+    # or {"type": "since_last_run"}. See temporal/activities.resolve_period.
+    period = models.JSONField(default=default_period)
     # Shape: list[SectionOut] — see generation/schemas.py (the LLM structured-output schema).
     sections = models.JSONField(default=list)
     # Shape: list[OpportunityStatusLine] — deterministic then-vs-now re-scores of past
@@ -90,14 +142,16 @@ class Opportunity(PulseModel):
         ACTED = "acted"
         RESOLVED = "resolved"
 
-    first_seen_brief = models.ForeignKey(ProductBrief, on_delete=models.SET_NULL, null=True, blank=True)
+    # persist always sets this; a hard-deleted brief cascades to the opportunities it first surfaced.
+    first_seen_brief = models.ForeignKey(ProductBrief, on_delete=models.CASCADE)
     kind = models.CharField(max_length=20, choices=Kind.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
     title = models.CharField(max_length=400)
     summary = models.TextField()
-    suggested_action = models.TextField(blank=True, default="")
-    # Shape: list[EvidenceRef] — see sources/base.py.
-    evidence = models.JSONField(default=list)
+    # Structured action envelope; shape: default_action(). Advisory-only today; forward-compatible
+    # for a future executor. The LLM still emits a free-text summary (OpportunityOut.suggested_action)
+    # that persist wraps via build_action.
+    action = models.JSONField(default=default_action)
     # {"insight_short_id": str, "series_index": int} | null
     metric_ref = models.JSONField(null=True, blank=True)
     # snapshot of metric value(s) at creation, for the future impact loop
@@ -109,3 +163,69 @@ class Opportunity(PulseModel):
         # Dedup race guard: concurrent persists can't double-insert a fingerprint (persist
         # bulk_creates with ignore_conflicts). The unique index doubles as the lookup index.
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="pulse_opp_team_fp_unique")]
+
+
+class ResourceLink(PulseModel):
+    """Evidence link from an opportunity to a PostHog resource it cites.
+
+    One opportunity has many links. Per-type nullable FKs (not a GenericForeignKey, which is
+    rejected repo-wide) point at the cited resource; the cached `resource_type`/`ref`/`label`/`url`
+    columns keep the link meaningful for events (no Django model) and after a FK nulls.
+    """
+
+    # A hard-deleted brief cascades to its opportunities, which cascade to their links.
+    opportunity = models.ForeignKey(Opportunity, on_delete=models.CASCADE, related_name="resource_links")
+
+    # Deliberately SET_NULL, not CASCADE or an exactly-one constraint like DashboardTile: an
+    # opportunity's evidence history must survive the cited resource being deleted. These target
+    # non-hot tables, so real DB constraints are fine (no db_constraint=False).
+    insight = models.ForeignKey(
+        "product_analytics.Insight", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    dashboard = models.ForeignKey(
+        "dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    annotation = models.ForeignKey(
+        "annotations.Annotation", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    experiment = models.ForeignKey(
+        "experiments.Experiment", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    alert = models.ForeignKey(
+        "alerts.AlertConfiguration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    subscription = models.ForeignKey(
+        "exports.Subscription", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    resource_type = models.CharField(max_length=20, choices=ResourceType.choices)
+    # short_id (insight), id (dashboard/annotation/experiment), or event name.
+    ref = models.CharField(max_length=400)
+    label = models.CharField(max_length=400)
+    # Deep link into the app; "" when the ref has no navigable target.
+    url = models.CharField(max_length=1000, blank=True, default="")
+
+    # Single source of truth mapping each DB-modeled resource_type to the FK field it populates;
+    # EvidenceRef.fk_field and clean() both route through fk_field_for so the mapping lives once.
+    _FK_FIELD_BY_TYPE = {
+        ResourceType.INSIGHT: "insight",
+        ResourceType.DASHBOARD: "dashboard",
+        ResourceType.ANNOTATION: "annotation",
+        ResourceType.EXPERIMENT: "experiment",
+        ResourceType.ALERT: "alert",
+        ResourceType.SUBSCRIPTION: "subscription",
+    }
+
+    @classmethod
+    def fk_field_for(cls, resource_type: "ResourceType | str") -> str | None:
+        """The FK field a resource_type must populate, or None if it has no model (events)."""
+        return cls._FK_FIELD_BY_TYPE.get(ResourceType(resource_type)) if resource_type else None
+
+    def clean(self) -> None:
+        # No hard CheckConstraint: SET_NULL nulls the FK when a resource is deleted, which would
+        # violate an "FK-matching-resource_type is set" constraint even though the link is still
+        # valid history. So this is enforced at write time (creation), not by the DB forever.
+        super().clean()
+        fk_field = self.fk_field_for(self.resource_type)
+        if fk_field is not None and getattr(self, f"{fk_field}_id") is None:
+            raise ValidationError(f"resource_type '{self.resource_type}' requires the '{fk_field}' FK to be set.")
