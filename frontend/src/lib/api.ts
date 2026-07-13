@@ -4897,7 +4897,7 @@ const api = {
             data: {
                 node_id: string
                 code: string
-                refs?: Record<string, string>
+                refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
                 node_type?: 'hogql' | 'python'
                 output_name?: string
             }
