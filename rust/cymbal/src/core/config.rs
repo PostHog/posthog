@@ -1,5 +1,7 @@
 use aws_config::{BehaviorVersion, Region};
+use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
+use sqlx::PgPool;
 use tracing::{info, warn};
 
 /// Configuration for the shared symbol-resolution stack. Both run modes parse
@@ -84,6 +86,26 @@ impl ResolverConfig {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         Self::init_from_env()
     }
+}
+
+/// Build the Postgres pool through the shared `common-database` helper so cymbal
+/// gets `test_before_acquire` (severed connections are health-checked and
+/// recycled instead of handed straight to a query), idle recycling, and the
+/// disabled max-lifetime that avoids thundering-herd reconnects. Building the
+/// pool directly with `PgPoolOptions` skips all of that, which is how a stale
+/// connection turns into an `expected to read N bytes, got 0 bytes at EOF`
+/// error mid-query. `pool_name` labels the connection-churn counter.
+pub fn build_pg_pool(
+    database_url: &str,
+    max_connections: u32,
+    pool_name: &str,
+) -> Result<PgPool, sqlx::Error> {
+    let pool_config = PoolConfig {
+        max_connections,
+        pool_name: Some(pool_name.to_string()),
+        ..Default::default()
+    };
+    get_pool_with_config(database_url, pool_config)
 }
 
 pub async fn get_aws_config(config: &ResolverConfig) -> aws_sdk_s3::Config {
