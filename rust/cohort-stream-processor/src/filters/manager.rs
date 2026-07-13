@@ -126,6 +126,13 @@ impl CatalogHandle {
         self.catalog.load()
     }
 
+    /// Load the current snapshot as an owned `Arc` that borrows nothing from `self`, so it can move
+    /// into a `'static` blocking closure (e.g. a
+    /// [`StoreHandle::run_section`](crate::store::StoreHandle::run_section) body).
+    pub fn load_full(&self) -> Arc<FilterCatalog> {
+        self.catalog.load_full()
+    }
+
     /// True once the first refresh has succeeded. Before that the catalog is empty and consumers
     /// should treat every team as having no realtime cohorts.
     pub fn is_loaded(&self) -> bool {

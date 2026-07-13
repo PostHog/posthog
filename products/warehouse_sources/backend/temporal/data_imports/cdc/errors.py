@@ -89,12 +89,12 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
     ),
     CDCErrorCategory.SLOT_MISSING: (
         "The replication slot no longer exists on the source database, so changes can no longer be "
-        "read. Disable and re-enable change data capture to recreate it and re-sync.",
+        "read. Use Repair CDC to recreate it and re-sync.",
         False,
     ),
     CDCErrorCategory.PUBLICATION_MISSING: (
         "The publication used for change data capture no longer exists on the source database. "
-        "Recreate it, or disable and re-enable change data capture, then re-sync.",
+        "Recreate it (self-managed), or use Repair CDC (PostHog-managed) to recreate it and re-sync.",
         False,
     ),
     CDCErrorCategory.SLOT_IN_USE: (

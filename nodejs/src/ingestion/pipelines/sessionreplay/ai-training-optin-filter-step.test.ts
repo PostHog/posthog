@@ -9,6 +9,7 @@ describe('ai-training-optin-filter-step', () => {
         teamId: 1,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn,
+        firstPartyHosts: [],
     })
 
     it('passes through a team that opted into AI training', async () => {

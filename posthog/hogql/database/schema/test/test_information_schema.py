@@ -26,10 +26,10 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSchema,
     ExternalDataSource,
+    WarehouseColumnAnnotation,
+    WarehouseColumnStatistics,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 
 
 def _field(name: str) -> ast.Field:

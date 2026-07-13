@@ -42,9 +42,11 @@ export function LemonRadio<T extends React.Key>({
                     <label
                         key={value}
                         className={clsx(
-                            'grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm',
+                            'grid gap-x-2 grid-cols-[min-content_auto] text-sm',
                             disabledReason ? 'text-secondary cursor-not-allowed' : 'cursor-pointer',
                             {
+                                // baseline tracks the label's first text line even when the
+                                // label JSX uses its own font size or line-height
                                 'items-baseline': radioPosition === 'top',
                                 'items-center': radioPosition === 'center' || !radioPosition,
                             }

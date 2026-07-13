@@ -1,17 +1,17 @@
 from rest_framework import status
 from rest_framework.response import Response
 
-from products.approvals.backend.exceptions import ApprovalRequired
+from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
 from products.approvals.backend.serializers import ChangeRequestSerializer
 
 
 class ApprovalHandlingMixin:
     """
-    Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+    Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
 
-    This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-    on serializer methods and converts them into proper HTTP 409 Conflict responses with
-    change request details.
+    Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+    decorator on serializer methods and converts them into the same responses the viewset path
+    produces (see decorators._result_to_response), so both paths share one contract.
     """
 
     def handle_exception(self, exc: Exception) -> Response:
@@ -29,6 +29,17 @@ class ApprovalHandlingMixin:
                     "required_approvers": exc.required_approvers,
                 },
                 status=status.HTTP_409_CONFLICT,
+            )
+
+        if isinstance(exc, PolicyConflict):
+            return Response(
+                {
+                    "code": "policy_conflict",
+                    "error": exc.message,
+                    "conflicting_policies": exc.conflicting_policies,
+                    "guidance": exc.guidance,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         return super().handle_exception(exc)  # type: ignore[misc]

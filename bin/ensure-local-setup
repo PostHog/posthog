@@ -22,19 +22,16 @@ from django.conf import settings  # noqa: E402
 from django.core.management import call_command  # noqa: E402
 
 from posthog.models import OAuthApplication  # noqa: E402
+from posthog.scopes import UNPRIVILEGED_SCOPES  # noqa: E402
 
-# What the wizard's agent step needs (mirrors @posthog/wizard's WIZARD_PROVISIONING_SCOPES). Local-dev
-# convenience only — no need to track the published wizard forever.
-WIZARD_SCOPES = [
-    "user:read",
-    "project:read",
-    "llm_gateway:read",
-    "dashboard:write",
-    "insight:write",
-    "query:read",
-    "notebook:write",
-    "wizard_session:write"
-]
+# The wizard requests @posthog/wizard's WIZARD_OAUTH_SCOPES plus per-program additions
+# (PROGRAM_SCOPE_ADDITIONS), and any single scope outside the app's ceiling fails the whole
+# /authorize with invalid_scope. Enumerating the union here would break every time a program
+# adds a scope, so grant everything unprivileged plus the privileged/hidden scopes the wizard
+# needs — same broad ceiling the hedgebox demo matrix sets on this app. Local-dev only.
+WIZARD_SCOPES = sorted(
+    UNPRIVILEGED_SCOPES | {"llm_gateway:read", "llm_gateway:write", "wizard_session:read", "wizard_session:write"}
+)
 
 
 def ensure_wizard_oauth_app() -> None:
@@ -45,6 +42,14 @@ def ensure_wizard_oauth_app() -> None:
     """
     if not settings.DEBUG or settings.CLOUD_DEPLOYMENT:
         print("  not a local dev environment - skipping wizard OAuth app")
+        return
+
+    # DEBUG=True alone is not a reliable "this is a laptop" signal (misconfigured self-hosted
+    # instances run with it), and this app is a public client with a committed client_id and a
+    # broad scope ceiling - require a localhost SITE_URL too before seeding it.
+    site_url = getattr(settings, "SITE_URL", "") or ""
+    if "//localhost" not in site_url and "//127.0.0.1" not in site_url:
+        print(f"  SITE_URL ({site_url}) is not localhost - skipping wizard OAuth app")
         return
 
     client_id = settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID

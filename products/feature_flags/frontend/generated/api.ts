@@ -33,6 +33,9 @@ import type {
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
     FeatureFlagsMyFlagsRetrieveParams,
+    FeatureFlagsStaffCacheEntryRetrieveParams,
+    FeatureFlagsStaffCacheListParams,
+    FeatureFlagsStaffTeamsListParams,
     FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
     MyFlagsResponseApi,
@@ -45,6 +48,11 @@ import type {
     PatchedScheduledChangeApi,
     ScheduledChangeApi,
     ScheduledChangesListParams,
+    StaffCacheEntryResponseApi,
+    StaffCacheMutationApi,
+    StaffCacheMutationResponseApi,
+    StaffCacheStatusResponseApi,
+    StaffTeamSearchResponseApi,
     UserBlastRadiusRequestApi,
     UserBlastRadiusResponseApi,
 } from './api.schemas'
@@ -65,6 +73,172 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getFeatureFlagsStaffCacheListUrl = (params: FeatureFlagsStaffCacheListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_cache/?${stringifiedParams}`
+        : `/api/feature_flags_staff_cache/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
+ * or clears both definitions-cache variants together). Status/entry can read a third, narrower
+ * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
+ * individually readable even though they're only mutated as a pair.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheList = async (
+    params: FeatureFlagsStaffCacheListParams,
+    options?: RequestInit
+): Promise<StaffCacheStatusResponseApi> => {
+    return apiMutator<StaffCacheStatusResponseApi>(getFeatureFlagsStaffCacheListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheClearCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/clear/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
+ * or clears both definitions-cache variants together). Status/entry can read a third, narrower
+ * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
+ * individually readable even though they're only mutated as a pair.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheClearCreate = async (
+    staffCacheMutationApi: StaffCacheMutationApi,
+    options?: RequestInit
+): Promise<StaffCacheMutationResponseApi> => {
+    return apiMutator<StaffCacheMutationResponseApi>(getFeatureFlagsStaffCacheClearCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(staffCacheMutationApi),
+    })
+}
+
+export const getFeatureFlagsStaffCacheEntryRetrieveUrl = (params: FeatureFlagsStaffCacheEntryRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_cache/entry/?${stringifiedParams}`
+        : `/api/feature_flags_staff_cache/entry/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
+ * or clears both definitions-cache variants together). Status/entry can read a third, narrower
+ * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
+ * individually readable even though they're only mutated as a pair.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheEntryRetrieve = async (
+    params: FeatureFlagsStaffCacheEntryRetrieveParams,
+    options?: RequestInit
+): Promise<StaffCacheEntryResponseApi> => {
+    return apiMutator<StaffCacheEntryResponseApi>(getFeatureFlagsStaffCacheEntryRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheRebuildCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/rebuild/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
+ * or clears both definitions-cache variants together). Status/entry can read a third, narrower
+ * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
+ * individually readable even though they're only mutated as a pair.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheRebuildCreate = async (
+    staffCacheMutationApi: StaffCacheMutationApi,
+    options?: RequestInit
+): Promise<StaffCacheMutationResponseApi> => {
+    return apiMutator<StaffCacheMutationResponseApi>(getFeatureFlagsStaffCacheRebuildCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(staffCacheMutationApi),
+    })
+}
+
+export const getFeatureFlagsStaffTeamsListUrl = (params: FeatureFlagsStaffTeamsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_teams/?${stringifiedParams}`
+        : `/api/feature_flags_staff_teams/`
+}
+
+/**
+ * Staff-only, unscoped team search across every organization.
+ *
+ * Unlike TeamViewSet (membership-scoped via TeamAndOrgViewSetMixin), staff need to look up
+ * teams they do not belong to in order to inspect and rebuild flag caches. Registered on the
+ * root router so it is not team-nested. Exposes the same fields Django admin's TeamAdmin
+ * already shows staff un-redacted, so no new data exposure.
+ */
+export const featureFlagsStaffTeamsList = async (
+    params: FeatureFlagsStaffTeamsListParams,
+    options?: RequestInit
+): Promise<StaffTeamSearchResponseApi> => {
+    return apiMutator<StaffTeamSearchResponseApi>(getFeatureFlagsStaffTeamsListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getOrgFeatureFlagsRetrieveUrl = (organizationId: string, featureFlagKey: string) => {
     return `/api/organizations/${organizationId}/feature_flags/${featureFlagKey}/`

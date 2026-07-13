@@ -155,10 +155,10 @@ only `rollout_percentage` (0–100). Property filters use the standard PostHog s
 ## Constructing UI links
 
 Build links with `posthog:generate-app-url` — never hand-write the host or the `/project/<id>/` prefix.
-Pass the canonical path templates:
+The `url` must be a canonical catalog template; pass concrete ids via `params`, never inline them into the path.
 
 - **Evaluations list:** `generate-app-url {url: "/ai-evals/evaluations"}`
-- **Single evaluation:** `generate-app-url {url: "/ai-evals/evaluations/<evaluation_id>"}`
+- **Single evaluation:** `generate-app-url {url: "/ai-evals/evaluations/{id}", params: {id: "<evaluation_id>"}}`
 
 These resolve to the correct region host and project prefix (e.g.
 `https://us.posthog.com/project/<id>/ai-evals/evaluations/<evaluation_id>`). Surface the link after

@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -16,13 +18,27 @@ export const manifest: ProductManifest = {
             description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
             iconType: 'tracing',
         },
+        TracingOperation: {
+            name: 'Operation',
+            import: () => import('./frontend/TracingOperationScene'),
+            projectBased: true,
+            layout: 'app-container',
+            activityScope: 'Tracing',
+            description: 'Latency distribution and sample traces for a single operation.',
+            iconType: 'tracing',
+        },
     },
     routes: {
         '/tracing': ['Tracing', 'tracing'],
+        '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     },
     redirects: {},
     urls: {
         tracing: (): string => '/tracing',
+        // Query params rather than path segments: span names ("GET /api/stats") contain slashes
+        // and arbitrary characters that break path routing.
+        tracingOperation: (serviceName: string, spanName: string): string =>
+            combineUrl('/tracing/operation', { service: serviceName, name: spanName }).url,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

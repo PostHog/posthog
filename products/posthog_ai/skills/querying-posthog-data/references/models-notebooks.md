@@ -11,6 +11,7 @@ Column | Type | Nullable | Description
 `short_id` | varchar(12) | NOT NULL | Unique short identifier for URLs
 `title` | varchar(256) | NULL | Notebook title
 `content` | jsonb | NULL | Notebook content blocks
+`markdown` | text | NULL | Markdown source when the notebook is stored as a markdown notebook; NULL for legacy rich-text notebooks
 `text_content` | text | NULL | Plain text extraction for search
 `deleted` | boolean | NOT NULL | Soft delete flag
 `visibility` | varchar(20) | NOT NULL | `private`, `shared`, or `public`
@@ -56,6 +57,9 @@ Notebooks use a block-based content format:
 }
 ```
 
+Markdown notebooks store a single `ph-markdown-notebook` block in `content`.
+Use the `markdown` column when reading or editing markdown notebooks instead of selecting and parsing the raw `content` JSON.
+
 ### Block Types
 
 Type | Description
@@ -100,4 +104,13 @@ SELECT id, short_id, title
 FROM system.notebooks
 WHERE NOT deleted
   AND text_content ILIKE '%retention%'
+```
+
+**Read markdown source for a notebook:**
+
+```sql
+SELECT short_id, title, markdown
+FROM system.notebooks
+WHERE short_id = 'abc123'
+  AND markdown IS NOT NULL
 ```

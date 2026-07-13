@@ -3,10 +3,10 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getInsightId } from 'scenes/insights/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -193,7 +193,8 @@ export const sharingLogic = kea<sharingLogicType>([
                 width: defaultIframeConfig.width,
                 height: defaultIframeConfig.height,
                 frameBorder: 0,
-                allowfullscreen: true,
+                // React prop casing; embedCode lowercases keys, so the HTML snippet still reads "allowfullscreen"
+                allowFullScreen: true,
                 src: embedLink,
                 key: iframeKey,
                 sandbox: 'allow-scripts allow-same-origin allow-popups',

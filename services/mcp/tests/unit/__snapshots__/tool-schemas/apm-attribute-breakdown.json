@@ -5,12 +5,12 @@
             "description": "The attribute breakdown query to execute.",
             "properties": {
                 "breakdownKey": {
-                    "description": "Attribute key to group by (e.g. \"server.address\", \"http.response.status_code\"). Discover keys with apm-attributes-list.",
+                    "description": "Attribute key to group by (e.g. \"server.address\", \"http.response.status_code\"). Discover keys with apm-attributes-list. For the \"span\" breakdown type, must be one of the allowlisted top-level columns: \"service_name\", \"status_code\".",
                     "type": "string"
                 },
                 "breakdownType": {
-                    "description": "Where the key lives: \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
-                    "enum": ["span_attribute", "span_resource_attribute"],
+                    "description": "Where the key lives: \"span\" for allowlisted top-level span columns, \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+                    "enum": ["span", "span_attribute", "span_resource_attribute"],
                     "type": "string"
                 },
                 "compareFilter": {
@@ -62,6 +62,11 @@
                         }
                     },
                     "type": "object"
+                },
+                "excludeBreakdownFilter": {
+                    "default": false,
+                    "description": "Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected.",
+                    "type": "boolean"
                 },
                 "filterGroup": {
                     "default": [],

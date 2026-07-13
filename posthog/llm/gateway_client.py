@@ -13,6 +13,7 @@ logger = structlog.get_logger(__name__)
 
 Product = Literal[
     "llm_gateway",
+    "ci",
     "posthog_code",
     "background_agents",
     "slack_app",

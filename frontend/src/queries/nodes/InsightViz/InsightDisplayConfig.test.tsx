@@ -75,7 +75,7 @@ function getSectionTitles(): string[] {
 }
 
 async function openOptionsMenu(): Promise<void> {
-    const optionsButtons = screen.getAllByRole('button', { name: /Options/ })
+    const optionsButtons = screen.getAllByLabelText('Options')
     await userEvent.click(optionsButtons[0])
 }
 
@@ -350,7 +350,7 @@ describe('InsightDisplayConfig', () => {
         it('removes axis label option count after clearing a committed label', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph, { xAxisLabel: 'Signup date' }))
 
-            const optionsButton = screen.getAllByRole('button', { name: /Options/ })[0]
+            const optionsButton = screen.getAllByLabelText('Options')[0]
             expect(optionsButton).toHaveTextContent(/\(1\)/)
 
             await openOptionsMenu()

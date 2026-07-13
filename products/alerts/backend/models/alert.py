@@ -196,6 +196,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     @property
     def is_high_frequency_interval(self) -> bool:
+        # Real-time counts as high frequency so its checks always run fresh ClickHouse
+        # queries (CALCULATE_BLOCKING_ALWAYS) instead of reading a possibly stale cache.
         return self.calculation_interval in (
             AlertCalculationInterval.EVERY_15_MINUTES,
             AlertCalculationInterval.REAL_TIME,
@@ -351,6 +353,22 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
+    def interval_entitlement_error(
+        cls,
+        *,
+        calculation_interval: str | AlertCalculationInterval | None,
+        organization: Organization,
+    ) -> str | None:
+        """Entitlement gate for any plan-restricted interval — the single entry point for
+        write paths and evaluation-time downgrade checks. Each underlying check returns None
+        unless the interval matches, so at most one can produce an error."""
+        return cls.real_time_interval_validation_error(
+            calculation_interval=calculation_interval, organization=organization
+        ) or cls.every_15_minutes_interval_validation_error(
+            calculation_interval=calculation_interval, organization=organization
+        )
+
+    @classmethod
     def check_real_time_alert_limit(
         cls, team_id: int, organization: Organization, *, exclude_id: str | None = None
     ) -> str | None:
@@ -365,7 +383,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             return None
 
         allowed = feature.get("limit")
-        # If allowed is None then the org is allowed unlimited real-time alerts
         if allowed is None:
             return None
 
@@ -376,6 +393,37 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         if existing_count >= allowed:
             return f"Your team has reached the limit of {allowed} real-time alerts on your plan."
         return None
+
+    @classmethod
+    def real_time_alert_validation_error(
+        cls,
+        *,
+        team_id: int,
+        organization: Organization,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+        existing: AlertConfiguration | None = None,
+    ) -> str | None:
+        """Validate the active real-time limit for a create/update that would leave an alert
+        in the given real-time state.
+
+        Purely the limit check — callers gate the entitlement first via
+        interval_entitlement_error. The limit only applies when the change increases the
+        active real-time count — an alert that already was an enabled real_time alert
+        doesn't re-count against it.
+        """
+        if calculation_interval != AlertCalculationInterval.REAL_TIME:
+            return None
+        if not enabled:
+            return None
+        already_active_real_time = (
+            existing is not None
+            and existing.calculation_interval == AlertCalculationInterval.REAL_TIME
+            and existing.enabled
+        )
+        if already_active_real_time:
+            return None
+        return cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk) if existing else None)
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):

@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.ducklake.storage import (
@@ -225,6 +227,30 @@ class TestDuckLakeStorageConfigProduction:
         assert "aws_access_key_id" not in options
         assert "aws_secret_access_key" not in options
         assert "endpoint_url" not in options
+
+    @parameterized.expand(
+        [
+            ("us_default", None, "us-east-1"),
+            ("eu_deployment", "EU", "eu-central-1"),
+        ]
+    )
+    def test_from_runtime_org_config_empty_region_falls_back_to_deployment_default(
+        self, _name, cloud_deployment, expected_region
+    ):
+        # Mirrors DuckgresServer.to_catalog_public_config() when bucket_region is NULL
+        org_config = {
+            "DUCKLAKE_BUCKET_REGION": "",
+            "DUCKLAKE_S3_ACCESS_KEY": "",
+            "DUCKLAKE_S3_SECRET_KEY": "",
+        }
+        with (
+            patch("posthog.ducklake.storage.get_org_config", return_value=org_config) as mock_get_org_config,
+            override_settings(CLOUD_DEPLOYMENT=cloud_deployment),
+        ):
+            config = DuckLakeStorageConfig.from_runtime(use_local_setup=False, organization_id="org-123")
+
+        mock_get_org_config.assert_called_once_with("org-123")
+        assert config.region == expected_region
 
 
 class TestDuckLakeStorageConfigEdgeCases:

@@ -12,9 +12,11 @@ import {
 } from 'react'
 
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+
+import { AutosizeTextArea } from '../AutosizeTextArea'
 
 // Radix-style compound composer: a set of logic-free, presentational surfaces that reproduce the
 // PostHog AI input look (see scenes/max/components/QuestionInput.tsx) without any of its conversation
@@ -277,26 +279,20 @@ export interface ComposerTextareaProps {
     autoFocus?: boolean
     minRows?: number
     maxRows?: number
-    /** `'enter'` submits on Enter (PostHog AI), `'cmd-enter'` on Cmd/Ctrl+Enter (tasks composer). */
-    submitShortcut?: 'enter' | 'cmd-enter'
     'data-attr'?: string
 }
 
-/** The textarea itself, wired to the context value/submit. */
+/** The textarea itself, wired to the context value/submit. Submits on Enter, Shift+Enter for a newline. */
 function ComposerTextarea({
     className,
     autoFocus,
     minRows = 1,
     maxRows = 10,
-    submitShortcut = 'enter',
     ...rest
 }: ComposerTextareaProps): JSX.Element {
     const { value, onChange, submit, textAreaRef, disabled, id } = useComposerContext()
-    // onPressEnter / onPressCmdEnter are mutually exclusive in LemonTextArea's type — pick one.
-    const submitProps =
-        submitShortcut === 'cmd-enter' ? { onPressCmdEnter: () => submit() } : { onPressEnter: () => submit() }
     return (
-        <LemonTextArea
+        <AutosizeTextArea
             id={id}
             aria-describedby={!value ? `${id}-hint` : undefined}
             ref={textAreaRef}
@@ -306,9 +302,10 @@ function ComposerTextarea({
             minRows={minRows}
             maxRows={maxRows}
             autoFocus={autoFocus}
-            className={cn('!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none', className)}
+            className={cn('py-2 pl-2', className)}
+            textareaClassName="!border-none !bg-transparent min-h-16 pr-12 resize-none"
             hideFocus
-            {...submitProps}
+            onPressEnter={() => submit()}
             {...rest}
         />
     )

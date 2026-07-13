@@ -41,6 +41,8 @@ from posthog.api.team import (
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     handle_logs_config,
+    report_conversations_settings_changes,
+    validate_secret_token_generation,
     validate_team_attrs,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -1207,6 +1209,12 @@ class ProjectBackwardCompatSerializer(
                 should_team_be_saved_too = True
                 setattr(team, attr, value)
 
+        if "name" in validated_data:
+            # Keep Team.name mirroring Project.name: surfaces like the organization's teams
+            # list and the app context still read the name off the Team row
+            should_team_be_saved_too = True
+            team.name = validated_data["name"]
+
         instance.save()
         if should_team_be_saved_too:
             team.save()
@@ -1261,6 +1269,12 @@ class ProjectBackwardCompatSerializer(
                     changes=project_changes,
                 ),
             )
+
+        report_conversations_settings_changes(
+            cast(User, self.context["request"].user),
+            team_before_update.get("conversations_settings"),
+            team,
+        )
 
         return instance
 
@@ -1531,6 +1545,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
+        validate_secret_token_generation(project.passthrough_team, cast(User, request.user))
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
@@ -1866,7 +1881,7 @@ class PremiumMultiProjectPermission(BasePermission):
 
         if request.data.get("is_demo"):
             # If we're requesting to make a demo project but the org already has a demo project
-            if organization.teams.filter(is_demo=True).count() > 0:
+            if organization.teams.filter(is_demo=True).exists():
                 return False
 
         current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
