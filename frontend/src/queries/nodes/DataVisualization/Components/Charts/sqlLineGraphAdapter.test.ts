@@ -11,7 +11,7 @@ import { compactNumber } from 'lib/utils/numbers'
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AxisSeries } from '../../dataVisualizationLogic'
+import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { LineGraphProps } from './LineGraph'
 import {
@@ -482,6 +482,26 @@ describe('sqlLineGraphAdapter', () => {
 
         it('falls back to the raw value when formatting yields null', () => {
             expect(formatSqlSeriesValue(NaN)).toBe('NaN')
+        })
+
+        it.each<[string, number, AxisSeriesSettings | undefined, string]>([
+            ['caps an unformatted float at 3 fraction digits', 22.222222222222, undefined, '22.222'],
+            ['keeps unformatted integers untouched', 1234567, undefined, '1234567'],
+            ['trims trailing zeros after capping', 0.30000000000000004, undefined, '0.3'],
+            [
+                'caps a prefix-only column too (prefix does not round)',
+                22.222222222222,
+                { formatting: { prefix: '$' } },
+                '$22.222',
+            ],
+            [
+                'leaves rounding to an explicit decimalPlaces',
+                22.222222222222,
+                { formatting: { decimalPlaces: 5 } },
+                '22.22222',
+            ],
+        ])('%s', (_name, value, settings, expected) => {
+            expect(formatSqlSeriesValue(value, settings)).toBe(expected)
         })
     })
 

@@ -244,9 +244,18 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
     })
 }
 
-/** Formats a tooltip value with a column's display settings. */
+/** Formats a chart display value (tooltip rows/total, value labels, custom axis ticks) with a
+ *  column's display settings. Values without an explicit style or decimal-place count are capped
+ *  at 3 fraction digits — a computed column (e.g. a ratio) otherwise renders with full float
+ *  precision (`22.222222222222`). The results table keeps full precision on purpose; this rounding
+ *  is chart-display only. */
 export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSettings): string {
-    return String(formatDataWithSettings(value, settings) ?? value)
+    const formatting = settings?.formatting
+    // Truthy checks match formatDataWithSettings, which owns rounding for styled values and
+    // ignores a falsy decimalPlaces. Prefix/suffix don't round, so they don't opt out.
+    const ownsRounding = !!formatting && ((formatting.style ?? 'none') !== 'none' || !!formatting.decimalPlaces)
+    const display = ownsRounding || !Number.isFinite(value) ? value : Number(value.toFixed(3))
+    return String(formatDataWithSettings(display, settings) ?? display)
 }
 
 const isRightAxisSeries = (series: SqlLineYSeries): boolean => series.settings?.display?.yAxisPosition === 'right'
