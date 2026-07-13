@@ -5,6 +5,8 @@ import time
 import hashlib
 from typing import Any
 
+from django.conf import settings
+
 import requests
 import structlog
 
@@ -17,6 +19,11 @@ MAILGUN_API_BASE = "https://api.mailgun.net/v3"
 WEBHOOK_TIMESTAMP_MAX_AGE_SECONDS = 300  # 5 minutes
 
 MAILGUN_SEND_TIMEOUT = 30  # seconds
+
+# Webhook names in Mailgun's registration API. permanent_fail/temporary_fail both
+# arrive as event "failed", distinguished by event-data.severity. Opens/clicks are
+# force-disabled at send time, so only delivery-outcome webhooks are registered.
+DELIVERY_WEBHOOK_TYPES = ("delivered", "permanent_fail", "temporary_fail", "complained")
 
 
 class MailgunError(Exception):
@@ -276,3 +283,58 @@ def send_mime(domain: str, mime_bytes: bytes, recipients: list[str]) -> str:
         body=body_snippet,
     )
     raise MailgunPermanentError(f"Mailgun {status}: {body_snippet}")
+
+
+def delivery_webhook_url() -> str:
+    """Where Mailgun should POST delivery events for domains owned by this instance.
+
+    Delivery webhooks are per-domain (unlike the account-global inbound route), so
+    each region registers its own domains against its own SITE_URL and events land
+    in the region that owns the sending team.
+    """
+    return f"{settings.SITE_URL}/api/conversations/v1/email/events"
+
+
+def get_webhooks(domain: str) -> dict[str, Any]:
+    """Fetch the webhooks registered for a domain, keyed by webhook name."""
+    resp = requests.get(
+        f"{MAILGUN_API_BASE}/domains/{domain}/webhooks",
+        auth=("api", _get_api_key()),
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json().get("webhooks") or {}
+
+
+def sync_delivery_webhooks(domain: str, webhook_url: str) -> None:
+    """Idempotently point the domain's delivery webhooks at webhook_url.
+
+    Mailgun signs every webhook POST with the account's HTTP webhook signing key
+    (HMAC-SHA256 over timestamp+token, validated by validate_webhook_signature),
+    so registering these is what completes the proof-of-delivery loop for
+    outbound ticket replies. Safe to call repeatedly: already-aligned webhooks
+    are left untouched, ones pointing elsewhere are updated in place.
+    """
+    api_key = _get_api_key()
+    existing = get_webhooks(domain)
+
+    for name in DELIVERY_WEBHOOK_TYPES:
+        urls = (existing.get(name) or {}).get("urls") or []
+        if webhook_url in urls:
+            continue
+        if urls:
+            resp = requests.put(
+                f"{MAILGUN_API_BASE}/domains/{domain}/webhooks/{name}",
+                auth=("api", api_key),
+                data={"url": webhook_url},
+                timeout=15,
+            )
+        else:
+            resp = requests.post(
+                f"{MAILGUN_API_BASE}/domains/{domain}/webhooks",
+                auth=("api", api_key),
+                data={"id": name, "url": webhook_url},
+                timeout=15,
+            )
+        resp.raise_for_status()
+        logger.info("mailgun_delivery_webhook_synced", domain=domain, webhook=name)

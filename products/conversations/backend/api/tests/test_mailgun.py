@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from products.conversations.backend.mailgun import (
+    DELIVERY_WEBHOOK_TYPES,
     MailgunDomainConflict,
     MailgunDomainNotRegistered,
     MailgunNotConfigured,
@@ -12,6 +13,7 @@ from products.conversations.backend.mailgun import (
     add_domain,
     get_domain,
     send_mime,
+    sync_delivery_webhooks,
 )
 
 
@@ -186,3 +188,54 @@ class TestSendMime:
 
         with pytest.raises(MailgunTransientError):
             send_mime("example.com", self.MIME, recipients=self.RECIPIENTS)
+
+
+WEBHOOK_URL = "https://us.posthog.com/api/conversations/v1/email/events"
+
+
+@patch("products.conversations.backend.mailgun.get_instance_setting", return_value="fake-api-key")
+@patch("products.conversations.backend.mailgun.requests.put")
+@patch("products.conversations.backend.mailgun.requests.post")
+@patch("products.conversations.backend.mailgun.requests.get")
+class TestSyncDeliveryWebhooks:
+    def test_registers_all_missing_webhooks(
+        self, mock_get: MagicMock, mock_post: MagicMock, mock_put: MagicMock, _mock_key: MagicMock
+    ):
+        mock_get.return_value = _mailgun_response(200, {"webhooks": {}})
+        mock_post.return_value = _mailgun_response(200, {})
+
+        sync_delivery_webhooks("example.com", WEBHOOK_URL)
+
+        posted = {call.kwargs["data"]["id"] for call in mock_post.call_args_list}
+        assert posted == set(DELIVERY_WEBHOOK_TYPES)
+        assert all(call.kwargs["data"]["url"] == WEBHOOK_URL for call in mock_post.call_args_list)
+        mock_put.assert_not_called()
+
+    def test_updates_webhook_pointing_elsewhere(
+        self, mock_get: MagicMock, mock_post: MagicMock, mock_put: MagicMock, _mock_key: MagicMock
+    ):
+        mock_get.return_value = _mailgun_response(
+            200, {"webhooks": {"delivered": {"urls": ["https://old.example.com/hook"]}}}
+        )
+        mock_post.return_value = _mailgun_response(200, {})
+        mock_put.return_value = _mailgun_response(200, {})
+
+        sync_delivery_webhooks("example.com", WEBHOOK_URL)
+
+        assert mock_put.call_count == 1
+        assert "/domains/example.com/webhooks/delivered" in mock_put.call_args.args[0]
+        assert mock_put.call_args.kwargs["data"] == {"url": WEBHOOK_URL}
+        posted = {call.kwargs["data"]["id"] for call in mock_post.call_args_list}
+        assert posted == set(DELIVERY_WEBHOOK_TYPES) - {"delivered"}
+
+    def test_skips_webhooks_already_aligned(
+        self, mock_get: MagicMock, mock_post: MagicMock, mock_put: MagicMock, _mock_key: MagicMock
+    ):
+        mock_get.return_value = _mailgun_response(
+            200, {"webhooks": {name: {"urls": [WEBHOOK_URL]} for name in DELIVERY_WEBHOOK_TYPES}}
+        )
+
+        sync_delivery_webhooks("example.com", WEBHOOK_URL)
+
+        mock_post.assert_not_called()
+        mock_put.assert_not_called()

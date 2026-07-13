@@ -197,6 +197,10 @@ export function Message({
                                 </Tooltip>
                             ) : message.emailDeliveryStatus === 'sending' ? (
                                 <span className="text-xs text-muted-alt">Sending…</span>
+                            ) : message.emailDeliveryStatus === 'delivered' ? (
+                                <Tooltip title="Mailgun confirmed delivery to the recipient's mail server.">
+                                    <span className="text-xs text-muted-alt">Delivered</span>
+                                </Tooltip>
                             ) : (
                                 deliveryStatus && (
                                     <span className="text-xs text-muted-alt">

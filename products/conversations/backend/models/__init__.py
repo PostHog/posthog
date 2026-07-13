@@ -1,5 +1,6 @@
 from .assignment import TicketAssignment
 from .constants import Channel, ChannelDetail, Priority, RuleType, Status
+from .email_delivery_event import EmailDeliveryEvent
 from .email_message_mapping import EmailMessageMapping
 from .email_outbox_message import EmailOutboxMessage
 from .github_comment_mapping import GithubCommentMapping
@@ -17,6 +18,7 @@ __all__ = [
     "ChannelDetail",
     "ConversationRestoreToken",
     "EmailChannel",
+    "EmailDeliveryEvent",
     "EmailMessageMapping",
     "EmailOutboxMessage",
     "GithubCommentMapping",

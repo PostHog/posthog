@@ -188,8 +188,10 @@ export interface MessageAuthor {
     email?: string
 }
 
-/** Delivery state of an outbound email reply, denormalized from the backend outbox. */
-export type EmailDeliveryStatus = 'sending' | 'sent' | 'failed'
+/** Delivery state of an outbound email reply, denormalized from the backend outbox.
+ * 'sent' means Mailgun accepted the message; 'delivered' means Mailgun confirmed
+ * delivery to the customer's mailbox via webhook. */
+export type EmailDeliveryStatus = 'sending' | 'sent' | 'delivered' | 'failed'
 
 export interface ChatMessage {
     id: string

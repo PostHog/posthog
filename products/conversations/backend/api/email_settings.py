@@ -26,8 +26,10 @@ from products.conversations.backend.mailgun import (
     MailgunNotConfigured,
     add_domain as mailgun_add_domain,
     delete_domain as mailgun_delete_domain,
+    delivery_webhook_url,
     get_domain as mailgun_get_domain,
     send_mime,
+    sync_delivery_webhooks as mailgun_sync_delivery_webhooks,
     verify_domain as mailgun_verify_domain,
 )
 from products.conversations.backend.models import EmailChannel
@@ -90,6 +92,18 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "domain_verified": config.domain_verified,
         "dns_records": config.dns_records,
     }
+
+
+def _sync_delivery_webhooks_best_effort(team: Team, domain: str) -> None:
+    """Point the domain's Mailgun delivery webhooks (proof of delivery) at this instance.
+
+    Best-effort by design: delivery events enrich already-sent mail, so a Mailgun
+    hiccup here must not fail the connect/verify request that triggered the sync.
+    """
+    try:
+        mailgun_sync_delivery_webhooks(domain, delivery_webhook_url())
+    except Exception:
+        logger.exception("email_delivery_webhook_sync_failed", team_id=team.id, domain=domain)
 
 
 def _release_domain_if_unused(team: Team, domain: str) -> None:
@@ -298,6 +312,8 @@ class EmailConnectView(APIView):
             assert failure is not None
             return failure
 
+        _sync_delivery_webhooks_best_effort(team, domain)
+
         logger.info(
             "email_channel_connected",
             team_id=team.id,
@@ -338,6 +354,9 @@ class EmailVerifyDomainView(APIView):
             domain_verified=is_active,
             dns_records=dns_records,
         )
+
+        if is_active:
+            _sync_delivery_webhooks_best_effort(team, config.domain)
 
         logger.info(
             "email_domain_verified",

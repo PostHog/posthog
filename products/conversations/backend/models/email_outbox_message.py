@@ -49,6 +49,8 @@ class EmailOutboxMessage(UUIDModel):
         indexes = [
             # Sweeper query: pending rows due for an attempt, oldest first.
             models.Index(fields=["status", "next_attempt_at"], name="posthog_con_outbox_due_idx"),
+            # Delivery-event webhook lookup by Message-ID.
+            models.Index(fields=["message_id"], name="posthog_con_outbox_msgid_idx"),
         ]
 
     def __str__(self) -> str:
