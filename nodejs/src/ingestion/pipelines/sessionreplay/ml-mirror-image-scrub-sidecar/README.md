@@ -19,7 +19,7 @@ Given an image, `advancedScrub` (`src/scrub.ts`):
 1. **Downscale**: every frame is capped at the `SCRUB_MAX_PIXELS` area budget (default 1600², aspect preserved) inside the decode.
    This bounds the per-image memory working set, and — since text detection runs under the same area budget — the stored output never carries resolution the detectors didn't certify as clean.
    An area budget rather than a long-side cap, so tall pages keep legible native resolution instead of being squashed.
-   Faces are detected on a letterboxed (never squashed) 640×640 input, so extreme aspect ratios shrink faces but don't smear them.
+   Faces are detected on a letterboxed (never squashed) 640×640 input; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
 2. **NSFW/gore gate**: if the image is explicit or gory (NSFL + NSFW probability over `NSFW_THRESHOLD`), it collapses to a 1x1 blank.
 3. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
 4. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).

@@ -46,22 +46,64 @@ export interface FaceOpts {
     scoreMin?: number // lower = more sensitive (the verification pass uses this to catch lingering faces)
 }
 
-export async function detectFacesYunet(
+// Tiling bounds for extreme-aspect frames. A single letterboxed pass scales by 640/longSide, so on a
+// very tall/wide image a face (at most ~shortSide across) can land below the detector's smallest
+// stride. Above MAX_ASPECT the frame is cut along its long axis into windows of aspect TILE_ASPECT
+// (overlapping by one shortSide, so a face — at most one shortSide across — is always fully inside
+// some window): each window then scales by 640/(TILE_ASPECT*shortSide), keeping any face at least
+// ~640/TILE_ASPECT/(shortSide/faceSize) px. TILE_ASPECT=6 keeps a face spanning the full short side
+// at >=107px and a quarter-width face at >=27px, both comfortably detectable.
+const MAX_ASPECT = 3
+const TILE_ASPECT = 6
+
+interface Window {
+    left: number
+    top: number
+    width: number
+    height: number
+}
+
+function detectionWindows(W: number, H: number): Window[] {
+    const long = Math.max(W, H)
+    const short = Math.min(W, H)
+    if (long / short <= MAX_ASPECT) {
+        return [{ left: 0, top: 0, width: W, height: H }]
+    }
+    const windowLong = TILE_ASPECT * short
+    const stride = windowLong - short // overlap of one shortSide: no face can straddle two windows undetected
+    const windows: Window[] = []
+    for (let pos = 0; ; pos += stride) {
+        const start = Math.min(pos, long - windowLong)
+        windows.push(
+            W >= H
+                ? { left: start, top: 0, width: Math.min(windowLong, long), height: H }
+                : { left: 0, top: start, width: W, height: Math.min(windowLong, long) }
+        )
+        if (start + windowLong >= long) {
+            break
+        }
+    }
+    return windows
+}
+
+async function detectInWindow(
     model: YunetModel,
     src: Src,
     W: number,
     H: number,
-    opts: FaceOpts = {}
-): Promise<Box[]> {
-    const scoreMin = opts.scoreMin ?? SCORE_MIN
+    win: Window,
+    scoreMin: number
+): Promise<{ b: Box; s: number }[]> {
     // The model input is a fixed square, so LETTERBOX: uniform downscale (aspect preserved) into the
     // top-left of a black 640x640 canvas. A fit-to-square squash would smear faces on tall/wide
     // frames past detectability (a 13:1 page compresses faces 13x on one axis); letterboxing keeps
     // them undistorted, merely smaller.
-    const scale = YUNET_SIDE / Math.max(W, H)
-    const dw = Math.max(1, Math.round(W * scale))
-    const dh = Math.max(1, Math.round(H * scale))
-    const { data } = await srcSharp(src)
+    const scale = YUNET_SIDE / Math.max(win.width, win.height)
+    const dw = Math.max(1, Math.round(win.width * scale))
+    const dh = Math.max(1, Math.round(win.height * scale))
+    const isWholeFrame = win.width === W && win.height === H
+    const pipeline = isWholeFrame ? srcSharp(src) : srcSharp(src).extract(win)
+    const { data } = await pipeline
         .resize(dw, dh, { fit: 'fill' })
         .extend({ top: 0, left: 0, right: YUNET_SIDE - dw, bottom: YUNET_SIDE - dh, background: '#000' })
         .raw()
@@ -78,9 +120,10 @@ export async function detectFacesYunet(
     }
     const out = await model.session.run({ [model.inputName]: new ort.Tensor('float32', chw, [1, 3, side, side]) })
 
-    // Uniform inverse scale; boxes decoded in the padding scale past W/H and get clamped away.
-    const sx = W / dw
-    const sy = H / dh
+    // Uniform inverse scale back to window coords, then offset to frame coords; boxes decoded in the
+    // letterbox padding scale past the window edge and get clamped away.
+    const sx = win.width / dw
+    const sy = win.height / dh
     const cand: { b: Box; s: number }[] = []
     for (const s of STRIDES) {
         const cls = out[`cls_${s}`].data as Float32Array
@@ -101,18 +144,33 @@ export async function detectFacesYunet(
                 const bh = Math.exp(bbox[i * 4 + 3]) * s
                 const px = bw * PAD
                 const py = bh * PAD
-                const left = Math.max(0, Math.round((cx - bw / 2 - px) * sx))
-                const top = Math.max(0, Math.round((cy - bh / 2 - py) * sy))
-                const right = Math.min(W, Math.round((cx + bw / 2 + px) * sx))
-                const bottom = Math.min(H, Math.round((cy + bh / 2 + py) * sy))
+                const left = Math.max(0, Math.round((cx - bw / 2 - px) * sx) + win.left)
+                const top = Math.max(0, Math.round((cy - bh / 2 - py) * sy) + win.top)
+                const right = Math.min(W, Math.round((cx + bw / 2 + px) * sx) + win.left)
+                const bottom = Math.min(H, Math.round((cy + bh / 2 + py) * sy) + win.top)
                 if (right - left >= 2 && bottom - top >= 2) {
                     cand.push({ b: { left, top, width: right - left, height: bottom - top }, s: score })
                 }
             }
         }
     }
+    return cand
+}
 
-    // greedy NMS
+export async function detectFacesYunet(
+    model: YunetModel,
+    src: Src,
+    W: number,
+    H: number,
+    opts: FaceOpts = {}
+): Promise<Box[]> {
+    const scoreMin = opts.scoreMin ?? SCORE_MIN
+    const cand: { b: Box; s: number }[] = []
+    for (const win of detectionWindows(W, H)) {
+        cand.push(...(await detectInWindow(model, src, W, H, win, scoreMin)))
+    }
+
+    // greedy NMS over all windows (overlap regions produce duplicates for the same face)
     cand.sort((a, b) => b.s - a.s)
     const keep: Box[] = []
     for (const { b } of cand) {

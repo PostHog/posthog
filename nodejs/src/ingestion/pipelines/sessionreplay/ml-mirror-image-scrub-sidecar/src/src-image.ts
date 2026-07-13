@@ -28,9 +28,12 @@ export async function decodeSrc(input: Buffer): Promise<Src> {
     const scale = Math.min(1, Math.sqrt(SCRUB_MAX_PIXELS / (meta.width * meta.height)))
     const targetW = Math.max(1, Math.round(meta.width * scale))
     const targetH = Math.max(1, Math.round(meta.height * scale))
+    // flatten, NOT removeAlpha: removeAlpha discards the alpha channel but keeps the RGB underneath,
+    // so content hidden under fully transparent pixels (invisible in the replay) would surface in
+    // the scrubbed output. Flatten composites over a background, destroying hidden RGB.
     const { data, info } = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS })
         .resize(targetW, targetH, { fit: 'fill' })
-        .removeAlpha()
+        .flatten({ background: '#fff' })
         .raw()
         .toBuffer({ resolveWithObject: true })
     return { data, W: info.width, H: info.height }
