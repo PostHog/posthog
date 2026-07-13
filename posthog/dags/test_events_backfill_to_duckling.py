@@ -749,10 +749,12 @@ class TestFullBackfillSensorEarliestDate:
         with (
             patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
             patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam") as mock_cls,
+            patch("posthog.dags.events_backfill_to_duckling.ManagedWarehouseBackfillPartition") as mock_projection,
             patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team") as mock_ge,
         ):
             mock_tz.now.return_value = now
             mock_cls.objects.filter.return_value.order_by.return_value = backfills
+            mock_projection.objects.unscoped.return_value.filter.return_value.values_list.return_value = []
             if isinstance(get_earliest, list):
                 mock_ge.side_effect = get_earliest
             else:

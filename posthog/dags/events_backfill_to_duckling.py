@@ -41,6 +41,7 @@ from contextlib import closing
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
+from django.db import DatabaseError
 from django.utils import timezone
 
 import psycopg
@@ -72,6 +73,8 @@ from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comme
 from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import DUCKGRES_BUCKET_REGION, _get_org_id_for_team, get_duckgres_server_for_organization
 from posthog.ducklake.models import DuckgresServerTeam
+
+from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
 
 logger = structlog.get_logger(__name__)
 
@@ -690,6 +693,90 @@ EXPECTED_DUCKLAKE_PERSONS_COLUMNS = {
 
 duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_events_backfill")
 duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
+
+
+def _mark_managed_warehouse_backfill_started(*, team_id: int, dataset: str, partition_key: str, run_id: str) -> None:
+    try:
+        ManagedWarehouseBackfillPartition.objects.for_team(team_id).update_or_create(
+            environment_id=team_id,
+            dataset=dataset,
+            partition_key=partition_key,
+            defaults={
+                "team_id": team_id,
+                "lifecycle_state": ManagedWarehouseBackfillPartition.LifecycleState.RUNNING,
+                "run_id": run_id,
+                "started_at": timezone.now(),
+                "completed_at": None,
+                "last_error": None,
+            },
+        )
+    except DatabaseError:
+        logger.exception(
+            "managed_warehouse_backfill_status_write_failed",
+            team_id=team_id,
+            dataset=dataset,
+            partition_key=partition_key,
+        )
+
+
+def _mark_managed_warehouse_backfill_finished(
+    *, team_id: int, dataset: str, partition_key: str, run_id: str, error: Exception | None = None
+) -> None:
+    updates: dict[str, Any] = {
+        "run_id": run_id,
+        "completed_at": timezone.now(),
+    }
+    if error is None:
+        updates.update(
+            lifecycle_state=ManagedWarehouseBackfillPartition.LifecycleState.COMPLETED,
+            last_error=None,
+        )
+    else:
+        updates.update(
+            lifecycle_state=ManagedWarehouseBackfillPartition.LifecycleState.FAILED,
+            last_error=type(error).__name__[:128],
+        )
+
+    try:
+        ManagedWarehouseBackfillPartition.objects.for_team(team_id).filter(
+            environment_id=team_id,
+            dataset=dataset,
+            partition_key=partition_key,
+        ).update(**updates)
+    except DatabaseError:
+        logger.exception(
+            "managed_warehouse_backfill_status_write_failed",
+            team_id=team_id,
+            dataset=dataset,
+            partition_key=partition_key,
+        )
+
+
+def _project_managed_warehouse_backfill_run(
+    *, team_id: int, dataset: str, partition_key: str, run_id: str, run_status: DagsterRunStatus
+) -> None:
+    _mark_managed_warehouse_backfill_started(
+        team_id=team_id,
+        dataset=dataset,
+        partition_key=partition_key,
+        run_id=run_id,
+    )
+    if run_status == DagsterRunStatus.SUCCESS:
+        _mark_managed_warehouse_backfill_finished(
+            team_id=team_id,
+            dataset=dataset,
+            partition_key=partition_key,
+            run_id=run_id,
+        )
+    elif run_status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+        _mark_managed_warehouse_backfill_finished(
+            team_id=team_id,
+            dataset=dataset,
+            partition_key=partition_key,
+            run_id=run_id,
+            error=RuntimeError("Backfill run did not complete"),
+        )
+
 
 # SQL for creating the events table in DuckLake if it doesn't exist
 # Uses TIMESTAMPTZ because ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
@@ -2298,6 +2385,39 @@ def register_persons_files_with_duckling(
     tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **EVENTS_CONCURRENCY_TAG},
 )
 def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
+    team_id, _ = parse_partition_key_dates(context.partition_key)
+    if config.dry_run:
+        _run_duckling_events_backfill(context, config)
+        return
+
+    run_id = context.run.run_id
+    _mark_managed_warehouse_backfill_started(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+        partition_key=context.partition_key,
+        run_id=run_id,
+    )
+    try:
+        _run_duckling_events_backfill(context, config)
+    except Exception as error:
+        _mark_managed_warehouse_backfill_finished(
+            team_id=team_id,
+            dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+            partition_key=context.partition_key,
+            run_id=run_id,
+            error=error,
+        )
+        raise
+
+    _mark_managed_warehouse_backfill_finished(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+        partition_key=context.partition_key,
+        run_id=run_id,
+    )
+
+
+def _run_duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill events from ClickHouse to a customer's duckling.
 
     Supports both daily (YYYY-MM-DD) and monthly (YYYY-MM) partition keys.
@@ -2468,6 +2588,42 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **PERSONS_CONCURRENCY_TAG},
 )
 def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
+    partition_key = context.partition_key
+    team_id = (
+        int(partition_key) if is_full_export_partition(partition_key) else parse_partition_key_dates(partition_key)[0]
+    )
+    if config.dry_run:
+        _run_duckling_persons_backfill(context, config)
+        return
+
+    run_id = context.run.run_id
+    _mark_managed_warehouse_backfill_started(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+        partition_key=partition_key,
+        run_id=run_id,
+    )
+    try:
+        _run_duckling_persons_backfill(context, config)
+    except Exception as error:
+        _mark_managed_warehouse_backfill_finished(
+            team_id=team_id,
+            dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+            partition_key=partition_key,
+            run_id=run_id,
+            error=error,
+        )
+        raise
+
+    _mark_managed_warehouse_backfill_finished(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+        partition_key=partition_key,
+        run_id=run_id,
+    )
+
+
+def _run_duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill persons from ClickHouse to a customer's duckling.
 
     Supports two partition formats with different export strategies:
@@ -2868,6 +3024,9 @@ EVENTS_BACKFILL_MAX_PARTITIONS_PER_TICK = 100
 # Cap on per-team earliest-event ClickHouse lookups per tick. This is the only expensive
 # sensor op; it runs once per team ever, then the result is cached on the model row.
 EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK = 5
+# Existing installations predate the durable UI projection. Reconcile a bounded
+# number of historical partitions per tick so the sensor stays within its budget.
+EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT = 25
 # Stored in DuckgresServerTeam.earliest_event_date for a team with no events, so the sensor
 # caches "nothing to backfill" instead of re-querying every tick. Far enough in the future
 # that the generated months range is always empty.
@@ -2893,6 +3052,45 @@ def get_months_in_range(start_date: date, end_date: date) -> list[str]:
             current = date(current.year, current.month + 1, 1)
 
     return months
+
+
+def _reconcile_events_backfill_statuses(context: SensorEvaluationContext, partition_keys: list[str]) -> None:
+    if not partition_keys:
+        return
+
+    environment_ids = {int(partition_key.split("_", 1)[0]) for partition_key in partition_keys}
+    try:
+        projected = set(
+            ManagedWarehouseBackfillPartition.objects.unscoped()
+            .filter(
+                environment_id__in=environment_ids,
+                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+            )
+            .values_list("partition_key", flat=True)
+        )
+    except DatabaseError:
+        logger.exception("managed_warehouse_backfill_status_reconciliation_failed")
+        return
+
+    unprojected = [partition_key for partition_key in partition_keys if partition_key not in projected]
+    for partition_key in unprojected[:EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT]:
+        runs = context.instance.get_runs(
+            filters=RunsFilter(
+                job_name="duckling_events_backfill_job",
+                tags={"dagster/partition": partition_key},
+            ),
+            limit=1,
+        )
+        if not runs:
+            continue
+        latest_run = runs[0]
+        _project_managed_warehouse_backfill_run(
+            team_id=int(partition_key.split("_", 1)[0]),
+            dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+            partition_key=partition_key,
+            run_id=latest_run.run_id,
+            run_status=latest_run.status,
+        )
 
 
 @sensor(
@@ -2962,6 +3160,7 @@ def duckling_events_full_backfill_sensor(
     # 2. Per-team remaining months (oldest first), skipping already-registered partitions.
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
     per_team_remaining: list[list[str]] = []
+    existing_historical_partitions: list[str] = []
     for bf in backfills:
         earliest = bf.earliest_event_date
         if earliest is None or earliest > last_month_end:
@@ -2970,9 +3169,12 @@ def duckling_events_full_backfill_sensor(
             # the current month), so skip it.
             continue
         keys = [f"{bf.team_id}_{m}" for m in get_months_in_range(earliest, last_month_end)]
+        existing_historical_partitions.extend(key for key in keys if key in existing)
         remaining = [k for k in keys if k not in existing]
         if remaining:
             per_team_remaining.append(remaining)
+
+    _reconcile_events_backfill_statuses(context, existing_historical_partitions)
 
     # 3. Round-robin interleave by month index: round r takes each team's r-th remaining
     #    month, so the queue order is team0-m0, team1-m0, ..., team0-m1, ... — fair under FIFO.
@@ -3164,6 +3366,18 @@ def duckling_persons_full_backfill_sensor(
 
     # Check existing partitions
     existing_partitions = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
+    try:
+        projected_persons_partitions = set(
+            ManagedWarehouseBackfillPartition.objects.unscoped()
+            .filter(
+                environment_id__in=[backfill.team_id for backfill in backfills],
+                dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+            )
+            .values_list("partition_key", flat=True)
+        )
+    except DatabaseError:
+        logger.exception("managed_warehouse_backfill_status_reconciliation_failed")
+        projected_persons_partitions = existing_partitions
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
@@ -3197,6 +3411,14 @@ def duckling_persons_full_backfill_sensor(
             )
             if runs:
                 latest_run = runs[0]
+                if partition_key not in projected_persons_partitions:
+                    _project_managed_warehouse_backfill_run(
+                        team_id=team_id,
+                        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                        partition_key=partition_key,
+                        run_id=latest_run.run_id,
+                        run_status=latest_run.status,
+                    )
                 # Only retry if failed - skip if in progress or succeeded
                 if latest_run.status == DagsterRunStatus.FAILURE:
                     run_requests.append(
