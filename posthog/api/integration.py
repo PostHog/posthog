@@ -11,7 +11,6 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
@@ -74,6 +73,8 @@ from posthog.models.integration import (
     S3CompatibleIntegration,
     S3CredentialIntegrationError,
     SlackIntegration,
+    SnowflakeIntegration,
+    SnowflakeIntegrationError,
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
@@ -98,9 +99,6 @@ from products.workflows.backend.services.integration_usage import get_active_hog
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-# Short TTL for the Search Console sites dropdown — just enough to dedupe repeated UI loads.
-GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS = 60
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -355,25 +353,6 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     )
 
 
-class GoogleSearchConsoleSiteSerializer(serializers.Serializer):
-    siteUrl = serializers.CharField(
-        help_text=(
-            "Site URL in canonical Google format — `https://example.com/` for URL-prefix "
-            "properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties."
-        )
-    )
-    permissionLevel = serializers.CharField(
-        help_text=(
-            "The connected user's permission level for this site. One of `siteOwner`, "
-            "`siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`."
-        )
-    )
-
-
-class GoogleSearchConsoleSitesResponseSerializer(serializers.Serializer):
-    sites = GoogleSearchConsoleSiteSerializer(many=True)
-
-
 class IntegrationAccessRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=Integration.IntegrationKind.choices,
@@ -585,6 +564,24 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                     created_by=request.user,
                 )
             except DatabricksIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "snowflake":
+            config = validated_data.get("config", {})
+            try:
+                instance = SnowflakeIntegration.integration_from_config(
+                    team_id=team_id,
+                    name=config.get("name"),
+                    account=config.get("account"),
+                    user=config.get("user"),
+                    authentication_type=config.get("authentication_type", "password"),
+                    password=config.get("password"),
+                    private_key=config.get("private_key"),
+                    private_key_passphrase=config.get("private_key_passphrase"),
+                    created_by=request.user,
+                )
+            except SnowflakeIntegrationError as e:
                 raise ValidationError(str(e))
             return instance
 
@@ -899,9 +896,6 @@ class IntegrationViewSet(
         "github_oauth_authorize",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
-        # Enumerates every Search Console property on the connected Google account — gate behind
-        # manage access so read-only members can't discover unrelated domains (info disclosure).
-        "google_search_console_sites",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
@@ -1189,47 +1183,6 @@ class IntegrationViewSet(
 
         response_data = {"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()}
         cache.set(key, response_data, 60)
-        return Response(response_data)
-
-    @extend_schema(responses={200: GoogleSearchConsoleSitesResponseSerializer})
-    @action(methods=["GET"], detail=True, url_path="google_search_console_sites")
-    def google_search_console_sites(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List the Search Console properties the connected Google account has access to."""
-        # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
-        # import path, mirroring how other ad-platform endpoints stay self-contained.
-        from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415 — keeps the heavy dep off the import path
-            google_search_console_session,
-            list_sites,
-        )
-
-        instance = self.get_object()
-        if instance.kind != "google-search-console":
-            raise ValidationError(
-                "google_search_console_sites endpoint is only supported for Google Search Console integrations"
-            )
-        _ensure_oauth_token_valid(instance)
-
-        cache_key = f"google_search_console/{instance.id}/sites"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return Response(cached)
-
-        session = google_search_console_session(instance.id, instance.team_id)
-        try:
-            sites = list_sites(session)
-        except requests.HTTPError as e:
-            status_code = e.response.status_code if e.response is not None else None
-            if status_code in (401, 403):
-                # The token refreshed fine but the connected Google account isn't authorized to
-                # read Search Console — a customer-side connection issue, not a PostHog bug. Return
-                # an actionable 400 rather than letting the HTTPError surface as an unhandled 500.
-                raise ValidationError(
-                    "Google Search Console rejected the credentials. Please reconnect your account "
-                    "and ensure it has read access to the property."
-                )
-            raise
-        response_data = {"sites": sites}
-        cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
         return Response(response_data)
 
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")

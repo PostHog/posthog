@@ -8,7 +8,15 @@ import products.tasks.backend.presentation.views.code_home_api as code_home
 
 def register_routes(routers: RouterRegistry) -> None:
     project_tasks_router = routers.projects.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
-    project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
+    project_task_runs_router = project_tasks_router.register(
+        r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"]
+    )
+    project_task_runs_router.register(
+        r"living_artifacts",
+        tasks.TaskRunLivingArtifactViewSet,
+        "project_task_run_living_artifacts",
+        ["team_id", "task_id", "run_id"],
+    )
     project_tasks_router.register(
         r"thread_messages", channels.TaskThreadMessageViewSet, "project_task_thread_messages", ["team_id", "task_id"]
     )

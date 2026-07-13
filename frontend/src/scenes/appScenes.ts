@@ -1,7 +1,7 @@
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
-import { productScenes } from '~/products'
+import { productScenes } from '~/productScenes'
 
 export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,

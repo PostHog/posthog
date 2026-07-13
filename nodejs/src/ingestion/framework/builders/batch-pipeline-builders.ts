@@ -5,7 +5,6 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { BaseBatchPipeline, BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
-import { BatchRetryOptions, withBatchRetry } from '~/ingestion/framework/batch-retry'
 import { BufferingBatchPipeline } from '~/ingestion/framework/buffering-batch-pipeline'
 import { ConcurrentBatchProcessingPipeline } from '~/ingestion/framework/concurrent-batch-pipeline'
 import {
@@ -17,6 +16,7 @@ import { GatheringBatchPipeline } from '~/ingestion/framework/gathering-batch-pi
 import { IngestionWarningHandlingBatchPipeline } from '~/ingestion/framework/ingestion-warning-handling-batch-pipeline'
 import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
+import { RetryOptions, withBatchRetry } from '~/ingestion/framework/retry'
 import { SequentialBatchPipeline } from '~/ingestion/framework/sequential-batch-pipeline'
 import { SideEffectHandlingPipeline } from '~/ingestion/framework/side-effect-handling-pipeline'
 
@@ -31,62 +31,38 @@ export interface TeamIdContext {
 }
 
 /**
- * Builder for configuring how items within a group are processed.
+ * Configures how items within a group are processed. Groups produced by
+ * `concurrentlyPerGroup` run concurrently; this builder's `sequentially` method
+ * defines how the items within a single group are processed.
  */
 export class GroupProcessingBuilder<
     TInput,
     TOutput,
     CInput = Record<string, never>,
     COutput = CInput,
-    TKey = string,
     R extends string = never,
 > {
+    // Holds a completion function instead of the grouping function and previous
+    // pipeline directly: a groupingFn field would be contravariant in TOutput,
+    // making BatchPipelineBuilder invariant in TOutput and breaking covariant
+    // subpipeline callbacks (e.g. in newBatchingPipeline). In this closure's
+    // signature TOutput only appears in variance-neutral positions.
     constructor(
-        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>,
-        private groupingFn: GroupingFunction<TOutput, TKey>,
-        private maxConcurrency?: number
+        private readonly buildGroupedPipeline: <U, R2 extends string>(
+            processor: Pipeline<TOutput, U, COutput, R2>
+        ) => BatchPipeline<TInput, U, CInput, COutput, R | R2>
     ) {}
 
     /**
-     * Process items within each group sequentially through the provided pipeline.
+     * Process the items within each group sequentially through the provided
+     * pipeline: one item at a time, in input order. Groups still run
+     * concurrently with respect to each other.
      */
     sequentially<U, R2 extends string = never>(
         callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
     ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
-        return new BatchPipelineBuilder(
-            new ConcurrentlyGroupingBatchPipeline(
-                this.groupingFn,
-                processor,
-                this.previousPipeline,
-                this.maxConcurrency
-            )
-        )
-    }
-}
-
-/**
- * Builder for grouped batch pipelines that allows configuring how groups are processed.
- */
-export class GroupingBatchPipelineBuilder<TInput, TOutput, CInput, COutput, TKey, R extends string = never> {
-    constructor(
-        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>,
-        private groupingFn: GroupingFunction<TOutput, TKey>
-    ) {}
-
-    /**
-     * Process groups concurrently. Returns a builder to configure how items within each group are processed.
-     * Results are returned unordered as each group completes.
-     *
-     * @param options.maxConcurrency - Cap on how many groups process at once. Omitted means unbounded.
-     */
-    concurrently<U, ROut extends string = never>(
-        callback: (
-            builder: GroupProcessingBuilder<TInput, TOutput, CInput, COutput, TKey, R>
-        ) => BatchPipelineBuilder<TInput, U, CInput, COutput, ROut>,
-        options?: { maxConcurrency?: number }
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | ROut> {
-        return callback(new GroupProcessingBuilder(this.previousPipeline, this.groupingFn, options?.maxConcurrency))
+        return new BatchPipelineBuilder(this.buildGroupedPipeline(processor))
     }
 }
 
@@ -94,23 +70,11 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
     constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>) {}
 
     pipeBatch<U, R2 extends string = never>(
-        step: BatchProcessingStep<TOutput, U, R2>
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
-        return new BatchPipelineBuilder(new BaseBatchPipeline(step, this.pipeline))
-    }
-
-    /**
-     * Add a batch processing step with automatic retry logic.
-     *
-     * When the step throws a retriable error (error.isRetriable === true),
-     * it will be retried with exponential backoff. Non-retriable errors
-     * are converted to DLQ results for all inputs in the batch.
-     */
-    pipeBatchWithRetry<U, R2 extends string = never>(
         step: BatchProcessingStep<TOutput, U, R2>,
-        options?: BatchRetryOptions
+        options?: { retry?: RetryOptions }
     ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
-        return this.pipeBatch(withBatchRetry(step, options))
+        const wrappedStep = options?.retry ? withBatchRetry(step, options.retry) : step
+        return new BatchPipelineBuilder(new BaseBatchPipeline(wrappedStep, this.pipeline))
     }
 
     /**
@@ -123,15 +87,6 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         options?: { maxConcurrency?: number }
     ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
-        return new BatchPipelineBuilder(
-            new ConcurrentBatchProcessingPipeline(processor, this.pipeline, options?.maxConcurrency)
-        )
-    }
-
-    pipeConcurrently<U, R2 extends string = never>(
-        processor: Pipeline<TOutput, U, COutput, R2>,
-        options?: { maxConcurrency?: number }
-    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         return new BatchPipelineBuilder(
             new ConcurrentBatchProcessingPipeline(processor, this.pipeline, options?.maxConcurrency)
         )
@@ -183,10 +138,29 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         )
     }
 
-    groupBy<TKey>(
-        groupingFn: GroupingFunction<TOutput, TKey>
-    ): GroupingBatchPipelineBuilder<TInput, TOutput, CInput, COutput, TKey, R> {
-        return new GroupingBatchPipelineBuilder(this.pipeline, groupingFn)
+    /**
+     * Group items by key and process the groups concurrently, optionally capped
+     * by `maxConcurrency`. Results are returned unordered as each group completes.
+     *
+     * The callback receives a group builder whose only method, `sequentially`,
+     * configures how items WITHIN a group are processed. Making that step explicit
+     * keeps within-group ordering visible at the call site.
+     *
+     * @param options.maxConcurrency - Cap on how many groups process at once. Omitted means unbounded.
+     */
+    concurrentlyPerGroup<TKey, U, ROut extends string = never>(
+        groupingFn: GroupingFunction<TOutput, TKey>,
+        callback: (
+            group: GroupProcessingBuilder<TInput, TOutput, CInput, COutput, R>
+        ) => BatchPipelineBuilder<TInput, U, CInput, COutput, ROut>,
+        options?: { maxConcurrency?: number }
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | ROut> {
+        return callback(
+            new GroupProcessingBuilder(
+                <U2, R2 extends string>(processor: Pipeline<TOutput, U2, COutput, R2>) =>
+                    new ConcurrentlyGroupingBatchPipeline(groupingFn, processor, this.pipeline, options?.maxConcurrency)
+            )
+        )
     }
 
     handleSideEffects(

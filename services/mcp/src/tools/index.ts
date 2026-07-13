@@ -30,7 +30,6 @@ import {
     externalDataSourcesPreview,
     externalDataSyncLogs,
     readDataSchema,
-    readDataWarehouseSchema,
 } from './posthogAiTools'
 // Projects
 import getProjects from './projects/getProjects'
@@ -93,7 +92,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
-    'read-data-warehouse-schema': readDataWarehouseSchema,
 
     // Replay
     'session-recording-summarize': sessionRecordingSummarize,

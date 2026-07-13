@@ -535,7 +535,7 @@ describe('approval-gated tools: real e2e', () => {
                 'tools/echo-tool/compiled.js': COMPILED,
                 'tools/echo-tool/schema.json': JSON.stringify({
                     description: 'Echo',
-                    args: { type: 'object', properties: { ping: { type: 'string' } } },
+                    args_schema: { type: 'object', properties: { ping: { type: 'string' } } },
                     returns: { type: 'object' },
                 }),
             },

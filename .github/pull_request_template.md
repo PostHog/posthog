@@ -8,6 +8,8 @@
 ## Changes
 
 <!-- If there are frontend changes, please include screenshots. -->
+<!-- PostHog employees: `hogli pr:upload-image <file>` uploads to the public PostHog/pr-assets repo and prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
+
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
 
 ## How did you test this code?
@@ -37,6 +39,10 @@
      - "Fully autonomous" when no human drove it; leave the PR unassigned for the owning team to triage. -->
 
 **Autonomy:** Human-driven (agent-assisted) - or - Fully autonomous
+
+<!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
+     - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
+-->
 
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
      - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.

@@ -209,6 +209,9 @@ for route in product_routes:
         writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}_{db}"
 
     if not writer_url:
+        # Intentional fail-open outside deployed cloud: self-hosted runs product
+        # models on the default database. On cloud, check_product_db_routes_configured
+        # fails the deploy's migrate step for non-optional routes instead.
         continue
 
     PRODUCT_DB_WRITER_URLS[db] = writer_url
@@ -500,6 +503,13 @@ if not REDIS_URL:
         "If upgrading from PostHog 1.0.10 or earlier, see here: "
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
+
+# Socket timeouts for the central Redis clients (posthog/redis.py). The connect timeout is kept
+# small so a dead node fails fast. The read timeout must comfortably exceed the largest server-side
+# blocking window on the central client, which is a 15s XREAD BLOCK (notebooks collab_stream);
+# 20s leaves margin so blocking stream reads never spuriously time out.
+REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS", 3.0, type_cast=float)
+REDIS_SOCKET_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_TIMEOUT_SECONDS", 20.0, type_cast=float)
 
 # Controls whether the ZstdCompressor is used for Redis compression when writing to Redis.
 # The ZstdCompressor uses zstd compression and can cope with compressed and uncompressed reading at the same time
