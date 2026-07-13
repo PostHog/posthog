@@ -206,7 +206,7 @@ class TestMetricRunTagging(APIBaseTest):
         [
             ("personal_api_key", "personal_api_key", True),
             ("project_secret_api_key", "project_secret_api_key", True),
-            ("session", "session", False),
+            ("oauth", "oauth", False),
             ("no_access_method", None, False),
         ]
     )
