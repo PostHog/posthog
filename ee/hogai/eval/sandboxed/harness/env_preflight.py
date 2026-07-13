@@ -43,6 +43,17 @@ class RequiredEvalEnv(BaseModel):
     )
 
 
+class CodexEvalEnv(BaseModel):
+    """Additional variables required when the run uses the codex runtime."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    LLM_GATEWAY_OPENAI_API_KEY: str = Field(
+        min_length=1,
+        description="OpenAI API key the LLM gateway proxies the codex agent's model calls with",
+    )
+
+
 def load_env_file() -> None:
     """Load the repo-root ``.env`` into the environment, shell values winning.
 
@@ -57,24 +68,30 @@ def load_env_file() -> None:
     load_dotenv(REPO_ROOT / ".env", override=False)
 
 
-def validate_eval_env() -> None:
+def validate_eval_env(agent_runtime: str = "claude") -> None:
     """Fail fast, before any infrastructure boots, if a required variable is unset.
 
     Without this a missing key surfaces minutes into a run as an opaque mid-case
     failure (gateway 401s, Braintrust login errors) instead of a one-line fix.
     """
-    try:
-        RequiredEvalEnv.model_validate(dict(os.environ))
-    except ValidationError as e:
-        fields = RequiredEvalEnv.model_fields
-        lines = []
-        for error in e.errors():
-            name = str(error["loc"][0]) if error["loc"] else "?"
-            description = fields[name].description if name in fields else ""
-            lines.append(f"  - {name}: {description}")
+    models: list[type[BaseModel]] = [RequiredEvalEnv]
+    if agent_runtime == "codex":
+        models.append(CodexEvalEnv)
+
+    lines = []
+    for model in models:
+        try:
+            model.model_validate(dict(os.environ))
+        except ValidationError as e:
+            fields = model.model_fields
+            for error in e.errors():
+                name = str(error["loc"][0]) if error["loc"] else "?"
+                description = fields[name].description if name in fields else ""
+                lines.append(f"  - {name}: {description}")
+    if lines:
         raise PreflightError(
             "Missing required environment variables:\n"
             + "\n".join(lines)
             + f"\nExport them in your shell, add them to {REPO_ROOT / '.env'} (loaded automatically), "
             "or keep them in .env.local and run via `hogli evals:sandboxed`."
-        ) from None
+        )

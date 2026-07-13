@@ -17,6 +17,8 @@ from posthoganalytics import Posthog
 
 from posthog.ph_client import get_client
 
+from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
+
 from .cli import DEFAULT_DEMO_COPY_CONCURRENCY, HarnessOptions
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
@@ -25,7 +27,7 @@ from .django_env import EvalDatabase
 from .env_preflight import validate_eval_env
 from .live_server import EvalLiveServer
 from .ports import DJANGO_LIVE_PORT
-from .providers import build_provider
+from .providers import PreflightError, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
 from .services import (
     build_local_skills,
@@ -78,7 +80,8 @@ class SandboxedEvalHarness:
                 print(suite.id)  # noqa: T201
             return 0
 
-        validate_eval_env()
+        validate_eval_env(self.options.agent_runtime)
+        self._validate_agent_options()
         self.provider.preflight()
         ensure_personhog_binaries()
         try:
@@ -89,6 +92,18 @@ class SandboxedEvalHarness:
             return 130
         finally:
             self._stack.close()
+
+    def _validate_agent_options(self) -> None:
+        """Validate runtime/model/effort with the tasks helpers, which need Django loaded.
+
+        ``cli.py`` is Django-free by invariant, so this is the earliest point the real
+        validation can run — still before any infrastructure boots.
+        """
+        error = get_reasoning_effort_error(
+            self.options.agent_runtime, self.options.agent_model, self.options.reasoning_effort
+        )
+        if error:
+            raise PreflightError(error)
 
     def _bootstrap(self) -> None:
         """Stand up everything the suites share. Teardown is registered in reverse on the stack."""
@@ -128,6 +143,8 @@ class SandboxedEvalHarness:
         self._demo_data = ensure_demo_ready(
             blocker=database.blocker,
             agent_model=self.options.agent_model,
+            agent_runtime=self.options.agent_runtime,
+            reasoning_effort=self.options.reasoning_effort,
             sandbox_timeout_seconds=self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds),
         )
 
@@ -200,6 +217,8 @@ class SandboxedEvalHarness:
             provider=self.options.provider,
             provider_strategy=self.provider,
             agent_model=self.options.agent_model,
+            agent_runtime=self.options.agent_runtime,
+            reasoning_effort=self.options.reasoning_effort,
             case_filter=self.options.case_filter,
             demo_data=self._demo_data,
             posthog_client=self._posthog_client,

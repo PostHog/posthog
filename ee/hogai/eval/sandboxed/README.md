@@ -54,21 +54,29 @@ python -m ee.hogai.eval.sandboxed.harness --provider modal
 python -m ee.hogai.eval.sandboxed.harness --list
 ```
 
-| Flag                        | Meaning                                                                          |
-| --------------------------- | -------------------------------------------------------------------------------- |
-| `--eval <substr>`           | Only run cases whose name contains the substring.                                |
-| `--provider {docker,modal}` | Where sandboxes run. Default `docker`.                                           |
-| `--max-sandboxes N`         | Cap concurrently live sandboxes across all suites.                               |
-| `--agent-model <model>`     | Model the sandboxed agent runs against, pinned for stable cross-run comparison.  |
-| `--keep-sandbox-containers` | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.  |
-| `--rebuild-sandbox-image`   | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only. |
-| `--create-db`               | Rebuild the eval test database instead of reusing it.                            |
-| `--case-timeout <seconds>`  | Per-case budget, counted from sandbox acquisition.                               |
-| `--trials N`                | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
-| `--fail-under <fraction>`   | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
-| `--list`                    | Print the discovered suite ids and exit.                                         |
+| Flag                             | Meaning                                                                          |
+| -------------------------------- | -------------------------------------------------------------------------------- |
+| `--eval <substr>`                | Only run cases whose name contains the substring.                                |
+| `--provider {docker,modal}`      | Where sandboxes run. Default `docker`.                                           |
+| `--max-sandboxes N`              | Cap concurrently live sandboxes across all suites.                               |
+| `--agent-model <model>`          | Model the sandboxed agent runs against, pinned for stable cross-run comparison.  |
+| `--agent-runtime {claude,codex}` | Agent runtime serving the model. Default `claude`.                               |
+| `--reasoning-effort <effort>`    | Agent reasoning effort; valid values depend on runtime+model.                    |
+| `--keep-sandbox-containers`      | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.  |
+| `--rebuild-sandbox-image`        | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only. |
+| `--create-db`                    | Rebuild the eval test database instead of reusing it.                            |
+| `--case-timeout <seconds>`       | Per-case budget, counted from sandbox acquisition.                               |
+| `--trials N`                     | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
+| `--fail-under <fraction>`        | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
+| `--list`                         | Print the discovered suite ids and exit.                                         |
 
 `EXPORT_EVAL_RESULTS=1` appends one JSON summary per experiment to `eval_results.jsonl`.
+
+### Codex runtime
+
+`--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.
+It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
+Experiment names don't change with the runtime — each Braintrust experiment records `agent_runtime` and `agent_model` in its metadata instead — so compare cross-run scores within one runtime.
 
 ## Providers
 

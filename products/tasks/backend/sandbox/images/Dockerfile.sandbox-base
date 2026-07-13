@@ -26,6 +26,8 @@ RUN apt-get update && \
     # Build tools
     build-essential \
     pkg-config \
+    # Loader for the musl-linked @openai/codex binary bundled with @posthog/agent
+    musl \
     # Languages and runtimes
     python3 \
     python3-pip \

@@ -29,6 +29,12 @@ class EvalContext:
     agent_model: str
     """Model every sandboxed agent runs against. Pinned for stable comparisons."""
 
+    agent_runtime: str
+    """Runtime adapter serving the model (``"claude"`` | ``"codex"``)."""
+
+    reasoning_effort: str | None
+    """Agent reasoning effort override; ``None`` keeps the agent server's default."""
+
     case_filter: str | None
     """Substring filter on case names, from ``--eval``."""
 
