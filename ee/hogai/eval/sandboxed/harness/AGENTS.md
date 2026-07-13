@@ -8,7 +8,7 @@ Verify a change with `python -m ee.hogai.eval.sandboxed.harness --list` (imports
 ## Import ordering
 
 `__main__.py` calls `setup_django()` **before** importing `lifecycle`, and `lifecycle` is what pulls in everything that touches Django settings, the ORM, or the `products.tasks` facade.
-Anything reachable from `__main__`'s top-level imports must therefore stay Django-free: today that is `cli.py`, `providers.py`, `tunnels.py`, `ports.py`, and `django_env.py` itself.
+Anything reachable from `__main__`'s top-level imports must therefore stay Django-free: today that is `cli.py`, `providers.py`, `tunnels.py`, `ports.py`, `env_preflight.py`, and `django_env.py` itself.
 
 This is why the port constants live in `ports.py` rather than in `services.py`, which imports Django.
 If you add an import to one of those modules, check that `--list` still runs.
@@ -74,6 +74,10 @@ Docker mode hid this because the cached value already matched.
 
 `PERSONHOG_ADDR` follows the same rule for the same reason: the personhog client is a cached singleton keyed off settings at its first call, and bootstrap-phase reads run before the async-phase `override_settings`.
 `__main__` therefore sets it in the environment before `django.setup()`, pointing at the harness's own router on 15052 — which also shields the run from a `PERSONHOG_ADDR` leaked out of a sourced dev `.env`, where reads would silently hit the dev persons DB.
+
+Env loading follows the same before-`django.setup()` rule: `__main__` loads the repo-root `.env` via `env_preflight.load_env_file()` (dotenv, because hogli's line-based parser cannot represent `.env`'s quoted multiline PEM keys), never overriding variables the shell or hogli's env loading already exported.
+The explicit `SANDBOX_PROVIDER` / `PERSONHOG_ADDR` assignments come after the load, so they trump any env file on every path.
+Required variables are then validated by `env_preflight.validate_eval_env()` at the top of `lifecycle.run()`, before any infrastructure boots — add new hard env requirements to the `RequiredEvalEnv` model there, not as ad-hoc checks scattered through bootstrap.
 
 ## pytest
 

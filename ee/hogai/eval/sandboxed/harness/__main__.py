@@ -6,6 +6,7 @@ import logging
 
 from .cli import parse_args
 from .django_env import setup_django
+from .env_preflight import load_env_file
 from .ports import PERSONHOG_ROUTER_PORT
 from .providers import SANDBOX_PROVIDER_SETTING, PreflightError
 
@@ -15,6 +16,11 @@ USAGE_ERROR_EXIT_CODE = 2
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
     options = parse_args(argv)
+
+    # Load the repo-root .env before Django reads the environment, so the harness
+    # works without a manual `set -a; source .env`. Shell values win, and the
+    # explicit overrides below still trump anything an env file provided.
+    load_env_file()
 
     # Select the sandbox class before Django loads settings. products.tasks resolves
     # settings.SANDBOX_PROVIDER once and caches the class in module globals, so the

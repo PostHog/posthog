@@ -15,8 +15,18 @@ Two other docs sit next to this one:
 ## Running
 
 ```bash
-flox activate -- bash -c "set -a; source .env; set +a; python -m ee.hogai.eval.sandboxed.harness [SELECTOR ...] [flags]"
+hogli evals:sandboxed [SELECTOR ...] [flags]
 ```
+
+Or invoke the harness module directly (run it from a flox shell so `cargo` and the venv are available):
+
+```bash
+python -m ee.hogai.eval.sandboxed.harness [SELECTOR ...] [flags]
+```
+
+No manual env sourcing is needed on either path.
+The harness loads the repo-root `.env` itself (shell values win), and `hogli evals:sandboxed` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
+Before any infrastructure boots, a preflight validates that the required variables are set (`SANDBOX_JWT_PRIVATE_KEY`, `LLM_GATEWAY_ANTHROPIC_API_KEY`, `BRAINTRUST_API_KEY`) and fails with a one-line fix per missing variable.
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.
@@ -78,7 +88,7 @@ Modal prerequisites, all checked by preflight before anything boots:
 
 - `ngrok` on `PATH`, plus an authtoken (`NGROK_AUTHTOKEN`, or `ngrok config add-authtoken <token>`). Three simultaneous tunnels need a paid ngrok plan; Cloudflare Tunnel is the free alternative.
 - Modal credentials: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or a `~/.modal.toml` from `modal token new`.
-- `SANDBOX_JWT_PRIVATE_KEY` in the environment. The dev key ships in `.env.example`, so sourcing `.env` as above provides it.
+- `SANDBOX_JWT_PRIVATE_KEY` in the environment. The dev key ships in `.env.example`; the harness auto-loads it from `.env`.
 
 Sandboxes are unbounded by default on modal, meaning every case can hold one at once.
 `--max-sandboxes N` is the cost knob.

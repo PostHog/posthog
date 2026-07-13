@@ -22,6 +22,7 @@ from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
 from .discovery import EvalSuite, discover_suites
 from .django_env import EvalDatabase
+from .env_preflight import validate_eval_env
 from .live_server import EvalLiveServer
 from .ports import DJANGO_LIVE_PORT
 from .providers import build_provider
@@ -77,6 +78,7 @@ class SandboxedEvalHarness:
                 print(suite.id)  # noqa: T201
             return 0
 
+        validate_eval_env()
         self.provider.preflight()
         ensure_personhog_binaries()
         try:

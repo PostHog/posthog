@@ -16,22 +16,23 @@ Braintrust remains the eval engine and reporting backend; it just no longer cont
 
 ## Modules
 
-| Module            | Role                                                                                                                 |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `__main__.py`     | Entry point. Parses args, configures Django, then hands off to `lifecycle`.                                          |
-| `cli.py`          | `HarnessOptions` and the argparse builder. Resolves per-provider defaults.                                           |
-| `ports.py`        | The six port constants. Deliberately free of Django imports.                                                         |
-| `providers.py`    | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup. |
-| `tunnels.py`      | `NgrokTunnels`. Modal only: generates an ngrok config, starts the agent, waits for public URLs.                      |
-| `django_env.py`   | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                            |
-| `live_server.py`  | `EvalLiveServer`, a session-lifetime Django `LiveServerThread`.                                                      |
-| `services.py`     | Starts the LLM gateway, MCP server, and personhog subprocesses; builds local skills.                                 |
-| `temporal_env.py` | Local Temporal dev server, stale-workflow cleanup, and the worker thread.                                            |
-| `demo_data.py`    | `SandboxedDemoData`: seeds the master Hedgebox team once, then mints an isolated team per case.                      |
-| `discovery.py`    | Walks the tree for `eval_*.py` and collects `eval_*` coroutines into `EvalSuite` objects.                            |
-| `context.py`      | `EvalContext`, the single object every suite receives.                                                               |
-| `reporting.py`    | `ProgressReporter`, the final summary table, and the quiet Braintrust reporter.                                      |
-| `lifecycle.py`    | `SandboxedEvalHarness`: orchestrates bootstrap, the run, and teardown.                                               |
+| Module             | Role                                                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `__main__.py`      | Entry point. Parses args, configures Django, then hands off to `lifecycle`.                                          |
+| `cli.py`           | `HarnessOptions` and the argparse builder. Resolves per-provider defaults.                                           |
+| `env_preflight.py` | Loads the repo-root `.env` (dotenv, shell wins) and validates required env vars via a pydantic model.                |
+| `ports.py`         | The six port constants. Deliberately free of Django imports.                                                         |
+| `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup. |
+| `tunnels.py`       | `NgrokTunnels`. Modal only: generates an ngrok config, starts the agent, waits for public URLs.                      |
+| `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                            |
+| `live_server.py`   | `EvalLiveServer`, a session-lifetime Django `LiveServerThread`.                                                      |
+| `services.py`      | Starts the LLM gateway, MCP server, and personhog subprocesses; builds local skills.                                 |
+| `temporal_env.py`  | Local Temporal dev server, stale-workflow cleanup, and the worker thread.                                            |
+| `demo_data.py`     | `SandboxedDemoData`: seeds the master Hedgebox team once, then mints an isolated team per case.                      |
+| `discovery.py`     | Walks the tree for `eval_*.py` and collects `eval_*` coroutines into `EvalSuite` objects.                            |
+| `context.py`       | `EvalContext`, the single object every suite receives.                                                               |
+| `reporting.py`     | `ProgressReporter`, the final summary table, and the quiet Braintrust reporter.                                      |
+| `lifecycle.py`     | `SandboxedEvalHarness`: orchestrates bootstrap, the run, and teardown.                                               |
 
 ## Boot sequence
 
@@ -39,8 +40,8 @@ Discovery happens first, before anything is provisioned, so a typo'd selector co
 
 The bootstrap is deliberately synchronous and runs before any event loop exists, because it is ORM-heavy and Django's async-safety guard rejects sync ORM calls from an async context:
 
-1. `setup_django()` sets `DEBUG` / `TEST` / `IN_EVAL_TESTING`, then `django.setup()` and `setup_test_environment()`.
-   Provider preflight then runs, followed by the personhog binary build (`cargo build`, incremental after the first run) — a missing toolchain fails here, before any database work.
+1. `__main__` loads the repo-root `.env` (never overriding what the shell — or hogli's own env loading, under `hogli evals:sandboxed` — already exported), then `setup_django()` sets `DEBUG` / `TEST` / `IN_EVAL_TESTING`, then `django.setup()` and `setup_test_environment()`.
+   The env preflight (required variables, one-line fix per missing one) and provider preflight then run, followed by the personhog binary build (`cargo build`, incremental after the first run) — a missing key or toolchain fails here, before any database work.
 2. `EvalDatabase.setup()` creates the `default` test database and drives PostHog's own eval database setup (persons database, ClickHouse).
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
 4. `EvalLiveServer` binds `0.0.0.0:18000`.
