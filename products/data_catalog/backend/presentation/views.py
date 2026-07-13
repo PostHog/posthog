@@ -11,7 +11,7 @@ from django.db.models import QuerySet
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action as drf_action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -179,6 +179,11 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def run(self, request: ValidatedRequest, **kwargs) -> Response:
         """Execute the metric's definition and return the normalized result envelope."""
+        # required_scopes gates tokens on query:read, but session users carry no scopes and
+        # AccessControlPermission only checks the data_catalog resource. Enforce query RBAC
+        # explicitly so a member with query access denied can't read data through a metric run.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to run a metric.")
         overrides = request.validated_data
         envelope = api.run_metric(
             team=self.team,

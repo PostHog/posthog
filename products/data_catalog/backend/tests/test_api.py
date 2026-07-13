@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
@@ -8,6 +9,8 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -18,6 +21,8 @@ from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.models import Metric
 from products.data_catalog.backend.presentation.serializers import MetricRunQuerySerializer, MetricRunRequestSerializer
 from products.product_analytics.backend.models.insight import Insight
+
+from ee.models.rbac.access_control import AccessControl
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() from events"}
 _PROCESS_QUERY = "products.data_catalog.backend.logic.execution.process_query_dict"
@@ -254,6 +259,28 @@ class TestMetricLifecycleAPI(APIBaseTest):
         # data_catalog:read alone is not enough — run also touches the query engine.
         response = self.client.post(f"{self.url}mrr/run/", **self._bearer(["data_catalog:read"]))
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_run_denied_for_session_user_without_query_access(self) -> None:
+        # Session users carry no API scopes, so required_scopes can't gate them and
+        # AccessControlPermission only checks the data_catalog resource. A member with query
+        # access explicitly set to "none" must still be blocked from reading data through a run.
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="query",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        response = self.client.post(f"{self.url}mrr/run/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_run_markdown_metric_returns_instructions(self) -> None:
         upsert_metric(
