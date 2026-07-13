@@ -91,6 +91,7 @@ import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
+    activeSceneLogicHasMaxContext,
     findPendingClientToolCall,
     getAgentModeForScene,
     isAssistantMessage,
@@ -1292,8 +1293,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return false
                 }
                 const activeSceneLogic = sceneLogic.values.activeSceneLogic
-                if (!activeSceneLogic || !('maxContext' in activeSceneLogic.selectors)) {
-                    return false
+                if (!activeSceneLogicHasMaxContext(activeSceneLogic)) {
+                    // Still on the dashboard scene but its logic isn't ready to read yet — building,
+                    // or briefly unmounted mid dashboard→dashboard navigation. Keep waiting (the cap
+                    // above bounds it) so context collection picks up the dashboard once it mounts.
+                    return true
                 }
                 return !(activeSceneLogic.values as { dashboard?: unknown }).dashboard
             }
