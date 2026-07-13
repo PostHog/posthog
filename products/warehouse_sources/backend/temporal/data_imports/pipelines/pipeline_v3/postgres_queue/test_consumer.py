@@ -493,7 +493,8 @@ class TestCoalescing:
             await consumer._process_group((1, "schema-1"), batches)
 
         mock_unit.assert_awaited_once()
-        unit_arg = mock_unit.await_args[0][0]
+        assert mock_unit.await_args is not None
+        unit_arg = mock_unit.await_args.args[0]
         assert [b.batch_index for b in unit_arg] == [0, 1, 2]
         # Each member must walk executing -> succeeded, or the head-of-line
         # claim gate would keep the schema wedged on stale statuses.
