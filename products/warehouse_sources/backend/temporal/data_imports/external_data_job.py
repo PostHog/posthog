@@ -172,9 +172,13 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
         job: ExternalDataJob | None = await database_sync_to_async_pool(_resolve_job)()
         if job is None:
-            # Unresolvable job would be stranded in RUNNING — surface it loudly, not a silent info log.
+            # A FAILED finalization with no resolvable job means an early activity (e.g. create-job)
+            # failed before a row was committed — nothing is stranded and that failure is already
+            # reported on its own, so don't double-alarm. A non-FAILED finalization that can't find
+            # its job is a real anomaly (work we think succeeded has nowhere to record it) — surface it.
             logger.warning("No job to update status on", workflow_run_id=inputs.workflow_run_id)
-            capture_exception(Exception("V3 job finalization could not resolve a job to update"))
+            if inputs.status != ExternalDataJob.Status.FAILED:
+                capture_exception(Exception("Data import finalization could not resolve a job to update"))
             return
 
         job_id = str(job.pk)
