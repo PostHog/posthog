@@ -32860,6 +32860,8 @@ export namespace Schemas {
       read: boolean;
       /** @nullable */
       read_at: string | null;
+      /** Whether this notification opted in to being archived (dismissed) by the recipient. When false, the notification only supports read/unread. */
+      archivable: boolean;
       target_type: string;
       target_id: string;
       /** @nullable */
@@ -63859,6 +63861,10 @@ export namespace Schemas {
 
     export type EnvironmentsNotificationsListParams = {
     /**
+     * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
+     */
+    archived?: boolean;
+    /**
      * ISO 8601 timestamp; only events at or after this time
      */
     created_after?: string;
@@ -71318,6 +71324,10 @@ export namespace Schemas {
     };
 
     export type NotificationsListParams = {
+    /**
+     * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
+     */
+    archived?: boolean;
     /**
      * ISO 8601 timestamp; only events at or after this time
      */
