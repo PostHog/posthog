@@ -296,17 +296,27 @@ async def run_post_load_operations(
         logger.debug("Running threshold-based delta maintenance")
         try:
             with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
+                # Only md5 partitioning persists a partition_count; datetime/numerical modes leave it
+                # None, and the companion is a different table than the one schema.partition_count
+                # describes. Without a count the threshold math treats the table as one partition and
+                # any >200-file table compacts every tick, so derive it from the table's actual layout
+                # (one directory per partition value in the delta log's file paths).
+                partition_count = None if is_cdc_companion else schema.partition_count
+                if partition_count is None:
+                    file_uris = await delta_table_helper.get_file_uris()
+                    partition_count = len({uri.rsplit("/", 1)[0] for uri in file_uris}) or None
+
                 if is_cdc_companion:
                     # One schema can back two delta tables (snapshot + _cdc companion) but holds a
                     # single last_vacuum_version watermark, and the two tables' versions are unrelated.
                     # Keep the cadence vacuum (and the watermark) on the snapshot path only; the
                     # companion relies on compact_if_fragmented, which vacuums whenever it compacts.
-                    await delta_table_helper.compact_if_fragmented(partition_count=schema.partition_count)
+                    await delta_table_helper.compact_if_fragmented(partition_count=partition_count)
                 else:
                     last_vacuum_version = (schema.sync_type_config or {}).get("last_vacuum_version")
                     commit_threshold = int(getattr(settings, "DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100))
                     new_version = await delta_table_helper.run_maintenance(
-                        partition_count=schema.partition_count,
+                        partition_count=partition_count,
                         last_vacuum_version=last_vacuum_version,
                         commit_threshold=commit_threshold,
                     )

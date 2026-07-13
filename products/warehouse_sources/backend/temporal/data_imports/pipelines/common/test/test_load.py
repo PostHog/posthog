@@ -28,9 +28,10 @@ def _make_schema(*, is_cdc: bool, sync_type_config: dict | None = None, partitio
     return schema
 
 
-def _make_helper(*, run_maintenance_returns: int | None = None) -> MagicMock:
+def _make_helper(*, run_maintenance_returns: int | None = None, file_uris: list[str] | None = None) -> MagicMock:
     return MagicMock(
         get_delta_table=AsyncMock(return_value=MagicMock()),
+        get_file_uris=AsyncMock(return_value=file_uris or []),
         compact_table=AsyncMock(),
         compact_if_fragmented=AsyncMock(return_value=False),
         run_maintenance=AsyncMock(return_value=run_maintenance_returns),
@@ -94,6 +95,25 @@ class TestRunPostLoadDeltaMaintenance:
         }
 
     @pytest.mark.asyncio
+    async def test_missing_partition_count_is_derived_from_table_layout(self):
+        # datetime/numerical-partitioned schemas persist no partition_count. Passing None through
+        # makes the threshold math treat the table as one partition, so any >200-file table would
+        # compact every tick again — the exact behavior this change removes.
+        schema = _make_schema(is_cdc=True, partition_count=None)
+        helper = _make_helper(
+            file_uris=[
+                "s3://bucket/orders/_ph_partition_key=2026-01/a.parquet",
+                "s3://bucket/orders/_ph_partition_key=2026-01/b.parquet",
+                "s3://bucket/orders/_ph_partition_key=2026-02/c.parquet",
+            ]
+        )
+
+        await _run_post_load(schema, helper, cdc_write_mode="incremental")
+
+        assert helper.run_maintenance.await_args is not None
+        assert helper.run_maintenance.await_args.kwargs["partition_count"] == 2
+
+    @pytest.mark.asyncio
     async def test_non_cdc_schema_keeps_unconditional_compact(self):
         schema = _make_schema(is_cdc=False)
         helper = _make_helper()
@@ -108,13 +128,14 @@ class TestRunPostLoadDeltaMaintenance:
     async def test_cdc_companion_compacts_on_threshold_without_touching_watermark(self):
         # The schema's single last_vacuum_version watermark tracks the snapshot table; letting the
         # _cdc companion (a different delta table with unrelated versions) run cadence maintenance
-        # would corrupt the snapshot's vacuum cadence.
+        # would corrupt the snapshot's vacuum cadence. Its partition count is derived from its own
+        # layout too — schema.partition_count describes the snapshot table, not the companion.
         schema = _make_schema(is_cdc=True, sync_type_config={"last_vacuum_version": 41})
-        helper = _make_helper()
+        helper = _make_helper(file_uris=["s3://bucket/orders_cdc/a.parquet"])
 
         update_config, _ = await _run_post_load(schema, helper, cdc_write_mode="scd2_append")
 
-        helper.compact_if_fragmented.assert_awaited_once_with(partition_count=7)
+        helper.compact_if_fragmented.assert_awaited_once_with(partition_count=1)
         helper.run_maintenance.assert_not_awaited()
         helper.compact_table.assert_not_awaited()
         update_config.assert_not_called()
