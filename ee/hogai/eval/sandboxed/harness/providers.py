@@ -268,12 +268,9 @@ class ModalProviderStrategy(SandboxProviderStrategy):
                 "No Modal credentials found. Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET, "
                 f"or run `modal token new`. See {SETUP_GUIDE}."
             )
-        if not os.environ.get("SANDBOX_JWT_PRIVATE_KEY"):
-            # Sandbox provisioning derives the sandbox's public key from this and raises without it.
-            raise PreflightError(
-                "SANDBOX_JWT_PRIVATE_KEY is unset. The dev key ships in .env.example — "
-                "source your .env (`set -a; source .env; set +a`) before running the harness."
-            )
+        # SANDBOX_JWT_PRIVATE_KEY and the other env-only prerequisites are validated
+        # earlier by env_preflight.validate_eval_env(); only checks with non-env
+        # fallbacks (ngrok config file, ~/.modal.toml) live here.
 
     def start(self, stack: ExitStack) -> None:
         # Resolve the eval sandbox app now, while Django is configured, so cleanup()

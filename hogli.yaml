@@ -776,6 +776,10 @@ tests:
     test:quarantine:
         click: hogli_commands.quarantine.cli:quarantine
         description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
+    evals:sandboxed:
+        cmd: python -m ee.hogai.eval.sandboxed.harness
+        description: Run sandboxed agent evals (extra args pass through, e.g. `cli_mcp --provider modal`)
+        needs_secrets: true
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
