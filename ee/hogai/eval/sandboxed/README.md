@@ -39,18 +39,19 @@ python -m ee.hogai.eval.sandboxed.harness --provider modal
 python -m ee.hogai.eval.sandboxed.harness --list
 ```
 
-| Flag                        | Meaning                                                                         |
-| --------------------------- | ------------------------------------------------------------------------------- |
-| `--eval <substr>`           | Only run cases whose name contains the substring.                               |
-| `--provider {docker,modal}` | Where sandboxes run. Default `docker`.                                          |
-| `--max-sandboxes N`         | Cap concurrently live sandboxes across all suites.                              |
-| `--agent-model <model>`     | Model the sandboxed agent runs against, pinned for stable cross-run comparison. |
-| `--keep-sandbox-containers` | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only. |
-| `--create-db`               | Rebuild the eval test database instead of reusing it.                           |
-| `--case-timeout <seconds>`  | Per-case budget, counted from sandbox acquisition.                              |
-| `--trials N`                | Run every case N times (Braintrust trials), for variance on stochastic agents.  |
-| `--fail-under <fraction>`   | Exit nonzero when the mean score across all experiments falls below this (0-1). |
-| `--list`                    | Print the discovered suite ids and exit.                                        |
+| Flag                        | Meaning                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `--eval <substr>`           | Only run cases whose name contains the substring.                                |
+| `--provider {docker,modal}` | Where sandboxes run. Default `docker`.                                           |
+| `--max-sandboxes N`         | Cap concurrently live sandboxes across all suites.                               |
+| `--agent-model <model>`     | Model the sandboxed agent runs against, pinned for stable cross-run comparison.  |
+| `--keep-sandbox-containers` | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.  |
+| `--rebuild-sandbox-image`   | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only. |
+| `--create-db`               | Rebuild the eval test database instead of reusing it.                            |
+| `--case-timeout <seconds>`  | Per-case budget, counted from sandbox acquisition.                               |
+| `--trials N`                | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
+| `--fail-under <fraction>`   | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
+| `--list`                    | Print the discovered suite ids and exit.                                         |
 
 `EXPORT_EVAL_RESULTS=1` appends one JSON summary per experiment to `eval_results.jsonl`.
 
@@ -58,6 +59,12 @@ python -m ee.hogai.eval.sandboxed.harness --list
 
 **docker** (default) runs sandboxes as local containers, so a Docker daemon must be reachable.
 Each container defaults to 16 GB, so host RAM is what bounds concurrency: the default cap is 4, and raising `--max-sandboxes` needs a big host.
+
+Every docker run verifies the `posthog-sandbox-base` image is fresh before any case starts: it rebuilds when `@posthog/agent` has published a newer version than the one baked into the image, or when the Dockerfile changed since the image was built.
+An unchanged image passes the check in under a second, and even a rebuild is mostly layer-cached — only the npm install layer onward re-runs when the agent version moved.
+When npm is unreachable the check warns and reuses the existing image instead of failing the run.
+`--rebuild-sandbox-image` forces the rebuild regardless.
+(The modal DEBUG image is rebuilt by Modal whenever the Dockerfile or build context changes, but a new `@posthog/agent` publish alone does not invalidate it — a known limitation.)
 
 **modal** runs sandboxes remotely.
 Modal's network cannot reach `localhost`, so the harness starts ngrok tunnels itself and points the sandbox at the public URLs.
