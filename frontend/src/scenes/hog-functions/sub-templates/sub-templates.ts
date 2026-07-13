@@ -934,9 +934,11 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             },
                         },
                         {
+                            // plain_text (not mrkdwn) so user-controlled names in the breach text can't
+                            // inject Slack markup/links/mentions. Newlines still render as line breaks.
                             type: 'section',
                             text: {
-                                type: 'mrkdwn',
+                                type: 'plain_text',
                                 text: '{event.properties.breaches}',
                             },
                         },

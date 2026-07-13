@@ -324,9 +324,13 @@ def dispatch_alert_notification(
                     "caller must pass the breaches list from AlertEvaluationResult"
                 )
             logger.info("Sending alert firing notifications", alert_id=alert.id)
-            return send_notifications_for_breaches(
-                alert, breaches, idempotency_key=str(alert_check.id), extra_properties=extra_properties
-            )
+            # Only forward extra_properties when there's something to add (anomaly investigations),
+            # keeping the common threshold-alert call unchanged.
+            if extra_properties:
+                return send_notifications_for_breaches(
+                    alert, breaches, idempotency_key=str(alert_check.id), extra_properties=extra_properties
+                )
+            return send_notifications_for_breaches(alert, breaches, idempotency_key=str(alert_check.id))
         case _:
             raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 

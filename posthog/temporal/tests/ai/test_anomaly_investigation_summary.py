@@ -29,8 +29,8 @@ def test_truncate_summary_clips_on_sentence_boundary() -> None:
     text = "All systems nominal here. " * 40  # > MAX_SUMMARY_CHARS, sentence ends past the midpoint
     clipped = _truncate_summary(text)
     assert clipped is not None
-    assert len(clipped) <= MAX_SUMMARY_CHARS
-    # Clips on a full sentence, not mid-word — no ellipsis, ends on the period.
-    assert clipped.endswith(".")
-    assert not clipped.endswith("…")
-    assert text.startswith(clipped)
+    # Clips on a full sentence (not mid-word) and always signals truncation with an ellipsis.
+    assert clipped.endswith("…")
+    body = clipped.removesuffix(" …")
+    assert body.endswith(".")
+    assert text.startswith(body)

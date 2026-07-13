@@ -307,7 +307,9 @@ def _truncate_summary(summary: str | None) -> str | None:
     # teaser — otherwise a short lead sentence would drop most of the summary.
     sentence_ends = [match.end() for match in _SENTENCE_END_RE.finditer(window)]
     if sentence_ends and sentence_ends[-1] >= MAX_SUMMARY_CHARS // 2:
-        return window[: sentence_ends[-1]].rstrip()
+        # Always append the ellipsis: the boundary might be an abbreviation (e.g. "U.S."),
+        # not a real sentence end, so a clean-looking stop would hide that we dropped the rest.
+        return window[: sentence_ends[-1]].rstrip() + " …"
 
     # No usable sentence boundary — fall back to the last word boundary with an ellipsis.
     word_end = window.rstrip().rfind(" ")
