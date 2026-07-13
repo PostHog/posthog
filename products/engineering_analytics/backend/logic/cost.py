@@ -175,28 +175,38 @@ class PRCostAggregate:
     excluded_jobs: int
 
 
-def aggregate_pr_cost(jobs: Iterable[tuple[list[str], float | None]]) -> PRCostAggregate:
-    """Sum per-job cost over a PR's jobs, partitioning each job by why it does (or doesn't) count.
+# One (runner-labels, finished-job count, summed elapsed seconds, unfinished-job count) group —
+# the exact shape the cost queries GROUP BY runner labels, so aggregation never expands back to
+# per-job rows. finished/unfinished split on whether the job has an elapsed duration.
+JobGroup = tuple[list[str], int, float, int]
 
-    Each input is one job's ``(labels, elapsed_seconds)``. A job counts toward cost only when its
-    runner classifies as a billable self-hosted Linux tier AND it has elapsed time; everything else
-    lands in ``unsettled_jobs`` (self-hosted Linux, no elapsed) or ``excluded_jobs`` (provider-hosted /
-    non-Linux). The billable classification is currently Depot-shaped (the only modeled provider).
+
+def aggregate_job_groups(groups: Iterable[JobGroup]) -> PRCostAggregate:
+    """Roll up job cost over ``(labels, finished, elapsed_total, unfinished)`` groups.
+
+    Cost is linear in elapsed time, so aggregating a group wholesale is identical to costing each
+    of its jobs one by one — and O(groups), where per-job expansion was O(jobs) and dominated
+    request latency at millions of jobs per window. A group counts toward cost only when its labels
+    classify as a billable self-hosted Linux tier; its finished jobs are costed, its unfinished
+    (queued/running, no elapsed) jobs land in ``unsettled_jobs``, and non-billable groups
+    (provider-hosted / non-Linux) land wholly in ``excluded_jobs``. The billable classification is
+    currently Depot-shaped (the only modeled provider).
     """
     billable_seconds = 0.0
     total_cost = 0.0
     costed = unsettled = excluded = 0
-    for labels, elapsed_seconds in jobs:
+    for labels, finished, elapsed_total, unfinished in groups:
         tier = classify_runner(labels)
         if tier is None or tier.provider is not RunnerProvider.DEPOT or tier.os is not RunnerOS.LINUX:
-            excluded += 1
+            excluded += finished + unfinished
             continue
-        if elapsed_seconds is None:
-            unsettled += 1
+        unsettled += unfinished
+        if not finished:
             continue
-        billable_seconds += max(0.0, elapsed_seconds)
-        total_cost += estimate_job_cost_usd(labels, elapsed_seconds) or 0.0
-        costed += 1
+        elapsed = max(0.0, elapsed_total)
+        billable_seconds += elapsed
+        total_cost += (elapsed / 60) * REFERENCE_RATE_USD_PER_MIN * billing_multiplier(tier)
+        costed += finished
     return PRCostAggregate(
         billable_seconds=billable_seconds,
         estimated_cost_usd=total_cost if costed else None,

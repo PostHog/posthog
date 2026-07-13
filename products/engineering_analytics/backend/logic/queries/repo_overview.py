@@ -41,10 +41,15 @@ _RUNS_SELECT = """
     WHERE run_started_at >= {prev_from} __DATE_TO__
 """
 
+# Medians follow the locked cycle-time recipe (bots/drafts excluded); the merged counts deliberately
+# don't — they are the merge population that triggered the CI spend, the same all-authors population
+# the cost series' bucket-local merges count, so cost-per-merge ratios divide by a matching denominator.
 _PR_SELECT = """
     SELECT
         quantileIf(0.5)(open_to_merge_seconds, __CUR_MERGED__ AND NOT is_bot AND NOT is_draft) AS median_cur,
-        quantileIf(0.5)(open_to_merge_seconds, __PREV_MERGED__ AND NOT is_bot AND NOT is_draft) AS median_prev
+        quantileIf(0.5)(open_to_merge_seconds, __PREV_MERGED__ AND NOT is_bot AND NOT is_draft) AS median_prev,
+        countIf(__CUR_MERGED__) AS merged_cur,
+        countIf(__PREV_MERGED__) AS merged_prev
     FROM __PR_SOURCE__ AS pr
     WHERE merged_at IS NOT NULL AND merged_at >= {prev_from}
 """
@@ -169,6 +174,7 @@ def query_repo_overview(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
+    include_series: bool = True,
 ) -> RepoOverview:
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
@@ -204,7 +210,9 @@ def query_repo_overview(
         .replace("__PR_SOURCE__", curated.pr_source())
     )
     pr_response = curated.run(pr_sql, query_type="engineering_analytics.repo_overview_prs", placeholders=placeholders)
-    median_cur, median_prev = pr_response.results[0] if pr_response.results else (None, None)
+    median_cur, median_prev, merged_cur, merged_prev = (
+        pr_response.results[0] if pr_response.results else (None, None, 0, 0)
+    )
 
     jobs_available = curated.jobs_source() is not None
     cost_cur, cost_prev = query_workflow_window_costs_with_prev(
@@ -216,18 +224,26 @@ def query_repo_overview(
     cost_usd = sum(c.estimated_cost_usd or 0.0 for c in cost_cur.values()) if cost_cur else None
     cost_usd_prev = sum(c.estimated_cost_usd or 0.0 for c in cost_prev.values()) if cost_prev else None
 
-    cost_series_granularity, cost_series = query_cost_per_merge_series(
-        curated=curated, date_from=date_from, date_to=date_to
-    )
-    ttg_series_granularity, ttg_series = query_time_to_green_series(
-        curated=curated, date_from=date_from, date_to=date_to
-    )
-    pass_rate_series_granularity, pass_rate_series = query_success_rate_series(
-        curated=curated, date_from=date_from, date_to=date_to
-    )
-    open_to_merge_series_granularity, open_to_merge_series = query_open_to_merge_series(
-        curated=curated, date_from=date_from, date_to=date_to
-    )
+    if include_series:
+        cost_series_granularity, cost_series = query_cost_per_merge_series(
+            curated=curated, date_from=date_from, date_to=date_to
+        )
+        ttg_series_granularity, ttg_series = query_time_to_green_series(
+            curated=curated, date_from=date_from, date_to=date_to
+        )
+        pass_rate_series_granularity, pass_rate_series = query_success_rate_series(
+            curated=curated, date_from=date_from, date_to=date_to
+        )
+        open_to_merge_series_granularity, open_to_merge_series = query_open_to_merge_series(
+            curated=curated, date_from=date_from, date_to=date_to
+        )
+    else:
+        # Headline-only read (the weekly digest): skip the four chart scans, but keep the granularity
+        # the series would have used so the contract's non-null granularity fields stay meaningful.
+        granularity = pick_granularity(date_from, date_to)
+        cost_series_granularity = ttg_series_granularity = granularity
+        pass_rate_series_granularity = open_to_merge_series_granularity = granularity
+        cost_series, ttg_series, pass_rate_series, open_to_merge_series = [], [], [], []
 
     return RepoOverview(
         run_count=run_count,
@@ -236,6 +252,8 @@ def query_repo_overview(
         success_rate_prev=opt_float(success_rate_prev),
         rerun_cycles=reruns,
         rerun_cycles_prev=reruns_prev,
+        merged_pr_count=int(merged_cur or 0),
+        merged_pr_count_prev=int(merged_prev or 0),
         median_open_to_merge_seconds=opt_float(median_cur),
         median_open_to_merge_seconds_prev=opt_float(median_prev),
         billable_minutes=billable_seconds / 60 if billable_seconds is not None else None,

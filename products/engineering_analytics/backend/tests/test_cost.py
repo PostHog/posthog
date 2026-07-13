@@ -7,7 +7,7 @@ from products.engineering_analytics.backend.logic.cost import (
     RunnerOS,
     RunnerProvider,
     RunnerTier,
-    aggregate_pr_cost,
+    aggregate_job_groups,
     billing_multiplier,
     classify_runner,
     estimate_job_cost_usd,
@@ -108,32 +108,32 @@ class TestCostModel:
         assert estimate_job_cost_usd(["depot-ubuntu-latest"], elapsed) == 0.0
 
 
-class TestAggregatePRCost:
-    def test_partitions_jobs_by_billability(self):
-        # One Depot Linux job (costed), one github-hosted (excluded), one non-Linux Depot (excluded),
-        # one Depot Linux still running (unsettled). Only the first contributes minutes and cost.
-        result = aggregate_pr_cost(
+class TestAggregateJobGroups:
+    def test_partitions_groups_by_billability(self):
+        # A Depot Linux group with 2 finished jobs (costed) and 1 still running (unsettled), a
+        # github-hosted group and a non-Linux Depot group (both wholly excluded). Only the finished
+        # Depot Linux jobs contribute minutes and cost, at the group's 4-core (2x) multiplier.
+        result = aggregate_job_groups(
             [
-                (["depot-ubuntu-22.04-4"], 120.0),  # costed: 2 min on a 4-core (2x) tier
-                (["ubuntu-latest"], 300.0),  # github-hosted → excluded
-                (["depot-macos-14"], 600.0),  # non-Linux Depot → excluded
-                (["depot-ubuntu-22.04-4"], None),  # no elapsed → unsettled
+                (["depot-ubuntu-22.04-4"], 2, 120.0, 1),
+                (["ubuntu-latest"], 3, 300.0, 1),
+                (["depot-macos-14"], 1, 600.0, 0),
             ]
         )
-        assert result.costed_jobs == 1
-        assert result.excluded_jobs == 2
+        assert result.costed_jobs == 2
+        assert result.excluded_jobs == 5
         assert result.unsettled_jobs == 1
         assert result.billable_seconds == 120.0
         assert result.estimated_cost_usd == pytest.approx(2 * REFERENCE_RATE_USD_PER_MIN * 2)
 
     def test_cost_is_none_when_nothing_costable(self):
         # Only excluded / unsettled jobs → "no figure yet", never a misleading $0.00.
-        result = aggregate_pr_cost([(["ubuntu-latest"], 300.0), (["depot-ubuntu-latest"], None)])
+        result = aggregate_job_groups([(["ubuntu-latest"], 1, 300.0, 0), (["depot-ubuntu-latest"], 0, 0.0, 1)])
         assert result.estimated_cost_usd is None
         assert result.costed_jobs == 0
 
     def test_empty_input(self):
-        result = aggregate_pr_cost([])
+        result = aggregate_job_groups([])
         assert result == result.__class__(
             billable_seconds=0.0, estimated_cost_usd=None, costed_jobs=0, unsettled_jobs=0, excluded_jobs=0
         )

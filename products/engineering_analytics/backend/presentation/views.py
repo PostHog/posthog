@@ -137,6 +137,19 @@ def _optional_int_param(request: Request, name: str) -> int | None:
         raise ValueError(f"{name} must be an integer") from None
 
 
+def _bool_param(request: Request, name: str, *, default: bool) -> bool:
+    """Optional boolean query param; the default when absent/blank, ValueError when present but not true/false."""
+    raw = request.query_params.get(name)
+    if not raw:
+        return default
+    lowered = raw.lower()
+    if lowered in ("true", "1"):
+        return True
+    if lowered in ("false", "0"):
+        return False
+    raise ValueError(f"{name} must be true or false")
+
+
 @extend_schema(tags=[ENGINEERING_ANALYTICS_TAG])
 class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
@@ -841,17 +854,31 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_repo_overview",
-        parameters=[_DATE_FROM, _DATE_TO, _SOURCE_ID],
+        parameters=[
+            _DATE_FROM,
+            _DATE_TO,
+            OpenApiParameter(
+                name="include_series",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Set false to skip the chart series (cost_series, time_to_green_series, "
+                "success_rate_series, open_to_merge_series return empty) and their query cost — for "
+                "headline-only consumers like the weekly digest. Defaults to true.",
+            ),
+            _SOURCE_ID,
+        ],
         responses={
             200: RepoOverviewSerializer,
             400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),
         },
         description=(
             "Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run "
-            "cycles, median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), "
-            "and billable minutes + estimated cost — each with its equal-length previous-window twin so a "
-            "caller can render honest deltas. Also carries the detected default branch and its completed-run "
-            "history series. Cost figures are null until the job-level source is synced."
+            "cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; "
+            "coarse — draft and ready time fused), and billable minutes + estimated cost — each with its "
+            "equal-length previous-window twin so a caller can render honest deltas. Also carries the "
+            "detected default branch and its completed-run history series (skippable via include_series=false). "
+            "Cost figures are null until the job-level source is synced."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -861,11 +888,12 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
+                include_series=_bool_param(request, "include_series", default=True),
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
+            return _bad_request(exc, fallback="Invalid date_from, date_to, include_series, or source_id")
         return Response(RepoOverviewSerializer(instance=result).data)
 
     @extend_schema(

@@ -702,6 +702,56 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 and 16 bots)
         assert cards.failing_ci == 1  # only 10 has a failing latest run
 
+    def test_repo_overview_headlines_and_series_toggle(self) -> None:
+        # The weekly digest's whole read path: headline aggregates with include_series=False must
+        # still carry every number the digest renders — merged counts over ALL merged PRs (bots
+        # included: the merge population that triggered the spend) while the median keeps the
+        # locked bots/drafts-excluded recipe, plus job-backed billable minutes — with all four
+        # chart series empty. The default call keeps the series for the UI.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                # human, merged in window: open->merge = 8 days; the median's only sample
+                _pr_row(80, "alice", "closed", 0, _ago(10), merged_at=_ago(2), head_sha="sha80"),
+                # bot, merged in window: counted in merged_pr_count, excluded from the median
+                _pr_row(81, "dependabot[bot]", "closed", 0, _ago(4), merged_at=_ago(3), head_sha="sha81"),
+                # merged before the window (and before its prev twin): in neither count
+                _pr_row(82, "alice", "closed", 0, _ago(120), merged_at=_ago(90), head_sha="sha82"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80),
+                _run_row(9501, "CI", "sha81", "completed", "success", _ago(3), _ago(3), pr_number=81, run_attempt=2),
+            ],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
+        )
+
+        overview = api.get_repo_overview(team=self.team, include_series=False)
+        assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
+        assert overview.merged_pr_count_prev == 0
+        assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
+        assert overview.run_count == 2
+        assert overview.rerun_cycles == 1
+        assert overview.billable_minutes == pytest.approx(2.0)  # one 120s job on a billable tier
+        assert overview.estimated_cost_usd == pytest.approx(0.016)  # 2 min x $0.004 x 2 (4-core)
+        assert overview.cost_series == []
+        assert overview.time_to_green_series == []
+        assert overview.success_rate_series == []
+        assert overview.open_to_merge_series == []
+        assert overview.cost_series_granularity == "day"  # the grain the series would have used
+
+        with_series = api.get_repo_overview(team=self.team)
+        assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
+        assert len(with_series.success_rate_series) > 0
+
     def test_pull_request_list_window_and_rollup(self) -> None:
         self._seed()
         result = api.list_pull_requests(team=self.team)
@@ -770,9 +820,9 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
     def test_pr_cost_clamps_clock_skewed_negative_durations(self) -> None:
         # Two jobs share one run/label group: a normal +120s job and a clock-skewed -120s one
         # (completed_at < started_at). The grouped sum must clamp the negative per-job (greatest(.,0))
-        # so it doesn't cancel its group-mate's elapsed before the even-split expansion. Without the
-        # clamp the group sums to 0s and the PR reads $0.00; with it, the skewed job contributes 0 and
-        # the normal job's 120s survives = 2 billable min, depot 4-core (2x) at $0.004/min = $0.016.
+        # so it doesn't cancel its group-mate's elapsed inside the group total. Without the clamp the
+        # group sums to 0s and the PR reads $0.00; with it, the skewed job contributes 0 and the
+        # normal job's 120s survives = 2 billable min, depot 4-core (2x) at $0.004/min = $0.016.
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,

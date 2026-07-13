@@ -2,10 +2,13 @@
 
 Cost is job-level: a run fans into parallel jobs on different runner tiers, so per-PR cost is a sum
 over jobs (see ``logic.cost``). This joins the optional jobs source (``_curated.jobs_source``) to the
-runs source to bring each job's ``workflow_name`` alongside its ``labels`` / elapsed, then aggregates
-in Python twice: once over all jobs (the whole-PR rollup) and once per workflow (the per-workflow cost
-column). When the jobs source isn't synced, ``jobs_source()`` is None and this returns an empty summary
-(``jobs_available=False``) so the UI hides the cost cards instead of erroring.
+runs source to bring each job's ``workflow_name`` alongside its ``labels`` / elapsed, then rolls the
+grouped rows up in Python per key (whole-PR, per-workflow, per-run, per-bucket) via
+``aggregate_job_groups`` — always on the (labels, finished, elapsed, unfinished) groups the SQL
+returns, never re-expanded to per-job rows: cost is linear in elapsed, so the group rollup is exact,
+and a window can hold millions of jobs while it holds only hundreds of groups. When the jobs source
+isn't synced, ``jobs_source()`` is None and this returns an empty summary (``jobs_available=False``)
+so the UI hides the cost cards instead of erroring.
 """
 
 import json
@@ -23,7 +26,12 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthRunScope,
     WorkflowRunnerCost,
 )
-from products.engineering_analytics.backend.logic.cost import PRCostAggregate, aggregate_pr_cost, runner_descriptor
+from products.engineering_analytics.backend.logic.cost import (
+    JobGroup,
+    PRCostAggregate,
+    aggregate_job_groups,
+    runner_descriptor,
+)
 from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
     bucket_expr,
@@ -40,8 +48,8 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 
 # Pre-aggregated per (workflow, run, attempt, runner-label) — a raw per-job SELECT has no LIMIT, so HogQL
 # caps it at DEFAULT_RETURNED_ROWS (100) and silently drops the rest, undercounting any PR with >100 jobs.
-# Each group carries finished/elapsed/unfinished, expanded back into per-job tuples (cost is linear in
-# elapsed) so the run- and workflow-level rollups stay exact. Same shape as the PR-list cost query.
+# Each group carries finished/elapsed/unfinished, which is all aggregate_job_groups needs for an exact
+# run- and workflow-level rollup. Same shape as the PR-list cost query.
 _SELECT = """
     SELECT
         r.workflow_name, r.id AS run_id, r.run_attempt, j.labels,
@@ -89,21 +97,22 @@ def query_pr_cost(
         },
     )
     rows = response.results or []
-    all_jobs: list[tuple[list[str], float | None]] = []
-    by_workflow_jobs: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
-    by_run_jobs: dict[tuple[int, int], list[tuple[list[str], float | None]]] = defaultdict(list)
+    all_groups: list[JobGroup] = []
+    by_workflow_groups: dict[str, list[JobGroup]] = defaultdict(list)
+    by_run_groups: dict[tuple[int, int], list[JobGroup]] = defaultdict(list)
     for workflow, run_id, run_attempt, labels, finished, elapsed, unfinished in rows:
-        jobs = _expand_jobs(_parse_labels(labels), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
-        all_jobs.extend(jobs)
-        by_workflow_jobs[workflow or ""].extend(jobs)
-        by_run_jobs[(int(run_id), int(run_attempt))].extend(jobs)
-    overall = aggregate_pr_cost(all_jobs)
+        group = _job_group(labels, finished, elapsed, unfinished)
+        all_groups.append(group)
+        by_workflow_groups[workflow or ""].append(group)
+        by_run_groups[(int(run_id), int(run_attempt))].append(group)
+    overall = aggregate_job_groups(all_groups)
     by_workflow = [
-        _to_workflow_cost(workflow, aggregate_pr_cost(jobs)) for workflow, jobs in sorted(by_workflow_jobs.items())
+        _to_workflow_cost(workflow, aggregate_job_groups(groups))
+        for workflow, groups in sorted(by_workflow_groups.items())
     ]
     by_run = [
-        _to_run_cost(run_id, run_attempt, aggregate_pr_cost(jobs))
-        for (run_id, run_attempt), jobs in sorted(by_run_jobs.items())
+        _to_run_cost(run_id, run_attempt, aggregate_job_groups(groups))
+        for (run_id, run_attempt), groups in sorted(by_run_groups.items())
     ]
 
     return PRCostSummary(
@@ -120,9 +129,9 @@ def query_pr_cost(
 
 # Pre-aggregated in SQL (per PR × runner-label combo) so the row count stays small — a raw per-job
 # SELECT over every PR's jobs blows past HogQL's default row cap and silently truncates. Each group
-# carries finished/elapsed/unfinished, which is expanded back into per-job tuples (cost is linear in
-# elapsed) so the pure aggregate_pr_cost still produces the exact rollup. Scoped to the PR numbers the
-# list is actually showing so a team with deep CI history doesn't pay an all-time jobs×runs join per page.
+# carries finished/elapsed/unfinished, all aggregate_job_groups needs for the exact rollup. Scoped to
+# the PR numbers the list is actually showing so a team with deep CI history doesn't pay an all-time
+# jobs×runs join per page.
 _LIST_SELECT = """
     SELECT
         r.repo_owner, r.repo_name, r.pr_number, j.labels,
@@ -155,15 +164,13 @@ def query_pr_list_costs(
         query_type="engineering_analytics.pr_list_costs",
         placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
     )
-    by_pr: dict[tuple[str, str, int], list[tuple[list[str], float | None]]] = defaultdict(list)
+    by_pr: dict[tuple[str, str, int], list[JobGroup]] = defaultdict(list)
     for repo_owner, repo_name, pr_number, labels, finished, elapsed, unfinished in response.results or []:
-        by_pr[(repo_owner, repo_name, int(pr_number))].extend(
-            _expand_jobs(_parse_labels(labels), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
-        )
-    return {key: aggregate_pr_cost(jobs) for key, jobs in by_pr.items()}
+        by_pr[(repo_owner, repo_name, int(pr_number))].append(_job_group(labels, finished, elapsed, unfinished))
+    return {key: aggregate_job_groups(groups) for key, groups in by_pr.items()}
 
 
-# Per-workflow billable cost over a window (Workflows tab). Same grouped+expand shape as the PR list,
+# Per-workflow billable cost over a window (Workflows tab). Same grouped rollup shape as the PR list,
 # but keyed by workflow_name and filtered by the run window + optional branch.
 _WINDOW_COST_SELECT = """
     SELECT
@@ -190,7 +197,7 @@ def query_workflow_window_costs(
     """Per-workflow billable cost over [date_from, date_to] (optional branch/run_scope), keyed by workflow_name.
 
     Empty when the jobs source isn't synced. Mirrors the PR-list cost: grouped per workflow×label in SQL,
-    expanded back through aggregate_pr_cost.
+    rolled up per workflow through aggregate_job_groups.
     """
     jobs_source = curated.jobs_source()
     if jobs_source is None:
@@ -207,12 +214,10 @@ def query_workflow_window_costs(
         .replace("__RUN_SCOPE__", run_scope_clause)
     )
     response = curated.run(sql, query_type="engineering_analytics.workflow_window_costs", placeholders=placeholders)
-    by_workflow: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
+    by_workflow: dict[str, list[JobGroup]] = defaultdict(list)
     for workflow_name, labels, finished, elapsed, unfinished in response.results or []:
-        by_workflow[workflow_name or ""].extend(
-            _expand_jobs(_parse_labels(labels), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
-        )
-    return {workflow: aggregate_pr_cost(jobs) for workflow, jobs in by_workflow.items()}
+        by_workflow[workflow_name or ""].append(_job_group(labels, finished, elapsed, unfinished))
+    return {workflow: aggregate_job_groups(groups) for workflow, groups in by_workflow.items()}
 
 
 # One author's CI spend split by workflow (the author page's "where their CI minutes go"). Runs are
@@ -245,7 +250,7 @@ def query_author_workflow_costs(
 ) -> list[WorkflowCost]:
     """One author's billable CI cost split by workflow over [date_from, date_to], highest spend first.
 
-    Empty when the jobs source isn't synced. Same grouped+expand shape as the other cost queries;
+    Empty when the jobs source isn't synced. Same grouped rollup shape as the other cost queries;
     the author→runs link goes through their PR numbers (the one attribution rule, SPEC §7).
     """
     jobs_source = curated.jobs_source()
@@ -266,12 +271,10 @@ def query_author_workflow_costs(
         .replace("__DATE_TO__", date_to_clause)
     )
     response = curated.run(sql, query_type="engineering_analytics.author_workflow_costs", placeholders=placeholders)
-    by_workflow: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
+    by_workflow: dict[str, list[JobGroup]] = defaultdict(list)
     for workflow_name, labels, finished, elapsed, unfinished in response.results or []:
-        by_workflow[workflow_name or ""].extend(
-            _expand_jobs(_parse_labels(labels), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
-        )
-    costs = [_to_workflow_cost(workflow, aggregate_pr_cost(jobs)) for workflow, jobs in by_workflow.items()]
+        by_workflow[workflow_name or ""].append(_job_group(labels, finished, elapsed, unfinished))
+    costs = [_to_workflow_cost(workflow, aggregate_job_groups(groups)) for workflow, groups in by_workflow.items()]
     return sorted(costs, key=lambda cost: (cost.estimated_cost_usd or 0.0, cost.billable_minutes), reverse=True)
 
 
@@ -314,7 +317,8 @@ def query_workflow_window_costs_with_prev(
         "prev_from": ast.Constant(value=prev_from),
     }
     cur = "(r.run_started_at >= {date_from}" + (" AND r.run_started_at <= {date_to})" if date_to else ")")
-    prev = "(r.run_started_at >= {prev_from} AND r.run_started_at <= {date_from})"
+    # Half-open like _RUNS_SELECT's prev window: a run starting exactly at date_from is current, not both.
+    prev = "(r.run_started_at >= {prev_from} AND r.run_started_at < {date_from})"
     date_to_clause = ""
     if date_to is not None:
         date_to_clause = "AND r.run_started_at <= {date_to}"
@@ -329,28 +333,32 @@ def query_workflow_window_costs_with_prev(
     response = curated.run(
         sql, query_type="engineering_analytics.workflow_window_costs_with_prev", placeholders=placeholders
     )
-    by_workflow_cur: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
-    by_workflow_prev: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
+    by_workflow_cur: dict[str, list[JobGroup]] = defaultdict(list)
+    by_workflow_prev: dict[str, list[JobGroup]] = defaultdict(list)
     for workflow_name, labels, finished, elapsed, unfinished, finished_prev, elapsed_prev, unfinished_prev in (
         response.results or []
     ):
         parsed = _parse_labels(labels)
-        by_workflow_cur[workflow_name or ""].extend(
-            _expand_jobs(parsed, int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
-        )
-        by_workflow_prev[workflow_name or ""].extend(
-            _expand_jobs(parsed, int(finished_prev or 0), float(elapsed_prev or 0.0), int(unfinished_prev or 0))
-        )
+        # A row can be all-zero on one side (its window predicate matched nothing); keep only real
+        # groups so a workflow absent from a window doesn't surface as an empty zero-cost entry.
+        if finished or unfinished:
+            by_workflow_cur[workflow_name or ""].append(
+                (parsed, int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
+            )
+        if finished_prev or unfinished_prev:
+            by_workflow_prev[workflow_name or ""].append(
+                (parsed, int(finished_prev or 0), float(elapsed_prev or 0.0), int(unfinished_prev or 0))
+            )
     return (
-        {workflow: aggregate_pr_cost(jobs) for workflow, jobs in by_workflow_cur.items() if jobs},
-        {workflow: aggregate_pr_cost(jobs) for workflow, jobs in by_workflow_prev.items() if jobs},
+        {workflow: aggregate_job_groups(groups) for workflow, groups in by_workflow_cur.items()},
+        {workflow: aggregate_job_groups(groups) for workflow, groups in by_workflow_prev.items()},
     )
 
 
 # CI cost per merged PR over time (repo hub's Cost section trend). Two bucketed scans — cost by run
-# start, merges by merge time — folded together per bucket. Cost stays a Python rollup (aggregate_pr_cost)
-# so the runner-tier multiplier never leaves the backend; only the finished/elapsed/unfinished group
-# columns cross from HogQL, same as every other cost query here.
+# start, merges by merge time — folded together per bucket. Cost stays a Python rollup
+# (aggregate_job_groups) so the runner-tier multiplier never leaves the backend; only the
+# finished/elapsed/unfinished group columns cross from HogQL, same as every other cost query here.
 _COST_SERIES_SELECT = """
     SELECT
         __BUCKET_FN__ AS bucket_start,
@@ -420,13 +428,13 @@ def query_cost_per_merge_series(
     cost_response = curated.run(
         cost_sql, query_type="engineering_analytics.cost_per_merge_cost", placeholders=placeholders
     )
-    jobs_by_bucket: dict[datetime, list[tuple[list[str], float | None]]] = defaultdict(list)
+    groups_by_bucket: dict[datetime, list[JobGroup]] = defaultdict(list)
     for bucket_start, labels, finished, elapsed, unfinished in cost_response.results or []:
         key = normalize_bucket(bucket_start, granularity)
-        jobs_by_bucket[key].extend(
-            _expand_jobs(_parse_labels(labels), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
-        )
-    cost_by_bucket = {bucket: aggregate_pr_cost(jobs).estimated_cost_usd for bucket, jobs in jobs_by_bucket.items()}
+        groups_by_bucket[key].append(_job_group(labels, finished, elapsed, unfinished))
+    cost_by_bucket = {
+        bucket: aggregate_job_groups(groups).estimated_cost_usd for bucket, groups in groups_by_bucket.items()
+    }
 
     merges_sql = (
         _MERGES_SERIES_SELECT.replace("__PR_SOURCE__", curated.pr_source())
@@ -515,20 +523,20 @@ def query_workflow_runner_costs(
         query_type="engineering_analytics.workflow_runner_costs",
         placeholders=placeholders,
     )
-    by_tier: dict[tuple[str, str], list[tuple[list[str], float | None]]] = defaultdict(list)
+    by_tier: dict[tuple[str, str], list[JobGroup]] = defaultdict(list)
     for labels_raw, finished, elapsed, unfinished in response.results or []:
         labels = _parse_labels(labels_raw)
-        by_tier[runner_descriptor(labels)].extend(
-            _expand_jobs(labels, int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
+        by_tier[runner_descriptor(labels)].append(
+            (labels, int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
         )
     costs = []
-    for (provider, label), jobs in by_tier.items():
-        aggregate = aggregate_pr_cost(jobs)
+    for (provider, label), groups in by_tier.items():
+        aggregate = aggregate_job_groups(groups)
         costs.append(
             WorkflowRunnerCost(
                 provider=provider,
                 runner_label=label,
-                job_count=len(jobs),
+                job_count=sum(finished + unfinished for _, finished, _, unfinished in groups),
                 billable_minutes=aggregate.billable_seconds / 60,
                 estimated_cost_usd=aggregate.estimated_cost_usd,
             )
@@ -536,16 +544,9 @@ def query_workflow_runner_costs(
     return sorted(costs, key=lambda cost: (cost.estimated_cost_usd or 0.0, cost.billable_minutes), reverse=True)
 
 
-def _expand_jobs(
-    labels: list[str], finished: int, elapsed_total: float, unfinished: int
-) -> list[tuple[list[str], float | None]]:
-    """Re-expand a (labels, finished, elapsed_total, unfinished) group into per-job (labels, elapsed)
-    tuples for aggregate_pr_cost. Elapsed is split evenly across finished jobs — cost is linear in
-    elapsed, so the summed cost/minutes/counts are identical to costing each real job. The SQL sums
-    ``greatest(duration_seconds, 0)`` so a single clock-skewed negative duration can't cancel its
-    group-mates' elapsed before the split — matching aggregate_pr_cost's per-job ``max(0, elapsed)``."""
-    per = (elapsed_total / finished) if finished else 0.0
-    return [(labels, per)] * finished + [(labels, None)] * unfinished
+def _job_group(labels_raw: Any, finished: Any, elapsed: Any, unfinished: Any) -> JobGroup:
+    """One SQL result row's (labels JSON, finished, elapsed, unfinished) as a typed JobGroup."""
+    return (_parse_labels(labels_raw), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
 
 
 def _to_run_cost(run_id: int, run_attempt: int, aggregate: PRCostAggregate) -> RunCost:

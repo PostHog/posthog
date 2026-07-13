@@ -327,9 +327,10 @@ def build_repo_overview(
     curated: CuratedGitHubSource,
     date_from: str | None = None,
     date_to: str | None = None,
+    include_series: bool = True,
 ) -> RepoOverview:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to, include_series=include_series)
 
 
 def build_repo_run_activity(

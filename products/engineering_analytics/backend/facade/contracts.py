@@ -773,6 +773,8 @@ class RepoOverview:
     so the UI renders honest deltas. The previous window has the same length as the current one
     and ends where it starts. Cost figures are None when the job-level source isn't synced
     (``jobs_available``); the PR merge median excludes bots and drafts per the locked recipe.
+    The chart series are empty when the caller asked to skip them (``include_series=false``) —
+    headline-only consumers like the weekly digest shouldn't pay for chart queries they never read.
     """
 
     run_count: int
@@ -781,6 +783,10 @@ class RepoOverview:
     success_rate_prev: float | None
     rerun_cycles: int
     rerun_cycles_prev: int
+    # All merged PRs in the window, bots included — the merge population that triggered the CI spend,
+    # so cost-per-merge ratios use the same denominator as the cost series' bucket-local merges.
+    merged_pr_count: int
+    merged_pr_count_prev: int
     # Coarse by design: merged_at - created_at (draft + ready time fused), median over PRs merged in the window.
     median_open_to_merge_seconds: float | None
     median_open_to_merge_seconds_prev: float | None
