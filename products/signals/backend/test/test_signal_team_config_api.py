@@ -20,7 +20,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["default_slack_notification_channel"] is None
-        assert data["default_autostart_priority"] == "P4"
+        assert data["default_autostart_priority"] == "P3"
 
     def test_get_config_lazily_creates_when_no_config_exists(self):
         self.config.delete()
@@ -28,7 +28,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         response = self.client.get(self._url())
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
-        assert data["default_autostart_priority"] == "P4"
+        assert data["default_autostart_priority"] == "P3"
         assert data["default_slack_notification_channel"] is None
         assert SignalTeamConfig.objects.filter(team=self.team).exists()
 
