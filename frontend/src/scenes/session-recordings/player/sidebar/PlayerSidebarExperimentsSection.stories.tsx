@@ -68,9 +68,16 @@ Default.decorators = [
     }),
 ]
 
-// The section renders nothing when the session saw no experiments — the snapshot should stay blank.
+// The section renders nothing when the session saw no experiments — only the caption should
+// be visible. The caption also gives the snapshot runner a visible element to screenshot,
+// which a fully empty story lacks.
 export function Empty(): JSX.Element {
-    return <MockedPlayerSidebarExperimentsSection sessionRecordingId="experiment-context-empty" />
+    return (
+        <div className="flex flex-col gap-2 w-80">
+            <div className="text-xs text-secondary">Nothing should render below this caption:</div>
+            <MockedPlayerSidebarExperimentsSection sessionRecordingId="experiment-context-empty" />
+        </div>
+    )
 }
 Empty.decorators = [
     mswDecorator({
