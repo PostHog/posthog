@@ -77,6 +77,15 @@ export function getContextColumn(
     queryContextColumnName: string | undefined
     queryContextColumn: QueryContextColumn | undefined
 } {
+    // Guard against undefined/non-string keys slipping in from a malformed columns array,
+    // which would otherwise throw `key.startsWith is not a function` and crash the whole table render.
+    if (typeof key !== 'string') {
+        return {
+            queryContextColumnName: undefined,
+            queryContextColumn: undefined,
+        }
+    }
+
     const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
     const queryContextColumn = queryContextColumnName ? columns?.[queryContextColumnName] : undefined
 
