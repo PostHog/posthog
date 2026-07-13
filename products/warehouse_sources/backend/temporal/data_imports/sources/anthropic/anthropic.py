@@ -246,7 +246,9 @@ def _iter_report_rows(
         for bucket in data.get("data", []):
             for result in bucket.get("results", []):
                 batcher.batch(flatten(bucket, result))
-                if batcher.should_yield():
+                # A single batch can split into several ready chunks, so drain them all before
+                # the next batch() call (which raises if `_ready` is still populated).
+                while batcher.should_yield():
                     yield batcher.get_table()
                     # Save only when a batch is actually committed, pointing at the next page. A crash
                     # then resumes from a page whose predecessors are all in the yielded batch, so no
@@ -301,7 +303,7 @@ def _iter_entity_rows(
     ):
         for item in items:
             batcher.batch(_normalize_entity(config.name, item))
-            if batcher.should_yield():
+            while batcher.should_yield():
                 yield batcher.get_table()
                 if last_id:
                     resumable_source_manager.save_state(AnthropicResumeConfig(cursor=last_id))
@@ -337,7 +339,7 @@ def _iter_workspace_member_rows(
                 # composite primary key is always populated.
                 row = {**item, "workspace_id": item.get("workspace_id") or workspace_id}
                 batcher.batch(row)
-                if batcher.should_yield():
+                while batcher.should_yield():
                     yield batcher.get_table()
                     if last_id:
                         resumable_source_manager.save_state(
@@ -388,7 +390,7 @@ def get_rows(
     else:
         yield from _iter_entity_rows(session, headers, logger, batcher, resumable_source_manager, config)
 
-    if batcher.should_yield(include_incomplete_chunk=True):
+    while batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
 
 

@@ -180,6 +180,27 @@ class TestReportPagination:
         assert [r["model"] for r in rows] == ["b"]
         assert "page=PAGE2" in manager._captured_calls[0]  # type: ignore[attr-defined]
 
+    def test_drains_every_chunk_when_a_batch_splits(self, monkeypatch: Any) -> None:
+        # A batch can split into several ready chunks (byte/offset caps). Force it with tiny limits:
+        # if the loop only pops one chunk per batch, the next batch() raises and rows go missing.
+        real_batcher = anthropic.Batcher
+
+        def tiny_batcher(**_: Any) -> anthropic.Batcher:
+            return real_batcher(logger=MagicMock(), chunk_size=4, chunk_size_bytes=10**12, max_table_bytes=1)
+
+        monkeypatch.setattr(anthropic, "Batcher", tiny_batcher)
+
+        results = [{"model": f"m{i}"} for i in range(8)]
+        responses = [
+            {
+                "data": [{"starting_at": "d1", "ending_at": "d2", "results": results}],
+                "has_more": False,
+                "next_page": None,
+            }
+        ]
+        rows = _collect(_FakeResumableManager(), monkeypatch, responses, "usage_report")
+        assert sorted(r["model"] for r in rows) == [f"m{i}" for i in range(8)]
+
 
 class TestEntityPagination:
     def test_cursor_pagination_uses_last_id_and_stops(self, monkeypatch: Any) -> None:
@@ -287,7 +308,7 @@ class TestFetchPage:
 
     def test_client_error_raises_for_status_without_retry(self) -> None:
         response = MagicMock(status_code=401, ok=False, text="unauthorized")
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=response)
         session = MagicMock()
         session.get.return_value = response
         with pytest.raises(requests.HTTPError):

@@ -52,7 +52,7 @@ class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConf
             caption="""Enter your Anthropic Admin API key to pull your organization's Claude usage, cost, and admin data into the PostHog Data warehouse.
 
 Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console](https://console.anthropic.com/settings/admin-keys). Only organization admins can create one, and the Admin API is not available for individual accounts.""",
-            iconPath="/static/services/anthropic.png",
+            iconPath="/static/services/anthropic.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/anthropic",
             keywords=["llm", "claude", "ai usage", "cost"],
             fields=cast(
