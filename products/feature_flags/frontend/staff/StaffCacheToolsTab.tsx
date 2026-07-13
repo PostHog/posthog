@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEye } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonSwitch,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
