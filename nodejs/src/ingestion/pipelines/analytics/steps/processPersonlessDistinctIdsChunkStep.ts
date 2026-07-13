@@ -12,7 +12,7 @@ import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '~/ingestion/config
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PipelineEvent, Team } from '~/types'
 
-type ProcessPersonlessDistinctIdsBatchStepInput = {
+type ProcessPersonlessDistinctIdsChunkStepInput = {
     event: PipelineEvent
     team: Team
     personsStoreForBatch: PersonsStoreForBatch
@@ -21,7 +21,7 @@ type ProcessPersonlessDistinctIdsBatchStepInput = {
 type PersonlessSource = 'batch' | 'flag_called'
 
 /**
- * Batch step that inserts personless distinct IDs into posthog_personlessdistinctid. This
+ * Chunk step that inserts personless distinct IDs into posthog_personlessdistinctid. This
  * runs after prefetchPersonsStep (which fires off person-existence fetches in the background)
  * and before the per-event processPersonlessStep, which awaits those fetches via fetchForChecking
  * and reads the is_merged results stored here.
@@ -40,13 +40,13 @@ type PersonlessSource = 'batch' | 'flag_called'
  * gated on the absence of a real person, and coexistence is the normal post-merge state. So
  * this step does not need a per-row person check.
  */
-export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonlessDistinctIdsBatchStepInput>(
+export function processPersonlessDistinctIdsChunkStep<T extends ProcessPersonlessDistinctIdsChunkStepInput>(
     enabled: boolean,
     flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS
 ) {
     const flagCalledDefaultEnabledForTeam = buildFlagCalledPersonlessMatcher(flagCalledPersonlessDefaultTeams)
 
-    return async function processPersonlessDistinctIdsBatchStep(events: T[]): Promise<PipelineResult<T>[]> {
+    return async function processPersonlessDistinctIdsChunkStep(events: T[]): Promise<PipelineResult<T>[]> {
         if (enabled) {
             // Events in a chunk may come from different Kafka batches (due to the feed primitive).
             // Group by personsStoreForBatch so each batch's is_merged results land in the right
@@ -109,7 +109,7 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
 }
 
 function personlessSource(
-    e: ProcessPersonlessDistinctIdsBatchStepInput,
+    e: ProcessPersonlessDistinctIdsChunkStepInput,
     flagCalledDefaultEnabledForTeam: (teamId: number) => boolean
 ): PersonlessSource | null {
     const processPersonProfile = e.event.properties?.$process_person_profile

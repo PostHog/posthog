@@ -3,8 +3,8 @@ import { Message } from 'node-rdkafka'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
-import { ConcurrentlyGroupingBatchPipeline } from './concurrently-grouping-batch-pipeline'
-import { createContext, createNewBatchPipeline, createNewPipeline, createOkContext } from './helpers'
+import { ConcurrentlyGroupingChunkPipeline } from './concurrently-grouping-chunk-pipeline'
+import { createContext, createNewChunkPipeline, createNewPipeline, createOkContext } from './helpers'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { dlq, drop, ok } from './results'
 
@@ -24,7 +24,7 @@ function xoshiro128ss(a: number, b: number, c: number, d: number): () => number 
     }
 }
 
-describe('ConcurrentlyGroupingBatchPipeline', () => {
+describe('ConcurrentlyGroupingChunkPipeline', () => {
     let message1: Message
     let message2: Message
     let message3: Message
@@ -57,11 +57,11 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             const processor = createNewPipeline<{ value: string; group: string }>().pipe((input) =>
                 Promise.resolve(ok({ ...input, processed: true }))
             )
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
-            expect(pipeline).toBeInstanceOf(ConcurrentlyGroupingBatchPipeline)
+            expect(pipeline).toBeInstanceOf(ConcurrentlyGroupingChunkPipeline)
         })
     })
 
@@ -70,10 +70,10 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             const processor = createNewPipeline<{ value: string; group: string }>().pipe((input) =>
                 Promise.resolve(ok(input))
             )
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             const spy = jest.spyOn(previousPipeline, 'feed')
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
             const testBatch = [createOkContext({ value: 'test', group: 'A' }, context1)]
 
             pipeline.feed(testBatch)
@@ -87,9 +87,9 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             const processor = createNewPipeline<{ value: string; group: string }>().pipe((input) =>
                 Promise.resolve(ok(input))
             )
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             const result = await pipeline.next()
             expect(result).toBeNull()
@@ -100,11 +100,11 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 return Promise.reject(new Error('Processor error'))
             })
 
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             const testBatch = [createOkContext({ value: 'test', group: 'A' }, context1)]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             await expect(pipeline.next()).rejects.toThrow('Processor error')
         })
@@ -115,7 +115,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             const processor = createNewPipeline<{ value: string; group: string }>().pipe((input) =>
                 Promise.resolve(ok({ ...input, processed: true }))
             )
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
 
             const testBatch = [
                 createOkContext({ value: 'a1', group: 'A' }, context1),
@@ -124,7 +124,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             ]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             const results: PipelineResultWithContext<any, any>[] = []
             let result = await pipeline.next()
@@ -145,7 +145,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 processingOrder.push(`end-${input.value}`)
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
 
             const testBatch = [
                 createOkContext({ value: 'a1', group: 'A' }, context1),
@@ -153,7 +153,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             ]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             const resultsPromise = (async () => {
                 let result = await pipeline.next()
@@ -189,12 +189,12 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             const processor = createNewPipeline<{ group: string; groupIndex: number }>().pipe((input) =>
                 Promise.resolve(ok({ ...input, processed: true }))
             )
-            const previousPipeline = createNewBatchPipeline<{ group: string; groupIndex: number }>().build()
+            const previousPipeline = createNewChunkPipeline<{ group: string; groupIndex: number }>().build()
 
             const testBatch = events.map((e) => createOkContext(e, context1))
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             // Collect results and track per-group ordering
             const groupResults = new Map<string, number[]>()
@@ -245,7 +245,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 await Promise.all(startedPromises)
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ index: number; group: string }>().build()
+            const previousPipeline = createNewChunkPipeline<{ index: number; group: string }>().build()
 
             const testBatch = []
             for (let i = 0; i < groupCount; i++) {
@@ -253,7 +253,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             }
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             const results: PipelineResultWithContext<any, any>[] = []
             let result = await pipeline.next()
@@ -278,7 +278,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 }
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ index: number; group: string }>().build()
+            const previousPipeline = createNewChunkPipeline<{ index: number; group: string }>().build()
 
             const testBatch = []
             let index = 0
@@ -290,7 +290,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             testBatch.push(createOkContext({ index: index++, group: 'slow' }, context1))
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             // Consume results until we have all normal groups
             const results: PipelineResultWithContext<any, any>[] = []
@@ -347,7 +347,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 }
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ index: number; group: string }>().build()
+            const previousPipeline = createNewChunkPipeline<{ index: number; group: string }>().build()
 
             const testBatch = []
             let index = 0
@@ -358,7 +358,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             }
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline(
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
                 processor,
                 previousPipeline,
@@ -399,8 +399,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 activeByGroup.set(input.group, (activeByGroup.get(input.group) ?? 1) - 1)
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingBatchPipeline(
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
                 processor,
                 previousPipeline,
@@ -466,7 +466,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             const testBatch = [createContext(dropResult, context1), createContext(dlqResult, context2)]
             const previousPipeline = createMockPipeline<{ value: string; group: string }>(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             const results: PipelineResultWithContext<any, any>[] = []
             let result = await pipeline.next()
@@ -495,7 +495,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             ]
             const previousPipeline = createMockPipeline<{ value: string; group: string }>(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             const results: PipelineResultWithContext<any, any>[] = []
             let result = await pipeline.next()
@@ -514,7 +514,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
     describe('concurrentlyPerGroup builder DSL', () => {
         it('should work with the concurrentlyPerGroup builder method', async () => {
-            const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
+            const pipeline = createNewChunkPipeline<{ value: string; group: string }>()
                 .concurrentlyPerGroup(
                     (input) => input.group,
                     (group) =>
@@ -543,7 +543,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
         })
 
         it('should chain with gather to collect all results', async () => {
-            const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
+            const pipeline = createNewChunkPipeline<{ value: string; group: string }>()
                 .concurrentlyPerGroup(
                     (input) => input.group,
                     (group) =>
@@ -577,8 +577,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 processingOrder.push(`end-${input.value}`)
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             // Feed first batch with items for group A
             previousPipeline.feed([
@@ -643,8 +643,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 processingOrder.push(`end-${input.value}`)
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             // Feed one element each for groups A and B (B is slow)
             previousPipeline.feed([
@@ -754,7 +754,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
     describe('complex grouping scenarios', () => {
         it('should handle multiple items per group with sequential processing', async () => {
             const processingOrder: string[] = []
-            const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
+            const pipeline = createNewChunkPipeline<{ value: string; group: string }>()
                 .concurrentlyPerGroup(
                     (input) => input.group,
                     (group) =>
@@ -803,7 +803,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
         })
 
         it('should handle empty batches gracefully', async () => {
-            const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
+            const pipeline = createNewChunkPipeline<{ value: string; group: string }>()
                 .concurrentlyPerGroup(
                     (input) => input.group,
                     (group) =>
@@ -820,7 +820,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
         })
 
         it('should handle single item groups', async () => {
-            const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
+            const pipeline = createNewChunkPipeline<{ value: string; group: string }>()
                 .concurrentlyPerGroup(
                     (input) => input.group,
                     (group) =>
@@ -853,8 +853,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 await new Promise((resolve) => setTimeout(resolve, delay))
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
             const nextPromise = pipeline.next()
@@ -876,8 +876,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 await new Promise((resolve) => setTimeout(resolve, delay))
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
 
@@ -916,8 +916,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 await new Promise((resolve) => setTimeout(resolve, 5))
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             previousPipeline.feed([
                 createOkContext({ value: 'a1', group: 'A' }, context1),
@@ -949,8 +949,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 }
                 return ok({ ...input, processed: true })
             })
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             previousPipeline.feed([
                 createOkContext({ value: 'a1', group: 'A' }, context1),
@@ -984,9 +984,9 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             const processor = createNewPipeline<{ value: string; group: string }>().pipe(() =>
                 Promise.reject(new Error('processor boom'))
             )
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             await expect(pipeline.next()).rejects.toThrow('processor boom')
             await expect(pipeline.next()).rejects.toThrow('processor boom')
@@ -1000,7 +1000,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 feed: jest.fn(),
                 next: jest.fn().mockRejectedValueOnce(new Error('source boom')).mockResolvedValue(null),
             }
-            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
 
             await expect(pipeline.next()).rejects.toThrow('source boom')
             await expect(pipeline.next()).rejects.toThrow('source boom')

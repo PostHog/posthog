@@ -5,10 +5,10 @@ import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
-describe('processPersonlessDistinctIdsBatchStep', () => {
+describe('processPersonlessDistinctIdsChunkStep', () => {
     let mockPersonsStore: jest.Mocked<PersonsStoreForBatch>
     let team: Team
-    let processPersonlessDistinctIdsBatchStep: typeof import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep').processPersonlessDistinctIdsBatchStep
+    let processPersonlessDistinctIdsChunkStep: typeof import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsChunkStep').processPersonlessDistinctIdsChunkStep
     let personlessDistinctIdCacheOperationsCounter: typeof import('~/ingestion/common/persons/personless-distinct-id-cache').personlessDistinctIdCacheOperationsCounter
 
     // Reads the freshly-imported counter the step writes to (resetModules gives each test its own).
@@ -20,8 +20,8 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
     beforeEach(async () => {
         // Reset modules to get a fresh LRU cache for each test
         jest.resetModules()
-        const module = await import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep.js')
-        processPersonlessDistinctIdsBatchStep = module.processPersonlessDistinctIdsBatchStep
+        const module = await import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsChunkStep.js')
+        processPersonlessDistinctIdsChunkStep = module.processPersonlessDistinctIdsChunkStep
         // Import the cache module from the same fresh graph so the counter is the one the step increments.
         personlessDistinctIdCacheOperationsCounter = (
             await import('~/ingestion/common/persons/personless-distinct-id-cache.js')
@@ -61,7 +61,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
 
     describe('when enabled', () => {
         it('should process personless events and call batch insert', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true)
+            const step = processPersonlessDistinctIdsChunkStep(true)
             const events = [createInput('user-1', false), createInput('user-2', false), createInput('user-3', false)]
 
             const results = await step(events)
@@ -76,7 +76,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should skip non-personless events', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true)
+            const step = processPersonlessDistinctIdsChunkStep(true)
             const events = [
                 createInput('user-1', true), // processPerson=true
                 createInput('user-2', false), // processPerson=false (personless)
@@ -92,7 +92,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should not call batch insert when no personless events', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true)
+            const step = processPersonlessDistinctIdsChunkStep(true)
             const events = [createInput('user-1', true), createInput('user-2')]
 
             const results = await step(events)
@@ -104,7 +104,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         it('should return all events as OK even if batch insert fails', async () => {
             mockPersonsStore.processPersonlessDistinctIdsBatch.mockRejectedValue(new Error('DB error'))
 
-            const step = processPersonlessDistinctIdsBatchStep(true)
+            const step = processPersonlessDistinctIdsChunkStep(true)
             const events = [createInput('user-1', false)]
 
             // The step should throw since we don't handle errors gracefully
@@ -114,7 +114,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
 
     describe('when disabled', () => {
         it('should not process any events', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(false)
+            const step = processPersonlessDistinctIdsChunkStep(false)
             const events = [createInput('user-1', false), createInput('user-2', false)]
 
             const results = await step(events)
@@ -127,7 +127,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
 
     describe('LRU cache behavior', () => {
         it('should deduplicate entries within same batch before hitting cache', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true)
+            const step = processPersonlessDistinctIdsChunkStep(true)
             const events = [
                 createInput('user-1', false),
                 createInput('user-1', false), // Duplicate - deduped before cache/insert
@@ -144,7 +144,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should use cache to skip already-inserted distinct IDs across batches', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true)
+            const step = processPersonlessDistinctIdsChunkStep(true)
 
             // First batch
             await step([createInput('user-1', false)])
@@ -164,7 +164,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
 
     describe('$feature_flag_called batching', () => {
         it('should batch insert flag-called candidates for enabled teams', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true, String(team.id))
+            const step = processPersonlessDistinctIdsChunkStep(true, String(team.id))
             const events = [createFlagCalledInput('user-1'), createFlagCalledInput('user-2')]
 
             await step(events)
@@ -176,7 +176,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should not insert flag-called events when the team is not enabled', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true, '') // no enabled teams
+            const step = processPersonlessDistinctIdsChunkStep(true, '') // no enabled teams
             const events = [createFlagCalledInput('user-1')]
 
             await step(events)
@@ -186,7 +186,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
 
         it('should only insert flag-called candidates from teams in the matcher, not others in the same batch', async () => {
             const otherTeam = createTestTeam({ id: team.id + 1 })
-            const step = processPersonlessDistinctIdsBatchStep(true, String(team.id)) // only `team` enabled
+            const step = processPersonlessDistinctIdsChunkStep(true, String(team.id)) // only `team` enabled
 
             const events = [
                 createFlagCalledInput('enabled-user'),
@@ -204,7 +204,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should support "*" to enable flag-called batching for all teams', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true, '*')
+            const step = processPersonlessDistinctIdsChunkStep(true, '*')
             const events = [createFlagCalledInput('user-1')]
 
             await step(events)
@@ -215,7 +215,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should skip flag-called events that explicitly set $process_person_profile=true', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true, '*')
+            const step = processPersonlessDistinctIdsChunkStep(true, '*')
             const events = [createFlagCalledInput('user-1', { $process_person_profile: true })]
 
             await step(events)
@@ -224,7 +224,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should skip flag-called events carrying group keys', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true, '*')
+            const step = processPersonlessDistinctIdsChunkStep(true, '*')
             const events = [createFlagCalledInput('user-1', { $groups: { org: 'acme' } })]
 
             await step(events)
@@ -233,7 +233,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should treat a flag-called event with $process_person_profile=false as explicit-personless', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true, '') // flag-called batching off
+            const step = processPersonlessDistinctIdsChunkStep(true, '') // flag-called batching off
             const events = [createFlagCalledInput('user-1', { $process_person_profile: false })]
 
             await step(events)
@@ -245,7 +245,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should batch explicit-personless and flag-called candidates together', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true, '*')
+            const step = processPersonlessDistinctIdsChunkStep(true, '*')
             const events = [createInput('user-1', false), createFlagCalledInput('user-2')]
 
             await step(events)
@@ -257,7 +257,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should not insert flag-called candidates when disabled', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(false, '*')
+            const step = processPersonlessDistinctIdsChunkStep(false, '*')
             const events = [createFlagCalledInput('user-1')]
 
             await step(events)
@@ -266,7 +266,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         })
 
         it('should count hits and misses per source on the cache counter', async () => {
-            const step = processPersonlessDistinctIdsBatchStep(true, '*')
+            const step = processPersonlessDistinctIdsChunkStep(true, '*')
 
             // First batch: one flag-called and one explicit-personless distinct ID, both cold -> one miss each.
             await step([createFlagCalledInput('ff-1'), createInput('batch-1', false)])
