@@ -3,7 +3,7 @@ import { Field, Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconArrowLeft, IconInfo, IconPlay, IconTrends, IconWarning } from '@posthog/icons'
+import { IconInfo, IconPlay, IconTrends, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -211,9 +211,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     }
 
     const handleCancel = (): void => {
-        if (hasUnsavedChanges) {
-            resetEvaluation()
-        }
+        resetEvaluation()
         push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
     }
 
@@ -283,9 +281,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
                             Open in Playground
                         </LemonButton>
                     ) : null}
-                    <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
-                        {hasUnsavedChanges ? 'Cancel' : 'Back'}
-                    </LemonButton>
+                    {hasUnsavedChanges && (
+                        <LemonButton type="secondary" onClick={handleCancel}>
+                            Cancel
+                        </LemonButton>
+                    )}
                     {activeTab !== 'runs' && (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.LlmAnalytics}
