@@ -17,6 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { formatCredits } from '../utils/credits'
@@ -102,6 +103,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 }
             />
 
+            <IngestionLimitBanner />
             <QuotaBanner />
 
             <LemonTabs
