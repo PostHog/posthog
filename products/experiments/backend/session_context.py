@@ -31,6 +31,11 @@ from products.experiments.backend.models.experiment import Experiment
 # replay window (clock skew, events flushed before/after snapshots).
 EVENT_WINDOW_SLACK = timedelta(hours=1)
 MAX_CANDIDATE_EXPERIMENTS = 50
+# The exposure query filters to real experiment flag keys and defined variant names, so its
+# group-by output is bounded by team configuration, not by event payloads. The explicit limit
+# is a backstop far above any real configuration — without it HogQL applies an implicit
+# LIMIT 100, which would silently and nondeterministically truncate legitimate rows.
+MAX_EXPOSURE_ROWS = 10_000
 
 
 @dataclass(frozen=True)
@@ -79,12 +84,26 @@ def get_session_experiment_context(
     window_start = recording_start - EVENT_WINDOW_SLACK
     window_end = recording_end + EVENT_WINDOW_SLACK
 
-    exposures = _query_exposure_events(team, session_id, window_start, window_end)
+    # Every overlapping experiment's flag key (uncapped — the rescue below must be able to see
+    # beyond the candidate cap) and the union of their defined variant names. Filtering the
+    # exposure query to these bounds its cardinality by real configuration: sessions call
+    # plenty of non-experiment flags, and event payloads can carry arbitrary keys/variants.
+    flag_meta = list(overlapping.values_list("feature_flag__key", "feature_flag__filters"))
+    experiment_flag_keys = {key for key, _ in flag_meta}
+    defined_variants = {variant for _, filters in flag_meta for variant in _variant_keys_from_filters(filters)}
+    if not defined_variants:
+        # No overlapping experiment defines variants, so nothing could surface a variant seen.
+        return []
 
-    # The exposure query returns every flag the session called, so a flag with verifiable
-    # in-session evidence rescues its experiment even when it fell outside the cap above.
-    # Rescued keys join the stamped-property query too — it stays bounded, since rescues
-    # are limited to real overlapping experiments the session demonstrably called.
+    exposures = _query_exposure_events(
+        team, session_id, window_start, window_end, experiment_flag_keys, defined_variants
+    )
+
+    # The exposure query covers every overlapping experiment's flag (not just the capped
+    # candidates), so a flag with verifiable in-session evidence rescues its experiment even
+    # when it fell outside the cap above. Rescued keys join the stamped-property query too —
+    # it stays bounded, since rescues are limited to real overlapping experiments the session
+    # demonstrably called.
     candidate_keys = {experiment.feature_flag.key for experiment in candidates}
     rescued_keys = set(exposures) - candidate_keys
     if rescued_keys:
@@ -131,9 +150,13 @@ def get_session_experiment_context(
     return sorted(items, key=lambda item: item.experiment_name.lower())
 
 
-def _defined_variant_keys(experiment: Experiment) -> set[str]:
-    multivariate = (experiment.feature_flag.filters or {}).get("multivariate") or {}
+def _variant_keys_from_filters(filters: Optional[dict]) -> set[str]:
+    multivariate = (filters or {}).get("multivariate") or {}
     return {variant["key"] for variant in multivariate.get("variants", []) if variant.get("key")}
+
+
+def _defined_variant_keys(experiment: Experiment) -> set[str]:
+    return _variant_keys_from_filters(experiment.feature_flag.filters)
 
 
 def _query_exposure_events(
@@ -141,8 +164,11 @@ def _query_exposure_events(
     session_id: str,
     window_start: datetime,
     window_end: datetime,
+    flag_keys: set[str],
+    variants: set[str],
 ) -> dict[str, list[tuple[str, datetime]]]:
-    """All `$feature_flag_called` events in the session, as flag_key -> [(variant, first_seen)]."""
+    """The session's `$feature_flag_called` events for the given experiment flag keys and
+    defined variant names, as flag_key -> [(variant, first_seen)]."""
     query = parse_select(
         """
         SELECT properties.$feature_flag AS flag_key,
@@ -151,14 +177,20 @@ def _query_exposure_events(
         FROM events
         WHERE event = '$feature_flag_called'
           AND $session_id = {session_id}
+          AND properties.$feature_flag IN {flag_keys}
+          AND toString(properties.$feature_flag_response) IN {variants}
           AND timestamp >= {window_start}
           AND timestamp <= {window_end}
         GROUP BY flag_key, variant
+        LIMIT {max_rows}
         """,
         placeholders={
             "session_id": ast.Constant(value=session_id),
+            "flag_keys": ast.Constant(value=sorted(flag_keys)),
+            "variants": ast.Constant(value=sorted(variants)),
             "window_start": ast.Constant(value=window_start),
             "window_end": ast.Constant(value=window_end),
+            "max_rows": ast.Constant(value=MAX_EXPOSURE_ROWS),
         },
     )
     response = execute_hogql_query(query, team=team)

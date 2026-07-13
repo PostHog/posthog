@@ -233,6 +233,29 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
 
+    def test_resolves_experiment_amid_non_experiment_flag_calls(self) -> None:
+        self._create_recording()
+        experiment = self._create_experiment()
+        # A non-experiment flag whose response collides with a defined variant name must not
+        # surface anywhere, and must not stop the real experiment exposure from resolving.
+        for key, response_value in [("plain-flag", "true"), ("colliding-flag", "control")]:
+            FeatureFlag.objects.create(team=self.team, key=key, name=key, created_by=self.user)
+            self._create_session_event(
+                properties={"$feature_flag": key, "$feature_flag_response": response_value},
+            )
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["flag_key"] for result in results] == ["checkout-cta"]
+        assert results[0]["experiment_id"] == experiment.id
+        assert results[0]["variant"] == "test"
+        assert results[0]["variants_seen"] == ["test"]
+
     def test_excludes_private_experiments(self) -> None:
         self._enable_access_controls()
         other_user = self._create_user("other-experimenter@posthog.com")
