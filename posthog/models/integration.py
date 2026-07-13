@@ -1096,11 +1096,16 @@ class OauthIntegration:
         if not token:
             return
 
-        requests.post(
+        # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
+        # resending the token to another host. raise_for_status surfaces a provider rejection
+        # to the caller's capture_exception instead of it passing silently as a revoke.
+        response = requests.post(
             oauth_config.token_revoke_url,
             data={"token": token},
             timeout=10,
+            allow_redirects=False,
         )
+        response.raise_for_status()
 
     def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         # Not all integrations have refresh tokens or expiries, so we just return False if we can't check

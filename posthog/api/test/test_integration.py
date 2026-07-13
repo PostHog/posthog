@@ -14,6 +14,7 @@ from django.test import override_settings
 from django.test.client import Client as HttpClient
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -3184,6 +3185,7 @@ class TestOauthIntegrationRevokeOnDisconnect:
             "https://login.salesforce.com/services/oauth2/revoke",
             data={"token": "sf-refresh"},
             timeout=10,
+            allow_redirects=False,
         )
 
     @patch("posthog.models.integration.requests.post")
@@ -3198,7 +3200,9 @@ class TestOauthIntegrationRevokeOnDisconnect:
 
         rejected = self._create_salesforce_integration()
         mock_post.side_effect = None
-        mock_post.return_value = MagicMock(status_code=400)
+        rejecting_response = MagicMock(status_code=400)
+        rejecting_response.raise_for_status.side_effect = requests.HTTPError("400 Client Error")
+        mock_post.return_value = rejecting_response
         response = client.delete(f"/api/environments/{self.team.pk}/integrations/{rejected.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=rejected.id).exists()
