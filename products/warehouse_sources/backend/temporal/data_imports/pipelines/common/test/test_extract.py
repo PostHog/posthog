@@ -6,7 +6,6 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import requests
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
@@ -82,11 +81,11 @@ class TestHandleNonRetryableError:
         # Within the retry limit the original error is re-raised (so Temporal retries it a few times
         # in case it's transient) but flagged skip_error_tracking, so the interceptor doesn't report
         # every attempt — the per-retry noise (e.g. 403-on-list_snapshot) the fix removes.
-        error = requests.HTTPError("403 Client Error: Forbidden")
+        error = RuntimeError("403 Client Error: Forbidden")
         redis_client = MagicMock(incr=AsyncMock(return_value=1), expire=AsyncMock())
 
         with self._patch_redis(redis_client):
-            with pytest.raises(requests.HTTPError) as exc_info:
+            with pytest.raises(RuntimeError) as exc_info:
                 await handle_non_retryable_error(
                     self._job_inputs(), "403 Client Error", MagicMock(adebug=AsyncMock()), error, "Access denied."
                 )
@@ -106,7 +105,7 @@ class TestHandleNonRetryableError:
     async def test_wraps_in_non_retryable_with_friendly_message(self, _name: str, attempts: int | None):
         # On give-up we wrap in NonRetryableException carrying the friendly per-source message (not an
         # empty exception) and chained from the original error so the finalizer can still classify it.
-        error = requests.HTTPError("403 Client Error: Forbidden")
+        error = RuntimeError("403 Client Error: Forbidden")
         friendly = "Access denied. Check your Convex deploy key."
         redis_client = (
             None if attempts is None else MagicMock(incr=AsyncMock(return_value=attempts), expire=AsyncMock())
