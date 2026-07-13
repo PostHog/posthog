@@ -103,7 +103,6 @@ describe('visionActionsLogic', () => {
             mode: 'group_summary',
             alert_frequency: 'on_breach',
             alert_metric: 'count',
-            alert_operator: 'gte',
             alert_threshold: 1,
             alert_window_days: 1,
         }
@@ -135,7 +134,6 @@ describe('visionActionsLogic', () => {
             mode: 'group_summary',
             alert_frequency: 'on_breach',
             alert_metric: 'count',
-            alert_operator: 'gte',
             alert_threshold: 1,
             alert_window_days: 1,
         }
@@ -162,7 +160,6 @@ describe('visionActionsLogic', () => {
             mode: 'alert',
             alert_frequency: 'on_breach',
             alert_metric: 'count',
-            alert_operator: 'gte',
             alert_threshold: 1,
             alert_window_days: 1,
         }
@@ -171,7 +168,6 @@ describe('visionActionsLogic', () => {
         expect(body.alert_config).toEqual({
             frequency: 'on_breach',
             metric: 'count',
-            operator: 'gte',
             threshold: 1,
             window_days: 1,
         })

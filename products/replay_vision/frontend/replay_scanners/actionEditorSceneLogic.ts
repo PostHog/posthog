@@ -19,7 +19,6 @@ import {
     AlertConfigFrequencyEnumApi,
     VisionActionModeEnumApi,
     VisionAlertMetricEnumApi,
-    VisionAlertOperatorEnumApi,
 } from '../generated/api.schemas'
 import type { VisionActionApi } from '../generated/api.schemas'
 import type { actionEditorSceneLogicType } from './actionEditorSceneLogicType'
@@ -301,9 +300,8 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                         ? AlertConfigFrequencyEnumApi.OnBreach
                         : AlertConfigFrequencyEnumApi.EveryMatch),
                 alert_metric: action.alert_config?.metric ?? VisionAlertMetricEnumApi.Count,
-                alert_operator: action.alert_config?.operator ?? VisionAlertOperatorEnumApi.Gte,
                 alert_threshold: action.alert_config?.threshold ?? 1,
-                alert_window_days: Number(action.alert_config?.window_days ?? 1),
+                alert_window_days: action.alert_config?.window_days ?? 1,
                 verdict: action.selection?.verdict ?? [],
                 tags: action.selection?.tags ?? [],
                 min_score: action.selection?.min_score ?? null,

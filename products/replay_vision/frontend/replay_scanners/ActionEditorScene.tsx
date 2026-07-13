@@ -28,7 +28,6 @@ import {
     AlertConfigFrequencyEnumApi,
     VisionActionModeEnumApi,
     VisionAlertMetricEnumApi,
-    VisionAlertOperatorEnumApi,
 } from '../generated/api.schemas'
 import { actionEditorSceneLogic } from './actionEditorSceneLogic'
 import { DEFAULT_CADENCE } from './cadence'
@@ -281,14 +280,6 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
     )
 }
 
-const OPERATOR_LABELS: Record<VisionAlertOperatorEnumApi, string> = {
-    [VisionAlertOperatorEnumApi.Gt]: 'is above',
-    [VisionAlertOperatorEnumApi.Gte]: 'is at or above',
-    [VisionAlertOperatorEnumApi.Lt]: 'is below',
-    [VisionAlertOperatorEnumApi.Lte]: 'is at or below',
-    [VisionAlertOperatorEnumApi.Eq]: 'is exactly',
-}
-
 const WINDOW_OPTIONS = [
     { value: 1, label: 'the last 24 hours' },
     { value: 3, label: 'the last 3 days' },
@@ -466,16 +457,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                         options={WINDOW_OPTIONS}
                         data-attr="vision-action-alert-window"
                     />
-                    <LemonSelect
-                        size="small"
-                        value={actionForm.alert_operator}
-                        onChange={(value) => value && setActionFormValue('alert_operator', value)}
-                        options={Object.entries(OPERATOR_LABELS).map(([value, label]) => ({
-                            value: value as VisionAlertOperatorEnumApi,
-                            label,
-                        }))}
-                        data-attr="vision-action-alert-operator"
-                    />
+                    <span className="text-sm">reaches</span>
                     <LemonInput
                         type="number"
                         size="small"

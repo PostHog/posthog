@@ -15,7 +15,7 @@ import {
     DeliveryTargetTypeEnumApi,
     VisionActionModeEnumApi,
     VisionAlertMetricEnumApi,
-    VisionAlertOperatorEnumApi,
+    WindowDaysEnumApi,
 } from '../generated/api.schemas'
 import type { VerdictEnumApi, VisionActionApi } from '../generated/api.schemas'
 import { CadenceState, cadenceToRrule, DEFAULT_CADENCE } from './cadence'
@@ -42,9 +42,8 @@ export interface VisionActionForm {
     mode: VisionActionModeEnumApi
     alert_frequency: AlertConfigFrequencyEnumApi
     alert_metric: VisionAlertMetricEnumApi
-    alert_operator: VisionAlertOperatorEnumApi
     alert_threshold: number | null
-    alert_window_days: number
+    alert_window_days: WindowDaysEnumApi
 }
 
 export const NEW_ACTION_FORM = (): VisionActionForm => ({
@@ -62,7 +61,6 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     // Default alert flavor: notify about every new match ("every time the result is X, tell me").
     alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
     alert_metric: VisionAlertMetricEnumApi.Count,
-    alert_operator: VisionAlertOperatorEnumApi.Gte,
     alert_threshold: 1,
     alert_window_days: 1,
 })
@@ -106,7 +104,6 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
                           : {
                                 frequency: form.alert_frequency,
                                 metric: form.alert_metric,
-                                operator: form.alert_operator,
                                 threshold: form.alert_threshold ?? 1,
                                 window_days: form.alert_window_days,
                             },
