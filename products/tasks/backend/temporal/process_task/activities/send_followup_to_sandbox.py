@@ -165,6 +165,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         artifact_count=len(artifacts or []),
     )
 
+    # Mark on every branch where the message reached the sandbox (delivered, duplicate redelivery,
+    # or turn-still-running), not just the fully-completed one — otherwise a first turn that runs
+    # past the ack timeout, or a retry that the agent-server dedupes, leaves the run unmarked and
+    # the next genuine follow-up re-injects the instructions.
+    if mark_instructions_applied and (result.success or result.turn_in_flight):
+        mark_personal_instructions_applied(input.run_id)
+
     if result.success:
         if _is_duplicate_delivery(result.data):
             logger.info(
@@ -173,8 +180,6 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
                 attempt=_current_attempt(),
             )
             return
-        if mark_instructions_applied:
-            mark_personal_instructions_applied(input.run_id)
         _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
         logger.info("send_followup_delivered", run_id=input.run_id)
     elif result.turn_in_flight:

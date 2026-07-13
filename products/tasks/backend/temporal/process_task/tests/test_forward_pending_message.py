@@ -15,6 +15,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.facade import api as facade
 from products.tasks.backend.models import Task, TaskRun
 
 _module = importlib.import_module("products.tasks.backend.temporal.process_task.activities.forward_pending_message")
@@ -96,6 +97,25 @@ class TestForwardPendingUserMessage(TestCase):
         assert mock_send.call_args[0][1] == "fix the tests"
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
+
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_first_message_injects_personal_instructions_and_marks_applied(self, mock_send, mock_token):
+        facade.get_code_custom_instructions(self.team.id, self.user.id)
+        facade.save_code_custom_instructions(self.team.id, self.user.id, content="Prefer tabs.", expected_version=1)
+        run = self._make_run(
+            state={"pending_user_message": "fix the tests", "sandbox_url": "https://sandbox.example.com/rpc"}
+        )
+        mock_send.return_value = _command_result(success=True, status_code=200)
+
+        forward_pending_user_message(str(run.id))
+
+        delivered = mock_send.call_args[0][1]
+        assert "<user_custom_instructions>" in delivered
+        assert "Prefer tabs." in delivered
+        assert delivered.endswith("fix the tests")
+        run.refresh_from_db()
+        assert run.state.get("personal_instructions_applied") is True
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.temporal.observability.posthoganalytics.capture")

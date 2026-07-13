@@ -38,7 +38,9 @@ PERSONALIZABLE_ORIGIN_PRODUCTS = frozenset(
 
 _OPEN_TAG = "<user_custom_instructions>"
 _CLOSE_TAG = "</user_custom_instructions>"
-_CLOSE_TAG_RE = re.compile(r"</\s*user_custom_instructions\s*>", re.IGNORECASE)
+# Matches an open or close user_custom_instructions tag, tolerating stray whitespace, so nested
+# tags in user content can't terminate (or spoof) the wrapper.
+_TAG_RE = re.compile(r"<(\s*/?\s*user_custom_instructions\s*)>", re.IGNORECASE)
 
 # Trust framing: the agent must read these as preferences, subordinate to platform, safety, and
 # repository rules. Mirrors the client-side helper the desktop composer uses.
@@ -58,8 +60,8 @@ def format_personal_instructions(content: str) -> str:
         return ""
     if len(trimmed) > CODE_CUSTOM_INSTRUCTIONS_MAX_LENGTH:
         trimmed = trimmed[:CODE_CUSTOM_INSTRUCTIONS_MAX_LENGTH]
-    # Neutralize any closing tag inside the content so it can't terminate the wrapper early.
-    defanged = _CLOSE_TAG_RE.sub("<\\\\/user_custom_instructions>", trimmed)
+    # Neutralize any nested tag inside the content so it can't terminate or spoof the wrapper.
+    defanged = _TAG_RE.sub(r"<\\\1>", trimmed)
     return f"{_PREAMBLE}\n{_OPEN_TAG}\n{defanged}\n{_CLOSE_TAG}"
 
 
