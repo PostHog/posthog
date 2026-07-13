@@ -19235,7 +19235,6 @@ export namespace Schemas {
       filters?: MinimalFeatureFlagFilters;
       deleted?: boolean;
       active?: boolean;
-      archived?: boolean;
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       /**
