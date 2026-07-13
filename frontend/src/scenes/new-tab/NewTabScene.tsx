@@ -14,6 +14,10 @@ export const scene: SceneExport = {
 export function NewTabScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const handleItemSelect = useCallback((item: SearchItem) => {
+        if (item.onSelect) {
+            item.onSelect()
+            return
+        }
         if (item.href) {
             router.actions.push(item.href)
         }
