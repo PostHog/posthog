@@ -427,6 +427,10 @@ Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGro
 
 Hide close button: `<DialogContent showCloseButton={false}>`
 
+`DialogBody` defaults its `render` to a `ScrollArea` (scroll shadows and a pinned footer for free).
+To style the scrollable viewport (`data-slot="scroll-area-viewport"`), pass `viewportClassName`.
+For example, drop the default `1rem` viewport padding for full-bleed content: `<DialogBody viewportClassName="p-0">`.
+
 ### Alert Dialog (must-resolve confirmation)
 
 Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`, always modal, backdrop clicks never dismiss, and no X button — the user must pick an action (or Esc). Use for destructive/irreversible confirmations; put Cancel first so it takes initial focus.
