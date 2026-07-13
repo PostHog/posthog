@@ -163,23 +163,24 @@ async fn endpoint_refresh_closes_draining_mux_and_reroutes_in_flight_item() {
 }
 
 #[tokio::test]
-async fn pool_with_only_draining_endpoints_fails_fast_without_local_fallback() {
+async fn empty_pool_degrades_promptly_to_local_resolution() {
+    // An exhausted pool is transient backpressure, not a bug. Rather than fail
+    // the batch (and capture the pool-exhaustion as an exception), the
+    // orchestration layer degrades to local resolution — and does so promptly,
+    // since selection fails fast on an empty pool.
     let ctx = make_ctx(&[], 0, Duration::from_millis(50)).await;
     let evt = build_event(1);
 
     let start = std::time::Instant::now();
-    let err = process_one(remote_stage(ctx), evt)
+    let resolved = process_one(remote_stage(ctx), evt)
         .await
-        .expect_err("empty pool must fail fast");
+        .expect("empty pool must degrade to local resolution");
     let elapsed = start.elapsed();
 
+    assert_eq!(resolved.exception_list.len(), 1);
     assert!(
-        elapsed < Duration::from_millis(200),
-        "fast-fail expected, took {elapsed:?}"
-    );
-    assert!(
-        format!("{err}").contains("pool unavailable"),
-        "expected pool-unavailable error: {err}"
+        elapsed < Duration::from_millis(500),
+        "prompt degradation expected, took {elapsed:?}"
     );
 }
 

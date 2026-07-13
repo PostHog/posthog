@@ -2,8 +2,10 @@
 //!
 //! Shared fixtures live in `tests/common/mod.rs`; this file owns the original
 //! Batch 3 acceptance tests covering the happy path, transport retries, and
-//! the contract that there is no silent local fallback when remote mode is
-//! enabled. Failure-mode hardening tests added in Batch 4 live in
+//! the fallback contract: genuine remote failures (transport exhaustion,
+//! per-item terminal errors) surface as unhandled errors, while transient pool
+//! backpressure (an exhausted/overloaded pool) degrades to local resolution.
+//! Failure-mode hardening tests added in Batch 4 live in
 //! `tests/remote_resolution_hardening.rs`.
 
 mod common;
@@ -613,17 +615,34 @@ async fn caller_deadline_on_slow_item_surfaces_without_local_fallback() {
 }
 
 #[tokio::test]
-async fn empty_pool_fails_clearly_without_local_fallback() {
+async fn empty_pool_degrades_to_local_resolution() {
+    // A pool with no routable endpoints is transient backpressure (e.g. every
+    // endpoint ejected or draining fleet-wide). Instead of failing the batch
+    // and capturing the pool-exhaustion as an exception, the batch degrades to
+    // local resolution.
     let ctx = make_ctx(&[], 0, Duration::from_secs(1)).await;
     let evt = build_event(1);
-    let err = process_one(remote_stage(ctx), evt)
+    let resolved = process_one(remote_stage(ctx), evt)
         .await
-        .expect_err("empty pool must surface as unhandled error");
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("pool unavailable"),
-        "expected pool-empty error, got: {msg}"
-    );
+        .expect("empty pool must degrade to local resolution");
+    assert_eq!(resolved.exception_list.len(), 1);
+}
+
+#[tokio::test]
+async fn pool_exhausted_by_overload_degrades_to_local_resolution() {
+    // Reproduces the reported symptom: the only routable endpoint keeps
+    // shedding load via per-item Overloaded outcomes, so the item exhausts its
+    // reroute budget against an exhausted pool. This transient backpressure
+    // must degrade to local resolution rather than fail the batch as a 5xx and
+    // capture an UnhandledError.
+    let (overloaded_addr, _items) = spawn_stub_server(ServerBehavior::Overloaded).await;
+    let ctx = make_ctx(&[overloaded_addr], 2, Duration::from_secs(5)).await;
+    let evt = build_event(1);
+
+    let resolved = process_one(remote_stage(ctx), evt)
+        .await
+        .expect("fleet-wide overload must degrade to local resolution, not fail the batch");
+    assert_eq!(resolved.exception_list.len(), 1);
 }
 
 #[tokio::test]

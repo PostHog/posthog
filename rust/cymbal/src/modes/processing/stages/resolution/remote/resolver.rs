@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use cymbal_proto::cymbal::resolution::v1::ResolveItem;
 use futures::future::join_all;
 use tokio::sync::Semaphore;
+use tracing::warn;
 
 use crate::{
     error::UnhandledError,
@@ -26,7 +27,9 @@ mod retry;
 
 use chunk::routing_keys_for_event;
 use partition::partition_batch;
-use retry::resolve_work_item;
+use retry::{resolve_work_item, RemoteItemError};
+
+use crate::metric_consts::REMOTE_RESOLUTION_BACKPRESSURE_FALLBACK;
 
 /// Context handed to the remote orchestration layer. Cheap to clone because
 /// both the pool handle and config are `Arc`/`Clone`-friendly.
@@ -59,7 +62,9 @@ impl RemoteResolutionContext {
 /// 2. Resolve local events inline (same path as no-remote mode).
 /// 3. Build one logical work item per exception, grouped by routing key for
 ///    deterministic submission, and let each item reroute independently
-///    through the mux.
+///    through the mux. If the pool is transiently exhausted (fleet-wide
+///    overload ejects/drains every endpoint), degrade the remote set to local
+///    resolution instead of failing the batch.
 /// 4. Assemble back into the original batch order.
 ///
 /// Each event passes through exactly one bucket and writes itself into the
@@ -72,8 +77,8 @@ pub async fn resolve_batch(
     let batch_len = batch.len();
     let partition = partition_batch(batch, ctx.config.sample_rate)?;
 
-    let local_resolved = resolve_local_events(partition.local, local_stage).await?;
-    let remote_resolved = resolve_remote_events(&ctx, partition.remote).await?;
+    let local_resolved = resolve_local_events(partition.local, local_stage.clone()).await?;
+    let remote_resolved = resolve_remote_events(&ctx, partition.remote, local_stage).await?;
 
     assemble_output(
         batch_len,
@@ -193,6 +198,7 @@ async fn resolve_local_events(
 async fn resolve_remote_events(
     ctx: &RemoteResolutionContext,
     events: Vec<RemoteEvent>,
+    local_stage: ResolutionStage,
 ) -> Result<Vec<(usize, ExceptionEventPipelineItem)>, UnhandledError> {
     if events.is_empty() {
         return Ok(Vec::new());
@@ -210,8 +216,41 @@ async fn resolve_remote_events(
     )
     .await;
 
+    let mut resolved_items = Vec::with_capacity(resolved.len());
+    let mut backpressure: Option<String> = None;
     for result in resolved {
-        let item = result?;
+        match result {
+            Ok(item) => resolved_items.push(item),
+            // A genuine failure fails the batch, and must not be masked by
+            // transient backpressure hit by a sibling item.
+            Err(RemoteItemError::Fatal(err)) => return Err(err),
+            Err(RemoteItemError::Backpressure(message)) => {
+                backpressure.get_or_insert(message);
+            }
+        }
+    }
+
+    // Under fleet-wide remote overload every routable pod is ejected or
+    // draining, so at least one item sheds load and exhausts its budget on an
+    // empty pool. Rather than fail the whole batch — which captures the
+    // pool-exhaustion as an unhandled exception and 5xxes /process — degrade
+    // the entire remote set to local resolution. The local path is always
+    // available and produces the same result, just without the offload.
+    if let Some(reason) = backpressure {
+        metrics::counter!(REMOTE_RESOLUTION_BACKPRESSURE_FALLBACK).increment(1);
+        warn!(
+            reason = %reason,
+            event_count = event_slots.len(),
+            "remote resolution pool exhausted; degrading batch to local resolution"
+        );
+        let local_inputs = event_slots
+            .into_iter()
+            .map(|slot| (slot.batch_index, slot.evt))
+            .collect();
+        return resolve_local_events(local_inputs, local_stage).await;
+    }
+
+    for item in resolved_items {
         let Some(event_slot) = event_slots.get_mut(item.event_slot) else {
             return Err(UnhandledError::Other(format!(
                 "remote resolution returned invalid event slot {}",

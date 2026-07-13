@@ -60,12 +60,16 @@ The proto lives at [`proto/cymbal/resolution/v1/resolution.proto`](../../../../.
 
 ## Rollout model
 
-Remote resolution is opt-in on the cymbal side. There is intentionally **no silent local fallback** for events sampled into the remote path: when the pool cannot satisfy a sampled remote item, cymbal surfaces an `UnhandledError` for that event so the failure is visible rather than masked. Events not selected by `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` are not remote attempts; they run through the inline local exception/frame resolvers.
+Remote resolution is opt-in on the cymbal side.
+Genuine remote failures are **not** masked: a per-item terminal error (invalid payload, poison, unhandled) or exhausted transport retries surface as an `UnhandledError` so the failure stays visible.
+Transient pool backpressure is treated differently, because it is expected load-shedding rather than a bug: when the pool is exhausted (every endpoint ejected after overload, draining, or missing a fresh load snapshot) the batch **degrades to local resolution** instead of failing.
+This keeps a fleet-wide resolution overload from turning every sampled `/process` batch into a captured exception and a 5xx.
+Events not selected by `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` are not remote attempts; they run through the inline local exception/frame resolvers.
 
 | Mode | Cymbal env vars | Resolution path |
 | ---- | --------------- | --------------- |
 | Local | `CYMBAL_REMOTE_RESOLUTION_ENABLED=false` (default) | Inline local resolver inside `cymbal` |
-| Sampled remote | `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`, sampled by `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` | gRPC to the `cymbal-resolution` pool, no fallback |
+| Sampled remote | `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`, sampled by `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` | gRPC to the `cymbal-resolution` pool; degrades to local resolution under transient pool backpressure |
 | Unsampled local | `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`, not sampled by `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` | Inline local resolver inside `cymbal` |
 
 ### Enabling remote mode
@@ -168,6 +172,7 @@ These metric names are exported by the cymbal client unless noted. Definitions l
 - **Reroute shape**: `cymbal_remote_resolution_reroute_depth{outcome}` records how many endpoint changes happened before the terminal item result. The legacy attempts histogram may still be emitted for dashboard continuity, but new alerts should use reroute depth.
 - **Protocol error taxonomy**: client-observed `cymbal_remote_resolution_error_kinds_total{kind}` and server-emitted `cymbal_remote_resolution_server_error_kinds_total{kind}` count `ErrorKind` values with bounded labels.
 - **Overload backpressure**: `cymbal_remote_resolution_overload_escalations_total` counts overloaded item results that are escalated into reroutes. On the server, `grpc_server_load_shed_total{method="Resolve"}` covers gRPC stream admission shedding and `cymbal_remote_resolution_server_in_flight_items` shows active item processing.
+- **Backpressure degradation**: `cymbal_remote_resolution_backpressure_fallback_total` counts batches that degraded to local resolution because the pool was transiently exhausted (item attempts that ended this way are recorded as `requests_total{outcome="backpressure"}`). This is expected under fleet-wide overload; a sustained rise means the `cymbal-resolution` pool is under-provisioned for the current sample rate.
 - **Endpoint pool health**: `cymbal_remote_resolution_pool_size`, `cymbal_remote_resolution_endpoint_in_flight{endpoint}`, `cymbal_remote_resolution_endpoint_mux_in_flight{endpoint}`, and server-side `cymbal_remote_resolution_server_in_flight_items` show discovery health, selected endpoint usage, active mux waiters, and the load signal used by routing.
 - **Per-endpoint local admission**: `cymbal_remote_resolution_endpoint_admission_rejections_total{endpoint, reason}` counts bounded mux queue and closed-stream rejections before an item leaves the cymbal pod.
 - **Subscribe health**: `cymbal_remote_resolution_load_subscriptions_total{outcome="connected"|"reconnect"}` tracks the freshness/draining stream lifecycle. Sustained reconnects translate into `pool_empty` with `reason="no_fresh_load_snapshots"` because endpoints without fresh snapshots are excluded from selection.
@@ -180,6 +185,7 @@ These metric names are exported by the cymbal client unless noted. Definitions l
 | `sampling_total{decision="local"}` rises while remote errors stay flat | Expected partial rollout or lower sample rate | No action unless the configured sample rate is wrong. |
 | `transport_retry{reason="unavailable"}` + `grpc_server_load_shed_total` | Server is at `MAX_CONCURRENT_REQUESTS` | Scale server pods or raise the cap after capacity-checking. |
 | `error_kinds_total{kind="overloaded"}` + rising reroute depth | Item-level overload backpressure | Scale server pods, tune item concurrency, or lower sample rate. |
+| `backpressure_fallback_total` rising (batches degrading to local) | Pool transiently exhausted fleet-wide (every endpoint ejected/draining); batches fall back to local resolution instead of failing | Scale server pods or lower sample rate; safe to ride out short spikes. |
 | `endpoint_admission_rejections_total{reason="queue_full"}` | Local mux queue saturated before the item reached gRPC | Scale endpoints or increase the mux queue only after checking memory. |
 | `transport_retry{reason="deadline_exceeded"}` with low load | Caller-side deadline shorter than worst-case resolution | Raise `CYMBAL_REMOTE_RESOLUTION_DEADLINE_MS`. |
 | `error_kinds_total{kind="invalid_payload"}` | Wire-format or metadata mismatch | Check deploy skew and the metadata JSON convention. |

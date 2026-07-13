@@ -24,23 +24,46 @@ use crate::stages::resolution::remote::{client::RemoteCallError, mux::ResolveIte
 
 use super::{RemoteResolutionContext, RemoteWorkItem, ResolvedRemoteItem};
 
+/// Terminal outcome of resolving a single work item once its retry budget or
+/// deadline is exhausted.
+pub(super) enum RemoteItemError {
+    /// Transient remote-pool backpressure: every routable endpoint was ejected
+    /// or draining, or kept returning per-item overload, so the item never got
+    /// served. This is expected load-shedding, not a bug — the caller degrades
+    /// gracefully (falls back to local resolution) rather than failing the
+    /// batch and capturing an exception.
+    Backpressure(String),
+    /// A genuine failure that should fail the batch.
+    Fatal(UnhandledError),
+}
+
 pub(super) async fn resolve_work_item(
     ctx: &RemoteResolutionContext,
     work_item: RemoteWorkItem,
     deadline: Instant,
-) -> Result<ResolvedRemoteItem, UnhandledError> {
+) -> Result<ResolvedRemoteItem, RemoteItemError> {
     let max_attempts = ctx.config.max_retries.saturating_add(1);
     let mut excluded_endpoints: Vec<SocketAddr> = Vec::new();
     let mut last_error: Option<String> = None;
     let mut attempts_used = 0u32;
     let mut routing_permit = None;
+    // Tracks whether the most recent failure was transient pool backpressure
+    // (empty pool or per-item overload). Determines how an exhausted/expired
+    // item is classified at the end of the loop.
+    let mut last_was_backpressure = false;
 
     for attempt in 0..max_attempts {
         attempts_used = attempt + 1;
         if routing_permit.is_none() {
-            routing_permit = Some(acquire_routing_permit(ctx).await?);
+            routing_permit = Some(
+                acquire_routing_permit(ctx)
+                    .await
+                    .map_err(RemoteItemError::Fatal)?,
+            );
         }
-        let remaining = remaining_deadline(deadline)?;
+        let Some(remaining) = remaining_deadline(deadline) else {
+            break;
+        };
         let handle = match ctx
             .pool
             .select_for_key(&work_item.routing_key, &excluded_endpoints)
@@ -60,10 +83,16 @@ pub(super) async fn resolve_work_item(
                     "reason" => reason,
                 )
                 .increment(1);
+                // An empty pool is transient backpressure: all endpoints are
+                // ejected/draining or have no fresh load snapshot. Give the
+                // pool a chance to recover, and mark the item degradable.
+                last_was_backpressure = true;
                 last_error = Some(format!("pool unavailable: {err}"));
-                if attempt + 1 < max_attempts {
-                    sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
-                        .await?;
+                if attempt + 1 < max_attempts
+                    && !sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
+                        .await
+                {
+                    break;
                 }
                 continue;
             }
@@ -100,11 +129,14 @@ pub(super) async fn resolve_work_item(
                     reason = err.reason_tag(),
                     "remote resolution transport-level retry for item"
                 );
+                last_was_backpressure = false;
                 excluded_endpoints.push(endpoint);
                 last_error = Some(err.to_string());
-                if attempt + 1 < max_attempts {
-                    sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
-                        .await?;
+                if attempt + 1 < max_attempts
+                    && !sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
+                        .await
+                {
+                    break;
                 }
                 continue;
             }
@@ -116,24 +148,29 @@ pub(super) async fn resolve_work_item(
                 )
                 .increment(1);
                 record_reroute_depth("terminal", attempts_used);
-                return Err(UnhandledError::Other(format!(
+                return Err(RemoteItemError::Fatal(UnhandledError::Other(format!(
                     "remote resolution failed terminally for item {}: {err}",
                     work_item.token
-                )));
+                ))));
             }
         };
 
         metrics::histogram!(REMOTE_RESOLUTION_LATENCY).record(elapsed_ms);
-        let Some(outcome) = single_outcome(work_item.token, outcomes)? else {
+        let Some(outcome) =
+            single_outcome(work_item.token, outcomes).map_err(RemoteItemError::Fatal)?
+        else {
             metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "missing_items")
                 .increment(1);
+            last_was_backpressure = false;
             last_error = Some(format!(
                 "missing item outcome from {endpoint} for token {}",
                 work_item.token
             ));
-            if attempt + 1 < max_attempts {
-                sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
-                    .await?;
+            if attempt + 1 < max_attempts
+                && !sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
+                    .await
+            {
+                break;
             }
             continue;
         };
@@ -142,7 +179,7 @@ pub(super) async fn resolve_work_item(
             Ok(decision) => decision,
             Err(err) => {
                 record_reroute_depth("terminal_item", attempts_used);
-                return Err(err);
+                return Err(RemoteItemError::Fatal(err));
             }
         };
 
@@ -167,12 +204,17 @@ pub(super) async fn resolve_work_item(
                     "remote resolution returned item overload; rerouting with overload policy"
                 );
                 ctx.pool.eject_overloaded(endpoint).await;
+                // Persistent per-item overload across the pool is load-shedding,
+                // so an item that exhausts its budget this way is degradable.
+                last_was_backpressure = true;
                 excluded_endpoints.push(endpoint);
                 last_error = Some(format!(
                     "per-item Overloaded outcome from {endpoint}: {message}"
                 ));
-                if attempt + 1 < max_attempts {
-                    sleep_with_deadline(overload_backoff_for(ctx, attempt), deadline).await?;
+                if attempt + 1 < max_attempts
+                    && !sleep_with_deadline(overload_backoff_for(ctx, attempt), deadline).await
+                {
+                    break;
                 }
             }
             ItemDecision::Retry {
@@ -187,27 +229,36 @@ pub(super) async fn resolve_work_item(
                     attempt,
                     "remote resolution returned item retry; rerouting"
                 );
+                last_was_backpressure = false;
                 excluded_endpoints.push(endpoint);
                 last_error = Some(format!("per-item Retry outcome from {endpoint}: {message}"));
-                if attempt + 1 < max_attempts {
-                    sleep_with_deadline(
+                if attempt + 1 < max_attempts
+                    && !sleep_with_deadline(
                         generic_retry_backoff_for(ctx, attempt, retry_after),
                         deadline,
                     )
-                    .await?;
+                    .await
+                {
+                    break;
                 }
             }
         }
     }
 
-    metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "exhausted").increment(1);
-    record_reroute_depth("exhausted", attempts_used);
-    Err(UnhandledError::Other(format!(
+    let message = format!(
         "remote resolution exhausted retries for item {} ({} attempt(s)): {}",
         work_item.token,
         max_attempts,
         last_error.unwrap_or_else(|| "no recorded cause".to_string()),
-    )))
+    );
+    if last_was_backpressure {
+        metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "backpressure").increment(1);
+        record_reroute_depth("backpressure", attempts_used);
+        return Err(RemoteItemError::Backpressure(message));
+    }
+    metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "exhausted").increment(1);
+    record_reroute_depth("exhausted", attempts_used);
+    Err(RemoteItemError::Fatal(UnhandledError::Other(message)))
 }
 
 async fn wait_for_terminal_or_acceptance(
@@ -365,20 +416,18 @@ async fn acquire_routing_permit(
         })
 }
 
-fn remaining_deadline(deadline: Instant) -> Result<Duration, UnhandledError> {
-    deadline
-        .checked_duration_since(Instant::now())
-        .ok_or_else(|| {
-            UnhandledError::Other(
-                "remote resolution item deadline elapsed before completion".to_string(),
-            )
-        })
+fn remaining_deadline(deadline: Instant) -> Option<Duration> {
+    deadline.checked_duration_since(Instant::now())
 }
 
-async fn sleep_with_deadline(backoff: Duration, deadline: Instant) -> Result<(), UnhandledError> {
-    let remaining = remaining_deadline(deadline)?;
+/// Sleep for `backoff`, clamped to the remaining deadline. Returns `false` when
+/// the shared deadline has already elapsed, so the caller can stop retrying.
+async fn sleep_with_deadline(backoff: Duration, deadline: Instant) -> bool {
+    let Some(remaining) = remaining_deadline(deadline) else {
+        return false;
+    };
     tokio::time::sleep(backoff.min(remaining)).await;
-    Ok(())
+    true
 }
 
 /// Exponential backoff with jitter for the n-th retry (0-indexed). Each step

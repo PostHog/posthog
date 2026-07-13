@@ -33,9 +33,11 @@ pub struct ResolutionStage {
     pub symbol_resolution_limiter: Arc<Semaphore>,
     /// When `Some`, the resolution stage can route sampled events through the
     /// remote `cymbal.resolution.v1` client path. Unsampled events still use
-    /// local exception+frame resolution. There is no local fallback for events
-    /// selected for remote processing: if the remote pool can't serve the
-    /// request, the orchestration layer surfaces an unhandled error.
+    /// local exception+frame resolution. If the remote pool can't serve a
+    /// request because it is transiently exhausted (all endpoints ejected or
+    /// draining under fleet-wide overload), the orchestration layer degrades
+    /// the batch to local resolution rather than failing it. Genuine terminal
+    /// errors still surface as unhandled errors.
     pub remote: Option<RemoteResolutionContext>,
 }
 
