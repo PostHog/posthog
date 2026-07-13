@@ -637,7 +637,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         aggregator = ConversionGoalsAggregator(processors, self.config)
 
         with patch(
-            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.ensure_precomputed",
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.marketing_ensure_precomputed",
             side_effect=lambda **kwargs: LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
         ) as ensure:
             aggregator.generate_unified_cte(self.date_range, self._create_mock_additional_conditions_getter())
