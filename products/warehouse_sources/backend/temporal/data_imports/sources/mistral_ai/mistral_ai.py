@@ -59,8 +59,10 @@ def _format_created_after(value: Any) -> str:
     Mistral returns `created`/`created_at` as Unix timestamps (integer seconds), so the stored
     watermark arrives as an int; convert it to a UTC date-time string.
     """
+    # bool is a subclass of int, so guard it before the int/float branch — a stray bool would
+    # otherwise be read as a Unix timestamp. Fail loudly rather than emit an invalid param.
     if isinstance(value, bool):
-        return str(value)
+        raise ValueError(f"Boolean value {value} cannot be formatted as a created_after timestamp")
     if isinstance(value, int | float):
         dt = datetime.fromtimestamp(value, tz=UTC)
     elif isinstance(value, datetime):

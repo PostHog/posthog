@@ -53,6 +53,11 @@ class TestFormatCreatedAfter:
         # A "+00:00" offset instead of "Z" is a common way to produce a value the API rejects.
         assert "+00:00" not in _format_created_after(datetime(2026, 3, 4, tzinfo=UTC))
 
+    def test_bool_raises(self) -> None:
+        # bool is an int subclass; without an explicit guard it would be read as a Unix timestamp.
+        with pytest.raises(ValueError):
+            _format_created_after(True)
+
 
 class TestBuildBaseParams:
     def test_batch_jobs_incremental_adds_order_by_and_created_after(self) -> None:
