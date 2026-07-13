@@ -3442,7 +3442,8 @@ class SingularSourceConfig(config.Config):
 
 @config.config
 class SkyvernSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
