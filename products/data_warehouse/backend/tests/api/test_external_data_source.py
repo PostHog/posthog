@@ -361,6 +361,41 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == created_via
 
+    @parameterized.expand(
+        [
+            # The MCP tool injects `mcp`; a wizard user agent upgrades it to `wizard`.
+            (ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
+            # Explicit non-MCP values are never rewritten, even with a wizard user agent.
+            (ExternalDataSource.CreatedVia.WEB, ExternalDataSource.CreatedVia.WEB),
+            (ExternalDataSource.CreatedVia.API, ExternalDataSource.CreatedVia.API),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_wizard_user_agent_upgrades_mcp_created_via(
+        self, sent_created_via, expected_created_via, _mock_validate
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": sent_created_via,
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+            headers={"user-agent": "posthog/wizard/1.0.0"},
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.created_via == expected_created_via
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
@@ -383,13 +418,20 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == ExternalDataSource.CreatedVia.API
 
-    def test_create_external_data_source_rejects_invalid_created_via(self):
+    @parameterized.expand(
+        [
+            ("garbage_value", "hacker"),
+            # `wizard` is derived server-side; a caller must not be able to self-label as wizard-created.
+            ("wizard_is_not_caller_settable", ExternalDataSource.CreatedVia.WIZARD),
+        ]
+    )
+    def test_create_external_data_source_rejects_invalid_created_via(self, _name, created_via):
         # created_via choice validation happens before credentials, so no StripeSource mock is needed here.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
-                "created_via": "hacker",
+                "created_via": created_via,
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [

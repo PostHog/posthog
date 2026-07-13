@@ -366,13 +366,16 @@ export interface PatchedExternalDataSchemaApi {
  * * `web` - web
  * * `api` - api
  * * `mcp` - mcp
+ * * `wizard` - wizard
  */
-export type CreatedViaEnumApi = (typeof CreatedViaEnumApi)[keyof typeof CreatedViaEnumApi]
+export type ExternalDataSourceSerializersCreatedViaEnumApi =
+    (typeof ExternalDataSourceSerializersCreatedViaEnumApi)[keyof typeof ExternalDataSourceSerializersCreatedViaEnumApi]
 
-export const CreatedViaEnumApi = {
+export const ExternalDataSourceSerializersCreatedViaEnumApi = {
     Web: 'web',
     Api: 'api',
     Mcp: 'mcp',
+    Wizard: 'wizard',
 } as const
 
 /**
@@ -1938,12 +1941,13 @@ export interface ExternalDataSourceSerializersApi {
     readonly created_at: string
     /** @nullable */
     readonly created_by: string | null
-    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
      *
      * * `web` - web
      * * `api` - api
-     * * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi | null
+     * * `mcp` - mcp
+     * * `wizard` - wizard */
+    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
     readonly status: string
     client_secret: string
     account_id: string
@@ -1999,6 +2003,20 @@ export interface PaginatedExternalDataSourceSerializersListApi {
  * Connection credentials and a 'schemas' array. Keys depend on source_type.
  */
 export type ExternalDataSourceCreateApiPayload = { [key: string]: unknown }
+
+/**
+ * * `web` - web
+ * * `api` - api
+ * * `mcp` - mcp
+ */
+export type ExternalDataSourceCreateCreatedViaEnumApi =
+    (typeof ExternalDataSourceCreateCreatedViaEnumApi)[keyof typeof ExternalDataSourceCreateCreatedViaEnumApi]
+
+export const ExternalDataSourceCreateCreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+} as const
 
 export interface ExternalDataSourceCreateApi {
     /** The source type (e.g. 'Postgres', 'Stripe').
@@ -2779,12 +2797,12 @@ export interface ExternalDataSourceCreateApi {
      * * `warehouse` - warehouse
      * * `direct` - direct */
     access_method?: AccessMethodEnumApi
-    /** Where the request came from
+    /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
      *
      * * `web` - web
      * * `api` - api
      * * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi
+    created_via?: ExternalDataSourceCreateCreatedViaEnumApi
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
 }
@@ -2799,12 +2817,13 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: string | null
-    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
      *
      * * `web` - web
      * * `api` - api
-     * * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi | null
+     * * `mcp` - mcp
+     * * `wizard` - wizard */
+    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
     account_id?: string

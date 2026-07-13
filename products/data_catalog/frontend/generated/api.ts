@@ -159,3 +159,39 @@ export const dataCatalogMetricsDestroy = async (
         method: 'DELETE',
     })
 }
+
+export const getDataCatalogMetricsApproveCreateUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${name}/approve/`
+}
+
+/**
+ * Bless a metric as canonical. Returns 409 while the metric is drifted from its insight.
+ */
+export const dataCatalogMetricsApproveCreate = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<DataCatalogMetricApi> => {
+    return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsApproveCreateUrl(projectId, name), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getDataCatalogMetricsRefreshFromInsightCreateUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${name}/refresh_from_insight/`
+}
+
+/**
+ * Re-snapshot the linked insight's current query into the definition.
+ */
+export const dataCatalogMetricsRefreshFromInsightCreate = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<DataCatalogMetricApi> => {
+    return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsRefreshFromInsightCreateUrl(projectId, name), {
+        ...options,
+        method: 'POST',
+    })
+}
