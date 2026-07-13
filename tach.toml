@@ -118,6 +118,7 @@ depends_on = [
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
+    "products.pulse",
 ]
 layer = "modules"
 
@@ -544,7 +545,6 @@ depends_on = [
     "products.exports",
     "products.product_analytics",
 ]
-layer = "modules"
 layer = "modules"
 
 [[modules]]
