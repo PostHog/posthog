@@ -89,10 +89,11 @@ function WarmRunPanel(): JSX.Element {
                                 title: 'Cancel the warm-all run?',
                                 description:
                                     'The warmer stops dispatching new teams at its next heartbeat and finishes the teams already in flight. Already-warmed caches are kept.',
+                                shouldAwaitSubmit: true,
                                 primaryButton: {
                                     children: 'Cancel run',
                                     status: 'danger',
-                                    onClick: () => cancelWarmRun(),
+                                    onClick: async () => await cancelWarmRun(),
                                 },
                                 secondaryButton: {
                                     children: 'Keep running',

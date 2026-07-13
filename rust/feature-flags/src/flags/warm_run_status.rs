@@ -96,7 +96,7 @@ pub async fn read_current_status(redis: &Arc<dyn Client + Send + Sync>) -> Optio
 /// `running` and the heartbeat is fresher than [`HEARTBEAT_STALE_AFTER_SECONDS`].
 pub fn is_active(status: &WarmRunStatus, now: DateTime<Utc>) -> bool {
     status.state == WarmRunState::Running
-        && (now - status.updated_at).num_seconds() < HEARTBEAT_STALE_AFTER_SECONDS
+        && (now - status.updated_at).num_seconds() <= HEARTBEAT_STALE_AFTER_SECONDS
 }
 
 /// Publishes run state to Redis with throttled writes and polls for
@@ -386,6 +386,12 @@ mod tests {
             updated_at: now,
         };
         assert!(is_active(&status, now));
+
+        status.updated_at = now - chrono::Duration::seconds(HEARTBEAT_STALE_AFTER_SECONDS);
+        assert!(
+            is_active(&status, now),
+            "heartbeat exactly at the threshold matches the Django reader's `> stale` check"
+        );
 
         status.updated_at = now - chrono::Duration::seconds(HEARTBEAT_STALE_AFTER_SECONDS + 1);
         assert!(!is_active(&status, now), "stale heartbeat is not active");

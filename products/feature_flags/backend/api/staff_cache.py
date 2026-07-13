@@ -267,14 +267,6 @@ def _parse_warm_run_status(raw: Optional[str]) -> Optional[dict[str, Any]]:
     return run
 
 
-def _read_warm_run_status() -> Optional[dict[str, Any]]:
-    """Read and parse the warmer's raw status blob from the dedicated flags cache."""
-    cache = _flags_dedicated_cache()
-    if cache is None:
-        return None
-    return _parse_warm_run_status(cache.get(WARM_RUN_STATUS_CACHE_KEY))
-
-
 def _as_epoch(value: Any) -> int:
     try:
         return int(value)
@@ -465,7 +457,13 @@ class FeatureFlagsStaffCacheViewSet(viewsets.ViewSet):
         if run is None:
             return response.Response({"run": None})
 
-        return response.Response({"run": _present_warm_run(run, values.get(WARM_RUN_CANCEL_CACHE_KEY))})
+        try:
+            presented = _present_warm_run(run, values.get(WARM_RUN_CANCEL_CACHE_KEY))
+        except (OverflowError, OSError, ValueError) as e:
+            logger.warning("flags_staff_warm_run_status_present_failed", error=str(e))
+            return response.Response({"run": None})
+
+        return response.Response({"run": presented})
 
     @extend_schema(
         request=None,
@@ -479,13 +477,14 @@ class FeatureFlagsStaffCacheViewSet(viewsets.ViewSet):
         in-flight teams finish. Cancelling a stale run is allowed (the key is scoped to the run id,
         so a dead process simply never reads it).
         """
-        run = _read_warm_run_status()
-        if run is None or run["state"] != "running":
-            raise ValidationError("No warm-all run is currently running.")
-
         cache = _flags_dedicated_cache()
         if cache is None:
             raise ValidationError("The dedicated flags cache (FLAGS_REDIS_URL) is not configured.")
+
+        run = _parse_warm_run_status(cache.get(WARM_RUN_STATUS_CACHE_KEY))
+        if run is None or run["state"] != "running":
+            raise ValidationError("No warm-all run is currently running.")
+
         cache.set(WARM_RUN_CANCEL_CACHE_KEY, run["run_id"], WARM_RUN_CANCEL_TTL_SECONDS)
 
         logger.info(
