@@ -44,9 +44,9 @@ export interface TriggerConfigApi {
  * * `no` - no
  * * `inconclusive` - inconclusive
  */
-export type VerdictEnumApi = (typeof VerdictEnumApi)[keyof typeof VerdictEnumApi]
+export type SelectionVerdictEnumApi = (typeof SelectionVerdictEnumApi)[keyof typeof SelectionVerdictEnumApi]
 
-export const VerdictEnumApi = {
+export const SelectionVerdictEnumApi = {
     Yes: 'yes',
     No: 'no',
     Inconclusive: 'inconclusive',
@@ -60,7 +60,7 @@ export interface SelectionApi {
     /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
     scanner_ids?: string[]
     /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
-    verdict?: VerdictEnumApi[]
+    verdict?: SelectionVerdictEnumApi[]
     /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
     tags?: string[]
     /** Only run on scorer observations with a score at or above this value (inclusive). */

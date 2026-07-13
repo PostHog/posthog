@@ -1,7 +1,7 @@
 """DRF serializers for stamphog."""
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.models.integration import Integration
@@ -54,6 +54,7 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
         }
 
 
+@extend_schema_serializer(component_name="StamphogPullRequest")
 class PullRequestSerializer(serializers.ModelSerializer):
     repository = serializers.CharField(
         source="repo_config.repository",
