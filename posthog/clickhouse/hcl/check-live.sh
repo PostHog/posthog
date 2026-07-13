@@ -29,7 +29,10 @@ DUMPDIR="${1:-${LIVE_DUMP_DIR:?dump dir required (pass as arg1 or set LIVE_DUMP_
 # shellcheck source=posthog/clickhouse/hcl/lib.sh
 . "$HCL/lib.sh"
 
-read -r -a ROLES <<< "$(manifest_roles "$ENV" | tr '\n' ' ')"
+# Hoisted into an assignment (not inline in the herestring) so set -e aborts on a
+# failed load instead of silently producing zero roles — see lib.sh.
+roles_lines="$(manifest_roles "$ENV")"
+read -r -a ROLES <<< "${roles_lines//$'\n'/ }"
 
 # Object-name globs the gate ignores, parsed from exclude.hcl (the quoted glob
 # strings) — the same list dump-live.sh feeds hclexp -exclude, applied here to

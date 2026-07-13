@@ -45,8 +45,12 @@ if [ ! -f "$REF_MANIFEST" ]; then
 fi
 
 rc=0
-for env in $(manifest_envs); do
-  for role in $(manifest_roles "$env"); do
+# Hoisted into assignments (not `for x in $(...)`) so set -e aborts on a failed
+# load instead of silently iterating zero times — see lib.sh.
+envs="$(manifest_envs)"
+for env in $envs; do
+  roles="$(manifest_roles "$env")"
+  for role in $roles; do
     [ -n "$ROLE_FILTER" ] && [ "$role" != "$ROLE_FILTER" ] && continue
 
     # The ref's own manifest resolves the committed stack: a layer added or removed

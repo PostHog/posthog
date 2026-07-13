@@ -23,14 +23,19 @@ mkdir -p "$SQL_DIR"
 EMPTY="$HCL/.empty-schema.$$.hcl"; printf 'database "posthog" {\n}\n' > "$EMPTY"
 trap 'rm -f "$EMPTY"' EXIT
 
-for env in $(manifest_envs); do
-  for role in $(manifest_roles "$env"); do
+# Hoisted into assignments (not `for x in $(...)`) so set -e aborts on a failed
+# load instead of silently iterating zero times — see lib.sh.
+envs="$(manifest_envs)"
+for env in $envs; do
+  roles="$(manifest_roles "$env")"
+  for role in $roles; do
     out="$SQL_DIR/$env-$role.sql"
+    stack="$(manifest_stack "$env" "$role")"
     {
       echo "-- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit."
       echo "-- Full CREATE schema for the $env/$role node. Apply to a fresh ClickHouse to build it."
       echo
-      "$HCLEXP" diff -left "$EMPTY" -right "$(manifest_stack "$env" "$role")" -sql
+      "$HCLEXP" diff -left "$EMPTY" -right "$stack" -sql
     } > "$out"
     echo "wrote $out ($(grep -cE '^CREATE' "$out") objects)"
   done

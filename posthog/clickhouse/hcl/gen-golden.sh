@@ -21,7 +21,10 @@ GOLDEN="$HCL/golden"
 # Optional filters: gen-golden.sh [env] [role] — regenerate a subset.
 ENV_FILTER="${1:-}"; ROLE_FILTER="${2:-}"
 
-for env in $(manifest_envs); do
+# Hoisted into an assignment (not `for x in $(...)`) so set -e aborts on a failed
+# load instead of silently iterating zero times — see lib.sh.
+envs="$(manifest_envs)"
+for env in $envs; do
   [ -n "$ENV_FILTER" ] && [ "$env" != "$ENV_FILTER" ] && continue
 
   roles="$(manifest_roles "$env")"
@@ -33,6 +36,6 @@ for env in $(manifest_envs); do
     set --
   fi
 
-  "$HCLEXP" load -manifest "$MANIFEST" -env "$env" -layer-root "$HCL" "$@" -out "$GOLDEN" >/dev/null 2>&1
+  "$HCLEXP" load -manifest "$MANIFEST" -env "$env" -layer-root "$HCL" "$@" -out "$GOLDEN" >/dev/null
   for role in $roles; do echo "wrote $GOLDEN/$env-$role.hcl"; done
 done

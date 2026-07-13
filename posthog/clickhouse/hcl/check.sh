@@ -31,7 +31,11 @@ known_drift_skip() {
 
 rc=0
 
-for env in $(manifest_envs); do
+# Hoisted into assignments (not `for x in $(...)`) so set -e aborts on a failed
+# load instead of silently iterating zero times — see lib.sh.
+envs="$(manifest_envs)"
+
+for env in $envs; do
   echo "== $env: validate (all roles) =="
   if ! "$HCLEXP" validate -manifest "$MANIFEST" -env "$env" -layer-root "$HCL" \
        -skip-validation "$(known_drift_skip "$env")" >/dev/null; then
@@ -39,8 +43,9 @@ for env in $(manifest_envs); do
   fi
 done
 
-for env in $(manifest_envs); do
-  for role in $(manifest_roles "$env"); do
+for env in $envs; do
+  roles="$(manifest_roles "$env")"
+  for role in $roles; do
     golden="$GOLDEN/$env-$role.hcl"
     if [ ! -f "$golden" ]; then
       echo "== $env/$role: no golden (validate only) =="
@@ -48,8 +53,9 @@ for env in $(manifest_envs); do
     fi
 
     echo "== $env/$role: diff vs golden =="
+    stack="$(manifest_stack "$env" "$role")"
     err="$(mktemp)"
-    out="$("$HCLEXP" diff -left "$(manifest_stack "$env" "$role")" -right "$golden" 2>"$err")"
+    out="$("$HCLEXP" diff -left "$stack" -right "$golden" 2>"$err")"
     if [ "$out" != "no differences" ]; then
       echo "FAIL: drift in $env/$role"; echo "$out"; cat "$err"; rc=1
     else
