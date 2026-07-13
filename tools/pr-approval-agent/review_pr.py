@@ -448,11 +448,24 @@ class Pipeline:
         summary of who has actually vouched for the current head.
         """
         pr = self.pr
+        # Exclude the author's own reviews: an author commenting on or replying
+        # within their own PR records a COMMENTED review at head, which would
+        # otherwise surface as "<author> reviewed the current head." Self-review
+        # is never independent assurance, so it must not read as a vouch — to the
+        # human in the review body or to the LLM in the trusted prompt block.
         head_approvals = sorted(
-            {r["user"] for r in pr.reviews if r.get("is_current_head") and r.get("state") == "APPROVED"}
+            {
+                r["user"]
+                for r in pr.reviews
+                if r.get("is_current_head") and r.get("state") == "APPROVED" and r["user"] != pr.author
+            }
         )
         head_commented_users = sorted(
-            {r["user"] for r in pr.reviews if r.get("is_current_head") and r.get("state") == "COMMENTED"}
+            {
+                r["user"]
+                for r in pr.reviews
+                if r.get("is_current_head") and r.get("state") == "COMMENTED" and r["user"] != pr.author
+            }
         )
         # Count unresolved conversations, not flattened comments: replies inherit
         # the thread's resolution state, so a single 4-reply thread must read as

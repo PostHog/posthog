@@ -10,7 +10,7 @@ import pydantic
 from clickhouse_driver import Client
 
 # Pre-warm the HogQL → HogVM bytecode import chain at code-location load time. Compiling a
-# predicate (process_property_removal_per_shard → compile_hogql_predicate) builds the HogQL
+# predicate (process_property_removal_shard → compile_hogql_predicate) builds the HogQL
 # database, whose virtual-field placeholder replacement lazily does
 # ``from common.hogvm.python.execute import …`` (posthog/hogql/placeholders.py). That import
 # first runs during op execution, when the Dagster run worker can no longer resolve the
@@ -560,15 +560,37 @@ def load_property_removal_request(
     )
 
 
-@dagster.op(tags=OWNER_TAG, retry_policy=dagster.RetryPolicy(max_retries=0))
-def process_property_removal_per_shard(
+@dagster.op(out=dagster.DynamicOut(int), tags=OWNER_TAG)
+def get_property_removal_shards(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     deletion_request: DeletionRequestContext,
-) -> DeletionRequestContext:
-    """Run the full property-removal cycle one shard at a time.
+):
+    """Fan out one process_property_removal_shard op per shard.
 
-    Per shard, on a single host (the temp table is local non-replicated MergeTree):
+    Takes the deletion request as input so fan-out is sequenced after the load op;
+    the mapping key makes each shard re-executable individually from the Dagster UI.
+    """
+    shards = sorted(cluster.shards)
+    context.log.info(f"Fanning out property removal {deletion_request.request_id} to {len(shards)} shard op(s)")
+    for shard_num in shards:
+        yield dagster.DynamicOutput(shard_num, mapping_key=f"shard_{shard_num}")
+
+
+@dagster.op(tags=OWNER_TAG, retry_policy=dagster.RetryPolicy(max_retries=0))
+def process_property_removal_shard(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    shard_num: int,
+    deletion_request: DeletionRequestContext,
+) -> dict:
+    """Run the full property-removal cycle for a single shard.
+
+    Safe to re-execute individually against a request in FAILED status: the deletion_request
+    context carries the persisted marker (no marker regeneration), the copy pass's anti-join
+    makes re-running convergent, and this op performs no ORM writes and no status transitions.
+
+    On a single host (the temp table is local non-replicated MergeTree):
 
       1. Discover affected DEFAULT materialized columns for both ``properties``
          and ``person_properties``.
@@ -616,6 +638,8 @@ def process_property_removal_per_shard(
         return " ".join(sql.split())
 
     def process_shard(client: Client) -> dict:
+        shard_start = time.monotonic()
+
         def log_query(label: str, sql: str) -> None:
             context.log.info(f"[{label}] {_flatten_sql(sql)}")
 
@@ -719,8 +743,8 @@ def process_property_removal_per_shard(
             settings={"max_execution_time": 1800},
         )
 
-        # Submit the originals delete. Returns a waiter so the outer loop can block on
-        # all replicas of this shard before moving on to the next shard.
+        # Submit the originals delete. Returns a waiter so this op can block on
+        # all replicas of this shard before dropping the temp table.
         delete_predicate, delete_params = _property_removal_where(
             deletion_request,
             mat_cols=affected_mat_cols,
@@ -738,34 +762,51 @@ def process_property_removal_per_shard(
             f"[delete-originals] {_flatten_sql(delete_runner.get_statement(delete_runner.get_all_commands()))}"
         )
         delete_waiter = delete_runner(client)
-        # Wait locally so we can be sure the delete is fully applied before this op moves on
-        # to the next shard or returns. ``mutations_sync = 2`` makes the runner block on all
-        # replicas of the originating shard; the explicit ``wait`` is a defensive backstop.
+        # Wait locally so we can be sure the delete is fully applied before this op
+        # returns. ``mutations_sync = 2`` makes the runner block on all replicas of the
+        # originating shard; the explicit ``wait`` is a defensive backstop.
         delete_waiter.wait(client)
 
         # Drop the temp table on the SAME host that created it. The temp table is local
-        # non-replicated MergeTree; a separate ``map_any_host_in_shards`` call from the outer
-        # loop can resolve to a different replica (the schema-qualified name does not
-        # influence host selection), which would silently DROP IF EXISTS on the wrong host
-        # and leave the staging rows behind on the originating one.
+        # non-replicated MergeTree, and this reuses the same client connection throughout
+        # ``process_shard`` so the DROP always lands on the host that has the rows.
         execute("drop-temp", f"DROP TABLE IF EXISTS {db}.{temp}")
 
-        return {"copied": copied}
+        return {"shard": shard_num, "copied": copied, "elapsed": time.monotonic() - shard_start}
 
-    shards = sorted(cluster.shards)
-    for idx, shard_num in enumerate(shards, 1):
-        context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
-        shard_start = time.monotonic()
+    def process_shard_cleaning_up_on_failure(client: Client) -> dict:
+        try:
+            return process_shard(client)
+        except Exception:
+            # Drop the staging table on the SAME host before surfacing the error. The job-level
+            # failure hook must not broadcast this DROP cluster-wide: sibling shard ops may still
+            # be running and share the staging table name on their own hosts. Best-effort: if the
+            # connection that hit the original failure is dead (e.g. a timed-out mutation), the
+            # DROP fails too — don't let that mask the root cause.
+            try:
+                client.execute(f"DROP TABLE IF EXISTS {db}.{temp}")
+            except Exception:
+                context.log.warning(
+                    f"[shard {shard_num}] failed to drop staging table {db}.{temp}; "
+                    "re-execution will truncate and reuse it"
+                )
+            raise
 
-        result = cluster.map_any_host_in_shards({shard_num: process_shard}).result()
-        _host, stats = next(iter(result.items()))
-
-        elapsed = time.monotonic() - shard_start
-        context.log.info(
-            f"Shard {shard_num}: copied {stats['copied']} events, originals deleted, temp dropped in {elapsed:.1f}s"
-        )
-
-    return deletion_request
+    context.log.info(f"[shard {shard_num}] processing")
+    result = cluster.map_any_host_in_shards({shard_num: process_shard_cleaning_up_on_failure}).result()
+    _host, stats = next(iter(result.items()))
+    context.log.info(
+        f"[shard {shard_num}] copied {stats['copied']} events, originals deleted, "
+        f"temp dropped in {stats['elapsed']:.1f}s"
+    )
+    context.add_output_metadata(
+        {
+            "shard": dagster.MetadataValue.int(shard_num),
+            "copied": dagster.MetadataValue.int(stats["copied"]),
+            "elapsed_s": dagster.MetadataValue.float(round(stats["elapsed"], 1)),
+        }
+    )
+    return stats
 
 
 @dagster.op(tags=OWNER_TAG)
@@ -773,8 +814,12 @@ def verify_property_removal(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     deletion_request: DeletionRequestContext,
+    shard_stats: list[dict],
 ) -> DeletionRequestContext:
     """Fail the run when property removal left originals behind or duplicated cleaned rows.
+
+    Takes ``shard_stats`` (one dict per shard op) purely to sequence verification after every
+    shard op has finished — a Dagster fan-in.
 
     Two checks over the distributed ``events`` table:
     - remaining: rows still matching the full removal predicate (same builder and
@@ -783,6 +828,9 @@ def verify_property_removal(
     - duplicates: uuids appearing more than once among marker-stamped rows. Non-zero
       means a cleaned re-insert was duplicated.
     """
+    total_copied = sum(stats["copied"] for stats in shard_stats)
+    context.log.info(f"All {len(shard_stats)} shard op(s) finished; {total_copied} events copied+cleaned in total")
+
     marker = deletion_request.inserted_at_marker
     if marker is None:
         raise dagster.Failure(description="property_removal_marker missing; load_property_removal_request must set it")
@@ -833,6 +881,8 @@ def verify_property_removal(
         {
             "remaining_originals": dagster.MetadataValue.int(remaining),
             "duplicated_cleaned_uuids": dagster.MetadataValue.int(duplicates),
+            "shards_processed": dagster.MetadataValue.int(len(shard_stats)),
+            "total_copied": dagster.MetadataValue.int(total_copied),
         }
     )
     if remaining or duplicates:
@@ -1128,26 +1178,6 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
 
     context.log.error(f"Deletion request {request_id} marked as failed.")
 
-    # Clean up temp tables for property removal jobs. The temp table is local
-    # non-replicated MergeTree, so it only exists on whichever host originally ran
-    # ``process_shard`` for that shard. We don't know which host that was at this
-    # point, so broadcast the DROP to every host in every shard — DROP IF EXISTS
-    # is a safe no-op on hosts that don't have it.
-    if ops_config.get("load_property_removal_request"):
-        try:
-            from posthog.clickhouse.cluster import Query, get_cluster
-
-            db_request = DataDeletionRequest.objects.filter(pk=request_id).values("team_id").first()
-            if db_request:
-                temp = _temp_table_name(db_request["team_id"], request_id)
-                db = django_settings.CLICKHOUSE_DATABASE
-                cluster = get_cluster()
-                drop_sql = f"DROP TABLE IF EXISTS {db}.{temp}"
-                cluster.map_all_hosts(Query(drop_sql)).result()
-                context.log.info(f"Cleaned up temp table {temp}")
-        except Exception as e:
-            context.log.warning(f"Failed to clean up temp table: {e}")
-
 
 # ---------------------------------------------------------------------------
 # Jobs
@@ -1169,13 +1199,18 @@ def data_deletion_request_event_removal():
 
 @dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
 def data_deletion_request_property_removal():
-    """Execute an approved property removal request: per shard, copy events, drop properties,
-    re-insert, delete originals, drop temp — then verify completeness and uniqueness before
-    finalizing."""
+    """Execute an approved property removal request with one op per shard.
+
+    load → dynamic fan-out (one process op per shard, parallel under the run executor)
+    → verify (fan-in over all shard stats) → finalize. A failed shard is re-executed
+    individually via the Dagster UI's "Re-execute from failure"; finalize accepts the
+    FAILED status the failure hook set, so the re-executed run completes the request.
+    """
     request = load_property_removal_request()
-    request = process_property_removal_per_shard(request)
-    request = verify_property_removal(request)
-    finalize_deletion_request(request)
+    shards = get_property_removal_shards(deletion_request=request)
+    shard_stats = shards.map(lambda shard_num: process_property_removal_shard(shard_num, request))
+    verified = verify_property_removal(deletion_request=request, shard_stats=shard_stats.collect())
+    finalize_deletion_request(verified)
 
 
 @dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})

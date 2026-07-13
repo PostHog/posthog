@@ -70,6 +70,18 @@ _HOST_IS_URL_ERROR = (
     "password, port, or path."
 )
 
+# ENETUNREACH / EHOSTUNREACH at connect time: the host resolved to a public address PostHog can't
+# route to. The common cause is a host that only accepts IPv6 (PostHog egresses over IPv4) — for
+# example a Supabase direct-connection host — or a firewall dropping PostHog's IPs. Deterministic
+# for the configured host, so give an actionable message instead of the generic connect fallback.
+_HOST_UNREACHABLE_ERROR = (
+    "PostHog reached the network but couldn't open a connection to the database host. This usually "
+    "means the host only accepts IPv6 connections (PostHog connects over IPv4), or a firewall is "
+    "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
+    "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
+    "firewall allowlist, then try again."
+)
+
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     # libpq reports a bad password via SCRAM with a different wording than the line above.
@@ -118,6 +130,12 @@ PostgresErrors = {
     # customer's unresolvable host as captured error noise.
     "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
     "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+    # A public host PostHog resolved but can't route to (IPv6-only host, or a firewall dropping our
+    # IPs). Placed before the "Is the server running..." entry — some libpq versions append that hint
+    # to routing failures too, and the IPv4/pooler guidance here is more actionable. `get_non_retryable_errors`
+    # already treats both as non-retryable on the streaming path.
+    "Network is unreachable": _HOST_UNREACHABLE_ERROR,
+    "No route to host": _HOST_UNREACHABLE_ERROR,
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
