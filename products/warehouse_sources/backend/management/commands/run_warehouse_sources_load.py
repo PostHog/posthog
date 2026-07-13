@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import (
     process_batch,
+    process_batches,
 )
 
 logger = structlog.get_logger(__name__)
@@ -49,6 +50,10 @@ def build_consumer_config(options: dict) -> ConsumerConfig:
         kwargs["recovery_grace_seconds"] = options["recovery_grace"]
     if options.get("poll_failure_liveness_threshold") is not None:
         kwargs["poll_failure_liveness_threshold"] = options["poll_failure_liveness_threshold"] or None
+    if options.get("coalesce_max_batches") is not None:
+        kwargs["coalesce_max_batches"] = options["coalesce_max_batches"]
+    if options.get("coalesce_max_bytes") is not None:
+        kwargs["coalesce_max_bytes"] = options["coalesce_max_bytes"]
     return ConsumerConfig(**kwargs)
 
 
@@ -62,7 +67,12 @@ async def _run_consumer(config: ConsumerConfig, health_reporter) -> None:
     `workflow_id`, `workflow_run_id`, `team_id`, plus the event-level `log_source_id` override).
     """
     configure_logger(loop=asyncio.get_running_loop())
-    consumer = BatchConsumer(config=config, process_batch=process_batch, health_reporter=health_reporter)
+    consumer = BatchConsumer(
+        config=config,
+        process_batch=process_batch,
+        health_reporter=health_reporter,
+        process_batches=process_batches,
+    )
     await consumer.run()
 
 
@@ -158,6 +168,21 @@ class Command(BaseCommand):
                 "0 disables the trip"
             ),
         )
+        parser.add_argument(
+            "--coalesce-max-batches",
+            type=int,
+            default=None,
+            help=(
+                "Maximum contiguous same-run batches applied together as one Delta write. "
+                "1 disables coalescing (kill switch restoring one-batch-per-merge behavior)"
+            ),
+        )
+        parser.add_argument(
+            "--coalesce-max-bytes",
+            type=int,
+            default=None,
+            help="Maximum summed byte_size of a coalesced unit",
+        )
         # Deprecated no-op kept so deploys still passing the flag don't crash;
         # the legacy status-log claim path was removed and 'state' is the only reader.
         parser.add_argument(
@@ -192,6 +217,8 @@ class Command(BaseCommand):
             lease_ttl=config.lease_ttl_seconds,
             recovery_grace=config.recovery_grace_seconds,
             poll_failure_liveness_threshold=config.poll_failure_liveness_threshold,
+            coalesce_max_batches=config.coalesce_max_batches,
+            coalesce_max_bytes=config.coalesce_max_bytes,
         )
 
         health_state = HealthState(timeout_seconds=health_timeout)

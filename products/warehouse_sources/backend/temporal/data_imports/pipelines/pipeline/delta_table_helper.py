@@ -680,38 +680,63 @@ class DeltaTableHelper:
         return False
 
     @staticmethod
-    def _commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
-        """Return True iff every (k, v) in `match` is present in this commit's metadata.
+    def _commit_metadata_layouts(commit: dict[str, Any]) -> list[dict[str, Any]]:
+        """Candidate metadata dicts for a commit.
 
-        Handles both the flat layout (delta-rs 1.x inlines custom_metadata onto the
-        top-level commit dict) and a nested `userMetadata` key (older/other layouts).
+        delta-rs 1.x inlines `CommitProperties.custom_metadata` onto the top-level
+        commit dict; older/other layouts nest it under a `userMetadata` key
+        (sometimes JSON-encoded). Both layouts are accepted for forward compatibility.
         """
-        if all(commit.get(k) == v for k, v in match.items()):
-            return True
-
+        layouts: list[dict[str, Any]] = [commit]
         raw = commit.get("userMetadata")
-        if raw is None:
-            return False
-
         if isinstance(raw, str):
             try:
                 nested = json.loads(raw)
             except (json.JSONDecodeError, ValueError):
-                return False
+                nested = None
+            if isinstance(nested, dict):
+                layouts.append(nested)
         elif isinstance(raw, dict):
-            nested = raw
-        else:
-            return False
+            layouts.append(raw)
+        return layouts
 
-        return all(nested.get(k) == v for k, v in match.items())
+    @staticmethod
+    def _commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
+        """Return True iff every (k, v) in `match` is present in this commit's metadata."""
+        return any(
+            all(meta.get(k) == v for k, v in match.items())
+            for meta in DeltaTableHelper._commit_metadata_layouts(commit)
+        )
 
-    async def has_batch_been_committed(self, run_uuid: str, batch_index: int) -> bool:
+    async def has_batch_been_committed(self, run_uuid: str, batch_index: int, *, scan_limit: int = 50) -> bool:
         """Check whether a specific (run_uuid, batch_index) has already been committed to delta.
 
-        Thin wrapper around `has_commit_with_metadata` so callers don't need to know
-        the metadata schema used for idempotency tagging.
+        Matches both single-batch commits ({run_uuid, batch_index}) and coalesced-unit
+        commits, which record the covered indexes as {run_uuid, batch_index_start,
+        batch_index_end} — a member is committed when its index falls inside a
+        recorded range. This is the crash-between-commit-and-mark recovery path;
+        see `is_batch_already_processed`.
         """
-        return await self.has_commit_with_metadata({"run_uuid": run_uuid, "batch_index": str(batch_index)})
+        delta_table = await self.get_delta_table()
+        if delta_table is None:
+            return False
+
+        history = await asyncio.to_thread(delta_table.history, limit=scan_limit)
+
+        for commit in history:
+            for meta in self._commit_metadata_layouts(commit):
+                if meta.get("run_uuid") != run_uuid:
+                    continue
+                if meta.get("batch_index") == str(batch_index):
+                    return True
+                try:
+                    start = int(meta["batch_index_start"])
+                    end = int(meta["batch_index_end"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if start <= batch_index <= end:
+                    return True
+        return False
 
     async def vacuum_table(self) -> None:
         table = await self.get_delta_table()

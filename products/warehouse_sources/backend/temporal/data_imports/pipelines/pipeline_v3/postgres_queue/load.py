@@ -19,6 +19,7 @@ from asgiref.sync import sync_to_async
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
+    process_messages,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PendingBatch,
@@ -31,4 +32,11 @@ async def process_batch(batch: PendingBatch, verify_ownership: Callable[[], None
     # real parallelism at 1; process_message is self-contained, so cross-thread is safe.
     await sync_to_async(process_message, thread_sensitive=False)(
         batch.to_export_signal(), verify_ownership=verify_ownership
+    )
+
+
+async def process_batches(batches: list[PendingBatch], verify_ownership: Callable[[], None] | None = None) -> None:
+    """Load a coalesced unit of contiguous same-run batches as one Delta write."""
+    await sync_to_async(process_messages, thread_sensitive=False)(
+        [batch.to_export_signal() for batch in batches], verify_ownership=verify_ownership
     )

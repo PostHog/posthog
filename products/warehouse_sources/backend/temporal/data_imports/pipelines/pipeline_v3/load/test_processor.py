@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _get_write_type,
     _promote_staged_cursor,
     process_message,
+    process_messages,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 
@@ -260,3 +261,234 @@ class TestProcessMessageOwnershipGate:
 
         mock_post_load.assert_not_called()
         mock_mark_completed.assert_not_called()
+
+
+def _unit_message(batch_index: int, **overrides: Any) -> dict[str, Any]:
+    return _message(batch_index=batch_index, s3_path=f"s3://bucket/batch-{batch_index}", **overrides)
+
+
+def _mock_written_delta(schema: pa.Schema) -> MagicMock:
+    delta = MagicMock()
+    delta.schema = MagicMock(return_value=schema)
+    delta.file_uris = MagicMock(return_value=[])
+    delta.metadata = MagicMock(return_value=MagicMock(partition_columns=[]))
+    return delta
+
+
+class TestProcessMessagesCoalescing:
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.read_parquet")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_unit_writes_once_in_index_order_and_completes_final(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        _already: MagicMock,
+        mock_read: MagicMock,
+        mock_post_load: AsyncMock,
+        mock_mark_completed: MagicMock,
+        mock_mark_processed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        schema = pa.schema([("id", pa.int64())])
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=None)
+        helper.write_to_deltalake = AsyncMock(return_value=_mock_written_delta(schema))
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+        mock_read.side_effect = lambda path: pa.table({"id": [int(path.rsplit("-", 1)[1])]})
+
+        # Shuffled input: the processor must sort and concat in batch_index order,
+        # or an older row would win the writer's keep-last dedupe (stale data).
+        process_messages(
+            [
+                _unit_message(2),
+                _unit_message(3, is_final_batch=True, total_rows=30),
+                _unit_message(1),
+            ]
+        )
+
+        helper.write_to_deltalake.assert_awaited_once()
+        kwargs = helper.write_to_deltalake.await_args.kwargs
+        assert kwargs["data"].column("id").to_pylist() == [1, 2, 3]
+        # A redelivered mid-unit member is only detectable via the recorded range.
+        assert kwargs["commit_metadata"] == {
+            "run_uuid": "run-1",
+            "batch_index": "3",
+            "batch_index_start": "1",
+            "batch_index_end": "3",
+        }
+        # Final-batch actions once per unit — never per member.
+        mock_post_load.assert_awaited_once()
+        mock_mark_completed.assert_called_once()
+        assert mock_mark_processed.call_count == 3
+        assert [call[0][3] for call in mock_mark_processed.call_args_list] == [1, 2, 3]
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}.evolve_pyarrow_schema", side_effect=lambda table, schema: table)
+    @patch(f"{_PROCESSOR}.read_parquet")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_intra_unit_standalone_delete_enriched_from_earlier_member(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        _already: MagicMock,
+        mock_read: MagicMock,
+        _evolve: MagicMock,
+        _mark_processed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_OP_COLUMN
+
+        schema = pa.schema([("id", pa.int64()), ("name", pa.string()), (CDC_OP_COLUMN, pa.string())])
+        # Existing Delta state has no row for the PK — sequential per-batch merges
+        # would still enrich the DELETE because batch 1's INSERT lands in Delta
+        # before batch 2's merge reads it. The coalesced path must recover the
+        # values from the earlier member of the unit instead.
+        existing_delta = _mock_written_delta(schema)
+        existing_delta.to_pyarrow_table = MagicMock(
+            return_value=pa.table(
+                {
+                    "id": pa.array([], pa.int64()),
+                    "name": pa.array([], pa.string()),
+                    CDC_OP_COLUMN: pa.array([], pa.string()),
+                }
+            )
+        )
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=existing_delta)
+        helper.write_to_deltalake = AsyncMock(return_value=_mock_written_delta(schema))
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        batch_tables = {
+            1: pa.table({"id": [1], "name": ["alice"], CDC_OP_COLUMN: ["I"]}),
+            2: pa.table({"id": [1], "name": pa.array([None], pa.string()), CDC_OP_COLUMN: ["D"]}),
+        }
+        mock_read.side_effect = lambda path: batch_tables[int(path.rsplit("-", 1)[1])]
+
+        process_messages(
+            [
+                _unit_message(1, sync_type="cdc", cdc_write_mode="consolidated"),
+                _unit_message(2, sync_type="cdc", cdc_write_mode="consolidated"),
+            ]
+        )
+
+        written = helper.write_to_deltalake.await_args.kwargs["data"]
+        # A DELETE row written with null data columns would null the surviving
+        # Delta row after the writer's keep-last dedupe.
+        assert written.column("name").to_pylist() == ["alice", "alice"]
+        assert written.column(CDC_OP_COLUMN).to_pylist() == ["I", "D"]
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch")
+    @patch(f"{_PROCESSOR}.read_parquet")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
+    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_fully_processed_final_unit_completes_without_rewriting(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        _already: MagicMock,
+        mock_read: MagicMock,
+        mock_post_load: MagicMock,
+        mock_mark_completed: MagicMock,
+        _mark_processed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        # Crash-redelivery of a whole unit after its commit: the job must still
+        # reach COMPLETED (post-load, cursor promotion, lock release) without
+        # re-reading or re-writing any data.
+        helper = mock_helper_cls.return_value
+        helper.write_to_deltalake = AsyncMock()
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_messages([_unit_message(1), _unit_message(2, is_final_batch=True)])
+
+        mock_read.assert_not_called()
+        helper.write_to_deltalake.assert_not_called()
+        mock_post_load.assert_called_once()
+        assert mock_post_load.call_args[0][0].batch_index == 2
+        mock_mark_completed.assert_called_once()
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}.read_parquet")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed")
+    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_already_processed_members_excluded_from_write(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_already: MagicMock,
+        mock_read: MagicMock,
+        mock_mark_processed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        schema = pa.schema([("id", pa.int64())])
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=None)
+        helper.write_to_deltalake = AsyncMock(return_value=_mock_written_delta(schema))
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+        mock_read.side_effect = lambda path: pa.table({"id": [int(path.rsplit("-", 1)[1])]})
+        # Member 1 was committed before the crash; members 2-3 were not.
+        mock_already.side_effect = lambda team_id, schema_id, run_uuid, batch_index, delta_table_helper=None: (
+            batch_index == 1
+        )
+
+        process_messages([_unit_message(1), _unit_message(2), _unit_message(3)])
+
+        kwargs = helper.write_to_deltalake.await_args.kwargs
+        assert kwargs["data"].column("id").to_pylist() == [2, 3]
+        # The commit range must only cover what this write actually merged.
+        assert kwargs["commit_metadata"] == {
+            "run_uuid": "run-1",
+            "batch_index": "3",
+            "batch_index_start": "2",
+            "batch_index_end": "3",
+        }
+        assert mock_mark_processed.call_count == 3
+
+    @parameterized.expand(
+        [
+            ("mixed_runs", [_unit_message(1), _unit_message(2, run_uuid="run-2")]),
+            (
+                "scd2_append",
+                [
+                    _unit_message(1, cdc_write_mode="scd2_append"),
+                    _unit_message(2, cdc_write_mode="scd2_append"),
+                ],
+            ),
+        ]
+    )
+    def test_rejects_units_the_consumer_must_never_form(self, _case: str, messages: list[dict[str, Any]]) -> None:
+        # Last line of defense: applying a cross-run or scd2 unit as one write
+        # corrupts commit metadata or the scd2 valid_to chain.
+        with pytest.raises(ValueError):
+            process_messages(messages)

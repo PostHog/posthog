@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BatchConsumerConfig,
     OwnershipLostError,
     ProcessBatchFn,
+    ProcessUnitFn,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -57,6 +58,8 @@ ConsumerConfig = BatchConsumerConfig
 VerifyOwnership = Callable[[], None]
 # Unlike the engine's ProcessBatchFn, the Delta sink also receives the per-batch ownership check.
 DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine[Any, Any, None]]
+# Coalesced-unit variant: applies contiguous same-run batches as one Delta write.
+DeltaProcessBatchesFn = Callable[[list[PendingBatch], VerifyOwnership | None], Coroutine[Any, Any, None]]
 
 # Ceiling for the queue-freshness probe, deliberately far below the sweep
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
@@ -353,21 +356,51 @@ class DeltaBatchConsumerAdapter:
         return None
 
 
+def coalesce_eligible(batch: PendingBatch) -> bool:
+    """Whether a batch may join a coalesced unit (incremental-merge batches only).
+
+    ``scd2_append`` batches never coalesce: their cross-event ``valid_to``
+    chaining is computed within a batch at extraction, and concatenation breaks
+    it. First-ever syncs keep per-batch processing for the batch-0 overwrite and
+    partial-data-loading semantics.
+    """
+    if batch.sync_type not in ("incremental", "cdc"):
+        return False
+    if batch.metadata.get("cdc_write_mode") == "scd2_append":
+        return False
+    if batch.is_first_ever_sync:
+        return False
+    return True
+
+
 class BatchConsumer(SharedBatchConsumer):
     def __init__(
         self,
         config: ConsumerConfig,
         process_batch: DeltaProcessBatchFn,
         health_reporter: Callable[[], None] | None = None,
+        process_batches: DeltaProcessBatchesFn | None = None,
     ) -> None:
         async def process_with_ownership_check(batch: PendingBatch) -> None:
             await process_batch(batch, self._make_verify_ownership(batch))
+
+        process_unit_with_ownership_check: ProcessUnitFn | None = None
+        if process_batches is not None:
+
+            async def _process_unit(batches: list[PendingBatch]) -> None:
+                # The lease is group-scoped and a unit spans one group, so one
+                # ownership check callable covers every member.
+                await process_batches(batches, self._make_verify_ownership(batches[0]))
+
+            process_unit_with_ownership_check = _process_unit
 
         super().__init__(
             config=config,
             process_batch=process_with_ownership_check,
             adapter=DeltaBatchConsumerAdapter(),
             health_reporter=health_reporter,
+            process_unit=process_unit_with_ownership_check,
+            coalesce_eligible=coalesce_eligible,
         )
 
     def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
@@ -444,5 +477,6 @@ __all__ = [
     "RECOVERY_INTERVAL_SECONDS",
     "RETRY_BACKOFF_BASE_SECONDS",
     "_group_by_key",
+    "coalesce_eligible",
     "mark_job_failed_if_not_terminal",
 ]

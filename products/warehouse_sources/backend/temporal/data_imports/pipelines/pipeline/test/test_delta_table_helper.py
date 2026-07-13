@@ -193,23 +193,51 @@ class TestHasCommitWithMetadata:
         mock_delta.history.assert_called_once_with(limit=123)
 
 
+_RANGE_COMMIT = {"run_uuid": "run-1", "batch_index": "7", "batch_index_start": "3", "batch_index_end": "7"}
+
+
 class TestHasBatchBeenCommitted:
     @parameterized.expand(
         [
-            ("string_run_uuid_int_batch", "run-123", 5, True),
-            ("zero_batch_index", "run-1", 0, False),
+            # single-batch tags, flat and nested layouts (backward compat)
+            ("exact_flat", [{"run_uuid": "run-1", "batch_index": "5"}], "run-1", 5, True),
+            ("exact_nested", [{"userMetadata": {"run_uuid": "run-1", "batch_index": "5"}}], "run-1", 5, True),
+            ("exact_other_index", [{"run_uuid": "run-1", "batch_index": "5"}], "run-1", 4, False),
+            # coalesced-unit range tags: a mid-unit member redelivered after a
+            # crash-post-commit is only detectable through the recorded range —
+            # missing it re-merges the member (duplicate rows on non-PK tables,
+            # wasted merges otherwise); over-matching skips unmerged data.
+            ("range_covers_mid_member", [_RANGE_COMMIT], "run-1", 5, True),
+            ("range_start_inclusive", [_RANGE_COMMIT], "run-1", 3, True),
+            ("range_end_inclusive", [_RANGE_COMMIT], "run-1", 7, True),
+            ("before_range", [_RANGE_COMMIT], "run-1", 2, False),
+            ("after_range", [_RANGE_COMMIT], "run-1", 8, False),
+            ("other_runs_range_ignored", [_RANGE_COMMIT], "run-2", 5, False),
+            ("range_nested_layout", [{"userMetadata": _RANGE_COMMIT}], "run-1", 4, True),
+            (
+                "malformed_range_ignored",
+                [{"run_uuid": "run-1", "batch_index_start": "x", "batch_index_end": "7"}],
+                "run-1",
+                5,
+                False,
+            ),
         ]
     )
     @pytest.mark.asyncio
-    async def test_wraps_has_commit_with_metadata(
-        self, _name: str, run_uuid: str, batch_index: int, mocked_return: bool
+    async def test_matches_exact_and_range_tags(
+        self, _name: str, history: list[dict], run_uuid: str, batch_index: int, expected: bool
     ):
         helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
-        with patch.object(helper, "has_commit_with_metadata", AsyncMock(return_value=mocked_return)) as m:
-            result = await helper.has_batch_been_committed(run_uuid, batch_index)
+        mock_delta = MagicMock()
+        mock_delta.history = MagicMock(return_value=history)
 
-            assert result is mocked_return
-            m.assert_called_once_with({"run_uuid": run_uuid, "batch_index": str(batch_index)})
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            assert await helper.has_batch_been_committed(run_uuid, batch_index) is expected
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_no_delta_table(self, helper: DeltaTableHelper):
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=None)):
+            assert await helper.has_batch_been_committed("run-1", 0) is False
 
 
 class TestCompactIfFragmented:
