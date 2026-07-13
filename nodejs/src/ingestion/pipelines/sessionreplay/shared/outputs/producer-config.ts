@@ -100,10 +100,11 @@ export function getDefaultKafkaMlImageScrubProducerEnvConfig(): KafkaMlImageScru
         // Image bytes are already-compressed formats; recompressing burns CPU for nothing.
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_COMPRESSION_CODEC: 'none',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_LINGER_MS: '',
-        // Small queue by design: bounds the lane's RSS ceiling (~64 MB of ~900 KB records) and
-        // makes a scrub-topic backlog fail fast in this producer instead of accumulating.
+        // Small queue by design: bounds the lane's RSS ceiling (~128 MB of ~900 KB records — four
+        // worst-case 32 MB source messages) and makes a scrub-topic backlog fail fast in this
+        // producer instead of accumulating.
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: '10000',
-        KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '65536',
+        KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '131072',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_MAX_BYTES: '',
     }
 }

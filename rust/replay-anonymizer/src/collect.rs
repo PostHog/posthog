@@ -45,10 +45,17 @@ pub fn is_image_ref(s: &str) -> bool {
 pub const MAX_IMAGE_BYTES: usize = 900 * 1024;
 /// Per-message caps bound what one payload can pin in memory and fan out onto the scrub topic;
 /// images past them stay on the inline blur path. The count cap is sized so the byte cap is the
-/// binding constraint for realistic payloads (only sub-32 KB average images can hit it first) —
-/// an image-heavy but ordinary snapshot should never fall back on count alone.
-pub const MAX_IMAGES_PER_MESSAGE: usize = 256;
-pub const MAX_TOTAL_BYTES_PER_MESSAGE: usize = 8 * 1024 * 1024;
+/// binding constraint for realistic payloads (only sub-64 KB average images can hit it first, and
+/// pages with hundreds of tiny icons dedup heavily) — an image-heavy but ordinary snapshot should
+/// never fall back on count alone.
+///
+/// Memory sizing: collection peaks at ~2x the byte cap in Rust per in-flight message (collector
+/// vec + packed FFI buffer), and the mirror anonymizes up to its configured concurrency of
+/// messages at once. Once produced, only the producer's bounded queue retains copies (the ack
+/// closures deliberately capture refs, not bytes), so the cap never compounds into producer-side
+/// backlog.
+pub const MAX_IMAGES_PER_MESSAGE: usize = 512;
+pub const MAX_TOTAL_BYTES_PER_MESSAGE: usize = 32 * 1024 * 1024;
 
 /// Enables collection for one anonymize call.
 #[derive(Debug, Clone)]
