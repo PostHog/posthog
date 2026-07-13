@@ -41,9 +41,12 @@ if TYPE_CHECKING:
 MAX_CUSTOM_COLUMNS = 50
 
 
+# `min(...)` over an empty `logs_kafka_metrics` returns NULL. `toNullable` keeps the emitted
+# column type nullable so casting the scalar into the outer SELECT doesn't blow up with
+# "Cannot convert NULL to a non-nullable type" for projects with no ingested logs.
 LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
     """
-    SELECT min(partition_checkpoint) FROM (
+    SELECT toNullable(min(partition_checkpoint)) FROM (
         SELECT _topic, _partition, max(max_observed_timestamp) AS partition_checkpoint
         FROM logs_kafka_metrics
         GROUP BY _topic, _partition

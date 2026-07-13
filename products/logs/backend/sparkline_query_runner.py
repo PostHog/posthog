@@ -67,11 +67,12 @@ class SparklineQueryRunner(LogsQueryRunner):
         return LogsQueryResponse(results=results)
 
     def to_query(self) -> ast.SelectQuery:
+        breakdown_db_field = BREAKDOWN_DB_FIELD[self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN]
         query = parse_select(
             """
                 SELECT
                     am.time_bucket AS time,
-                    {breakdown_field},
+                    {breakdown_field_select},
                     ifNull(ac.event_count, 0) AS count,
                     ifNull(ac.bytes_uncompressed, 0) AS bytes_uncompressed
                 FROM (
@@ -113,8 +114,16 @@ class SparklineQueryRunner(LogsQueryRunner):
                 if self.query_date_range.interval_name != "second"
                 else ast.Field(chain=["timestamp"]),
                 "where": self.where(),
-                "breakdown_field": ast.Field(
-                    chain=[BREAKDOWN_DB_FIELD[self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN]]
+                "breakdown_field": ast.Field(chain=[breakdown_db_field]),
+                # The outer SELECT reads the breakdown column through a LEFT JOIN, so empty
+                # buckets produce NULL. Default it to '' (which _calculate normalizes to
+                # "(no value)") so the CAST doesn't fail on projects with no ingested logs.
+                "breakdown_field_select": ast.Alias(
+                    alias=breakdown_db_field,
+                    expr=ast.Call(
+                        name="ifNull",
+                        args=[ast.Field(chain=[breakdown_db_field]), ast.Constant(value="")],
+                    ),
                 ),
             },
         )
