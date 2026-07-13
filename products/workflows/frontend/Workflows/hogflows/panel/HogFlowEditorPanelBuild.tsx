@@ -56,7 +56,7 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
 ]
 
 const PUSH_NOTIFICATION_ACTION_NODE: CreateActionType = {
-    type: 'function',
+    type: 'function_push',
     name: 'Push',
     description: 'Send a push notification to the user.',
     config: { template_id: 'template-native-push', inputs: {} },

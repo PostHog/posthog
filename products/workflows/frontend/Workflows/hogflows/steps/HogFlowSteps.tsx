@@ -108,6 +108,12 @@ const HogFlowStepConfigs: Partial<{
         color: () => '#f22f46',
         renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
     },
+    function_push: {
+        type: 'function_push',
+        icon: () => <IconNotification />,
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#F8BE2A' : '#F44D01'),
+        renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
+    },
     function: {
         type: 'function',
         icon: (action, hogFunctionTemplatesById) => {
