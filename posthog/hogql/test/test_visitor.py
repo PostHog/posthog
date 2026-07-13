@@ -1,16 +1,29 @@
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST_CLASSES, HogQLXAttribute, HogQLXTag, UUIDType
 from posthog.hogql.base import _VISIT_NAME_REPLACEMENTS, AST, camel_case_pattern
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import (
     InternalHogQLError,
     NotImplementedError as HogQLNotImplementedError,
+    QueryError,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
+from posthog.hogql.printer.clickhouse import ClickHousePrinter
+from posthog.hogql.printer.hogql import HogQLPrinter
+from posthog.hogql.visitor import MAX_QUERY_DEPTH, CloningVisitor, TraversingVisitor, Visitor
+
+
+def _deeply_nested_expr(depth: int) -> ast.ArithmeticOperation:
+    node: ast.Expr = ast.Constant(value=1)
+    for _ in range(depth):
+        node = ast.ArithmeticOperation(left=node, right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add)
+    return node  # type: ignore[return-value]
 
 
 class TestVisitor(BaseTest):
@@ -249,3 +262,34 @@ class TestVisitor(BaseTest):
     def test_order_expr_rejects_invalid_direction(self, _name: str, direction: str):
         with self.assertRaises(ValueError):
             ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]
+
+
+class TestVisitorDepthGuard(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("cloning", lambda: CloningVisitor().visit(_deeply_nested_expr(MAX_QUERY_DEPTH + 50))),
+            ("traversing", lambda: TraversingVisitor().visit(_deeply_nested_expr(MAX_QUERY_DEPTH + 50))),
+            (
+                "hogql_printer",
+                lambda: HogQLPrinter(context=HogQLContext(team_id=1)).visit(_deeply_nested_expr(MAX_QUERY_DEPTH + 50)),
+            ),
+            # The ClickHouse printer burns the most stack per level and tips over CPython's recursion
+            # limit before the depth guard trips, so this also exercises the RecursionError safety net.
+            (
+                "clickhouse_printer",
+                lambda: ClickHousePrinter(context=HogQLContext(team_id=1, enable_select_queries=True)).visit(
+                    _deeply_nested_expr(2000)
+                ),
+            ),
+        ]
+    )
+    def test_deeply_nested_query_raises_query_error_not_recursion_error(self, _name, run):
+        # Deeply nested ASTs used to bubble up a raw RecursionError and crash query execution.
+        with self.assertRaises(QueryError) as e:
+            run()
+        self.assertIn("too deeply nested", str(e.exception))
+
+    def test_depth_guard_allows_queries_up_to_the_limit(self):
+        # A query just under the limit must still traverse cleanly — the guard must not over-reject.
+        result = CloningVisitor().visit(_deeply_nested_expr(MAX_QUERY_DEPTH - 5))
+        self.assertIsInstance(result, ast.ArithmeticOperation)

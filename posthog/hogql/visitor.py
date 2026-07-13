@@ -4,12 +4,26 @@ from typing import Any, Generic, Optional, TypeVar
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
-from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.utils import is_simple_value
 
 T = TypeVar("T")
 T_AST = TypeVar("T_AST", bound=AST)
 T_Expr = TypeVar("T_Expr", bound=Expr)
+
+# Maximum AST depth any visitor (resolver, lowering passes, SQL printers) will traverse before
+# bailing out with a clean, user-facing error. HogQL is walked with recursive-descent visitors, so a
+# deeply nested query — many stacked subqueries, long chains of arithmetic, nested function calls —
+# would otherwise exhaust CPython's C stack and raise a raw RecursionError mid-traversal. That limit
+# sits around ~1000 frames and each AST level costs several frames, with the SQL printers being the
+# deepest per level; 200 stays comfortably above any query that resolves and prints today while
+# turning pathological nesting into a QueryError instead of an uncaught crash.
+MAX_QUERY_DEPTH = 200
+
+_TOO_DEEPLY_NESTED_MESSAGE = (
+    "Query is too deeply nested. Please simplify it by reducing the levels of "
+    "nested subqueries, function calls, or expressions."
+)
 
 
 def clone_expr(expr: T_AST, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> T_AST:
@@ -26,17 +40,32 @@ def clear_locations(expr: T_AST) -> T_AST:
 
 
 class Visitor(Generic[T]):
+    # Tracks how deep the current traversal is; the guard in visit() turns runaway nesting into a
+    # QueryError. Class-level default so it works even for visitors that don't call super().__init__().
+    _visit_depth: int = 0
+
     def visit(self, node: AST | None) -> T:
         if node is None:
             return node  # type: ignore
 
+        self._visit_depth += 1
         try:
+            if self._visit_depth > MAX_QUERY_DEPTH:
+                raise QueryError(_TOO_DEEPLY_NESTED_MESSAGE)
             return node.accept(self)
         except BaseHogQLError as e:
             if e.start is None or e.end is None:
                 e.start = node.start
                 e.end = node.end
             raise
+        except RecursionError:
+            # Safety net for any traversal that outruns the depth guard before it trips (e.g. a
+            # visitor path that burns more stack per level). Surface the same clean error rather than
+            # letting a raw RecursionError crash query execution. Kept minimal — the stack is nearly
+            # exhausted here, so we only build and raise one lightweight exception.
+            raise QueryError(_TOO_DEEPLY_NESTED_MESSAGE) from None
+        finally:
+            self._visit_depth -= 1
 
 
 class TraversingVisitor(Visitor[None]):
