@@ -8,6 +8,8 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
+- `RelativeRangeInput` — "N units" duration control (count stepper + unit dropdown)
+- `DateRangeComposer` — CONCEPT (unstable): date filter redesign exploration — chips + `RelativeRangeInput` + calendar + exclusions; kept as a component so the app storybook can render it next to its Lemon twin
 - `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`. Import from the `@posthog/quill-components/metric` subpath (not the main barrel)
 
 ## DataTable
@@ -100,6 +102,26 @@ Rules:
 ## useCalendar
 
 Headless month-grid state for building custom calendar UIs: returns `calendar` (months > weeks > days), view navigation (`viewNextMonth`, `viewToday`, ...), and selection helpers (`select`, `selectRange`, `isSelected`, `toggle`). Selected dates are normalized to midnight. Reach for this only when DateTimePicker doesn't fit.
+
+## RelativeRangeInput
+
+A "N units" duration control: count stepper (type, scrub, or ±) plus a unit `Select`.
+Controlled via `value: { count, unit }` / `onChange`; `units` narrows the dropdown (default hours→months), `min`/`max` clamp the count.
+The component is vocabulary-free: the host renders surrounding words ("Last …") and maps the value to its own range model.
+Unit labels singularize when count is 1.
+See the `Components/DateRangeComposer` stories for the intended composition — a presets-as-chips date filter panel where this control is the primary input and `DateTimePicker` (embedded, `ranges={[]}`) covers custom ranges.
+
+```tsx
+import { RelativeRangeInput, type RelativeRangeValue } from '@posthog/quill-components'
+
+const [value, setValue] = useState<RelativeRangeValue>({ count: 30, unit: 'days' })
+;<div className="flex items-center gap-2">
+  <Text size="sm" weight="semibold" render={<span />}>
+    Last
+  </Text>
+  <RelativeRangeInput value={value} onChange={setValue} />
+</div>
+```
 
 ## Metric
 
