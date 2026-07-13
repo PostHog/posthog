@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 
 import { IconEye } from '@posthog/icons'
 import {
@@ -48,7 +48,7 @@ const WARM_RUN_SCOPE_LABELS: Record<StaffWarmRun['scope'], string> = {
 
 function WarmRunPanel(): JSX.Element {
     const { warmRun, warmRunCancelResultLoading } = useValues(featureFlagsStaffToolsLogic)
-    const { cancelWarmRun } = useActions(featureFlagsStaffToolsLogic)
+    const { cancelWarmRun } = useAsyncActions(featureFlagsStaffToolsLogic)
 
     if (!warmRun) {
         return (
@@ -63,7 +63,7 @@ function WarmRunPanel(): JSX.Element {
     }
 
     const stateTag = WARM_RUN_STATE_TAGS[warmRun.state]
-    const percent = warmRun.total > 0 ? Math.round((warmRun.processed / warmRun.total) * 100) : 0
+    const percent = warmRun.total > 0 ? Math.min(100, Math.round((warmRun.processed / warmRun.total) * 100)) : 0
     const cancelDisabledReason = warmRun.cancel_requested ? 'Cancellation already requested' : undefined
 
     return (

@@ -373,6 +373,9 @@ async fn run_warm(
 
     if let Some(r) = reporter.as_mut() {
         r.record(completed, successful, failed, last_dispatched);
+        if !cancelled && r.cancel_requested().await {
+            cancelled = true;
+        }
         let final_state = if cancelled {
             WarmRunState::Cancelled
         } else {
