@@ -7,12 +7,13 @@ use std::time::Duration;
 use serde_json::{Map, Value};
 
 use crate::registry::WarningType;
-use crate::WarningEmitter;
+use crate::{WarningEmitter, WarningOrigin, WarningSource};
 
 /// One captured [`WarningEmitter::emit`] call.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmittedWarning {
-    pub token: String,
+    pub origin: WarningOrigin,
+    pub source: WarningSource,
     pub warning: WarningType,
     pub extra_details: Map<String, Value>,
     pub count: u64,
@@ -37,7 +38,8 @@ impl CollectingEmitter {
 impl WarningEmitter for CollectingEmitter {
     fn emit(
         &self,
-        token: &str,
+        origin: WarningOrigin,
+        source: WarningSource,
         warning: WarningType,
         extra_details: Map<String, Value>,
         count: u64,
@@ -46,7 +48,8 @@ impl WarningEmitter for CollectingEmitter {
             .lock()
             .expect("emitter mutex poisoned")
             .push(EmittedWarning {
-                token: token.to_string(),
+                origin,
+                source,
                 warning,
                 extra_details,
                 count,

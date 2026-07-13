@@ -10,34 +10,81 @@
 //!
 //! Producers without database access (capture) cannot resolve token→team, so
 //! rows are emitted with `team_id: 0` and the API token stamped into
-//! `details.token`; the read side matches them to a team by token.
+//! `details.token`; the read side matches them to a team by token. Producers
+//! that already know their team (e.g. batch-import-worker) emit the real
+//! `team_id` directly instead — see [`WarningOrigin`].
 
 use chrono::{DateTime, Utc};
 use serde_json::{json, Map, Value};
 
 use crate::registry::WarningType;
+use crate::WarningSource;
 
-/// `source` field for warnings emitted by capture.
+/// `source` field value for warnings emitted by capture. Also used as
+/// [`crate::CAPTURE_V1_ANALYTICS`]'s `service`.
 pub const SOURCE_CAPTURE: &str = "capture";
 
 /// ClickHouse `DateTime64(6, 'UTC')`-parseable timestamp format.
 const TIMESTAMP_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.6f";
 
+/// Where a warning came from and how to attribute it to a team.
+///
+/// This is the seam that lets non-capture producers (which have normal
+/// database access) reuse this crate: pick [`WarningOrigin::Team`] instead of
+/// [`WarningOrigin::Tokenless`] and rows carry the real `team_id`, no token
+/// needed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WarningOrigin {
+    /// DB-less producer (capture): rows land with `team_id: 0` and the token
+    /// stamped into `details.token` for read-side team matching.
+    Tokenless { token: String },
+    /// Team-aware producer: rows carry the real `team_id` directly.
+    Team { team_id: i64 },
+}
+
+impl WarningOrigin {
+    pub fn tokenless(token: impl Into<String>) -> Self {
+        Self::Tokenless {
+            token: token.into(),
+        }
+    }
+
+    pub fn team(team_id: i64) -> Self {
+        Self::Team { team_id }
+    }
+
+    /// Key used to partition Kafka messages and scope the throttle, so one
+    /// team's (or token's) warnings never starve another's budget.
+    pub(crate) fn throttle_key(&self) -> String {
+        match self {
+            Self::Tokenless { token } => token.clone(),
+            Self::Team { team_id } => team_id.to_string(),
+        }
+    }
+}
+
 /// Serialize one warning into a `JSONEachRow` message payload.
 ///
 /// `extra_details` carries caller-supplied context (camelCase keys such as
-/// `distinctId`, `eventUuid`, `lib`, `path`). The serializer injects `token`,
-/// `count`, `category`, `severity`, and `pipelineStep` itself so callers can
-/// never produce an inconsistent row; caller-supplied values for those keys
-/// are overwritten.
+/// `distinctId`, `eventUuid`, `lib`, `path`). The serializer injects `count`,
+/// `category`, `severity`, and `pipelineStep` itself (plus `token`, only for
+/// [`WarningOrigin::Tokenless`]) so callers can never produce an inconsistent
+/// row; caller-supplied values for those keys are overwritten.
 pub fn serialize_warning(
-    token: &str,
+    origin: &WarningOrigin,
+    source: WarningSource,
     warning: WarningType,
     mut extra_details: Map<String, Value>,
     count: u64,
     timestamp: DateTime<Utc>,
 ) -> Result<Vec<u8>, serde_json::Error> {
-    extra_details.insert("token".to_string(), json!(token));
+    let team_id = match origin {
+        WarningOrigin::Tokenless { token } => {
+            extra_details.insert("token".to_string(), json!(token));
+            0
+        }
+        WarningOrigin::Team { team_id } => *team_id,
+    };
     extra_details.insert("count".to_string(), json!(count));
     extra_details.insert("category".to_string(), json!(warning.category()));
     extra_details.insert("severity".to_string(), json!(warning.severity()));
@@ -45,9 +92,9 @@ pub fn serialize_warning(
 
     let details = serde_json::to_string(&extra_details)?;
     let row = json!({
-        "team_id": 0,
+        "team_id": team_id,
         "type": warning.as_str(),
-        "source": SOURCE_CAPTURE,
+        "source": source.service,
         "details": details,
         "timestamp": timestamp.format(TIMESTAMP_FORMAT).to_string(),
     });
@@ -57,6 +104,7 @@ pub fn serialize_warning(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CAPTURE_V1_ANALYTICS;
     use chrono::TimeZone;
 
     fn sample_row() -> Value {
@@ -70,7 +118,8 @@ mod tests {
         let ts = Utc.with_ymd_and_hms(2026, 7, 10, 21, 0, 0).unwrap()
             + chrono::Duration::microseconds(123456);
         let bytes = serialize_warning(
-            "phc_test_token",
+            &WarningOrigin::tokenless("phc_test_token"),
+            CAPTURE_V1_ANALYTICS,
             WarningType::MissingEventName,
             extra,
             3,
@@ -127,11 +176,63 @@ mod tests {
         let mut extra = Map::new();
         extra.insert("severity".to_string(), json!("info"));
         extra.insert("token".to_string(), json!("spoofed"));
-        let bytes =
-            serialize_warning("phc_real", WarningType::EmptyBatch, extra, 1, Utc::now()).unwrap();
+        let bytes = serialize_warning(
+            &WarningOrigin::tokenless("phc_real"),
+            CAPTURE_V1_ANALYTICS,
+            WarningType::EmptyBatch,
+            extra,
+            1,
+            Utc::now(),
+        )
+        .unwrap();
         let row: Value = serde_json::from_slice(&bytes).unwrap();
         let details: Value = serde_json::from_str(row["details"].as_str().unwrap()).unwrap();
         assert_eq!(details["severity"], "error");
         assert_eq!(details["token"], "phc_real");
+    }
+
+    /// Proves the message `source` field reflects the caller's
+    /// [`crate::WarningSource`] rather than a hardcoded capture literal — the
+    /// whole point of parameterizing `serialize_warning` for reuse.
+    #[test]
+    fn source_field_reflects_the_caller_supplied_source() {
+        let other = crate::WarningSource {
+            service: "batch_import",
+            path: "some_path",
+        };
+        let bytes = serialize_warning(
+            &WarningOrigin::tokenless("phc_test_token"),
+            other,
+            WarningType::EmptyBatch,
+            Map::new(),
+            1,
+            Utc::now(),
+        )
+        .unwrap();
+        let row: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(row["source"], "batch_import");
+    }
+
+    /// Team-aware producers (e.g. batch-import-worker) emit the real
+    /// `team_id` directly and never stamp a token — the read side has no
+    /// need to token-match a row that already carries its team.
+    #[test]
+    fn team_origin_emits_real_team_id_without_a_token() {
+        let bytes = serialize_warning(
+            &WarningOrigin::team(42),
+            CAPTURE_V1_ANALYTICS,
+            WarningType::EmptyBatch,
+            Map::new(),
+            1,
+            Utc::now(),
+        )
+        .unwrap();
+        let row: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(row["team_id"], 42);
+        let details: Value = serde_json::from_str(row["details"].as_str().unwrap()).unwrap();
+        assert!(
+            !details.as_object().unwrap().contains_key("token"),
+            "team-aware rows must not carry a token"
+        );
     }
 }

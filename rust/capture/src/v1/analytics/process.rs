@@ -28,7 +28,7 @@ use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::types::SinkResult;
 use crate::v1::sinks::{serialize_batch, Destination};
 use crate::v1::Error;
-use common_ingestion_warnings::WarningType;
+use common_ingestion_warnings::{WarningOrigin, WarningType, CAPTURE_V1_ANALYTICS};
 
 /// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
 ///
@@ -300,7 +300,8 @@ fn emit_batch_abort_warning(
     // `empty_batch` aborts have batch_len == 0; the rejected request is still
     // one occurrence, so never charge a count of zero.
     emitter.emit(
-        &context.api_token,
+        WarningOrigin::tokenless(context.api_token.clone()),
+        CAPTURE_V1_ANALYTICS,
         warning,
         warning_context_details(context),
         batch_len.max(1) as u64,
@@ -346,7 +347,13 @@ fn emit_validation_drop_warnings(
             details.insert("distinctId".to_string(), serde_json::json!(distinct_id));
             details.insert("eventUuid".to_string(), serde_json::json!(uuid.to_string()));
         }
-        emitter.emit(&context.api_token, warning, details, count);
+        emitter.emit(
+            WarningOrigin::tokenless(context.api_token.clone()),
+            CAPTURE_V1_ANALYTICS,
+            warning,
+            details,
+            count,
+        );
     }
 }
 
@@ -3261,7 +3268,7 @@ mod tests {
     // =========================================================================
 
     use common_ingestion_warnings::test_support::CollectingEmitter;
-    use common_ingestion_warnings::WarningType;
+    use common_ingestion_warnings::{WarningOrigin, WarningType};
 
     /// State wired to a `CollectingEmitter` so tests can assert exactly what
     /// `process_batch` emitted (type, count, details) without any Kafka.
@@ -3290,7 +3297,10 @@ mod tests {
         assert_eq!(emitted.len(), 1, "same-tag drops must dedupe to one emit");
         assert_eq!(emitted[0].warning, WarningType::MissingEventName);
         assert_eq!(emitted[0].count, 3);
-        assert_eq!(emitted[0].token, "phc_test_token");
+        assert_eq!(
+            emitted[0].origin,
+            WarningOrigin::tokenless("phc_test_token")
+        );
         // With multiple affected events, per-event identifiers are ambiguous
         // and must be omitted; request-level context is always present.
         assert!(!emitted[0].extra_details.contains_key("distinctId"));
