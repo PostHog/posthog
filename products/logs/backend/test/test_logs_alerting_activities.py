@@ -1267,6 +1267,39 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.capture_exception")
+    def test_errored_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
+        mock_query_cls.return_value.execute_rolling_checks.side_effect = Exception("CH down")
+        alert = self._make_alert()
+        now1 = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        now2 = datetime(2025, 1, 1, 0, 6, 0, tzinfo=UTC)
+
+        # Non-transient classification so the failure notifies at all; the enqueue
+        # failure must then roll back the failure counter, or the second check
+        # never sees the 0 -> 1 notify edge and the notification is lost.
+        with (
+            patch("products.logs.backend.temporal.activities.produce_internal_event") as mock_produce,
+            patch(
+                "products.logs.backend.alert_error_classifier.classify_query_error",
+                return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+            ),
+        ):
+            mock_produce.side_effect = Exception("Kafka down")
+            _evaluate_and_save_one(alert, now1, _make_stats())
+
+            mock_produce.side_effect = None
+            mock_produce.reset_mock()
+            _evaluate_and_save_one(alert, now2, _make_stats())
+
+        errored_calls = [
+            c
+            for c in mock_produce.call_args_list
+            if c.kwargs.get("event") and c.kwargs["event"].event == "$logs_alert_errored"
+        ]
+        assert len(errored_calls) == 1
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.capture_exception")
     def test_broken_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
         mock_query_cls.return_value.execute_rolling_checks.side_effect = Exception(
             "Code: 160. DB::Exception: Estimated query execution time is too long"

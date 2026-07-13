@@ -260,8 +260,12 @@ class _DispatchedAlert:
     """Phase 2 output: notification dispatched, ready for the cohort bulk save.
 
     `notification_failed` is the source of truth for state rollback: if True,
-    the state machine's `new_state` is replaced with the alert's existing state
-    so the next cycle re-tries the notification.
+    the state machine's `new_state` and `consecutive_failures` are both reset to
+    the alert's pre-check values so the next cycle re-evaluates as if this check
+    never happened and re-tries the notification. The counter matters as much as
+    the state: the error notification fires on the 0 -> 1 failure-counter edge,
+    so persisting an advanced counter after a failed enqueue would silence the
+    retry forever.
 
     `produce_result` is the pending Kafka delivery for this alert's
     notification (None when no notification was attempted or the enqueue itself
@@ -281,6 +285,7 @@ class _DispatchedAlert:
             return dataclasses.replace(
                 self.evaluation.outcome,
                 new_state=AlertState(self.evaluation.alert.state),
+                consecutive_failures=self.evaluation.alert.consecutive_failures,
             )
         return self.evaluation.outcome
 
