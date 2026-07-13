@@ -188,6 +188,7 @@ rules:
                               |LLMSkill
                               |LLMTraceSummary
                               |MarketingAnalyticsGoalMapping
+                              |MetricsView
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageTemplate
@@ -472,6 +473,7 @@ rules:
                         |LLMSkill
                         |LLMTraceSummary
                         |MarketingAnalyticsGoalMapping
+                        |MetricsView
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
