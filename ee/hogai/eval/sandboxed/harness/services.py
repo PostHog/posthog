@@ -49,12 +49,15 @@ def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
     db_port = conn.settings_dict.get("PORT", "5432")
     test_db_url = f"postgres://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
+    # No team rate-limit multiplier: the gateway keys multipliers by team id, but
+    # each eval case runs as its own freshly minted team, so a mapping like {"1": 10}
+    # never matches. Rate limits are per team, so every case gets the full base
+    # budget (hundreds of requests/minute), which is already ample for eval traffic.
     env = {
         **os.environ,
         "UV_PROJECT_ENVIRONMENT": str(venv_dir),
         "LLM_GATEWAY_DATABASE_URL": test_db_url,
         "LLM_GATEWAY_DEBUG": "true",
-        "LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS": '{"1": 10}',
         "LLM_GATEWAY_POSTHOG_HOST": live_server_url,
     }
 

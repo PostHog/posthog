@@ -104,16 +104,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_args(argv: list[str] | None = None) -> HarnessOptions:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
     if args.max_sandboxes is not None and args.max_sandboxes < 1:
-        build_parser().error("--max-sandboxes must be at least 1")
+        parser.error("--max-sandboxes must be at least 1")
     if args.keep_sandbox_containers and args.provider != "docker":
-        build_parser().error("--keep-sandbox-containers only applies to --provider docker")
+        parser.error("--keep-sandbox-containers only applies to --provider docker")
     if args.trials < 1:
-        build_parser().error("--trials must be at least 1")
+        parser.error("--trials must be at least 1")
     if args.fail_under is not None and not (0 < args.fail_under <= 1):
-        build_parser().error("--fail-under must be greater than 0 and at most 1")
+        parser.error("--fail-under must be greater than 0 and at most 1")
 
     default_slots = (
         DockerProviderStrategy.default_max_sandboxes

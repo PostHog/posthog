@@ -84,7 +84,7 @@ def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
     raw_log = output.get("raw_log")
     if not raw_log:
         return None
-    return LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+    return LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
 
 
 def _last_successful_input(parser: LogParser | None, tool_name: str) -> dict[str, Any] | None:

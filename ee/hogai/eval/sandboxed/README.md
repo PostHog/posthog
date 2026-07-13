@@ -73,7 +73,8 @@ Modal prerequisites, all checked by preflight before anything boots:
 Sandboxes are unbounded by default on modal, meaning every case can hold one at once.
 `--max-sandboxes N` is the cost knob.
 
-Each case terminates its own sandbox when it finishes. When the whole run ends, the harness also sweeps its Modal app and terminates anything still running, so a crashed or interrupted run doesn't leave sandboxes billing until their TTL.
+Each case terminates its own sandbox when it finishes. When the whole run ends, the harness also sweeps the Modal app for its own leftover sandboxes and terminates them, so a crashed or interrupted run doesn't leave sandboxes billing until their TTL.
+The sweep is scoped to this run's own tasks (matched by the `task_id` sandbox tag), so a second eval run sharing the same Modal app keeps its sandboxes.
 
 ## Concurrency
 

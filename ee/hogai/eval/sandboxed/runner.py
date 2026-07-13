@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import time
 import uuid
@@ -22,6 +23,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = ["run_eval_case"]
+
+# Word-boundary matches so a tool title like "latest release" doesn't read as a
+# test run, and "blueprint" doesn't read as a lint run. These artifacts feed the
+# tests-pass / lint-pass scorers, so a false match is a scoring bug.
+TEST_TITLE_RE = re.compile(r"\b(pytest|tests?)\b")
+LINT_TITLE_RE = re.compile(r"\b(ruff|lint)\b")
 
 
 async def _end_workflow(handle: WorkflowHandle, reason: str) -> None:
@@ -71,6 +78,8 @@ async def run_eval_case(
         # Eval is a test harness — direct use of internals (instead of MTS) is intentional:
         # the agent isn't asked for structured JSON, and we need full_log for artifact parsing.
         task, task_run = await create_task_and_trigger(case.prompt, context, step_name=case.name)
+        # Register the task so the end-of-run sweep stays scoped to this run's sandboxes.
+        provider.register_task(str(task.id))
         # Handle to the case's workflow so a timeout/error can shut the agent down.
         workflow_id = task_run.get_workflow_id(task.id, task_run.id)
         client = await async_connect()
@@ -165,7 +174,7 @@ def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_f
             files_changed.extend(f.strip() for f in text.splitlines() if f.strip())
 
         # Detect test runs
-        if ("pytest" in title or "test" in title) and text:
+        if TEST_TITLE_RE.search(title) and text:
             test_output = text
             # Infer exit code from pytest output patterns
             if "passed" in text and "failed" not in text and "error" not in text.lower():
@@ -174,7 +183,7 @@ def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_f
                 test_exit_code = 1
 
         # Detect lint runs
-        if ("ruff" in title or "lint" in title) and text:
+        if LINT_TITLE_RE.search(title) and text:
             lint_output = text
             if "All checks passed" in text or not text.strip():
                 lint_exit_code = 0

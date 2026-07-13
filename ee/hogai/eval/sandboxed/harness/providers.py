@@ -41,27 +41,6 @@ class PreflightError(RuntimeError):
     """A provider prerequisite is missing. Raised before any infrastructure boots."""
 
 
-def cleanup_eval_containers() -> None:
-    """Force-remove every leftover eval sandbox container.
-
-    Best effort — also runs from an ``atexit`` hook, where a raised exception
-    would obscure whatever actually killed the run.
-    """
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "-a", "--filter", f"name={EVAL_CONTAINER_PREFIX}", "--format", "{{.ID}}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        for container_id in result.stdout.strip().splitlines():
-            if container_id:
-                logger.info("Cleaning up eval container %s", container_id)
-                subprocess.run(["docker", "rm", "-f", container_id], capture_output=True, timeout=10)
-    except Exception:
-        pass
-
-
 def cleanup_case_containers(task_id: str) -> None:
     """Force-remove any sandbox container created for this case's task.
 
@@ -108,15 +87,23 @@ def _modal_eval_app_name() -> str:
     return app_name if isinstance(app_name, str) else ""
 
 
-def cleanup_modal_eval_sandboxes(app_name: str) -> None:
-    """Terminate every Modal sandbox still running under the eval app.
+def cleanup_modal_eval_sandboxes(app_name: str, task_ids: set[str]) -> None:
+    """Terminate this run's leftover Modal sandboxes under the eval app.
 
-    The Modal analog of ``cleanup_eval_containers``: best effort, and also reached
+    The Modal analog of the Docker container sweep: best effort, and also reached
     from an ``atexit`` hook. A case that finishes cleanly has its own workflow
     terminate its sandbox; this catches the ones a per-case timeout, a crash, or a
-    Ctrl-C left running, so they don't idle (and bill) until their TTL. The app is
-    dedicated to local/eval sandboxes, so sweeping the whole app is safe.
+    Ctrl-C left running, so they don't idle (and bill) until their TTL.
+
+    Scoped to this run's own tasks so two concurrent runs sharing the eval app
+    don't reap each other. Each sandbox carries a ``task_id`` tag (see
+    ``_build_sandbox_tags`` / ``ModalSandbox`` ``set_tags``), so we list per
+    registered id and terminate only those. We filter on the tag rather than the
+    ``task-sandbox-<id>-<hex>`` name because the installed Modal SDK does not
+    expose a listed sandbox's name. Empty registry (nothing ran) sweeps nothing.
     """
+    if not task_ids:
+        return
     try:
         import modal  # noqa: PLC0415 — heavy, optional dep kept off the harness import path
     except Exception:
@@ -126,17 +113,18 @@ def cleanup_modal_eval_sandboxes(app_name: str) -> None:
     except Exception:
         # Nothing ever ran under this app, so there is nothing to sweep.
         return
-    try:
-        sandboxes = list(modal.Sandbox.list(app_id=app.app_id))
-    except Exception:
-        logger.warning("Could not list Modal sandboxes for app %s during cleanup", app_name)
-        return
-    for sandbox in sandboxes:
+    for task_id in task_ids:
         try:
-            logger.info("Terminating leftover Modal sandbox %s", sandbox.object_id)
-            sandbox.terminate()
+            sandboxes = list(modal.Sandbox.list(app_id=app.app_id, tags={"task_id": task_id}))
         except Exception:
-            pass
+            logger.warning("Could not list Modal sandboxes for task %s during cleanup", task_id)
+            continue
+        for sandbox in sandboxes:
+            try:
+                logger.info("Terminating leftover Modal sandbox %s for task %s", sandbox.object_id, task_id)
+                sandbox.terminate()
+            except Exception:
+                pass
 
 
 class SandboxProviderStrategy(ABC):
@@ -146,6 +134,18 @@ class SandboxProviderStrategy(ABC):
 
     default_max_sandboxes: ClassVar[int | None]
     """``None`` means unbounded — every case may hold a sandbox at once."""
+
+    def __init__(self) -> None:
+        self._task_ids: set[str] = set()
+        """Task ids whose sandboxes this run created. The end-of-run sweep filters
+        on these so it only reaps this run's own sandboxes — never a dev-stack task
+        sandbox or a concurrent run sharing the same provider."""
+
+    def register_task(self, task_id: str) -> None:
+        """Record a task whose sandbox this run created, so ``cleanup()`` can scope
+        its sweep to this run. The runner calls it once per case, right after the
+        task's workflow is triggered."""
+        self._task_ids.add(task_id)
 
     @abstractmethod
     def preflight(self) -> None:
@@ -177,6 +177,7 @@ class DockerProviderStrategy(SandboxProviderStrategy):
     default_max_sandboxes: ClassVar[int | None] = 4
 
     def __init__(self, *, keep_containers: bool = False) -> None:
+        super().__init__()
         self.keep_containers = keep_containers
 
     def preflight(self) -> None:
@@ -208,7 +209,11 @@ class DockerProviderStrategy(SandboxProviderStrategy):
         if self.keep_containers:
             logger.info("--keep-sandbox-containers set, skipping container cleanup")
             return
-        cleanup_eval_containers()
+        # Scope the sweep to this run's own tasks so we never reap a dev-stack task
+        # sandbox that happens to share the `task-sandbox-` prefix. Empty registry
+        # (nothing ran) sweeps nothing.
+        for task_id in self._task_ids:
+            cleanup_case_containers(task_id)
 
 
 class ModalProviderStrategy(SandboxProviderStrategy):
@@ -224,6 +229,7 @@ class ModalProviderStrategy(SandboxProviderStrategy):
     default_max_sandboxes: ClassVar[int | None] = None
 
     def __init__(self) -> None:
+        super().__init__()
         self._tunnels: NgrokTunnels | None = None
         self._sandbox_app_name: str | None = None
 
@@ -292,8 +298,10 @@ class ModalProviderStrategy(SandboxProviderStrategy):
     def cleanup(self) -> None:
         # A finished case terminates its own sandbox; sweep the app for any that a
         # timeout, crash, or Ctrl-C left running so they don't idle until their TTL.
+        # Scoped to this run's own tasks so a concurrent run sharing the eval app
+        # keeps its sandboxes.
         if self._sandbox_app_name:
-            cleanup_modal_eval_sandboxes(self._sandbox_app_name)
+            cleanup_modal_eval_sandboxes(self._sandbox_app_name, self._task_ids)
 
 
 def build_provider(provider: SandboxProvider, *, keep_containers: bool) -> SandboxProviderStrategy:
