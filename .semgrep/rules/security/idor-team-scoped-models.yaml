@@ -117,6 +117,7 @@ rules:
                               |DeploymentEvent
                               |DeploymentProject
                               |EarlyAccessFeature
+                              |EmailDeliveryEvent
                               |EmailMessageMapping
                               |EvaluationContext
                               |Edge
@@ -404,6 +405,7 @@ rules:
                         |DeploymentEvent
                         |DeploymentProject
                         |EarlyAccessFeature
+                        |EmailDeliveryEvent
                         |EmailMessageMapping
                         |EvaluationContext
                         |Edge

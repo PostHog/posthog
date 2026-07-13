@@ -211,7 +211,7 @@ class TestSyncDeliveryWebhooks:
         assert all(call.kwargs["data"]["url"] == WEBHOOK_URL for call in mock_post.call_args_list)
         mock_put.assert_not_called()
 
-    def test_updates_webhook_pointing_elsewhere(
+    def test_appends_to_webhook_pointing_elsewhere(
         self, mock_get: MagicMock, mock_post: MagicMock, mock_put: MagicMock, _mock_key: MagicMock
     ):
         mock_get.return_value = _mailgun_response(
@@ -224,7 +224,8 @@ class TestSyncDeliveryWebhooks:
 
         assert mock_put.call_count == 1
         assert "/domains/example.com/webhooks/delivered" in mock_put.call_args.args[0]
-        assert mock_put.call_args.kwargs["data"] == {"url": WEBHOOK_URL}
+        # Existing callbacks are preserved — ours is appended, not substituted.
+        assert mock_put.call_args.kwargs["data"] == [("url", "https://old.example.com/hook"), ("url", WEBHOOK_URL)]
         posted = {call.kwargs["data"]["id"] for call in mock_post.call_args_list}
         assert posted == set(DELIVERY_WEBHOOK_TYPES) - {"delivered"}
 

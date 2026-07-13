@@ -35,6 +35,7 @@ def _payload(
     recipient: str = "customer@example.com",
     event_id: str | None = None,
     key: str = SIGNING_KEY,
+    delivery_status: dict[str, Any] | None = None,
     **event_fields: Any,
 ) -> dict:
     timestamp = str(int(time.time()))
@@ -47,6 +48,8 @@ def _payload(
         "message": {"headers": {"message-id": message_id}},
         **event_fields,
     }
+    if delivery_status is not None:
+        event_data["delivery-status"] = delivery_status
     return {
         "signature": {"timestamp": timestamp, "token": token, "signature": _sign(timestamp, token, key)},
         "event-data": event_data,
@@ -163,7 +166,7 @@ class TestEmailDeliveryEventsWebhook(BaseTest):
                 event="failed",
                 severity="permanent",
                 reason="bounce",
-                **{"delivery-status": {"code": 550, "description": "mailbox unavailable"}},
+                delivery_status={"code": 550, "description": "mailbox unavailable"},
             )
         )
 

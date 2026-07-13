@@ -313,7 +313,8 @@ def sync_delivery_webhooks(domain: str, webhook_url: str) -> None:
     (HMAC-SHA256 over timestamp+token, validated by validate_webhook_signature),
     so registering these is what completes the proof-of-delivery loop for
     outbound ticket replies. Safe to call repeatedly: already-aligned webhooks
-    are left untouched, ones pointing elsewhere are updated in place.
+    are left untouched. Mailgun supports multiple URLs per webhook, so a webhook
+    pointing elsewhere gets ours appended rather than replacing existing callbacks.
     """
     api_key = _get_api_key()
     existing = get_webhooks(domain)
@@ -326,7 +327,7 @@ def sync_delivery_webhooks(domain: str, webhook_url: str) -> None:
             resp = requests.put(
                 f"{MAILGUN_API_BASE}/domains/{domain}/webhooks/{name}",
                 auth=("api", api_key),
-                data={"url": webhook_url},
+                data=[("url", u) for u in [*urls, webhook_url]],
                 timeout=15,
             )
         else:
