@@ -336,6 +336,17 @@ def _strip_regional_inference_prefix(model: str) -> str:
     return model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
 
 
+def supports_bedrock_runtime_count_tokens(model: str) -> bool:
+    """Whether the bedrock-runtime CountTokens API can count tokens for this model.
+
+    Runtime CountTokens only accepts dated foundation-model ids (the ":<version>"-suffixed ones,
+    e.g. "anthropic.claude-sonnet-4-5-20250929-v1:0"). Cross-Region-inference-only models (Opus
+    4.6+, Sonnet 4.6+, Fable 5) have no such id and always fail with a ValidationException, so
+    callers should count via bedrock-mantle directly.
+    """
+    return ":" in model
+
+
 def get_bedrock_mantle_count_tokens_url(region_name: str) -> str:
     return f"https://bedrock-mantle.{region_name}.api.aws/anthropic/v1/messages/count_tokens"
 
