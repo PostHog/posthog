@@ -548,6 +548,8 @@ ignore_imports = [
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
+    "products.logs.backend.presentation.views.api -> products.logs.backend.archive_query_runners",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.archive_routing",
     "products.logs.backend.presentation.views.api -> products.logs.backend.column_expressions",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
