@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-DestinationType = Literal["slack", "webhook", "teams"]
+DestinationType = Literal["slack", "webhook", "teams", "email"]
 
 ALERT_ID_PROPERTY = "alert_id"
 
@@ -27,6 +27,7 @@ TEMPLATE_ID_BY_DESTINATION_TYPE: dict[DestinationType, str] = {
     "slack": "template-slack",
     "webhook": "template-webhook",
     "teams": "template-microsoft-teams",
+    "email": "template-email",
 }
 DESTINATION_TYPE_BY_TEMPLATE_ID = {
     template_id: destination_type for destination_type, template_id in TEMPLATE_ID_BY_DESTINATION_TYPE.items()
@@ -255,5 +256,73 @@ def build_teams_destination_config(
         inputs={
             "webhookUrl": {"value": webhook_url},
             "text": {"value": teams_text(spec)},
+        },
+    )
+
+
+def email_subject(spec: EventKindSpec) -> str:
+    return spec.header
+
+
+def email_html(spec: EventKindSpec) -> str:
+    # Minimal semantic fragment — the email service owns deliverability, this owns
+    # structure. Same vocabulary order as Slack/Teams: header, prose, details, actions.
+    parts = [f"<h2>{spec.header}</h2>"]
+    parts.extend(f"<p>{line}</p>" for line in spec.body_lines)
+    if spec.details:
+        rows = "".join(f"<li><strong>{label}:</strong> {value}</li>" for label, value in spec.details)
+        parts.append(f"<ul>{rows}</ul>")
+    links = " · ".join(
+        f'<a href="{button.url}">{button.label}</a>'
+        for button in (Button(url=spec.button_url, label=spec.button_label), *spec.extra_buttons)
+    )
+    parts.append(f"<p>{links}</p>")
+    return "".join(parts)
+
+
+def email_text(spec: EventKindSpec) -> str:
+    parts = [spec.header, *spec.body_lines]
+    parts.extend(f"{label}: {value}" for label, value in spec.details)
+    parts.extend(
+        f"{button.label}: {button.url}"
+        for button in (Button(url=spec.button_url, label=spec.button_label), *spec.extra_buttons)
+    )
+    return "\n".join(parts)
+
+
+def build_email_destination_config(
+    *,
+    team: Any,
+    spec: EventKindSpec,
+    alert_id: str,
+    alert_name: str,
+    name: str,
+    to_email: str,
+    to_name: str = "",
+) -> AlertDestinationConfig:
+    # No `templating` key on the input: the CDP runtime defaults stored inputs to
+    # hog templating, so spec placeholder strings ({project.url}, ...) resolve the
+    # same way here as in the Slack/Teams/webhook inputs.
+    return _base_config(
+        team=team,
+        spec=spec,
+        alert_id=alert_id,
+        alert_name=alert_name,
+        name=name,
+        template_id=TEMPLATE_ID_BY_DESTINATION_TYPE["email"],
+        inputs={
+            "email": {
+                "value": {
+                    "to": {"email": to_email, "name": to_name},
+                    "from": {},
+                    "replyTo": "",
+                    "cc": "",
+                    "bcc": "",
+                    "subject": email_subject(spec),
+                    "preheader": "",
+                    "text": email_text(spec),
+                    "html": email_html(spec),
+                }
+            },
         },
     )

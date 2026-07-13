@@ -1,4 +1,4 @@
-from common.alerting.destinations import Button, EventKindSpec, slack_blocks, teams_text
+from common.alerting.destinations import Button, EventKindSpec, build_email_destination_config, slack_blocks, teams_text
 
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
@@ -48,3 +48,31 @@ class TestSpecVocabularyRendering:
         assert teams_text(DEFAULT_SPEC) == (
             "**Insight alert firing**\n\n**Threshold:** 30\n\n[View insight](https://example.com/insight)"
         )
+
+    def test_email_destination_renders_vocabulary_into_native_email_input(self) -> None:
+        config = build_email_destination_config(
+            team=object(),
+            spec=PROSE_SPEC,
+            alert_id="alert-1",
+            alert_name="My alert",
+            name="Email · firing · My alert",
+            to_email="oncall@example.com",
+        )
+
+        assert config.payload["template_id"] == "template-email"
+        assert config.payload["filters"]["properties"][0] == {
+            "key": "alert_id",
+            "value": "alert-1",
+            "operator": "exact",
+            "type": "event",
+        }
+
+        email = config.payload["inputs"]["email"]["value"]
+        assert email["to"] == {"email": "oncall@example.com", "name": ""}
+        assert email["subject"] == "Insight alert firing"
+        assert "<p>Pageviews is 42, breaching 30</p>" in email["html"]
+        assert '<a href="https://example.com/alert">Manage alert</a>' in email["html"]
+        assert "Manage alert: https://example.com/alert" in email["text"]
+        # Stored without a templating key: the CDP runtime then defaults to hog
+        # templating, matching the placeholder syntax shared with slack/teams.
+        assert "templating" not in config.payload["inputs"]["email"]
