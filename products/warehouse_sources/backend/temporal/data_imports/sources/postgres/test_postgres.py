@@ -6465,8 +6465,8 @@ class TestRlsActiveFromConnErrorHandling:
 
     def test_unsupported_statement_timeout_error_is_not_captured(self):
         # A Postgres-wire engine that rejects the best-effort `SET statement_timeout` (CrateDB,
-        # Materialize, etc.) is an expected shape: degrade to no RLS warnings without flooding
-        # error tracking.
+        # Materialize, Aurora DSQL, etc.) is an expected shape: degrade to no RLS warnings without
+        # flooding error tracking.
         conn = self._conn_raising(
             psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
         )
@@ -6515,21 +6515,6 @@ class TestRlsActiveFromConnErrorHandling:
         conn.broken = False
         setattr(conn, attr, True)
         conn.cursor.side_effect = psycopg.OperationalError("the connection is closed")
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
-        ) as capture_mock:
-            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
-        assert result == {}
-        capture_mock.assert_not_called()
-
-    def test_unsupported_statement_timeout_error_is_not_captured(self):
-        # Some Postgres-wire-compatible engines (e.g. Aurora DSQL) reject the `SET LOCAL
-        # statement_timeout` guard this lookup opens with (raising FeatureNotSupported on that first
-        # statement). That's an expected incompatibility, not a bug — degrade quietly instead of
-        # flooding error tracking.
-        conn = self._conn_raising(
-            psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
-        )
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:
