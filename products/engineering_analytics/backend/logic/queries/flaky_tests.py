@@ -16,7 +16,8 @@ Two data caveats shape the query:
 
 Ranking is ``rerun_passed_count + failed_pr_count``: reruns catch the rerun-enabled lanes,
 distinct-PRs-hit catches the rest, and neither is inflated by one broken PR failing the same
-test on every push (that raises only ``failed_count``, the tiebreaker).
+test on every push (that raises only ``failed_count``, the tiebreaker). Spans are scoped by
+``ci.repository`` so the selected GitHub source cannot mix signals from another repository.
 
 Reads the ``posthog.trace_spans`` table on the LOGS ClickHouse cluster, not the warehouse.
 """
@@ -59,6 +60,7 @@ _SELECT = """
         FROM posthog.trace_spans
         WHERE service_name = {service_name}
             AND attributes['test.outcome'] IN {signal_outcomes}
+            __REPOSITORY__
             AND timestamp >= {date_from} __DATE_TO__
     )
     GROUP BY nodeid
@@ -98,6 +100,9 @@ def query_flaky_tests(
     limit: int,
 ) -> FlakyTestList:
     date_to_clause = "AND timestamp <= {date_to}" if date_to is not None else ""
+    repository_clause = (
+        "AND lower(resource_attributes['ci.repository']) = lower({repository})" if curated.repository else ""
+    )
     placeholders: dict[str, ast.Expr] = {
         "service_name": ast.Constant(value=_CI_SERVICE_NAME),
         "signal_outcomes": ast.Constant(value=_SIGNAL_OUTCOMES),
@@ -107,11 +112,13 @@ def query_flaky_tests(
         # +1 so a full page tells us more tests qualified than returned.
         "limit_plus_one": ast.Constant(value=limit + 1),
     }
+    if curated.repository:
+        placeholders["repository"] = ast.Constant(value=curated.repository)
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
 
     response = curated.run(
-        _SELECT.replace("__DATE_TO__", date_to_clause),
+        _SELECT.replace("__REPOSITORY__", repository_clause).replace("__DATE_TO__", date_to_clause),
         query_type="engineering_analytics.flaky_tests",
         placeholders=placeholders,
         # trace_spans lives on the LOGS ClickHouse cluster, not the warehouse default.

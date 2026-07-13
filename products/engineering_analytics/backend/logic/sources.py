@@ -49,12 +49,14 @@ _IDENTIFIER = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
 
 @dataclass(frozen=True)
 class GitHubTables:
-    """The per-team warehouse table names the curated builders read from."""
+    """The selected GitHub source identity and warehouse tables the curated layer reads."""
 
     pull_requests: str
     workflow_runs: str
     # Optional: present only once the job-level source is synced; None means "no jobs data".
     workflow_jobs: str | None = None
+    # Used to scope cross-store reads such as CI traces to the selected source's repository.
+    repository: str = ""
 
 
 def resolve_github_tables(
@@ -94,6 +96,7 @@ def resolve_github_tables(
                 pull_requests=pull_requests,
                 workflow_runs=workflow_runs,
                 workflow_jobs=tables.get(WORKFLOW_JOBS_SCHEMA),
+                repository=str((source.job_inputs or {}).get("repository") or "").strip(),
             )
     if source_id is not None:
         raise GitHubSourceNotConnectedError(_NO_SELECTED_SOURCE)

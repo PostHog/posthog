@@ -37,6 +37,9 @@ export const PR_TABLE_LIMIT = 1000
 // Mirrors `workflow_health.py` `_LIMIT` (top workflows by run count).
 export const WORKFLOW_HEALTH_LIMIT = 100
 
+// Mirrors the endpoint's maximum so the UI can paginate every returned leaderboard row.
+export const FLAKY_TEST_LIMIT = 200
+
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export type PRState = 'open' | 'closed' | 'merged'
@@ -681,6 +684,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadFlakyTests: async (): Promise<FlakyTestsData> => {
                         const data = await engineeringAnalyticsFlakyTests(projectId(), {
                             date_from: values.flakyTestWindow,
+                            limit: FLAKY_TEST_LIMIT,
                             source_id: values.sourceId ?? undefined,
                         })
                         return {
