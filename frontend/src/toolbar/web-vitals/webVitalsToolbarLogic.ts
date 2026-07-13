@@ -70,9 +70,13 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
                         return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
                     }
 
+                    // Network failures here are expected: this refetches on every mount and URL
+                    // change on customer pages, where a fetch can reject for reasons outside our
+                    // control (navigation mid-request, offline, ad blocker, CORS, a wrapped
+                    // `window.fetch`). The loader degrades to null metrics, so don't report these.
                     const result = await toolbarApi.webVitals.get<WebVitalsMetricsResponse>(
                         { pathname: window.location.pathname },
-                        { context: 'load_web_vitals' }
+                        { context: 'load_web_vitals', captureOnError: false }
                     )
                     breakpoint()
 
