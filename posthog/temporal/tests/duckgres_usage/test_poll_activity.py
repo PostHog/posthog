@@ -225,6 +225,24 @@ async def test_benign_when_duckgres_is_behind_still_offers_ack(activity_environm
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_duckgres_behind_does_not_regress_recorded_cursor(activity_environment) -> None:
+    # Our record is ahead (day 7); duckgres re-serves an older window whose ack
+    # boundary is day 6. We still offer the (idempotent) day-6 ack, but the
+    # recorded cursor must NOT regress to day 6 — otherwise the next normal pull
+    # (watermark_low back at day 7) would read as a fake hole and withhold its ack.
+    ahead = dt.datetime(2026, 7, 7, 23, 59, 59, tzinfo=dt.UTC)
+    await create_cursor(ahead)
+
+    is_conf, fetch, cap, log = _patched(CLOSED_DAY_RESPONSE)
+    with is_conf, fetch, cap, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert result.ack_watermark == DAY_6_END.isoformat()  # idempotent re-ack is fine
+    assert await get_cursor_watermark() == ahead  # cursor must not regress to day 6
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_in_sync_cursor_does_not_warn_and_advances(activity_environment) -> None:
     await create_cursor(CLOSED_DAY_RESPONSE.watermark_low)
 

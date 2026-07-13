@@ -91,8 +91,14 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
         ack_watermark = ack_at.isoformat() if (should_ack and ack_at is not None) else None
 
         # One transaction: persist the mirror rows and — record-before-ack — the
-        # watermark the workflow will ack next.
-        rows_written = await database_sync_to_async(_persist)(response, ack_at if should_ack else None)
+        # watermark the workflow will ack next. Record max(recorded, ack_at): in
+        # the benign "duckgres behind" case ack_at can be older than what we've
+        # already recorded, and regressing the cursor would make the next normal
+        # pull read as a fake hole. The ack itself stays ack_at (idempotent).
+        watermark_to_record = ack_at if should_ack else None
+        if watermark_to_record is not None and recorded is not None:
+            watermark_to_record = max(watermark_to_record, recorded)
+        rows_written = await database_sync_to_async(_persist)(response, watermark_to_record)
 
         if hole:
             capture_exception(

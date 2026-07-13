@@ -2335,6 +2335,9 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.workflow_sms_sent_in_period > 0
         or report.workflow_billable_invocations_in_period > 0
         or report.replay_vision_credits_used_in_period > 0
+        or report.managed_warehouse_compute_seconds_in_period > 0
+        or report.managed_warehouse_endpoints_compute_seconds_in_period > 0
+        or report.managed_warehouse_storage_gb_hours_in_period > 0
     )
 
 

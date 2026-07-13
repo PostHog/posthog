@@ -4579,6 +4579,25 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "signals_credits_used_in_period": 5})))
 
+    def test_has_non_zero_usage_counts_managed_warehouse(self) -> None:
+        """A managed-warehouse-only org must survive has_non_zero_usage so its report still reaches billing."""
+        import dataclasses
+
+        from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
+
+        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+
+        self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
+        for field in (
+            "managed_warehouse_compute_seconds_in_period",
+            "managed_warehouse_endpoints_compute_seconds_in_period",
+            "managed_warehouse_storage_gb_hours_in_period",
+        ):
+            self.assertTrue(
+                has_non_zero_usage(UsageReportCounters(**{**zero, field: 5})),
+                f"{field} alone must count as billable usage",
+            )
+
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_posthog_code_ai_product_excluded_from_ai_credits(self, mock_region: MagicMock) -> None:
         """Generations tagged ai_product='posthog_code' must not count toward PostHog AI credits."""
