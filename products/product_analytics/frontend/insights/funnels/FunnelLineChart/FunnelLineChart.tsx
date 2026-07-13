@@ -10,7 +10,7 @@ import type {
     TooltipContext,
 } from '@posthog/quill-charts'
 
-import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -62,6 +62,7 @@ function resolveGroupTypeLabel(
 }
 
 export function FunnelLineChart({
+    context,
     inSharedMode,
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
@@ -211,6 +212,8 @@ export function FunnelLineChart({
         [clickDeps]
     )
 
+    const onDateRangeZoom = useDateRangeZoom(annotationDates, context?.onDateRangeZoom)
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<FunnelSeriesMeta>): JSX.Element => {
             if (quillTooltipEnabled) {
@@ -282,6 +285,7 @@ export function FunnelLineChart({
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={showPersonsModal ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph-funnel"
             onError={handleChartError}

@@ -584,6 +584,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 task_run.id,
                 "Scout run abandoned: no terminal status past the runtime ceiling "
                 "(worker/sandbox lost before finalize).",
+                error_type="stale_run_reaped",
             )
             if not claimed:
                 continue

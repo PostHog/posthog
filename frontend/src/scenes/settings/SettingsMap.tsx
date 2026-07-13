@@ -1138,16 +1138,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
-                id: 'conversations-ai',
-                title: 'AI',
-                description:
-                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
-                component: <AISection />,
-                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['ai', 'suggestion', 'auto', 'reply', 'support', 'conversation'],
-            },
-            {
                 id: 'conversations-imports',
                 title: 'Imports',
                 description: 'Import historical support data from external tools into Conversations.',
@@ -1155,6 +1145,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
+            },
+            {
+                id: 'conversations-ai',
+                title: (
+                    <>
+                        AI agent
+                        <LemonTag type="highlight" size="small" className="ml-1">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                description:
+                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
+                component: <AISection />,
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
             },
         ],
     },
@@ -1275,7 +1282,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-workflows',
         title: 'Workflows',
         group: 'Products',
-        flag: 'WORKFLOWS_ENGAGEMENT_EVENTS',
         settings: [
             {
                 id: 'workflows-engagement-events',

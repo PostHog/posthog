@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-09 20:31:42 UTC
+// Generated at: 2026-07-13 11:01:26 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -34,7 +34,6 @@ export type CanonicalProvider =
     | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
-    | 'clarifai-bf16'
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
@@ -145,7 +144,6 @@ export type CanonicalProvider =
     | 'together'
     | 'together-fp4'
     | 'together-fp8'
-    | 'together-int4'
     | 'upstage'
     | 'venice'
     | 'venice-beta'
