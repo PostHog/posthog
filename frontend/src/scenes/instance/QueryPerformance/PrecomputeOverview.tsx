@@ -10,7 +10,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 
-import { PrecomputePathStats, queryPerformanceLogic } from './queryPerformanceLogic'
+import { PrecomputeTrends } from './PrecomputeTrends'
+import { EXCEPTION_CODE_LABELS, PrecomputePathStats, queryPerformanceLogic } from './queryPerformanceLogic'
 
 const TIME_RANGE_OPTIONS = [
     { label: '1h', hours: 1 },
@@ -24,13 +25,6 @@ const SKIP_REASON_LABELS: Record<string, string> = {
     min_runtime: 'Experiment <12h old',
     override_direct: 'Forced direct (query override)',
     data_warehouse: 'Data warehouse metric',
-}
-
-const EXCEPTION_CODE_LABELS: Record<string, string> = {
-    '307': 'byte limit',
-    '159': 'timeout',
-    '241': 'out of memory',
-    '202': 'cluster busy',
 }
 
 const formatMs = (ms: number | null): string => {
@@ -216,6 +210,7 @@ export function PrecomputeOverview(): JSX.Element {
 
     return (
         <>
+            <PrecomputeTrends />
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <p className="text-muted text-sm mb-0 max-w-200">
                     Global health of exposure/metric-events lazy precomputation: how experiment metric reads are served,
@@ -311,6 +306,23 @@ export function PrecomputeOverview(): JSX.Element {
                                     : undefined
                             }
                             tooltip="Total bytes scanned and time spent by precompute-build INSERTs. This is the investment; the read-path savings are the return."
+                        />
+                        <StatCard
+                            title="Wasted on failed builds"
+                            value={builds ? humanizeBytes(builds.failed_read_bytes ?? 0) : '–'}
+                            subtitle={
+                                builds
+                                    ? `${humanFriendlyDuration((builds.failed_duration_ms ?? 0) / 1000)} ClickHouse time on builds that failed`
+                                    : undefined
+                            }
+                            tooltip="Bytes scanned and time spent by precompute-build INSERTs that errored. Pure waste: the read then falls back to a full events scan on top. Should stay near zero."
+                            type={
+                                builds &&
+                                builds.total_read_bytes > 0 &&
+                                (builds.failed_read_bytes ?? 0) / builds.total_read_bytes > 0.05
+                                    ? 'danger'
+                                    : undefined
+                            }
                         />
                         <StatCard
                             title="Metric-events precompute"

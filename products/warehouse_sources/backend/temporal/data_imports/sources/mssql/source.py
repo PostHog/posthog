@@ -31,7 +31,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MSSQLErrors = {
-    "Login failed for user": "Login failed for database",
+    # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
+    # disabled), not a problem with the database field. Surface the same wording the sibling SQL
+    # sources use and match the stable prefix, not the volatile "'<username>'." that follows it.
+    "Login failed for user": "Invalid user or password",
     "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
     "connection timed out": "Could not connect to SQL server - check server firewall settings",
 }
@@ -57,7 +60,11 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # (security group doesn't allow PostHog's IPs, the instance is stopped, or the
             # hostname is wrong), not a momentary blip, so retrying the job won't recover it.
             "Adaptive Server is unavailable or does not exist": "Could not reach your SQL Server. Check that the server is running and reachable, and that PostHog's IP addresses are allowed through its firewall / security group.",
-            "Login failed for user": None,
+            # SQL Server error 18456 — the login was rejected (wrong username/password, or the login
+            # is disabled). Deterministic until the customer fixes the credentials, so retrying just
+            # replays the same rejection; surface the same actionable wording as the validation path
+            # instead of the raw driver string (which echoes the username back).
+            "Login failed for user": "Invalid user or password",
             # SQL Server error 229 — the login PostHog connects with was authenticated but lacks
             # SELECT permission on a table/view being synced. This is a server-side GRANT the
             # customer has to make (db_datareader or an explicit GRANT SELECT); retrying with the

@@ -15,7 +15,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { evaluationErrorMessage } from './apiErrors'
-import { evaluationCanResolveModel, evaluationTypeCanBeCreated } from './evaluationCapabilities'
+import { evaluationCanResolveModel } from './evaluationCapabilities'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
@@ -191,10 +191,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             try {
                 const original = values.evaluations.find((e: EvaluationConfig) => e.id === id)
                 if (!original) {
-                    return
-                }
-                if (!evaluationTypeCanBeCreated(original.evaluation_type, values.featureFlags)) {
-                    lemonToast.error('Sentiment evaluations are not available for this project.')
                     return
                 }
 

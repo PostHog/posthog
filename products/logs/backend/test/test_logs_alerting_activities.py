@@ -970,7 +970,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
                 "below_threshold",
                 3,
                 LogsAlertConfiguration.State.NOT_FIRING,
-                LogsAlertConfiguration.State.ERRORED,
+                LogsAlertConfiguration.State.NOT_FIRING,
                 4,
                 0,
             ),
@@ -1253,7 +1253,9 @@ class TestEvaluateSingleAlert(APIBaseTest):
             _evaluate_and_save_one(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
 
         alert.refresh_from_db()
-        assert alert.state == LogsAlertConfiguration.State.ERRORED
+        # Errors no longer move firing state; the notification and counter carry the signal.
+        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
+        assert alert.consecutive_failures == 1
         errored_calls = [
             c
             for c in mock_produce.call_args_list
@@ -1261,30 +1263,6 @@ class TestEvaluateSingleAlert(APIBaseTest):
         ]
         assert len(errored_calls) == 1
         assert errored_calls[0].kwargs["event"].properties["consecutive_failures"] == 1
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
-    @patch("products.logs.backend.temporal.activities.capture_exception")
-    def test_errored_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
-        mock_query_cls.return_value.execute_rolling_checks.side_effect = RuntimeError("CH down")
-        alert = self._make_alert()
-        now1 = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
-        now2 = datetime(2025, 1, 1, 0, 6, 0, tzinfo=UTC)
-
-        with patch("products.logs.backend.temporal.activities.produce_internal_event") as mock_produce:
-            mock_produce.side_effect = Exception("Kafka down")
-            _evaluate_and_save_one(alert, now1, _make_stats())
-
-            mock_produce.side_effect = None
-            mock_produce.reset_mock()
-            _evaluate_and_save_one(alert, now2, _make_stats())
-
-        errored_calls = [
-            c
-            for c in mock_produce.call_args_list
-            if c.kwargs.get("event") and c.kwargs["event"].event == "$logs_alert_errored"
-        ]
-        assert len(errored_calls) == 1
 
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")

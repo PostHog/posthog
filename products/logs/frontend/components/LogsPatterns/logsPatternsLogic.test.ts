@@ -6,17 +6,22 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalF
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
-import { logsPatternsCreate } from 'products/logs/frontend/generated/api'
-import type { _LogsPatternsResponseApi } from 'products/logs/frontend/generated/api.schemas'
+import { logsPatternsCreate, logsPatternsDiffCreate } from 'products/logs/frontend/generated/api'
+import type {
+    _LogsPatternsDiffResponseApi,
+    _LogsPatternsResponseApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import { logsPatternsLogic } from './logsPatternsLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     __esModule: true,
     logsPatternsCreate: jest.fn(),
+    logsPatternsDiffCreate: jest.fn(),
 }))
 
 const mockCreate = logsPatternsCreate as jest.MockedFunction<typeof logsPatternsCreate>
+const mockDiffCreate = logsPatternsDiffCreate as jest.MockedFunction<typeof logsPatternsDiffCreate>
 
 const ID = 'test-viewer'
 
@@ -49,6 +54,34 @@ const RESPONSE: _LogsPatternsResponseApi = {
         { start: '2026-06-23T12:00:00+00:00', end: '2026-06-23T12:30:00+00:00' },
         { start: '2026-06-23T12:30:00+00:00', end: '2026-06-23T13:00:00+00:00' },
     ],
+}
+
+const DIFF_RESPONSE: _LogsPatternsDiffResponseApi = {
+    entries: [
+        {
+            classification: 'new',
+            rate_ratio: null,
+            pattern: RESPONSE.patterns[0],
+            baseline_estimated_count: null,
+            baseline_volume_share_pct: null,
+        },
+    ],
+    current: {
+        scanned_count: 3,
+        total_count: 3,
+        sampled: false,
+        sample_coverage_pct: 100,
+        date_from: '2026-06-23T12:00:00+00:00',
+        date_to: '2026-06-23T13:00:00+00:00',
+    },
+    baseline: {
+        scanned_count: 0,
+        total_count: 0,
+        sampled: false,
+        sample_coverage_pct: 100,
+        date_from: '2026-06-16T12:00:00+00:00',
+        date_to: '2026-06-16T13:00:00+00:00',
+    },
 }
 
 describe('logsPatternsLogic', () => {
@@ -133,6 +166,68 @@ describe('logsPatternsLogic', () => {
                 operator: PropertyOperator.IContains,
                 type: PropertyFilterType.Log,
                 value: RESPONSE.patterns[0].match_literal,
+            })
+        )
+    })
+
+    it('compare mode diffs with the same query body and switches loaders for filter reloads', async () => {
+        // The diff must scope its windows with exactly the filters a plain mine uses — if the
+        // two request bodies drift apart, compare mode silently answers a different question
+        // than the table next to it. And once compare is on, filter changes must reload the
+        // diff, not the plain mine.
+        mockDiffCreate.mockResolvedValue(DIFF_RESPONSE)
+        const configLogic = logsViewerConfigLogic({ id: ID })
+        configLogic.mount()
+        configLogic.actions.setViewMode('patterns')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+        const minedQuery = mockCreate.mock.calls[0][1].query
+
+        await expectLogic(logic, () => {
+            logic.actions.setCompareEnabled(true)
+        }).toDispatchActions(['loadDiff', 'loadDiffSuccess'])
+
+        expect(mockDiffCreate).toHaveBeenCalledWith(expect.any(String), {
+            query: minedQuery,
+            baselineDateRange: undefined, // 'lastWeek' delegates the -7d default to the backend
+        })
+        expect(logic.values.diffResponse).toEqual(DIFF_RESPONSE)
+
+        mockDiffCreate.mockClear()
+        await expectLogic(logic, () => {
+            filtersLogic.actions.setServiceNames(['auth'])
+        }).toDispatchActions(['loadDiffSuccess'])
+        expect(mockDiffCreate).toHaveBeenCalledTimes(1)
+        expect(mockCreate).toHaveBeenCalledTimes(1) // only the original mount load
+    })
+
+    it('preceding baseline is the same-length window ending where the current one starts', async () => {
+        // Locks the window arithmetic: a drift here (wrong length, overlap, or gap) makes the
+        // "vs. preceding period" comparison silently wrong while still returning results.
+        mockDiffCreate.mockResolvedValue(DIFF_RESPONSE)
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        filtersLogic.actions.setDateRange({
+            date_from: '2026-06-23T12:00:00.000Z',
+            date_to: '2026-06-23T13:00:00.000Z',
+        })
+        logic.actions.setCompareEnabled(true)
+        await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
+        expect(mockDiffCreate).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ baselineDateRange: undefined })
+        )
+
+        logic.actions.setBaselineMode('preceding')
+        await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
+        expect(mockDiffCreate).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                baselineDateRange: {
+                    date_from: '2026-06-23T11:00:00.000Z',
+                    date_to: '2026-06-23T12:00:00.000Z',
+                },
             })
         )
     })

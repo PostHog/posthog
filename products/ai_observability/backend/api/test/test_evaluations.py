@@ -244,19 +244,18 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(EvaluationReport.objects.count(), 0)
 
     def test_can_create_sentiment_evaluation_without_default_report(self):
-        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/evaluations/",
-                {
-                    "name": "Sentiment Evaluation",
-                    "enabled": True,
-                    "evaluation_type": "sentiment",
-                    "evaluation_config": {},
-                    "output_type": "sentiment",
-                    "output_config": {},
-                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-                },
-            )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Sentiment Evaluation",
+                "enabled": True,
+                "evaluation_type": "sentiment",
+                "evaluation_config": {},
+                "output_type": "sentiment",
+                "output_config": {},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+            },
+        )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         evaluation = Evaluation.objects.get(id=response.data["id"])
@@ -267,117 +266,42 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 0)
 
     def test_rejects_sentiment_evaluation_with_trace_target(self):
-        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/evaluations/",
-                {
-                    "name": "Sentiment over a trace",
-                    "evaluation_type": "sentiment",
-                    "evaluation_config": {},
-                    "output_type": "sentiment",
-                    "output_config": {},
-                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-                    "target": "trace",
-                },
-            )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Sentiment over a trace",
+                "evaluation_type": "sentiment",
+                "evaluation_config": {},
+                "output_type": "sentiment",
+                "output_config": {},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                "target": "trace",
+            },
+        )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "target")
         self.assertEqual(Evaluation.objects.count(), 0)
 
-    def test_create_sentiment_evaluation_requires_feature_flag(self):
-        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=False):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/evaluations/",
-                {
-                    "name": "Sentiment Evaluation",
-                    "enabled": True,
-                    "evaluation_type": "sentiment",
-                    "evaluation_config": {},
-                    "output_type": "sentiment",
-                    "output_config": {},
-                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-                },
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "evaluation_type")
-        self.assertEqual(Evaluation.objects.count(), 0)
-
-    def test_re_enable_sentiment_evaluation_requires_feature_flag(self):
-        evaluation = Evaluation.objects.create(
-            name="Sentiment Evaluation",
-            enabled=False,
-            evaluation_type="sentiment",
-            evaluation_config={},
-            output_type="sentiment",
-            output_config={},
-            conditions=[{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-            team=self.team,
-            created_by=self.user,
-        )
-
-        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=False):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
-                {"enabled": True},
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "evaluation_type")
-        evaluation.refresh_from_db()
-        self.assertFalse(evaluation.enabled)
-
-    def test_update_existing_sentiment_evaluation_allows_unchanged_type_when_feature_flag_off(self):
-        evaluation = Evaluation.objects.create(
-            name="Sentiment Evaluation",
-            enabled=True,
-            evaluation_type="sentiment",
-            evaluation_config={},
-            output_type="sentiment",
-            output_config={},
-            conditions=[{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-            team=self.team,
-            created_by=self.user,
-        )
-
-        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=False):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
-                {
-                    "name": "Updated Sentiment Evaluation",
-                    "evaluation_type": "sentiment",
-                    "output_type": "sentiment",
-                    "evaluation_config": {"source": "user_messages"},
-                    "output_config": {},
-                },
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        evaluation.refresh_from_db()
-        self.assertEqual(evaluation.name, "Updated Sentiment Evaluation")
-
     def test_sentiment_evaluation_rejects_model_configuration(self):
-        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/evaluations/",
-                {
-                    "name": "Sentiment Evaluation",
-                    "enabled": True,
-                    "evaluation_type": "sentiment",
-                    "evaluation_config": {},
-                    "output_type": "sentiment",
-                    "output_config": {},
-                    "model_configuration": {
-                        "provider": "openai",
-                        "model": "gpt-5-mini",
-                        "provider_key_id": None,
-                    },
-                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Sentiment Evaluation",
+                "enabled": True,
+                "evaluation_type": "sentiment",
+                "evaluation_config": {},
+                "output_type": "sentiment",
+                "output_config": {},
+                "model_configuration": {
+                    "provider": "openai",
+                    "model": "gpt-5-mini",
+                    "provider_key_id": None,
                 },
-                format="json",
-            )
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+            },
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "model_configuration")
@@ -436,20 +360,19 @@ class TestEvaluationConfigsApi(APIBaseTest):
     def test_rejects_unsupported_evaluation_output_type_combinations(
         self, _name, evaluation_type, output_type, evaluation_config, output_config
     ):
-        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/evaluations/",
-                {
-                    "name": "Unsupported Evaluation",
-                    "enabled": True,
-                    "evaluation_type": evaluation_type,
-                    "evaluation_config": evaluation_config,
-                    "output_type": output_type,
-                    "output_config": output_config,
-                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-                },
-                format="json",
-            )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Unsupported Evaluation",
+                "enabled": True,
+                "evaluation_type": evaluation_type,
+                "evaluation_config": evaluation_config,
+                "output_type": output_type,
+                "output_config": output_config,
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+            },
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "config")

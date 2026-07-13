@@ -8,6 +8,7 @@ import {
     DEFAULT_LOGS_COLUMNS,
     LogsColumnConfig,
     migrateAttributeColumns,
+    normalizeColumns,
 } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { LogsViewerConfig, LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import type { GroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
@@ -118,8 +119,8 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             DEFAULT_LOGS_COLUMNS,
             { persist: true },
             {
-                setColumns: (_, { columns }) => columns,
-                addColumn: (state, { column }) => [...state, column],
+                setColumns: (_, { columns }) => normalizeColumns(columns),
+                addColumn: (state, { column }) => normalizeColumns([...state, column]),
                 removeColumn: (state, { id }) => state.filter((column) => column.id !== id),
                 setColumnWidth: (state, { id, width }) =>
                     state.map((column) => (column.id === id ? { ...column, width } : column)),
@@ -131,7 +132,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
                     }
                     const next = [...state]
                     ;[next[index], next[targetIndex]] = [next[targetIndex], next[index]]
-                    return next
+                    return normalizeColumns(next)
                 },
             },
         ],

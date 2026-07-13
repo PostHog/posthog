@@ -129,6 +129,25 @@ async def _valid_delta_row_count(uri: str, storage_options: dict[str, str]) -> i
         return None
 
 
+async def _purge_s3_prefix(s3: Any, uri: str) -> None:
+    """Delete every object under `uri`, resilient to S3 recursive-delete gaps.
+
+    A lone `_rm(uri, recursive=True)` can leave objects behind on S3-compatible stores (directory
+    markers, and — mid-write — partial `_delta_log` files). Strays are corrupting: a later
+    `write_deltalake` append onto a half-cleared temp then sees a malformed table ("No table metadata
+    or protocol found in delta log"), and a swap copy that lands on top of undeleted live files leaves
+    a merged `_delta_log` whose row count is wrong ("swap verification failed: live > expected").
+    Enumerate and delete explicitly first, then a best-effort recursive sweep.
+    """
+    if not await s3._exists(uri):
+        return
+    files = await s3._find(uri)
+    if files:
+        await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
+    if await s3._exists(uri):
+        await s3._rm(uri, recursive=True)
+
+
 def select_repartition_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
@@ -355,8 +374,7 @@ async def repartition_table_in_place(
                 schema_id=str(schema.id),
             )
             async with aget_s3_client() as s3:
-                if await s3._exists(temp_uri):
-                    await s3._rm(temp_uri, recursive=True)
+                await _purge_s3_prefix(s3, temp_uri)
             await asyncio.to_thread(schema.clear_repartition_swap)
             resuming = False
 
@@ -534,8 +552,10 @@ async def _swap_temp_into_live(
     temp_prefix = temp_uri.replace("s3://", "").rstrip("/")
     async with aget_s3_client() as s3:
         if await s3._exists(temp_uri):
-            if await s3._exists(live_uri):
-                await s3._rm(live_uri, recursive=True)
+            # Fully clear live before the copy. A leftover file from an incomplete recursive delete
+            # merges into the copied `_delta_log` and inflates the row count past `expected_rows`,
+            # tripping the verification below and looping the repartition forever.
+            await _purge_s3_prefix(s3, live_uri)
             files = await s3._find(temp_uri)
             for f in files:
                 rel = f[len(temp_prefix) :]
@@ -548,10 +568,4 @@ async def _swap_temp_into_live(
         raise ValueError(f"repartition swap verification failed: live={live_rows} expected={expected_rows}")
 
     async with aget_s3_client() as s3:
-        # Delete the temp files explicitly (a recursive prefix delete can leave directory-marker
-        # objects behind on some S3-compatible stores), then a best-effort recursive sweep.
-        temp_files = await s3._find(temp_uri)
-        if temp_files:
-            await s3._rm([f"s3://{f.lstrip('/')}" for f in temp_files])
-        if await s3._exists(temp_uri):
-            await s3._rm(temp_uri, recursive=True)
+        await _purge_s3_prefix(s3, temp_uri)

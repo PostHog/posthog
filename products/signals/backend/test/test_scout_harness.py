@@ -265,6 +265,7 @@ class TestPromptBuilder(BaseTest):
             # `canonical_hash`): the team already owns that body, sync leaves it alone.
             ("custom_signal_scout", "signals-scout-errors", {}, [], True),
             ("custom_report_scout", "signals-scout-errors", {}, ["emit_report", "edit_report"], True),
+            ("custom_report_scout_emit_only", "signals-scout-errors", {}, ["emit_report"], True),
             # No stored canonical_hash (pre-hash-tracking legacy row): unprovable, stays canonical.
             ("canonical_scout_no_hash", "signals-scout-general", {"seeded_by": HARNESS_SEEDED_BY}, [], False),
             (
@@ -303,6 +304,14 @@ class TestPromptBuilder(BaseTest):
         # section, and it must be skill-namespaced (scratchpad keys are unique per (team, key),
         # so a domain-only key would let two scouts clobber each other's suggestions).
         assert ("improve:<your-skill-name>:<topic>" in prompt) is expect_section
+        # The report-escalation guidance (file strong suggestions as inbox reports about the scout)
+        # must ride only with report tools the scout actually holds — a signal-channel custom scout
+        # has neither, so pointing it at `emit_report` would steer it into a PermissionDenied.
+        expect_escalation = expect_section and "emit_report" in allowed_tools
+        assert ("Scout self-improvement:" in prompt) is expect_escalation
+        if _name == "custom_report_scout_emit_only":
+            # The emit-only variant must never name the edit tool it lacks (fails closed).
+            assert "signals-scout-edit-report" not in prompt
         # The upstream friction channel is origin-independent: canonical defects still route there.
         assert "agent-feedback" in prompt
 

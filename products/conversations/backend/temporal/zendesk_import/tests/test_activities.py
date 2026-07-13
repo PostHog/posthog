@@ -97,6 +97,7 @@ class TestZendeskImportBatchActivity(BaseTest):
         download_raises: bool = False,
         save_return: str | None = "https://media.posthog.test/file",
         default_email_channel_id: str | None = None,
+        dry_run: bool = False,
     ) -> tuple[Any, MagicMock]:
         client = MagicMock()
         client.fetch_tickets.return_value = tickets
@@ -117,6 +118,7 @@ class TestZendeskImportBatchActivity(BaseTest):
                     team_id=self.team.id,
                     ticket_ids=ticket_ids,
                     default_email_channel_id=default_email_channel_id,
+                    dry_run=dry_run,
                 )
             )
         return result, client
@@ -262,6 +264,74 @@ class TestZendeskImportBatchActivity(BaseTest):
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=210)
         expected_id = {"matched": matched.id, "default": default.id, None: None}[expected]
         self.assertEqual(ticket.email_config_id, expected_id)
+
+    @parameterized.expand(
+        [
+            # null channel (first import ran without a default) → adopt this run's default.
+            ("null_channel_adopts_default", False, True, False, "default"),
+            # a channel resolved by an earlier run must never be overwritten by a new default.
+            ("existing_channel_kept", True, True, False, "existing"),
+            # no default on this run either → stays null.
+            ("no_default_stays_null", False, False, False, None),
+            # dry run must not mutate previously imported tickets.
+            ("dry_run_does_not_backfill", False, True, True, None),
+        ]
+    )
+    def test_reimport_backfills_default_email_channel(
+        self, _name: str, has_channel: bool, use_default: bool, dry_run: bool, expected: str | None
+    ) -> None:
+        existing_channel = self._make_channel("original@acme.com", "tok-original")
+        default = self._make_channel("fallback@acme.com", "tok-default")
+        ticket = Ticket.objects.create(
+            team=self.team,
+            ticket_number=1,
+            widget_session_id="existing",
+            distinct_id="d",
+            zendesk_ticket_id=301,
+            email_config=existing_channel if has_channel else None,
+        )
+
+        result, client = self._run_batch(
+            [301],
+            tickets=[],
+            users={},
+            comments_by_ticket={},
+            default_email_channel_id=str(default.id) if use_default else None,
+            dry_run=dry_run,
+        )
+
+        # The ticket is still skipped (never re-imported) and never re-fetched from Zendesk.
+        self.assertEqual((result.imported, result.skipped, result.failed), (0, 1, 0))
+        client.fetch_tickets.assert_not_called()
+        ticket.refresh_from_db()
+        expected_id = {"default": default.id, "existing": existing_channel.id, None: None}[expected]
+        self.assertEqual(ticket.email_config_id, expected_id)
+
+    def test_reimport_backfills_existing_and_imports_new_in_same_batch(self) -> None:
+        # Guards the channel resolution feeding both paths: the previously imported null-channel
+        # ticket is backfilled while the new ticket in the same batch imports with the default.
+        default = self._make_channel("fallback@acme.com", "tok-default")
+        existing = Ticket.objects.create(
+            team=self.team,
+            ticket_number=1,
+            widget_session_id="existing",
+            distinct_id="d",
+            zendesk_ticket_id=401,
+        )
+
+        result, _ = self._run_batch(
+            [401, 402],
+            tickets=[_zd_ticket(402, 10)],
+            users={10: _zd_user(10, "requester@x.com")},
+            comments_by_ticket={402: []},
+            default_email_channel_id=str(default.id),
+        )
+
+        self.assertEqual((result.imported, result.skipped, result.failed), (1, 1, 0))
+        existing.refresh_from_db()
+        self.assertEqual(existing.email_config_id, default.id)
+        new_ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=402)
+        self.assertEqual(new_ticket.email_config_id, default.id)
 
     def test_staff_reply_with_unresolved_role_is_not_attributed_to_customer(self) -> None:
         # Reported bug: a public agent reply whose author role can't be resolved (role=None) was

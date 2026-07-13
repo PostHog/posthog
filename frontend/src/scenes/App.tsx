@@ -17,6 +17,7 @@ import { oauthLogic } from 'lib/oauth/oauthLogic'
 import { retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
+import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -49,6 +50,9 @@ export function bootApp(): void {
     loadPostHogJS()
     // Kea must initialize before any component mounts
     initKea()
+    // Link resolves its drag-to-notebook behavior through a seam so bundles without
+    // notebooks (toolbar, exporter) don't ship them; the app opts in here
+    registerNotebookLinkDrag()
 
     const idle =
         typeof window.requestIdleCallback === 'function'
@@ -120,7 +124,7 @@ export function App(): JSX.Element | null {
     // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
     useEffect(() => {
         let unmount: (() => void) | undefined
-        void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
+        void retryImport(() => import('lib/components/Support/supportRouterLogic')).then(({ supportRouterLogic }) => {
             unmount = supportRouterLogic.mount()
         })
         return () => unmount?.()

@@ -10,12 +10,20 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import RepoOverview
+from products.engineering_analytics.backend.facade.contracts import OpenToMergeBucket, PassRateBucket, RepoOverview
+from products.engineering_analytics.backend.logic.queries._buckets import (
+    Granularity,
+    bucket_expr,
+    normalize_bucket,
+    pick_granularity,
+    window_buckets,
+)
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_cost_per_merge_series,
     query_workflow_window_costs_with_prev,
 )
+from products.engineering_analytics.backend.logic.queries.workflow_health import query_time_to_green_series
 
 _RUNS_SELECT = """
     SELECT
@@ -67,6 +75,93 @@ def query_default_branch(
     )
     master_runs, main_runs = response.results[0] if response.results else (0, 0)
     return "main" if (main_runs or 0) > (master_runs or 0) else "master"
+
+
+# Pass rate per bucket over completed runs, all branches — the population the headline pass rate uses.
+# Division through nullIf yields NULL for a bucket with no completed run (a gap, not 0%).
+_PASS_RATE_SERIES_SELECT = """
+    SELECT
+        __BUCKET_FN__ AS bucket_start,
+        countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate
+    FROM __RUNS_SOURCE__ AS r
+    WHERE run_started_at >= {date_from} __DATE_TO__
+    GROUP BY bucket_start
+    LIMIT 40000
+"""
+
+# Median open->merge per bucket over PRs merged in it, bots and drafts excluded (the locked recipe). ``n``
+# guards the false zero: quantileIf over no matching rows returns 0, so a bucket whose only merges were
+# bots/drafts would draw a false dip — treat it as a gap (None) instead.
+_OPEN_TO_MERGE_SERIES_SELECT = """
+    SELECT
+        __BUCKET_FN__ AS bucket_start,
+        quantileIf(0.5)(open_to_merge_seconds, NOT is_bot AND NOT is_draft) AS p50,
+        countIf(NOT is_bot AND NOT is_draft) AS n
+    FROM __PR_SOURCE__ AS pr
+    WHERE merged_at IS NOT NULL AND merged_at >= {date_from} __DATE_TO_MERGED__
+    GROUP BY bucket_start
+    LIMIT 40000
+"""
+
+
+def query_success_rate_series(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+) -> tuple[Granularity, list[PassRateBucket]]:
+    """Pass rate per bucket across the window, oldest first: completed runs that succeeded, all branches —
+    the same population as the headline pass rate. Empty buckets carry ``success_rate`` None (a gap)."""
+    granularity = pick_granularity(date_from, date_to)
+    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
+    if date_to is not None:
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = (
+        _PASS_RATE_SERIES_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        .replace("__DATE_TO__", date_to_clause)
+        .replace("__BUCKET_FN__", bucket_expr(granularity, "run_started_at"))
+    )
+    response = curated.run(sql, query_type="engineering_analytics.success_rate_series", placeholders=placeholders)
+    rate_by_bucket = {
+        normalize_bucket(bucket_start, granularity): opt_float(success_rate)
+        for bucket_start, success_rate in response.results or []
+    }
+    buckets = [
+        PassRateBucket(bucket_start=bucket, success_rate=rate_by_bucket.get(bucket))
+        for bucket in window_buckets(date_from, date_to, granularity)
+    ]
+    return granularity, buckets
+
+
+def query_open_to_merge_series(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+) -> tuple[Granularity, list[OpenToMergeBucket]]:
+    """Median time-to-merge per bucket across the window, oldest first: p50 merged_at - created_at over PRs
+    merged in the bucket, bots and drafts excluded. Empty buckets carry ``p50_seconds`` None (a gap)."""
+    granularity = pick_granularity(date_from, date_to)
+    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
+    if date_to is not None:
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = (
+        _OPEN_TO_MERGE_SERIES_SELECT.replace("__PR_SOURCE__", curated.pr_source())
+        .replace("__DATE_TO_MERGED__", date_to_clause)
+        .replace("__BUCKET_FN__", bucket_expr(granularity, "merged_at"))
+    )
+    response = curated.run(sql, query_type="engineering_analytics.open_to_merge_series", placeholders=placeholders)
+    p50_by_bucket = {
+        normalize_bucket(bucket_start, granularity): (opt_float(p50) if (n or 0) > 0 else None)
+        for bucket_start, p50, n in response.results or []
+    }
+    buckets = [
+        OpenToMergeBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
+        for bucket in window_buckets(date_from, date_to, granularity)
+    ]
+    return granularity, buckets
 
 
 def query_repo_overview(
@@ -124,6 +219,15 @@ def query_repo_overview(
     cost_series_granularity, cost_series = query_cost_per_merge_series(
         curated=curated, date_from=date_from, date_to=date_to
     )
+    ttg_series_granularity, ttg_series = query_time_to_green_series(
+        curated=curated, date_from=date_from, date_to=date_to
+    )
+    pass_rate_series_granularity, pass_rate_series = query_success_rate_series(
+        curated=curated, date_from=date_from, date_to=date_to
+    )
+    open_to_merge_series_granularity, open_to_merge_series = query_open_to_merge_series(
+        curated=curated, date_from=date_from, date_to=date_to
+    )
 
     return RepoOverview(
         run_count=run_count,
@@ -142,4 +246,10 @@ def query_repo_overview(
         default_branch=default_branch,
         cost_series=cost_series,
         cost_series_granularity=cost_series_granularity,
+        time_to_green_series=ttg_series,
+        time_to_green_series_granularity=ttg_series_granularity,
+        success_rate_series=pass_rate_series,
+        success_rate_series_granularity=pass_rate_series_granularity,
+        open_to_merge_series=open_to_merge_series,
+        open_to_merge_series_granularity=open_to_merge_series_granularity,
     )

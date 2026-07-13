@@ -1,6 +1,6 @@
 # Web vitals: causes and remediations
 
-Read this when you're about to write a finding. Every emitted web vitals finding must
+Read this when you're about to write a finding. Every reported web vitals finding must
 carry two things this file gives you: a **metric-specific cause hypothesis** (why the
 value is likely what it is) and a **concrete remediation** (what would move it). Pick the
 cause that fits the evidence you have — don't list all of them; name the one the data

@@ -35,10 +35,9 @@ export interface _CompareFilterApi {
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
  */
-export type _SpanPropertyFilterTypeEnumApi =
-    (typeof _SpanPropertyFilterTypeEnumApi)[keyof typeof _SpanPropertyFilterTypeEnumApi]
+export type SpanPropertyTypeEnumApi = (typeof SpanPropertyTypeEnumApi)[keyof typeof SpanPropertyTypeEnumApi]
 
-export const _SpanPropertyFilterTypeEnumApi = {
+export const SpanPropertyTypeEnumApi = {
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
@@ -80,7 +79,7 @@ export interface _SpanPropertyFilterApi {
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute */
-    type: _SpanPropertyFilterTypeEnumApi
+    type: SpanPropertyTypeEnumApi
     /** Comparison operator.
      *
      * * `exact` - exact
@@ -115,17 +114,6 @@ export interface _TracingAggregationRequestApi {
 }
 
 /**
- * * `span_attribute` - span_attribute
- * * `span_resource_attribute` - span_resource_attribute
- */
-export type BreakdownTypeEnumApi = (typeof BreakdownTypeEnumApi)[keyof typeof BreakdownTypeEnumApi]
-
-export const BreakdownTypeEnumApi = {
-    SpanAttribute: 'span_attribute',
-    SpanResourceAttribute: 'span_resource_attribute',
-} as const
-
-/**
  * * `count` - count
  * * `error_count` - error_count
  */
@@ -138,13 +126,16 @@ export const _TracingAttributeBreakdownQueryBodyOrderByEnumApi = {
 } as const
 
 export interface _TracingAttributeBreakdownQueryBodyApi {
-    /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. */
+    /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. For the "span" breakdown type, must be one of the allowlisted top-level columns: "service_name", "status_code". */
     breakdownKey: string
-    /** Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+    /** Where the key lives: "span" for allowlisted top-level span columns, "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
      *
+     * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute */
-    breakdownType: BreakdownTypeEnumApi
+    breakdownType: SpanPropertyTypeEnumApi
+    /** Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected. */
+    excludeBreakdownFilter?: boolean
     /** Order rows by span count or error count, descending. Defaults to count.
      *
      * * `count` - count

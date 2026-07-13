@@ -202,6 +202,16 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     credentials = _credentials_from_job(job)
     client = ZendeskImportClient(credentials)
 
+    # Map the team's support addresses so each ticket's Zendesk `recipient` (the address the
+    # customer originally emailed) resolves to the matching EmailChannel. Unmatched/absent
+    # recipients fall back to the caller-selected default channel, if any. Bounded to
+    # MAX_EMAIL_CONFIGS_PER_TEAM rows, so a single query up front is cheap.
+    email_channels = list(EmailChannel.objects.filter(team_id=team.id))
+    email_channels_by_addr = {(c.from_email or "").strip().lower(): c for c in email_channels}
+    default_email_channel = None
+    if input.default_email_channel_id:
+        default_email_channel = next((c for c in email_channels if str(c.id) == input.default_email_channel_id), None)
+
     existing_ids = set(
         Ticket.objects.filter(team_id=input.team_id)
         .filter(zendesk_ticket_id__in=input.ticket_ids)
@@ -209,6 +219,21 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     )
     to_import = [tid for tid in input.ticket_ids if tid not in existing_ids]
     skipped = len(input.ticket_ids) - len(to_import)
+
+    # Re-import backfill: tickets a previous run imported without an email channel (no default
+    # was provided at the time) adopt this run's default. Tickets that already resolved a
+    # channel — their own recipient match or an earlier default — keep it. QuerySet.update()
+    # bypasses the signal receivers (see the Phase 3 comment below) and doesn't bump the
+    # historical updated_at.
+    if existing_ids and default_email_channel is not None and not input.dry_run:
+        backfilled = Ticket.objects.filter(
+            team_id=input.team_id,
+            zendesk_ticket_id__in=existing_ids,
+            email_config__isnull=True,
+        ).update(email_config=default_email_channel)
+        if backfilled:
+            logger.info("zendesk_import_backfilled_email_channel", team_id=team.id, backfilled=backfilled)
+
     if not to_import:
         return ImportBatchOutput(imported=0, skipped=skipped, failed=0)
 
@@ -222,16 +247,6 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
 
     imported = 0
     failed = 0
-
-    # Map the team's support addresses so each ticket's Zendesk `recipient` (the address the
-    # customer originally emailed) resolves to the matching EmailChannel. Unmatched/absent
-    # recipients fall back to the caller-selected default channel, if any. Bounded to
-    # MAX_EMAIL_CONFIGS_PER_TEAM rows, so a single query up front is cheap.
-    email_channels = list(EmailChannel.objects.filter(team_id=team.id))
-    email_channels_by_addr = {(c.from_email or "").strip().lower(): c for c in email_channels}
-    default_email_channel = None
-    if input.default_email_channel_id:
-        default_email_channel = next((c for c in email_channels if str(c.id) == input.default_email_channel_id), None)
 
     # Phase 1: Fetch all comments + attachments OUTSIDE the transaction (network I/O).
     ticket_data: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []

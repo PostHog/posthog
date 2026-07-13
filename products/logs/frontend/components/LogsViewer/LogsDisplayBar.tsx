@@ -10,17 +10,10 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { logsGroupByLogic } from 'products/logs/frontend/components/LogsGroupBy/logsGroupByLogic'
 import { logsPatternsLogic } from 'products/logs/frontend/components/LogsPatterns/logsPatternsLogic'
-import type { GroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
+import { resolveGroupBySource } from './groupBySource'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
-
-// Maps the picker's taxonomic group onto the group-by endpoint's source vocabulary.
-const TAXONOMIC_GROUP_TO_SOURCE: Partial<Record<TaxonomicFilterGroupType, GroupBySourceEnumApi>> = {
-    [TaxonomicFilterGroupType.Logs]: 'column',
-    [TaxonomicFilterGroupType.LogAttributes]: 'log',
-    [TaxonomicFilterGroupType.LogResourceAttributes]: 'resource',
-}
 
 export interface LogsDisplayBarProps {
     id: string
@@ -94,15 +87,21 @@ export const LogsDisplayBar = ({
                             TaxonomicFilterGroupType.LogResourceAttributes,
                         ]}
                         // `message` is not a grouping key — high-cardinality free text is the
-                        // Patterns lens's job. Excluding it also drops the message-search item.
-                        excludedProperties={{ [TaxonomicFilterGroupType.Logs]: ['message'] }}
+                        // Patterns lens's job, and the backend can't aggregate by it. Excluding it
+                        // from the Logs group drops the message-search item; excluding it from
+                        // LogAttributes keeps a `message contains …` search from leaking back in via
+                        // the Recent tab (message searches are recorded under LogAttributes).
+                        excludedProperties={{
+                            [TaxonomicFilterGroupType.Logs]: ['message'],
+                            [TaxonomicFilterGroupType.LogAttributes]: ['message'],
+                        }}
                         value={groupBy?.key}
                         onChange={(value, groupType) =>
                             // Clearing the key keeps you in the Group view (empty state) — leaving
-                            // the view is the segmented bar's job, not the picker's.
-                            setGroupBy(
-                                value ? { key: value, source: TAXONOMIC_GROUP_TO_SOURCE[groupType] ?? 'log' } : null
-                            )
+                            // the view is the segmented bar's job, not the picker's. The source is
+                            // resolved from the key so a recent (recorded under LogAttributes) still
+                            // groups by the right top-level column instead of a missing attribute.
+                            setGroupBy(value ? { key: value, source: resolveGroupBySource(value, groupType) } : null)
                         }
                         allowClear
                         placeholder="Group by"
@@ -136,7 +135,14 @@ export const LogsDisplayBar = ({
  * mounted while Patterns is active — mounting it in Logs mode would kick off the heavier patterns query.
  */
 const PatternsCountIndicator = ({ id }: { id: string }): JSX.Element | null => {
-    const { patterns } = useValues(logsPatternsLogic({ id }))
+    const { patterns, compareEnabled, diffResponse } = useValues(logsPatternsLogic({ id }))
+
+    // In compare mode the table renders diff entries, not the plain mine — counting `patterns`
+    // there would show a number from a different dataset than the rows on screen.
+    if (compareEnabled) {
+        const count = diffResponse?.entries.length ?? 0
+        return count > 0 ? <span className="text-muted text-xs">{humanFriendlyNumber(count)} changes</span> : null
+    }
 
     if (patterns.length === 0) {
         return null
