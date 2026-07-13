@@ -3,6 +3,7 @@ from products.pulse.backend.sources.anchored_insights import AnchoredInsightsSou
 from products.pulse.backend.sources.annotations import AnnotationsSource
 from products.pulse.backend.sources.base import BriefSource
 from products.pulse.backend.sources.resource_health import ResourceHealthSource
+from products.pulse.backend.sources.signal_reports import SignalReportsSource
 from products.pulse.backend.sources.strategy import MovementScoringStrategy
 
 # Both anchored sources share one scoring strategy: retrieval (which insights) differs, scoring
@@ -14,6 +15,7 @@ _sources: list[BriefSource] = [
     AnchoredDashboardsSource(_strategy),
     AnnotationsSource(),
     ResourceHealthSource(),
+    SignalReportsSource(),
 ]
 
 

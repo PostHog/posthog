@@ -12,3 +12,7 @@ def subscription_url(team_id: int, subscription_id: int) -> str:
     # The subscription page carries the full detail (backing resource + delivery status), so it's
     # the right landing spot for every subscription type — no need to branch on the resource.
     return f"/project/{team_id}/subscriptions/{subscription_id}"
+
+
+def inbox_report_url(team_id: int, report_id: str) -> str:
+    return f"/project/{team_id}/inbox/reports/{report_id}"

@@ -19,6 +19,8 @@ class ResourceType(models.TextChoices):
     SUBSCRIPTION = "subscription"
     # Events have no Django model, so an event link carries only the cached columns (no FK).
     EVENT = "event"
+    # A scout/signal-report link: no pulse-owned FK, carries only the cached columns like an event.
+    SIGNAL_REPORT = "signal_report"
 
 
 class ActionType(models.TextChoices):
