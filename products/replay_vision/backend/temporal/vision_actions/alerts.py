@@ -152,6 +152,9 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
             return EvaluateAlertResult(status=AlertStatus.NOT_BREACHED, observation_count=0)
         return _persist_fired(run, action, alert_config, float(matched_count), matched_count, observations_qs, team)
 
+    # Only on_breach flows reach here, and the config guard above validated those — narrows the union.
+    assert compare is not None and isinstance(threshold, int | float)
+
     if metric == AlertMetric.AVG_SCORE:
         # Cast the JSONB score to float and average it; observations without a score (non-scorers)
         # are NULL and fall out of the average.
