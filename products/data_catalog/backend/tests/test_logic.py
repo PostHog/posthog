@@ -184,6 +184,23 @@ class TestCreateFromInsight(BaseTest):
         with self.assertRaises(ValidationError):
             upsert_metric(team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id="nope")
 
+    def test_create_from_insight_requires_viewer_access(self) -> None:
+        # Catalog write access must not let a user snapshot an insight they can't view — that would
+        # exfiltrate a restricted insight's query into the metric definition.
+        insight = self._insight()
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj=None, *a, **k: type(obj).__name__ != "Insight",
+        ):
+            with self.assertRaises(ValidationError):
+                upsert_metric(
+                    team=self.team,
+                    user=self.user,
+                    name="mrr",
+                    description="d",
+                    source_insight_short_id=insight.short_id,
+                )
+
     def test_reordered_insight_query_is_not_drift(self) -> None:
         insight = self._insight(query={"kind": "HogQLQuery", "query": "select 1"})
         metric = upsert_metric(
@@ -246,6 +263,19 @@ class TestRefreshFromInsight(BaseTest):
         Insight.objects.filter(pk=insight.pk).update(deleted=True)
         with self.assertRaises(SourceInsightUnavailable):
             refresh_metric_from_insight(metric, self.user)
+
+    def test_refresh_requires_viewer_access(self) -> None:
+        # Losing viewer access to the linked insight must block re-snapshotting it.
+        insight = self._insight()
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj=None, *a, **k: type(obj).__name__ != "Insight",
+        ):
+            with self.assertRaises(ValidationError):
+                refresh_metric_from_insight(metric, self.user)
 
 
 class TestUpdateResetsApproval(BaseTest):

@@ -19,6 +19,9 @@ from rest_framework.exceptions import ValidationError
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
+from posthog.rbac.user_access_control import UserAccessControl
+
+from products.product_analytics.backend.models.insight import Insight
 
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
@@ -66,11 +69,25 @@ def _canonical_definition(
     return validate_metric_definition(definition, team, user)
 
 
-def _snapshot_from_insight(team: Team, short_id: str) -> tuple[dict, str]:
+def _require_insight_viewer_access(insight: Insight, team: Team, user: Optional[User]) -> None:
+    """Gate snapshotting an insight's query on per-object viewer access.
+
+    Team scoping alone doesn't enforce object-level insight access controls, so a caller with
+    catalog write access could otherwise read a restricted insight's query back out of the metric.
+    System/agent callers (``user`` is None) are already trusted and bypass this.
+    """
+    if user is None:
+        return
+    if not UserAccessControl(user=user, team=team).check_access_level_for_object(insight, "viewer"):
+        raise ValidationError({"source_insight_short_id": "You do not have access to this insight."})
+
+
+def _snapshot_from_insight(team: Team, short_id: str, user: Optional[User]) -> tuple[dict, str]:
     """Snapshot a live insight's query and its canonical hash for drift tracking."""
     insight = fetch_insight(team.id, short_id)
     if insight is None:
         raise ValidationError({"source_insight_short_id": "Insight not found."})
+    _require_insight_viewer_access(insight, team, user)
     query = effective_insight_query(insight)
     if not query:
         raise ValidationError(
@@ -97,7 +114,7 @@ def _resolve_definition_fields(
     if not isinstance(source_insight_short_id, _Unset) and source_insight_short_id:
         if not isinstance(definition, _Unset) and definition is not None:
             raise ValidationError({"definition": "Provide a definition or a source insight, not both."})
-        snapshot_def, snapshot_hash = _snapshot_from_insight(team, source_insight_short_id)
+        snapshot_def, snapshot_hash = _snapshot_from_insight(team, source_insight_short_id, user)
         canonical_def, referenced = _canonical_definition(snapshot_def, team, user)
         return {
             "definition": canonical_def,
@@ -269,6 +286,7 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User]) -> Metric:
     insight = fetch_insight(metric.team_id, metric.source_insight_short_id, include_deleted=True)
     if insight is None or insight.deleted:
         raise SourceInsightUnavailable()
+    _require_insight_viewer_access(insight, metric.team, user)
     query = effective_insight_query(insight)
     if not query:
         raise SourceInsightUnavailable("Could not convert the source insight's query. Edit the definition or unlink.")
