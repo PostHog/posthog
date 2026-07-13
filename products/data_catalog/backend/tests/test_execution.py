@@ -1,4 +1,5 @@
 import json
+from typing import cast
 from urllib.parse import parse_qs, unquote, urlparse
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -170,7 +171,8 @@ class TestMetricRunPreparation(APIBaseTest):
         # The rejection must point at whichever date param the caller actually sent, not always date_from.
         with self.assertRaises(ValidationError) as ctx:
             prepare_execution_query(_HOGQL, **params)
-        assert str(ctx.exception.detail["field"][0]) == expected_field
+        detail = cast(dict, ctx.exception.detail)
+        assert str(detail["field"][0]) == expected_field
 
 
 class TestMetricRunAttribution(APIBaseTest):
