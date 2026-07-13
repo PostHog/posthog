@@ -19,6 +19,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
@@ -374,6 +375,19 @@ async def _relay_loop(
                                     # does sync Redis (cache.add) and a potential network call to
                                     # the feature-flag service.
                                     asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
+                                if task_run is not None and task_run.mode != "interactive":
+                                    # Background run finished a turn — announce it in the task's
+                                    # thread so teammates following it see progress without a
+                                    # client open. Guards (flag, channel, cooldown) live in the
+                                    # facade; same thread hop as above for its sync I/O.
+                                    asyncio.create_task(
+                                        asyncio.to_thread(
+                                            tasks_facade.post_turn_complete_thread_update,
+                                            str(task_run.id),
+                                            str(task_run.task_id),
+                                            task_run.team_id,
+                                        )
+                                    )
                                 if is_agent_design_enabled and slack_turn_active[0] and workflow_handle is not None:
                                     slack_turn_active[0] = False
                                     asyncio.create_task(_signal_safely(workflow_handle, "turn_completed"))

@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, close_old_connections, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
@@ -49,7 +49,7 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
-from products.tasks.backend.mentions import resolve_mentioned_user_ids
+from products.tasks.backend.mentions import format_mention_token, resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
     ChannelFeedMessage,
@@ -5016,6 +5016,87 @@ def forward_thread_message(
         message.forwarded_run = run
         message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
     return "ok", _thread_message_to_dto(message)
+
+
+# Threads are a Channels (project-bluebird) surface, so agent-authored thread
+# updates are gated on the same flag — evaluated for the task creator.
+AGENT_THREAD_UPDATES_FLAG = "project-bluebird"
+
+# One turn-complete post per run within the window, so an SSE relay reconnect
+# replaying the tail of the stream can't double-post the same end-of-turn.
+_TURN_COMPLETE_COOLDOWN_SECONDS = 30
+
+
+def _create_agent_thread_message(task: Task, content: str) -> None:
+    """Write an authorless (agent) thread message and index its mentions."""
+    message = TaskThreadMessage.objects.create(team_id=task.team_id, task_id=task.id, author_id=None, content=content)
+    try:
+        _index_thread_message_mentions(message)
+    except Exception:
+        logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
+
+
+def _agent_thread_updates_enabled(creator: User | None) -> bool:
+    """Fail closed: no creator to key the flag on, or a flag-service error, means no post."""
+    if creator is None:
+        return False
+    distinct_id = creator.distinct_id or f"user_{creator.id}"
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(AGENT_THREAD_UPDATES_FLAG, distinct_id, send_feature_flag_events=False)
+        )
+    except Exception:
+        logger.warning("Agent thread update flag check failed", extra={"user_id": creator.id}, exc_info=True)
+        return False
+
+
+def post_canvas_created_thread_update(
+    task_id: str | UUID, team_id: int, *, canvas_name: str, canvas_url: str | None
+) -> None:
+    """Announce a freshly created canvas in the generating task's thread.
+
+    Posts "[name](url) has been created" as an authorless (agent) message. Called
+    on a canvas's first publish only — the caller owns that once-guard. Best-effort
+    and never raises: the publish must not fail because its announcement couldn't
+    be written.
+    """
+    try:
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        if task is None or not _agent_thread_updates_enabled(task.created_by):
+            return
+        # Brackets and newlines in the name would break the [label](url) token.
+        name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+        content = f"[{name}]({canvas_url}) has been created" if canvas_url else f"{name} has been created"
+        _create_agent_thread_message(task, content)
+    except Exception:
+        logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
+
+
+def post_turn_complete_thread_update(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
+    """Announce a finished agent turn in the task's thread, @-mentioning the task creator.
+
+    Fires from the sandbox event relay on every end-of-turn of a channel task's
+    background run, so the update lands even with no client open. Best-effort and
+    never raises — a failed post must not disturb the relay.
+    """
+    try:
+        if not settings.TEST:
+            close_old_connections()
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        # Threads hang off a task's channel feed; a channel-less task has no audience.
+        if task is None or task.channel_id is None:
+            return
+        creator = task.created_by
+        if creator is None or not _agent_thread_updates_enabled(creator):
+            return
+        from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+
+        if not get_tasks_cache().add(f"thread_update:{run_id}:turn_complete", True, _TURN_COMPLETE_COOLDOWN_SECONDS):
+            return
+        mention = format_mention_token(creator.get_full_name() or creator.email, creator.email)
+        _create_agent_thread_message(task, f"{mention} Turn complete.")
+    except Exception:
+        logger.exception("Failed to post turn-complete thread update", extra={"task_id": str(task_id)})
 
 
 def respond_to_permission_request(
