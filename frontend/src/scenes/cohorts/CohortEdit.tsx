@@ -385,8 +385,12 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
                         <div className={cn(activeTab === 'overview' ? 'contents' : 'hidden')}>
                             <SceneSection
-                                title="Type"
-                                description="Static cohorts are created once and never updated, while dynamic cohorts are recalculated based on the latest data."
+                                title={isNewCohort ? 'Type' : undefined}
+                                description={
+                                    isNewCohort
+                                        ? 'Static cohorts are created once and never updated, while dynamic cohorts are recalculated based on the latest data.'
+                                        : undefined
+                                }
                                 className="max-w-200 flex flex-col gap-y-2"
                                 hideTitleAndDescription
                             >
