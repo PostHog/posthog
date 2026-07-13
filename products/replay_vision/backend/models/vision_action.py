@@ -38,14 +38,6 @@ class AlertMetric(models.TextChoices):
     AVG_SCORE = "avg_score", "Average score"  # scorer scanners only
 
 
-class AlertOperator(models.TextChoices):
-    GT = "gt", "Greater than"
-    GTE = "gte", "Greater than or equal"
-    LT = "lt", "Less than"
-    LTE = "lte", "Less than or equal"
-    EQ = "eq", "Equal"
-
-
 class VisionAction(TeamScopedRootMixin, UUIDModel):
     """An "and then…" automation over a scanner's observations: gather, (optionally) synthesize, deliver.
 
@@ -106,9 +98,9 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         default=dict,
         blank=True,
         help_text=(
-            "Alert condition for mode='alert': {frequency: every_match|on_breach, metric, operator, "
-            "threshold, window_days}. every_match notifies about each new match since the previous check; "
-            "on_breach compares the metric to the threshold over a rolling window, after `selection` targeting."
+            "Alert condition for mode='alert': {frequency: every_match|on_breach, metric, threshold, "
+            "window_days}. every_match notifies about each new match since the previous check; on_breach "
+            "fires when the metric reaches the threshold over a rolling window, after `selection` targeting."
         ),
     )
     # How many observations may feed one group summary. When the window holds more, they're sampled

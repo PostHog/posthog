@@ -105,23 +105,6 @@ export const VisionAlertMetricEnumApi = {
 } as const
 
 /**
- * * `gt` - Greater than
- * * `gte` - Greater than or equal
- * * `lt` - Less than
- * * `lte` - Less than or equal
- * * `eq` - Equal
- */
-export type VisionAlertOperatorEnumApi = (typeof VisionAlertOperatorEnumApi)[keyof typeof VisionAlertOperatorEnumApi]
-
-export const VisionAlertOperatorEnumApi = {
-    Gt: 'gt',
-    Gte: 'gte',
-    Lt: 'lt',
-    Lte: 'lte',
-    Eq: 'eq',
-} as const
-
-/**
  * * `1` - 1 day
  * * `3` - 3 days
  * * `7` - 7 days
@@ -154,15 +137,7 @@ export interface AlertConfigApi {
      * * `count` - Count of matching observations
      * * `avg_score` - Average score */
     metric?: VisionAlertMetricEnumApi
-    /** Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold. Required for on_breach; ignored for every_match.
-     *
-     * * `gt` - Greater than
-     * * `gte` - Greater than or equal
-     * * `lt` - Less than
-     * * `lte` - Less than or equal
-     * * `eq` - Equal */
-    operator?: VisionAlertOperatorEnumApi
-    /** The value the metric is compared against. Required for on_breach; ignored for every_match. */
+    /** The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match. */
     threshold?: number
     /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
      *

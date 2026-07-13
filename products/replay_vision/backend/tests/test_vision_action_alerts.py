@@ -80,7 +80,7 @@ class TestVisionActionAlerts(BaseTest):
         scanner = self._scanner()
         self._observation(scanner, {"verdict": "yes", "reasoning": "user hit the bug"})
         self._observation(scanner, {"verdict": "yes", "reasoning": "again"}, session_id="s2")
-        action = self._alert(scanner, {"metric": "count", "operator": "gte", "threshold": 2})
+        action = self._alert(scanner, {"metric": "count", "threshold": 2})
 
         result, run = self._evaluate(action)
 
@@ -97,18 +97,16 @@ class TestVisionActionAlerts(BaseTest):
 
     @parameterized.expand(
         [
-            ("gte_below_threshold", "gte", 3, AlertStatus.NOT_BREACHED),
-            ("gt_at_threshold", "gt", 2, AlertStatus.NOT_BREACHED),
-            ("lt_above_threshold", "lt", 2, AlertStatus.NOT_BREACHED),
-            ("lte_at_threshold", "lte", 2, AlertStatus.FIRED),
-            ("eq_exact", "eq", 2, AlertStatus.FIRED),
+            ("below_threshold", 3, AlertStatus.NOT_BREACHED),
+            ("at_threshold", 2, AlertStatus.FIRED),
         ]
     )
-    def test_operator_semantics_over_count(self, _label: str, op: str, threshold: float, expected: AlertStatus) -> None:
+    def test_threshold_semantics_over_count(self, _label: str, threshold: float, expected: AlertStatus) -> None:
+        # The only condition shape is "metric at or above threshold" — the operator knob was dropped.
         scanner = self._scanner(name=f"ops-{_label}")
         self._observation(scanner, {"verdict": "yes"})
         self._observation(scanner, {"verdict": "no"}, session_id="s2")
-        action = self._alert(scanner, {"metric": "count", "operator": op, "threshold": threshold})
+        action = self._alert(scanner, {"metric": "count", "threshold": threshold})
 
         result, run = self._evaluate(action)
 
@@ -125,7 +123,7 @@ class TestVisionActionAlerts(BaseTest):
         self._observation(scanner, {"tags": ["happy-path"]}, session_id="s2")
         action = self._alert(
             scanner,
-            {"metric": "count", "operator": "gte", "threshold": 1},
+            {"metric": "count", "threshold": 1},
             selection={"tags": ["rage-click"]},
         )
 
@@ -137,7 +135,7 @@ class TestVisionActionAlerts(BaseTest):
         # The same window with a non-matching tag filter must not fire.
         other = self._alert(
             self._scanner(scanner_type=ScannerType.CLASSIFIER, name="tagger2"),
-            {"metric": "count", "operator": "gte", "threshold": 1},
+            {"metric": "count", "threshold": 1},
             selection={"tags": ["missing"]},
         )
         result, _ = self._evaluate(other, key="k2")
@@ -147,7 +145,7 @@ class TestVisionActionAlerts(BaseTest):
         scanner = self._scanner(scanner_type=ScannerType.SCORER, name="scorer")
         self._observation(scanner, {"score": 2})
         self._observation(scanner, {"score": 4}, session_id="s2")
-        action = self._alert(scanner, {"metric": "avg_score", "operator": "lte", "threshold": 3})
+        action = self._alert(scanner, {"metric": "avg_score", "threshold": 3})
 
         result, run = self._evaluate(action)
 
@@ -157,9 +155,9 @@ class TestVisionActionAlerts(BaseTest):
         self.assertIn("average score over the last 24 hours was 3", run.synthesized_markdown)
 
     def test_avg_over_empty_window_never_fires(self) -> None:
-        # An unmeasurable metric must not breach — including operators like `lt` that a "0" would satisfy.
+        # An unmeasurable metric must not breach — a None average must not be coerced to a comparable 0.
         scanner = self._scanner(scanner_type=ScannerType.SCORER, name="quiet-scorer")
-        action = self._alert(scanner, {"metric": "avg_score", "operator": "lt", "threshold": 5})
+        action = self._alert(scanner, {"metric": "avg_score", "threshold": 0})
 
         result, _ = self._evaluate(action)
 
@@ -169,7 +167,7 @@ class TestVisionActionAlerts(BaseTest):
     def test_retry_after_persist_reports_fired_without_reevaluating(self) -> None:
         scanner = self._scanner(name="idem")
         self._observation(scanner, {"verdict": "yes"})
-        action = self._alert(scanner, {"metric": "count", "operator": "gte", "threshold": 1})
+        action = self._alert(scanner, {"metric": "count", "threshold": 1})
 
         first, run = self._evaluate(action)
         self.assertEqual(first.status, AlertStatus.FIRED)
@@ -184,13 +182,13 @@ class TestVisionActionAlerts(BaseTest):
         # window_days=1 must not count what a longer window would; window_days=7 must.
         scanner = self._scanner(name="windowed")
         self._observation(scanner, {"verdict": "yes"}, age_days=3)
-        short = self._alert(scanner, {"metric": "count", "operator": "gte", "threshold": 1, "window_days": 1})
+        short = self._alert(scanner, {"metric": "count", "threshold": 1, "window_days": 1})
         result, _ = self._evaluate(short)
         self.assertEqual(result.status, AlertStatus.NOT_BREACHED)
 
         wide = self._alert(
             self._scanner(name="windowed2"),
-            {"metric": "count", "operator": "gte", "threshold": 1, "window_days": 7},
+            {"metric": "count", "threshold": 1, "window_days": 7},
         )
         self._observation(wide.scanner, {"verdict": "yes"}, session_id="s7", age_days=3)
         result, _ = self._evaluate(wide, key="k7")
@@ -201,7 +199,7 @@ class TestVisionActionAlerts(BaseTest):
         # Each check's outcome is recorded the way the workflow records it.
         scanner = self._scanner(name="steady")
         self._observation(scanner, {"verdict": "yes"})
-        action = self._alert(scanner, {"metric": "count", "operator": "gte", "threshold": 1, "window_days": 7})
+        action = self._alert(scanner, {"metric": "count", "threshold": 1, "window_days": 7})
 
         first, first_run = self._evaluate(action)
         self.assertEqual(first.status, AlertStatus.FIRED)
@@ -224,7 +222,7 @@ class TestVisionActionAlerts(BaseTest):
         # state comes from the last check that meaningfully evaluated, walking past FAILED runs.
         scanner = self._scanner(name="flaky-check")
         self._observation(scanner, {"verdict": "yes"})
-        action = self._alert(scanner, {"metric": "count", "operator": "gte", "threshold": 1, "window_days": 7})
+        action = self._alert(scanner, {"metric": "count", "threshold": 1, "window_days": 7})
 
         first, first_run = self._evaluate(action)
         self.assertEqual(first.status, AlertStatus.FIRED)
@@ -260,7 +258,7 @@ class TestVisionActionAlerts(BaseTest):
     def test_malformed_config_never_fires(self) -> None:
         scanner = self._scanner(name="broken")
         self._observation(scanner, {"verdict": "yes"})
-        action = self._alert(scanner, {"metric": "count", "operator": "gte", "threshold": "high"})
+        action = self._alert(scanner, {"metric": "count", "threshold": "high"})
 
         result, run = self._evaluate(action)
 

@@ -152,7 +152,7 @@ class TestEvaluateDue(BaseTest):
             name="threshold-alert",
             scanner=scanner,
             mode=ActionMode.ALERT,
-            alert_config={"frequency": "on_breach", "metric": "count", "operator": "gte", "threshold": 1},
+            alert_config={"frequency": "on_breach", "metric": "count", "threshold": 1},
         )
         VisionAction.all_teams.filter(pk=on_breach.pk).update(next_run_at=timezone.now() + timedelta(hours=1))
 

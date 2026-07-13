@@ -29,7 +29,6 @@ from products.replay_vision.backend.models.vision_action import (
     ActionMode,
     AlertFrequency,
     AlertMetric,
-    AlertOperator,
     TriggerType,
     VisionAction,
     VisionActionRun,
@@ -115,17 +114,12 @@ class AlertConfigSerializer(serializers.Serializer):
             "(the mean scorer score; scorer scanners only). every_match supports 'count' only."
         ),
     )
-    operator = serializers.ChoiceField(
-        choices=AlertOperator.choices,
-        required=False,
-        help_text=(
-            "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= "
-            "threshold. Required for on_breach; ignored for every_match."
-        ),
-    )
     threshold = serializers.FloatField(
         required=False,
-        help_text="The value the metric is compared against. Required for on_breach; ignored for every_match.",
+        help_text=(
+            "The alert fires when the metric is at or above this value. Required for on_breach; "
+            "ignored for every_match."
+        ),
     )
     window_days = serializers.ChoiceField(
         choices=[(d, f"{d} day{'s' if d != 1 else ''}") for d in (1, 3, 7, 14, 30)],
@@ -144,8 +138,6 @@ class AlertConfigSerializer(serializers.Serializer):
                     {"metric": "every_match alerts count new matches; avg_score requires on_breach."}
                 )
         else:
-            if attrs.get("operator") is None:
-                raise serializers.ValidationError({"operator": "on_breach alerts require an operator."})
             if attrs.get("threshold") is None:
                 raise serializers.ValidationError({"threshold": "on_breach alerts require a threshold."})
         return attrs

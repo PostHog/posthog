@@ -8,7 +8,6 @@ don't require the AI data-processing consent gate.
 """
 
 import re
-import operator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -26,7 +25,6 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.vision_action import (
     AlertFrequency,
     AlertMetric,
-    AlertOperator,
     VisionActionRun,
     VisionActionRunStatus,
 )
@@ -56,22 +54,6 @@ _EVALUATED_SKIP_REASONS = {"not_breached", "still_breached"}
 # How many prior runs to scan for the last meaningful evaluation before giving up (an alert with
 # this many consecutive failed checks has bigger problems than firing state).
 _STATE_SCAN_LIMIT = 20
-
-_OPERATORS = {
-    AlertOperator.GT: operator.gt,
-    AlertOperator.GTE: operator.ge,
-    AlertOperator.LT: operator.lt,
-    AlertOperator.LTE: operator.le,
-    AlertOperator.EQ: operator.eq,
-}
-
-_OPERATOR_LABELS = {
-    AlertOperator.GT: "above",
-    AlertOperator.GTE: "at or above",
-    AlertOperator.LT: "below",
-    AlertOperator.LTE: "at or below",
-    AlertOperator.EQ: "equal to",
-}
 
 
 @activity.defn
@@ -106,14 +88,11 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
     alert_config: dict[str, Any] = action.alert_config or {}
     frequency = alert_config.get("frequency", AlertFrequency.ON_BREACH)
     metric = alert_config.get("metric", AlertMetric.COUNT)
-    op = alert_config.get("operator", AlertOperator.GTE)
     threshold = alert_config.get("threshold")
     window_days = alert_config.get("window_days", DEFAULT_ALERT_WINDOW_DAYS)
     every_match = frequency == AlertFrequency.EVERY_MATCH
-    compare = _OPERATORS.get(op)
     if not every_match and (
-        compare is None
-        or not isinstance(threshold, int | float)
+        not isinstance(threshold, int | float)
         or isinstance(threshold, bool)
         or not isinstance(window_days, int)
         or window_days not in ALERT_WINDOW_DAYS
@@ -155,8 +134,8 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
             return EvaluateAlertResult(status=AlertStatus.NOT_BREACHED, observation_count=0)
         return _persist_fired(run, action, alert_config, float(matched_count), matched_count, observations_qs, team)
 
-    # Only on_breach flows reach here, and the config guard above validated those — narrows the union.
-    assert compare is not None and isinstance(threshold, int | float)
+    # Only on_breach flows reach here, and the config guard above validated the threshold.
+    assert isinstance(threshold, int | float)
 
     if metric == AlertMetric.AVG_SCORE:
         # Cast the JSONB score to float and average it; observations without a score (non-scorers)
@@ -172,7 +151,8 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
 
     # No measurable data (e.g. avg over an empty window) can't breach anything — including a
     # "count lt N" condition, which zero observations WOULD satisfy; count is always measurable (0).
-    if metric_value is None or not compare(metric_value, threshold):
+    # The only condition shape is "metric at or above threshold" — see AlertConfigSerializer.
+    if metric_value is None or metric_value < threshold:
         return EvaluateAlertResult(
             status=AlertStatus.NOT_BREACHED, observation_count=matched_count, metric_value=metric_value
         )
@@ -260,15 +240,13 @@ def _alert_markdown(
         ]
     else:
         metric = alert_config.get("metric", AlertMetric.COUNT)
-        op = alert_config.get("operator", AlertOperator.GTE)
         threshold = alert_config.get("threshold", 0)
         window_days = alert_config.get("window_days", DEFAULT_ALERT_WINDOW_DAYS)
         metric_label = "average score" if metric == AlertMetric.AVG_SCORE else "matching observations"
-        op_label = _OPERATOR_LABELS.get(AlertOperator(op), op)
         window_label = "24 hours" if window_days == 1 else f"{window_days} days"
         lines = [
             f"**Alert: {scanner_name}** — {metric_label} over the last {window_label} was "
-            f"{_format_number(metric_value)}, {op_label} the threshold of {_format_number(threshold)}.",
+            f"{_format_number(metric_value)}, at or above the threshold of {_format_number(threshold)}.",
             "",
             f"{matched_count} {noun} matched in this window.",
         ]

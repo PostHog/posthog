@@ -122,19 +122,12 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
                 ),
-            operator: zod
-                .enum(['gt', 'gte', 'lt', 'lte', 'eq'])
-                .describe(
-                    '\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal'
-                )
-                .optional()
-                .describe(
-                    "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold. Required for on_breach; ignored for every_match.\n\n\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal"
-                ),
             threshold: zod
                 .number()
                 .optional()
-                .describe('The value the metric is compared against. Required for on_breach; ignored for every_match.'),
+                .describe(
+                    'The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match.'
+                ),
             window_days: zod
                 .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
                 .describe('\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days')
@@ -284,19 +277,12 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
                 ),
-            operator: zod
-                .enum(['gt', 'gte', 'lt', 'lte', 'eq'])
-                .describe(
-                    '\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal'
-                )
-                .optional()
-                .describe(
-                    "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold. Required for on_breach; ignored for every_match.\n\n\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal"
-                ),
             threshold: zod
                 .number()
                 .optional()
-                .describe('The value the metric is compared against. Required for on_breach; ignored for every_match.'),
+                .describe(
+                    'The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match.'
+                ),
             window_days: zod
                 .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
                 .describe('\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days')
