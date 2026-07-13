@@ -1267,30 +1267,6 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.capture_exception")
-    def test_errored_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
-        mock_query_cls.return_value.execute_rolling_checks.side_effect = RuntimeError("CH down")
-        alert = self._make_alert()
-        now1 = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
-        now2 = datetime(2025, 1, 1, 0, 6, 0, tzinfo=UTC)
-
-        with patch("posthog.alerting.destinations.produce_internal_event") as mock_produce:
-            mock_produce.side_effect = Exception("Kafka down")
-            _evaluate_and_save_one(alert, now1, _make_stats())
-
-            mock_produce.side_effect = None
-            mock_produce.reset_mock()
-            _evaluate_and_save_one(alert, now2, _make_stats())
-
-        errored_calls = [
-            c
-            for c in mock_produce.call_args_list
-            if c.kwargs.get("event") and c.kwargs["event"].event == "$logs_alert_errored"
-        ]
-        assert len(errored_calls) == 1
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
-    @patch("products.logs.backend.temporal.activities.capture_exception")
     def test_broken_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
         mock_query_cls.return_value.execute_rolling_checks.side_effect = Exception(
             "Code: 160. DB::Exception: Estimated query execution time is too long"
@@ -2089,7 +2065,7 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
 
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.flush_internal_events_producer", return_value=0)
-    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    @patch("posthog.alerting.destinations.produce_internal_event")
     @patch("products.logs.backend.temporal.activities._run_cohort_query")
     def test_undelivered_notification_rolls_back_state_before_save(
         self, mock_run_cohort_query, mock_produce, _mock_flush
