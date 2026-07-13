@@ -78,7 +78,7 @@ export const webAnalyticsLoadTimeLogic = kea<webAnalyticsLoadTimeLogicType>([
             }
         },
     })),
-    afterMount(({ cache, values, actions }) => {
+    afterMount(({ cache, actions }) => {
         cache.mountStart = performance.now()
         cache.hasCapturedLoaded = false
         posthog.capture('web_analytics_dashboard_mounted', {
