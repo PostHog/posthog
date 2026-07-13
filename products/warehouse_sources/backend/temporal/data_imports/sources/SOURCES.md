@@ -137,6 +137,7 @@ the row lists both.
 | deel                    | HTTP                        | requests                                                        | ✅                          |
 | deepgram                | HTTP                        | requests                                                        | ✅                          |
 | delighted               | HTTP                        | requests                                                        | ✅                          |
+| deno_deploy             | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                | HTTP                        | requests                                                        | ✅                          |
 | ding_connect            | HTTP                        | requests                                                        | ✅                          |
 | dixa                    | HTTP                        | requests                                                        | ✅                          |
@@ -169,6 +170,7 @@ the row lists both.
 | financial_modelling     | HTTP                        | requests                                                        | ✅                          |
 | finnhub                 | HTTP                        | requests                                                        | ✅                          |
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
+| firecrawl               | HTTP                        | requests                                                        | ✅                          |
 | fleetio                 | HTTP                        | requests                                                        | ✅                          |
 | firehydrant             | HTTP                        | requests                                                        | ✅                          |
 | flexmail                | HTTP                        | requests                                                        | ✅                          |
@@ -197,6 +199,7 @@ the row lists both.
 | guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
 | harvey                  | HTTP                        | requests                                                        | ✅                          |
+| healthchecks            | HTTP                        | requests                                                        | ✅                          |
 | height                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
@@ -237,6 +240,7 @@ the row lists both.
 | lingo_dev               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | linkedin_ads            | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | linkrunner              | HTTP                        | requests                                                        | ✅                          |
+| linode                  | HTTP                        | requests                                                        | ✅                          |
 | lob                     | HTTP                        | requests                                                        | ✅                          |
 | luma                    | HTTP                        | requests                                                        | ✅                          |
 | mailchimp               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -253,6 +257,7 @@ the row lists both.
 | meta_ads                | HTTP                        | requests                                                        | ✅                          |
 | metabase                | HTTP                        | requests                                                        | ✅                          |
 | metorial                | HTTP                        | requests                                                        | ✅                          |
+| mistral_ai              | HTTP                        | requests                                                        | ✅                          |
 | mixmax                  | HTTP                        | requests                                                        | ✅                          |
 | mixpanel                | HTTP                        | requests                                                        | ✅                          |
 | mollie                  | HTTP                        | requests                                                        | ✅                          |
@@ -263,6 +268,7 @@ the row lists both.
 | my_hours                | HTTP                        | requests                                                        | ✅                          |
 | mysql                   | DB protocol                 | pymysql                                                         | ➖                          |
 | n8n                     | HTTP                        | requests                                                        | ✅                          |
+| netlify                 | HTTP                        | requests                                                        | ✅                          |
 | new_york_times          | HTTP                        | requests                                                        | ✅                          |
 | news_api                | HTTP                        | requests                                                        | ✅                          |
 | newsdata                | HTTP                        | requests                                                        | ✅                          |
@@ -338,6 +344,8 @@ the row lists both.
 | salesflare              | HTTP                        | requests                                                        | ✅                          |
 | salesloft               | HTTP                        | requests                                                        | ✅                          |
 | savvycal                | HTTP                        | requests                                                        | ✅                          |
+| scale_ai                | HTTP                        | requests                                                        | ✅                          |
+| scaleway                | HTTP                        | requests                                                        | ✅                          |
 | secoda                  | HTTP                        | requests                                                        | ✅                          |
 | segment                 | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                | HTTP                        | requests                                                        | ✅                          |
@@ -387,13 +395,16 @@ the row lists both.
 | together_ai             | HTTP                        | requests                                                        | ✅                          |
 | trello                  | HTTP                        | requests                                                        | ✅                          |
 | tremendous              | HTTP                        | requests                                                        | ✅                          |
+| trigger_dev             | HTTP                        | requests                                                        | ✅                          |
 | twilio                  | HTTP                        | requests                                                        | ✅                          |
 | typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                 | HTTP                        | requests                                                        | ✅                          |
 | unleash                 | HTTP                        | requests                                                        | ✅                          |
+| vellum                  | HTTP                        | requests                                                        | ✅                          |
 | vercel                  | HTTP                        | requests                                                        | ✅                          |
 | vitally                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                 | HTTP                        | requests                                                        | ✅                          |
+| windmill                | HTTP                        | requests                                                        | ✅                          |
 | woocommerce             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wordpress               | HTTP                        | requests                                                        | ✅                          |
 | workable                | HTTP                        | requests                                                        | ✅                          |
@@ -539,7 +550,6 @@ doesn't conflict with concurrent PRs.
 - fintoc
 - firebase
 - firebolt
-- firecrawl
 - fireworks_ai
 - flexmail
 - flexport
@@ -561,6 +571,7 @@ doesn't conflict with concurrent PRs.
 - google_ad_manager
 - google_analytics
 - google_calendar
+- google_chat
 - google_classroom
 - google_cloud_storage
 - google_directory
@@ -578,7 +589,6 @@ doesn't conflict with concurrent PRs.
 - harness
 - harvey
 - hatchet
-- healthchecks
 - heap
 - helicone
 - helpscout
@@ -612,6 +622,7 @@ doesn't conflict with concurrent PRs.
 - kapa_ai
 - keka
 - kernel
+- kickscale
 - kisi
 - kissmetrics
 - klarna
@@ -630,7 +641,6 @@ doesn't conflict with concurrent PRs.
 - lingo_dev
 - linkedin_pages
 - linnworks
-- linode
 - llama_cloud
 - lokalise
 - looker
@@ -654,14 +664,12 @@ doesn't conflict with concurrent PRs.
 - mintlify
 - miro
 - missive
-- mistral_ai
 - mode
 - mono
 - nasa
 - navan
 - nebius_ai
 - neon
-- netlify
 - netsuite
 - new_relic
 - news_api
@@ -741,6 +749,7 @@ doesn't conflict with concurrent PRs.
 - rocket_chat
 - rocketlane
 - rss
+- rudderstack
 - runpod
 - safetyculture
 - sage_hr
@@ -790,6 +799,7 @@ doesn't conflict with concurrent PRs.
 - strava
 - streamelements
 - streamlabs
+- sumsub
 - superwall
 - surveymonkey
 - survicate
@@ -812,7 +822,6 @@ doesn't conflict with concurrent PRs.
 - toggl
 - track_pms
 - tremendous
-- trigger_dev
 - trustpilot
 - turso
 - tvmaze
@@ -832,7 +841,6 @@ doesn't conflict with concurrent PRs.
 - vantage
 - vapi
 - veeqo
-- vellum
 - vespa
 - visma_economic
 - vultr
@@ -842,7 +850,6 @@ doesn't conflict with concurrent PRs.
 - watchmode
 - when_i_work
 - wikipedia_pageviews
-- windmill
 - workday
 - workflowmax
 - workramp
@@ -859,6 +866,7 @@ doesn't conflict with concurrent PRs.
 - youtube_data
 - zapier_supported_storage
 - zapsign
+- zellify
 - zendesk_sunshine
 - zenefits
 - zenloop
