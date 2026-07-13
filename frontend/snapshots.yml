@@ -2708,6 +2708,10 @@ snapshots:
         hash: v1.k794b7964.41fb69aabc8a918c58f693db54ee71abf53115782820dd01a1a26f6929dbe714.ACZOSkxt8vlxz5dr0DPoe7koXbe7aUxWeHcU4zMhv84
     insights-insightstable--compare-previous--light:
         hash: v1.k794b7964.28fa002817466cdc38906e70bc568a02c9d4080d4e696ec4013a2a538907b56d.yFhGtvxHTdLkBaBTudbBvH9CQbI3uANS3b2ycEIeKRY
+    insights-insightstable--compare-previous-detailed-results--dark:
+        hash: v1.k794b7964.a64b2e50f805705bbc9b8d2ebd207cebcd1202dc578004ab1e9dc477f02ff9aa.E8oFRn7xnK_56vtfgxYZuC1XNdTAUAc-aRld_poFGNk
+    insights-insightstable--compare-previous-detailed-results--light:
+        hash: v1.k794b7964.95d186cac16aa659249c098d76264c71a4f75af27fe8ddc458fb452371f4c584.gcfzOx0i14MOBQ7nvtxNXdOhyrG3zuxGFX1MY8SnYCY
     insights-insightstable--default--dark:
         hash: v1.k794b7964.585aa3b95a71f83db72c958f68b5b9b28c05047625904238a18d840fd4abe38b.kbYrG-uIZ1A_25STyJcDiz6Ph7-N7rkj2HWE6g6eoy8
     insights-insightstable--default--light:
