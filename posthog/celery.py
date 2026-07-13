@@ -186,16 +186,27 @@ def _celery_team_id_prerun_receiver(task_id=None, task=None, args=None, kwargs=N
 def build_schema_models_pre_fork(**kwargs) -> None:
     # The generated schema models defer core-schema building to first use (see
     # bin/patch-schema-defer-build.py). Build them all here, in the worker parent before
-    # the prefork pool forks, so children share the built schemas copy-on-write and no
-    # task pays a build at runtime. This module is imported by every Django process (via
-    # posthog/__init__.py), so the build must hang off this worker-only signal — an
-    # import-time build would re-eagerize everything, and importing posthog.schema at
-    # module level would put it back on the bare django.setup() path.
+    # the prefork pool forks, so children share the built schemas copy-on-write and most
+    # tasks never pay a build at runtime — task/product modules imported after this signal
+    # fires can still define schema-model subclasses that stay deferred until first use.
+    # This module is imported by every Django process (via posthog/__init__.py), so the
+    # build must hang off this worker-only signal — an import-time build would re-eagerize
+    # everything, and importing posthog.schema at module level would put it back on the
+    # bare django.setup() path.
+    #
+    # Celery's Signal.send catches and logs receiver exceptions instead of propagating them,
+    # so a failure here would otherwise leave the worker boot looking successful. Eager
+    # schema builds are required (see module docstring in posthog/schema_build.py), so treat
+    # a build failure as a fatal boot error rather than letting it degrade silently.
     from posthog.schema_build import (
         build_all_schema_models,  # noqa: PLC0415 — keep posthog.schema off the celery import path; only workers build
     )
 
-    build_all_schema_models()
+    try:
+        build_all_schema_models()
+    except Exception:
+        logger.exception("celery worker failed to eagerly build schema models; refusing to boot")
+        raise SystemExit(1)
 
 
 @worker_process_init.connect

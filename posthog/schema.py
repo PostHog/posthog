@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from typing import Annotated, Any, Generic, Literal, Self, TypeVar
 
@@ -17,6 +18,9 @@ from pydantic import (
     confloat,
     conint,
 )
+
+# Private pydantic internal: see bin/patch-schema-defer-build.py for why, and
+# run posthog/test/test_schema_defer_build.py on any pydantic version bump.
 from pydantic._internal._mock_val_ser import MockCoreSchema
 
 from posthog.schema_enums import (
@@ -304,6 +308,13 @@ from posthog.schema_enums import (
     YAxisScaleType as YAxisScaleType,
 )
 
+# The statics and helpers below work together to keep concurrent, lazy model_rebuild()
+# calls safe: _build_lock serializes the actual mutation, _currently_building tracks
+# per-thread reentrancy so a build's own hooks don't recurse into itself, and
+# _walked_schema_nodes memoizes _build_reachable_model_classes so a batch build doesn't
+# re-walk shared subgraphs. _DeferredBuildGuards and the BaseModel/RootModel subclasses
+# below tie them to the three ways an unbuilt class's instance can otherwise leak past
+# validation (model_construct, unpickling, and validator-created children through Any).
 _RootT = TypeVar("_RootT")
 
 
@@ -334,10 +345,29 @@ def _building_set() -> set[type]:
     return building
 
 
-# Schema dict nodes already walked by _build_reachable_model_classes, by id(). A shared
-# sub-schema is reachable from many parents; without memoizing, a batch build (e.g.
-# build_all_schema_models) re-walks the same subgraphs once per class that reaches them.
-_walked_schema_nodes: set[int] = set()
+def _reset_build_state_after_fork() -> None:
+    # A child forked while another thread held _build_lock would inherit it permanently
+    # held (fork only clones the calling thread), deadlocking its first lazy build. Web
+    # and celery build eagerly pre-fork so they never hit this; the deliberately-lazy
+    # fork points (e.g. dagster's multiprocessing/billiard workers) are the exposed ones.
+    global _build_lock
+    _build_lock = threading.RLock()
+    _currently_building.classes = set()
+
+
+os.register_at_fork(after_in_child=_reset_build_state_after_fork)
+
+
+# Schema dict nodes already walked by _build_reachable_model_classes, keyed by id() with
+# the node itself as the value. A shared sub-schema is reachable from many parents;
+# without memoizing, a batch build (e.g. build_all_schema_models) re-walks the same
+# subgraphs once per class that reaches them. Storing the node (not just its id) pins it
+# alive for the life of the process, which is required for soundness: ids are only unique
+# among live objects, so an id-only set would silently alias a freed node's id onto a
+# later, unrelated node once the allocator recycled it — e.g. under model_rebuild(force=True),
+# which replaces a class's schema and frees the old nodes. There are no in-repo
+# force=True callers on schema models today, but the memo must hold regardless.
+_walked_schema_nodes: dict[int, Any] = {}
 
 
 def _build_reachable_model_classes(schema: Any) -> None:
@@ -349,6 +379,12 @@ def _build_reachable_model_classes(schema: Any) -> None:
     own serializer — a mock, which raises `TypeError: 'MockValSer' object cannot be
     converted to 'SchemaSerializer'` instead of building (pydantic 2.12). Completing the
     reachable graph guarantees every instance a validator can create is serializable.
+
+    Note: a class's __pydantic_complete__ flag flips to True (via super().model_rebuild())
+    before this walk finishes, so a lock-free reader on another thread can, in a narrow
+    window, see a "complete" parent whose children haven't been walked yet. Only threaded
+    lazy (non-eager-build) processes are exposed; the failure is loud (the same MockValSer
+    TypeError) and self-heals once the walk catches up.
     """
     stack = [schema]
     while stack:
@@ -357,7 +393,7 @@ def _build_reachable_model_classes(schema: Any) -> None:
             node_id = id(node)
             if node_id in _walked_schema_nodes:
                 continue
-            _walked_schema_nodes.add(node_id)
+            _walked_schema_nodes[node_id] = node
             if node.get("type") == "model":
                 cls = node.get("cls")
                 if isinstance(cls, type) and issubclass(cls, _PydanticBaseModel) and not cls.__pydantic_complete__:

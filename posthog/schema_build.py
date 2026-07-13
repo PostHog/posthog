@@ -45,10 +45,18 @@ def build_all_schema_models() -> None:
 
     The generated models defer core-schema building to first use (see
     bin/patch-schema-defer-build.py), which keeps imports cheap for processes that only
-    ever touch a few models (celery, temporal, CLI, pytest). Web pods should instead pay
-    the full build once, pre-fork and behind readiness, so no worker handles its first
-    live request after a deploy against unbuilt models — wsgi.py and asgi.py call this
-    from their module-load warm block.
+    ever touch a few models (short-lived CLI invocations, pytest). Long-lived production
+    processes — web, celery, temporal — call this eagerly at boot instead, so no worker
+    handles its first live request or task against unbuilt models: wsgi.py and asgi.py
+    call it from their module-load warm block, and posthog/celery.py from worker_init.
     """
     for obj in _deferred_model_classes():
-        obj.model_rebuild()
+        try:
+            obj.model_rebuild()
+        except Exception as e:
+            # Without this, pydantic's own error only names the unresolved annotation
+            # (e.g. "name 'Decimal' is not defined") — not which class failed to build,
+            # leaving a fleet-wide boot crash with no lead on where to look. Subclasses can
+            # inherit defer_build invisibly via ConfigDict merging, so the failing class is
+            # often not one obviously touched by the change that broke it.
+            raise RuntimeError(f"failed to build schema model {obj.__module__}.{obj.__qualname__}: {e}") from e
