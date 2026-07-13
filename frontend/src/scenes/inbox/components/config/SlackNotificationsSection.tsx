@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
@@ -58,34 +58,58 @@ function ConnectSlackPrompt(): JSX.Element {
 
 /**
  * Team-wide channel where every actionable report is posted regardless of the suggested reviewer,
- * backed by `default_slack_notification_channel` on `signalTeamConfigLogic`. Clearing the channel
- * disables the team default. The backend routes the team channel through the team's first Slack
- * integration (`_get_team_slack_integration`), so we target `integrations[0]` here too.
+ * backed by `default_slack_notification_channel` on `signalTeamConfigLogic`. Toggling off (or
+ * clearing the channel) disables the team default. The backend routes the team channel through the
+ * team's first Slack integration (`_get_team_slack_integration`), so we target `integrations[0]`
+ * here too.
  */
 function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX.Element {
-    const { teamConfig } = useValues(signalTeamConfigLogic)
+    const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+    // Local view state: the toggle is on but no channel has been picked yet. A saved
+    // channel implies enabled on its own, so this only bridges the picking moment.
+    const [pickerExpanded, setPickerExpanded] = useState(false)
+
+    const channel = teamConfig?.default_slack_notification_channel ?? null
+    const showPicker = pickerExpanded || !!channel
+
+    const onToggleEnabled = (enabled: boolean): void => {
+        setPickerExpanded(enabled)
+        if (!enabled && channel) {
+            patchTeamConfig({ default_slack_notification_channel: null })
+        }
+    }
 
     return (
         <div className="flex flex-col gap-3 rounded border bg-bg-light px-3 py-2.5">
-            <SlackCardHeader
-                title="Notify the whole team"
-                description={
-                    <>
-                        Post every report to one channel, whether or not a reviewer is suggested. PostHog must be in the
-                        channel – invite it with <code>/invite @PostHog</code>. Clear the channel to turn this off.
-                    </>
-                }
-            />
-
-            <div className="flex flex-col gap-1 min-w-0 max-w-md border-t border-primary border-dashed pt-3">
-                <span className="text-xs text-secondary">Channel</span>
-                <SlackChannelPicker
-                    integration={integration}
-                    value={teamConfig?.default_slack_notification_channel ?? undefined}
-                    onChange={(next) => patchTeamConfig({ default_slack_notification_channel: next })}
+            <div className="flex items-start justify-between gap-4">
+                <SlackCardHeader
+                    title="Notify the whole team"
+                    description={
+                        <>
+                            Post every report to one channel, whether or not a reviewer is suggested. PostHog must be in
+                            the channel – invite it with <code>/invite @PostHog</code>.
+                        </>
+                    }
+                />
+                <LemonSwitch
+                    checked={showPicker}
+                    onChange={onToggleEnabled}
+                    disabled={teamConfigLoading && teamConfig === null}
+                    aria-label="Enable team-wide Slack notifications"
                 />
             </div>
+
+            {showPicker && (
+                <div className="flex flex-col gap-1 min-w-0 max-w-md border-t border-primary border-dashed pt-3">
+                    <span className="text-xs text-secondary">Channel</span>
+                    <SlackChannelPicker
+                        integration={integration}
+                        value={channel ?? undefined}
+                        onChange={(next) => patchTeamConfig({ default_slack_notification_channel: next })}
+                    />
+                </div>
+            )}
         </div>
     )
 }
