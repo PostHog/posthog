@@ -227,12 +227,12 @@ describe('HogInvocationResultsService', () => {
             expect(rows).toHaveLength(1)
             expect(rows[0].status).toBe('failed')
             expect(rows[0].error_kind).toBe('timeout')
-            // Only the message is persisted — never the stack trace. App-level
-            // executors assign the whole Error to result.error, so a regression
-            // to `error.stack` would leak Node internals (file paths, frames)
-            // into the Invocations tab.
+            // Exact match: only the message is persisted, never the stack.
+            // App-level executors assign the whole Error to result.error, so a
+            // regression to `error.stack` would make this the multi-line
+            // "Error: ...\n    at ..." string and leak Node internals into the
+            // Invocations tab.
             expect(rows[0].error_message).toBe('Request timed out after 30s')
-            expect(rows[0].error_message).not.toContain('    at ')
         })
 
         it('produces no row for an in-flight result that has not finished and has no error', async () => {
