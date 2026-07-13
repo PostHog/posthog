@@ -196,28 +196,6 @@
     background-color: var(--color-bg-fill-button-tertiary-active);
 }
 
-/* destructive → Lemon secondary + status="danger" */
-
-[data-lemon-skin] .quill-button--variant-destructive,
-.quill-button--variant-destructive[data-lemon-skin] {
-    color: var(--danger-3000-button-border-hover);
-    background-color: var(--secondary-3000-button-bg);
-    border: 1px solid var(--danger-3000-button-border);
-    box-shadow: 0 0.1875rem 0 0 var(--danger-3000-frame-bg);
-}
-
-[data-lemon-skin] .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover,
-.quill-button--variant-destructive[data-lemon-skin]:not(:disabled, [aria-disabled='true']):hover {
-    background-color: var(--secondary-3000-button-bg);
-    border-color: var(--danger-3000-button-border-hover);
-}
-
-[data-lemon-skin] .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):active,
-.quill-button--variant-destructive[data-lemon-skin]:not(:disabled, [aria-disabled='true']):active {
-    box-shadow: none;
-    translate: 0 0.1875rem;
-}
-
 /* link / link-muted → Lemon Link (accent text, no underline) */
 
 [data-lemon-skin] .quill-button--variant-link,
@@ -275,12 +253,6 @@
     border-radius: var(--lemon-skin-radius);
 }
 
-[data-lemon-skin] .quill-button--size-xs svg:not([class*='size-']),
-.quill-button--size-xs[data-lemon-skin] svg:not([class*='size-']) {
-    width: 0.8125rem;
-    height: 0.8125rem;
-}
-
 [data-lemon-skin] .quill-button--size-sm,
 .quill-button--size-sm[data-lemon-skin] {
     gap: 0.25rem;
@@ -293,48 +265,6 @@
 .quill-button--size-sm[data-lemon-skin] svg:not([class*='size-']) {
     width: 0.875rem;
     height: 0.875rem;
-}
-
-[data-lemon-skin] .quill-button--size-lg,
-.quill-button--size-lg[data-lemon-skin] {
-    gap: 0.5rem;
-    height: 2.3125rem;
-    padding-inline: 0.75rem;
-    font-size: 0.875rem;
-}
-
-[data-lemon-skin] .quill-button--size-lg svg:not([class*='size-']),
-.quill-button--size-lg[data-lemon-skin] svg:not([class*='size-']) {
-    width: 1.5rem;
-    height: 1.5rem;
-}
-
-/* ═══ Input → LemonInput ═══════════════════════════════════════════════ */
-
-[data-lemon-skin] .quill-input {
-    font-family: var(--font-sans);
-    font-size: 0.875rem;
-    color: var(--text-3000);
-}
-
-/*
- * Geometry and chrome only for standalone inputs — inside an InputGroup the
- * group owns the border and the fixed 2rem height (search overlays like the
- * taxonomic filter's input-trigger measure against it).
- */
-[data-lemon-skin] .quill-input:not([data-slot='input-group-control']) {
-    height: calc(2.125rem + 3px);
-    padding: 0.25rem 0.5rem;
-    background-color: var(--color-bg-fill-input);
-    border: 1px solid var(--lemon-skin-border);
-    border-radius: var(--lemon-skin-radius);
-}
-
-[data-lemon-skin] .quill-input:not([data-slot='input-group-control']):hover:not(:disabled),
-[data-lemon-skin] .quill-input:not([data-slot='input-group-control']):focus-visible {
-    /* Lemon inputs signal focus with a border-color change, not a ring */
-    border-color: var(--lemon-skin-border-hover);
-    box-shadow: none;
 }
 
 /* ═══ InputGroup (input with addons) — recolor only, keep 2rem metrics ═ */
@@ -358,18 +288,6 @@
     outline: 1px solid var(--lemon-skin-border);
 }
 
-/* Lemon medium: 13px handle in a 28×15 pill track */
-
-[data-lemon-skin] .quill-switch[data-size='default'] {
-    width: 28px;
-    height: 15px;
-}
-
-[data-lemon-skin] .quill-switch[data-size='default'] .quill-switch__thumb {
-    width: 13px;
-    height: 13px;
-}
-
 [data-lemon-skin] .quill-switch[data-unchecked] {
     background-color: var(--color-bg-fill-switch);
 }
@@ -386,49 +304,6 @@
 [data-lemon-skin] .quill-switch[data-checked] .quill-switch__thumb {
     background-color: var(--lemon-skin-surface);
     transform: translateX(100%);
-}
-
-/* ═══ Badge → LemonTag (small variant — badges live in dense list rows) ═ */
-
-[data-lemon-skin] .quill-badge {
-    height: auto;
-    padding: 0 0.1875rem;
-    font-family: var(--font-sans);
-    font-size: 0.625rem;
-    font-weight: 500;
-    line-height: 0.875rem;
-    border-radius: var(--lemon-skin-radius);
-}
-
-[data-lemon-skin] .quill-badge--variant-default {
-    color: var(--text-3000);
-    background-color: transparent;
-    border-color: var(--lemon-skin-border);
-}
-
-[data-lemon-skin] .quill-badge--variant-info {
-    /* Lemon has no blue tag; its "primary" (accent outline) is the analog */
-    color: var(--lemon-skin-accent);
-    background-color: transparent;
-    border-color: var(--lemon-skin-accent);
-}
-
-[data-lemon-skin] .quill-badge--variant-success {
-    color: var(--success);
-    background-color: transparent;
-    border-color: var(--success);
-}
-
-[data-lemon-skin] .quill-badge--variant-warning {
-    color: var(--warning);
-    background-color: transparent;
-    border-color: var(--warning);
-}
-
-[data-lemon-skin] .quill-badge--variant-destructive {
-    color: var(--danger);
-    background-color: transparent;
-    border-color: var(--danger);
 }
 
 /* ═══ Separator → LemonDivider ═════════════════════════════════════════ */
@@ -448,32 +323,14 @@
 
 /* ═══ Popover / menu / select surfaces → Lemon Popover box ═════════════ */
 
-[data-lemon-skin]
-    :is(
-        .quill-popover__content,
-        .quill-menu__content,
-        .quill-menu__sub-content,
-        .quill-select__content,
-        .quill-combobox__content
-    ),
-:is(
-    .quill-popover__content,
-    .quill-menu__content,
-    .quill-menu__sub-content,
-    .quill-select__content,
-    .quill-combobox__content
-)[data-lemon-skin] {
+[data-lemon-skin] :is(.quill-popover__content, .quill-select__content),
+:is(.quill-popover__content, .quill-select__content)[data-lemon-skin] {
     font-family: var(--font-sans);
     font-size: 0.875rem;
     background-color: var(--color-bg-surface-popover);
     border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--lemon-skin-radius-lg);
     box-shadow: var(--shadow-elevation-3000);
-}
-
-[data-lemon-skin] .quill-menu__separator,
-[data-lemon-skin] .quill-select__separator {
-    background-color: var(--lemon-skin-border);
 }
 
 /* SelectTrigger sizes itself via data-size, not Button's size prop: sm → xsmall */
@@ -484,52 +341,20 @@
     font-size: 0.75rem;
 }
 
-/* Select triggers embedded in an input go flat, border centered in the field */
-[data-lemon-skin] :is(.quill-input-group, .LemonInput) .quill-select__trigger {
-    background-color: transparent;
-    box-shadow: none;
-    translate: none;
-}
+/* Select rows sized like the small LemonButtons LemonMenu renders */
 
-[data-lemon-skin]
-    :is(.quill-input-group, .LemonInput)
-    .quill-select__trigger:not(:disabled, [aria-disabled='true']):hover {
-    background-color: transparent;
-}
-
-[data-lemon-skin]
-    :is(.quill-input-group, .LemonInput)
-    .quill-select__trigger:not(:disabled, [aria-disabled='true']):active {
-    translate: none;
-}
-
-/* Select/combobox rows sized like the small LemonButtons LemonMenu renders */
-
-[data-lemon-skin] :is(.quill-select__item, .quill-combobox__item) {
+[data-lemon-skin] .quill-select__item {
     height: auto;
     min-height: 2.0625rem;
-    font-size: 0.875rem;
+    padding-block: 0.25rem;
+    padding-inline: 0.5rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     border-radius: var(--lemon-skin-radius);
 }
 
-[data-lemon-skin] .quill-select__item:focus,
-[data-lemon-skin] .quill-combobox__item[data-highlighted] {
+[data-lemon-skin] .quill-select__item:focus {
     background-color: var(--color-bg-fill-button-tertiary-hover);
-}
-
-[data-lemon-skin] .quill-combobox__content .quill-combobox__item,
-.quill-combobox__content[data-lemon-skin] .quill-combobox__item {
-    height: auto;
-    min-height: 2.0625rem;
-
-    /* quill's checkmark gutter, clobbered by the button-size remap above */
-    padding-inline-start: 1.875rem;
-}
-
-[data-lemon-skin] .quill-combobox__content .quill-combobox__item [data-slot='item-content'],
-.quill-combobox__content[data-lemon-skin] .quill-combobox__item [data-slot='item-content'] {
-    padding-block: 0.375rem;
 }
 
 [data-lemon-skin] .quill-select__item:not(:hover)[aria-selected='true'] {
@@ -624,15 +449,6 @@
     color: var(--lemon-skin-accent);
     background: var(--lemon-skin-surface);
     border-color: var(--lemon-skin-accent);
-}
-
-/* Select options → Lemon menu-row metrics (the quill rows are much shorter). */
-[data-lemon-skin] .quill-select__item {
-    min-height: 2.0625rem;
-    padding-block: 0.25rem;
-    padding-inline: 0.5rem;
-    font-size: 0.8125rem;
-    border-radius: 0.25rem;
 }
 
 /* Footer rows (Custom range… / Exclude) → Lemon menu-row metrics.
