@@ -13,8 +13,7 @@ from products.product_analytics.backend.models.insight import Insight
 
 
 def _attach_messages(request) -> None:
-    # The request param is deliberately untyped: session and _messages are set by
-    # middleware at runtime, so assigning them on a typed request fails type checking.
+    # Untyped: session and _messages are set by middleware at runtime.
     request.session = {}
     request._messages = FallbackStorage(request)
 
@@ -39,8 +38,7 @@ class TestDashboardAdminRestore(BaseTest):
         deleted_tile = DashboardTile.objects_including_soft_deleted.create(
             dashboard=deleted_dashboard, insight=co_deleted_insight, deleted=True
         )
-        # A live dashboard from which a tile was intentionally removed before the action:
-        # restore must not resurrect it, or the deleted=True guard has been dropped.
+        # Live dashboard with an intentionally-removed tile: restore must not resurrect it.
         live_dashboard = Dashboard.objects.create(team=self.team, name="live dashboard")
         removed_insight = Insight.objects.create(team=self.team, name="intentionally removed")
         removed_tile = DashboardTile.objects_including_soft_deleted.create(
@@ -60,9 +58,8 @@ class TestDashboardAdminRestore(BaseTest):
         assert removed_tile.deleted is True
 
     def test_restore_reports_no_negative_skip_when_queryset_is_filtered_to_deleted(self):
-        # The admin changelist passes an action queryset already filtered to deleted=True
-        # (the "deleted: Yes" sidebar filter). Counting after the restore would then drop the
-        # just-restored rows and report a negative "Skipped" count.
+        # The changelist passes a deleted=True-filtered queryset; a post-restore count would
+        # drop the just-restored rows and report a negative skip.
         deleted_dashboard = Dashboard.objects.create(team=self.team, name="deleted dashboard", deleted=True)
         queryset = Dashboard.objects_including_soft_deleted.filter(id=deleted_dashboard.id, deleted=True)
 

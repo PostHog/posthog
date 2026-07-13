@@ -15,8 +15,7 @@ from products.product_analytics.backend.models.insight import Insight
 
 
 def _attach_messages(request) -> None:
-    # The request param is deliberately untyped: session and _messages are set by
-    # middleware at runtime, so assigning them on a typed request fails type checking.
+    # Untyped: session and _messages are set by middleware at runtime.
     request.session = {}
     request._messages = FallbackStorage(request)
 
@@ -54,19 +53,18 @@ class TestInsightAdminRestore(BaseTest):
         tile_on_live.refresh_from_db()
         tile_on_deleted.refresh_from_db()
         assert deleted_insight.deleted is False
-        # Restore touches last-modified metadata, matching the bulk_restore endpoint.
+        # Last-modified touched, matching the bulk_restore endpoint.
         assert deleted_insight.last_modified_by == self.user
         assert tile_on_live.deleted is False
-        # The dashboard itself is still deleted, so its tile must stay hidden.
+        # Dashboard still deleted, so its tile stays hidden.
         assert tile_on_deleted.deleted is True
 
         restored_logs = ActivityLog.objects.filter(scope="Insight", activity="restored", team_id=self.team.id)
         assert [log.item_id for log in restored_logs] == [str(deleted_insight.id)]
 
     def test_restore_reports_no_negative_skip_when_queryset_is_filtered_to_deleted(self):
-        # The admin changelist passes an action queryset already filtered to deleted=True
-        # (the "deleted: Yes" sidebar filter). Counting after the restore would then drop the
-        # just-restored rows and report a negative "Skipped" count.
+        # The changelist passes a deleted=True-filtered queryset; a post-restore count would
+        # drop the just-restored rows and report a negative skip.
         deleted_insight = Insight.objects.create(team=self.team, name="deleted insight", deleted=True)
         queryset = Insight.objects_including_soft_deleted.filter(id=deleted_insight.id, deleted=True)
 

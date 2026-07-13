@@ -97,8 +97,7 @@ class InsightAdmin(admin.ModelAdmin):
         return Insight.objects_including_soft_deleted.all()
 
     def get_actions(self, request: HttpRequest) -> dict[str, Any]:
-        # Insights are soft-deleted product-side; the built-in bulk action is a hard
-        # DELETE with FK cascades, so offering it invites irreversible mistakes.
+        # Drop the built-in hard-delete: insights are soft-deleted product-side.
         actions = super().get_actions(request)
         actions.pop("delete_selected", None)
         return actions
@@ -110,12 +109,11 @@ class InsightAdmin(admin.ModelAdmin):
     def restore_selected(self, request: HttpRequest, queryset: QuerySet[Insight]) -> None:
         insights = list(queryset.filter(deleted=True).select_related("team"))
         # Count before restoring: the changelist queryset carries the deleted=True filter, so a
-        # post-restore count() would drop the rows we just un-deleted and skew "skipped" negative.
+        # later count() would exclude the rows we just un-deleted and skew "skipped" negative.
         skipped = queryset.count() - len(insights)
         user = cast(User, request.user)
-        # Same shape as the bulk_restore endpoint: restore, re-activate tiles, and log the
-        # audit trail as one transaction, so a mid-batch failure can't leave insights restored
-        # without their tiles or activity entries (PostHog has no ATOMIC_REQUESTS).
+        # Mirrors the bulk_restore endpoint. Atomic so a mid-batch failure can't leave insights
+        # restored without their tiles or activity entries (PostHog has no ATOMIC_REQUESTS).
         with transaction.atomic():
             for insight in insights:
                 insight.deleted = False
@@ -124,9 +122,8 @@ class InsightAdmin(admin.ModelAdmin):
                 insight.save()  # post_save signal re-creates the FileSystem entry
 
             if insights:
-                # Bring tiles back on dashboards that still exist, and leave an audit trail
-                # (Insight has no ModelActivityMixin, so nothing gets logged on save). Unnamed
-                # insights (e.g. experiment internals) are skipped in the log, matching the API.
+                # Re-activate tiles on live dashboards, and log manually since Insight has no
+                # ModelActivityMixin. Unnamed insights are skipped in the log, matching the API.
                 DashboardTile.objects_including_soft_deleted.filter(
                     insight_id__in=[insight.id for insight in insights],
                     deleted=True,

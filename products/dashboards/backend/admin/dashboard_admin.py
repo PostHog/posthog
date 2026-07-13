@@ -50,8 +50,7 @@ class DashboardAdmin(admin.ModelAdmin):
         return Dashboard.objects_including_soft_deleted.all()
 
     def get_actions(self, request: HttpRequest) -> dict[str, Any]:
-        # Dashboards are soft-deleted product-side; the built-in bulk action is a hard
-        # DELETE with FK cascades, so offering it invites irreversible mistakes.
+        # Drop the built-in hard-delete: dashboards are soft-deleted product-side.
         actions = super().get_actions(request)
         actions.pop("delete_selected", None)
         return actions
@@ -61,21 +60,19 @@ class DashboardAdmin(admin.ModelAdmin):
         description="Restore selected dashboards (incl. tiles and co-deleted insights)",
     )
     def restore_selected(self, request: HttpRequest, queryset: QuerySet[Dashboard]) -> None:
-        from products.dashboards.backend.api.dashboard import (  # noqa: PLC0415 — keeps the heavy API module off the django.setup() path admin modules load on
+        from products.dashboards.backend.api.dashboard import (  # noqa: PLC0415 — keeps the heavy API module off the django.setup() path
             DashboardSerializer,
         )
 
         dashboards = list(queryset.filter(deleted=True))
         # Count before restoring: the changelist queryset carries the deleted=True filter, so a
-        # post-restore count() would drop the rows we just un-deleted and skew "skipped" negative.
+        # later count() would exclude the rows we just un-deleted and skew "skipped" negative.
         skipped = queryset.count() - len(dashboards)
+        # Same path as PATCH {"deleted": false}: restores tiles, co-deleted insights, FileSystem
+        # entries, and logs the restore via ModelActivityMixin. Atomic so a mid-batch failure
+        # can't leave a dashboard back without its tiles.
         with transaction.atomic():
             for dashboard in dashboards:
-                # The same path PATCH {"deleted": false} runs: un-deletes the dashboard's tiles
-                # and any insights soft-deleted together with it, and re-syncs their FileSystem
-                # entries. save() re-syncs the dashboard's own entry and logs a "restored"
-                # activity via ModelActivityMixin. Wrapped in a transaction so a mid-batch
-                # failure can't leave a dashboard restored without its tiles (no ATOMIC_REQUESTS).
                 DashboardSerializer._undo_delete_related_tiles(dashboard)
                 dashboard.deleted = False
                 dashboard.save()
