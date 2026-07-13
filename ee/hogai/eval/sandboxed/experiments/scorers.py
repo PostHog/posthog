@@ -61,9 +61,10 @@ from autoevals.llm import LLMClassifier
 from braintrust import Score
 from braintrust_core.score import Scorer
 
-from ee.hogai.eval.sandboxed.scorers import LogParser
+from ee.hogai.eval.sandboxed.scorers import BINARY_CHOICE_SCORES, AsyncOnlyScorerMixin, JudgedScorer, LogParser
 
-BINARY_CHOICE_SCORES = {"yes": 1.0, "no": 0.0}
+# Not the shared JUDGE_MODEL: these judges were baselined on gpt-4.1, and
+# swapping the model resets their Braintrust history.
 _JUDGE_MODEL = "gpt-4.1"
 
 
@@ -92,7 +93,7 @@ def _is_applicable(expected: Any, key: str) -> bool:
     return isinstance(expected, dict) and bool(expected.get(key))
 
 
-class DuplicateUniqueFlagKey(Scorer):
+class DuplicateUniqueFlagKey(AsyncOnlyScorerMixin, Scorer):
     """Hybrid (deterministic + LLM judge): agent must avoid the silent shared-flag-key default.
 
     The skill body (``managing-experiment-lifecycle/SKILL.md`` line 111)
@@ -169,20 +170,7 @@ Answer `yes` or `no`.
             return deterministic
         # No experiment-duplicate call → fall through to LLM judge.
         try:
-            judge_score = await self._refusal_judge._run_eval_async(
-                {"prompt": _user_prompt(output), "last_message": output.get("last_message", "") or ""},
-                None,
-            )
-        except Exception as exc:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
-        return self._wrap_judge(judge_score)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        deterministic = self._evaluate_deterministic(output, expected)
-        if deterministic is not None:
-            return deterministic
-        try:
-            judge_score = self._refusal_judge._run_eval_sync(
+            judge_score = await self._refusal_judge.eval_async(
                 {"prompt": _user_prompt(output), "last_message": output.get("last_message", "") or ""},
                 None,
             )
@@ -272,38 +260,7 @@ Answer `yes` or `no`.
         )
 
 
-class _BinaryJudge(LLMClassifier):
-    """Mirror of ``product_analytics._JudgedScorer`` for binary yes/no judges.
-
-    Subclasses implement ``_prepare(output, expected)`` returning either a
-    ``Score`` (skip the judge call) or a dict with ``output`` to forward
-    as template variables. Judge-call errors map to ``score=0.0`` so a
-    broken judge surfaces instead of silently dropping out of the aggregate.
-    """
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        prepared = self._prepare(output, expected)
-        if isinstance(prepared, Score):
-            return prepared
-        try:
-            return await super()._run_eval_async(prepared["output"], None, **kwargs)
-        except Exception as exc:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        prepared = self._prepare(output, expected)
-        if isinstance(prepared, Score):
-            return prepared
-        try:
-            return super()._run_eval_sync(prepared["output"], None, **kwargs)
-        except Exception as exc:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
-
-    def _prepare(self, output, expected) -> dict[str, Any] | Score:
-        raise NotImplementedError
-
-
-class AskedForConfirmation(_BinaryJudge):
+class AskedForConfirmation(JudgedScorer):
     """Binary yes/no: did the agent ask for confirmation before the action the user requested?
 
     Pass ``scenario`` (a verb phrase describing what the user asked) to swap
@@ -360,7 +317,7 @@ Did the agent ask the user to confirm before proceeding? Phrasings like "let me 
         )
 
 
-class SharedMetricValidationVerdict(_BinaryJudge):
+class SharedMetricValidationVerdict(JudgedScorer):
     """Binary yes/no: agent's verdict aligns with expected AND cites grounded reasons.
 
     Opts in via ``expected={"shared_metric_validation_verdict": "match" | "mismatch"}``.
@@ -433,7 +390,7 @@ Answer `yes` or `no`.
         )
 
 
-class CitesDiagnosticGroup(_BinaryJudge):
+class CitesDiagnosticGroup(JudgedScorer):
     """Binary yes/no: did the agent's final message correctly cite the expected diagnostic?
 
     Opt-in via ``expected={"diagnosis_group": "<one-line description of the expected diagnosis>"}``.
@@ -493,7 +450,7 @@ Answer `no` if the agent listed a different diagnostic as the primary cause, if 
         )
 
 
-class SurfacesAllFindings(_BinaryJudge):
+class SurfacesAllFindings(JudgedScorer):
     """Binary yes/no: did the agent surface every listed co-occurring finding?
 
     Opt-in via ``expected={"surfaces_all_findings": ["finding 1", "finding 2", ...]}``.
@@ -556,7 +513,7 @@ Answer `no` if the agent surfaced only some of the findings, bundled them into a
         )
 
 
-class DoesNotRecommendEdit(_BinaryJudge):
+class DoesNotRecommendEdit(JudgedScorer):
     """Binary yes/no: agent led with explanation and didn't push reversal on a stopped experiment.
 
     Opt-in via ``expected={"does_not_recommend_edit": True}``. On a stopped
@@ -630,7 +587,7 @@ Answer `no` if ANY of the following hold:
         )
 
 
-class RecommendsShipVariant(_BinaryJudge):
+class RecommendsShipVariant(JudgedScorer):
     """Binary yes/no: in a 'clear winner' scenario, did the agent recommend ship-variant (not end)?"""
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
@@ -698,13 +655,7 @@ class FirstUpdateMetricShape(Scorer):
     def _name(self) -> str:
         return "first_update_metric_shape"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: Any) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: Any = None, **kwargs) -> Score:
         validator = expected.get(self._name()) if isinstance(expected, dict) else None
         if not callable(validator):
             return Score(
@@ -791,7 +742,7 @@ def validate_retention_metric(metrics: list[dict]) -> tuple[bool, str]:
     return (True, "Retention metric carries retention_window_start and start_handling")
 
 
-class AdvisesAgainstShipping(_BinaryJudge):
+class AdvisesAgainstShipping(JudgedScorer):
     """Binary yes/no: did the agent advise against shipping (or recommend waiting)?
 
     Opt-in via ``expected={"advises_against_shipping": True}``. Behavioral

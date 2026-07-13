@@ -41,6 +41,15 @@ That is the only path by which the final table and the JSONL export see per-scor
 A crashing suite must never take down the others: `lifecycle._run_suite` catches `Exception` per suite and the run exits non-zero at the end.
 Do not widen that to `BaseException`, which would swallow `CancelledError` and `KeyboardInterrupt`.
 
+## Scorers
+
+Every scorer implements exactly one branch — never both `_run_eval_sync` and `_run_eval_async`.
+Braintrust's `EvalAsync` always dispatches through `eval_async`, and the base `Scorer`'s default `_run_eval_async` already delegates to `_run_eval_sync`, so a second branch is either dead code or a silently divergent copy.
+
+- Deterministic scorers subclass `Scorer` and implement `_run_eval_sync` only; the base class supplies the async path (and the sync path is what the pytest scorer tests call).
+- LLM judges subclass `scorers.JudgedScorer` and implement `_prepare` only; the shared base owns the short-circuit/error-mapping async branch, and `AsyncOnlyScorerMixin` makes the unused sync branch raise instead of running without `_prepare`.
+- Async-only classes that subclass `Scorer` directly (`TracedScorer`, hybrids like `DuplicateUniqueFlagKey`) need `AsyncOnlyScorerMixin` first in their bases — `_run_eval_sync` is abstract on `Scorer`, and the mixin is what satisfies it.
+
 ## Teardown
 
 Bootstrap registers teardown on an `ExitStack` as each resource comes up, so a failure halfway through still unwinds what already started.

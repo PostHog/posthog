@@ -92,13 +92,7 @@ class CohortFromQueryUsed(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _evaluate(self, output: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log to parse"})
@@ -131,13 +125,7 @@ class QueryTargetsActorColumn(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _evaluate(self, output: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         parser = _parser_for(output)
         calls = _query_population_calls(parser)
         if not calls:

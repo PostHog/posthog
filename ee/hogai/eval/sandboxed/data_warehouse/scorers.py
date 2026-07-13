@@ -20,13 +20,8 @@ from braintrust import Score
 from braintrust_core.score import Scorer
 
 from ee.hogai.eval.sandboxed.log_parser import LogParser, ToolCall
-from ee.hogai.eval.sandboxed.product_analytics.scorers import (
-    GRADED_ALIGNMENT_CHOICE_SCORES,
-    JUDGE_MODEL,
-    JudgedScorer,
-    parser_for,
-    user_prompt,
-)
+from ee.hogai.eval.sandboxed.product_analytics.scorers import parser_for, user_prompt
+from ee.hogai.eval.sandboxed.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from ee.hogai.eval.sandboxed.sql.scorers import _truncate_result_for_judge, extract_last_execute_sql_call
 
 __all__ = [
@@ -83,13 +78,7 @@ class InformationSchemaQueried(Scorer):
     def _name(self) -> str:
         return "information_schema_queried"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if not _requested(expected, self._name()):
@@ -112,13 +101,7 @@ class InformationSchemaBeforeAnswer(Scorer):
     def _name(self) -> str:
         return "information_schema_before_answer"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if not _requested(expected, self._name()):
@@ -175,13 +158,7 @@ class AgenticSearchUsed(Scorer):
     def _name(self) -> str:
         return "agentic_search_used"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if not _requested(expected, self._name()):
@@ -225,12 +202,6 @@ class NeedleTableIdentified(Scorer):
     def _name(self) -> str:
         return "needle_table_identified"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
     def _resolve_table(self, output: dict | None, expected: dict | None) -> str | None:
         spec = expected.get(self._name()) if isinstance(expected, dict) else None
         if not isinstance(spec, dict):
@@ -244,7 +215,7 @@ class NeedleTableIdentified(Scorer):
                 return entry["table"]
         return None
 
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if not _requested(expected, self._name()):
@@ -279,13 +250,7 @@ class NeedleValueRetrieved(Scorer):
     def _name(self) -> str:
         return "needle_value_retrieved"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if not _requested(expected, self._name()):
@@ -330,13 +295,7 @@ class RelationshipDiscovery(Scorer):
     def _name(self) -> str:
         return "relationship_discovery"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if not _requested(expected, self._name()):
@@ -399,13 +358,7 @@ class StaleTableAvoided(Scorer):
     def _name(self) -> str:
         return "stale_table_avoided"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if not _requested(expected, self._name()):
@@ -448,13 +401,7 @@ class JoinPathTraversed(Scorer):
     def _name(self) -> str:
         return "join_path_traversed"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if not _requested(expected, self._name()):
@@ -506,13 +453,7 @@ class AnswerQueryRanWhenExpected(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if not _requested(expected, self._name()):

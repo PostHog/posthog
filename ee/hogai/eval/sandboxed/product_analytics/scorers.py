@@ -16,7 +16,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from autoevals.llm import LLMClassifier
 from braintrust import Score
 from braintrust_core.score import Scorer
 from pydantic import BaseModel
@@ -24,23 +23,18 @@ from pydantic import BaseModel
 from posthog.schema import AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery
 
 from ee.hogai.eval.sandboxed.log_parser import INFO_SYNTHETIC_PREFIX, LogParser, ToolCall
+from ee.hogai.eval.sandboxed.scorers import (
+    BINARY_CHOICE_SCORES,
+    GRADED_ALIGNMENT_CHOICE_SCORES,
+    JUDGE_MODEL,
+    JudgedScorer,
+)
 
 QUERY_TRENDS_TOOL_NAME = "query-trends"
 QUERY_RETENTION_TOOL_NAME = "query-retention"
 QUERY_FUNNEL_TOOL_NAME = "query-funnel"
 READ_DATA_SCHEMA_TOOL_NAME = "read-data-schema"
 TOOL_SEARCH_TOOL_NAME = "ToolSearch"
-
-BINARY_CHOICE_SCORES = {"yes": 1.0, "no": 0.0}
-
-GRADED_ALIGNMENT_CHOICE_SCORES = {
-    "perfect": 1.0,
-    "near_perfect": 0.9,
-    "slightly_off": 0.75,
-    "somewhat_misaligned": 0.5,
-    "strongly_misaligned": 0.25,
-    "useless": 0.0,
-}
 
 GRADED_ALIGNMENT_RUBRIC = """
 How would you rate the alignment of the generated query with the expected query? Choose one:
@@ -54,8 +48,6 @@ How would you rate the alignment of the generated query with the expected query?
 Details matter greatly here — including math types, property types, and filter direction — so be harsh.
 """.strip()
 
-JUDGE_MODEL = "gpt-5.4"
-
 # PostHog MCP tools that persist saved-insight state. The sandbox is disposable
 # but these tools still hit real rows, so any successful call is a bug in the
 # agent's behaviour for a "just run the query" prompt.
@@ -67,42 +59,6 @@ INSIGHT_WRITE_TOOLS = frozenset(
         "insight-destroy",
     }
 )
-
-
-class JudgedScorer(LLMClassifier):
-    """Shared wiring for sandboxed LLM judges.
-
-    Subclasses implement ``_prepare(output, expected)`` returning either a
-    ``Score`` to short-circuit, or a dict with ``output``/``expected`` to
-    forward to the LLM judge.
-
-    Both the short-circuit paths and judge-call exceptions map to
-    ``score=0.0`` rather than ``score=None`` — Braintrust treats ``None`` as
-    "skipped" and drops it from the aggregate, which silently hides broken
-    judges and missing query inputs. We want those to surface as failing
-    scores instead.
-    """
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        prepared = self._prepare(output, expected)
-        if isinstance(prepared, Score):
-            return prepared
-        try:
-            return await super()._run_eval_async(prepared["output"], prepared["expected"], **kwargs)
-        except Exception as exc:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        prepared = self._prepare(output, expected)
-        if isinstance(prepared, Score):
-            return prepared
-        try:
-            return super()._run_eval_sync(prepared["output"], prepared["expected"], **kwargs)
-        except Exception as exc:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
-
-    def _prepare(self, output, expected) -> dict[str, Any] | Score:
-        raise NotImplementedError
 
 
 def parser_for(output: dict[str, Any] | None) -> LogParser | None:
@@ -609,13 +565,7 @@ class SchemaDiscoveryOrder(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         parser = parser_for(output)

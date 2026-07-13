@@ -58,13 +58,7 @@ class SkillLoaded(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _evaluate(self, output: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         raw_log = output.get("raw_log")
@@ -140,13 +134,7 @@ class LookupIdInOutput(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
 
@@ -294,12 +282,6 @@ class InformationSchemaBeforeSql(Scorer):
     def _name(self) -> str:
         return "information_schema_before_sql"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
     @staticmethod
     def _query_text(call) -> str:
         query = call.input.get("query") if isinstance(call.input, dict) else None
@@ -314,7 +296,7 @@ class InformationSchemaBeforeSql(Scorer):
         query = cls._query_text(call)
         return "system." in query and "information_schema" not in query
 
-    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if not isinstance(expected, dict) or self._name() not in expected:
@@ -389,13 +371,7 @@ class InfoCalledBeforeTool(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _evaluate(self, output: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         raw_log = output.get("raw_log")
