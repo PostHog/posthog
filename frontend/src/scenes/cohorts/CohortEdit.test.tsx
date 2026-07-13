@@ -496,7 +496,7 @@ describe('cohortEditLogic', () => {
             cleanup()
         })
 
-        it('renders locked controls as a plain-language sentence, not a dead-click dropdown', async () => {
+        it('renders locked controls as a read-only value with an info tooltip, not a dead-click dropdown', async () => {
             const cohortId = 10
 
             useMocks({
@@ -516,21 +516,19 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} />)
 
-            // The value and the reason it's locked are always visible in one sentence
-            // (previously only surfaced in a disabled-dropdown hover tooltip)
-            expect(
-                await screen.findByText('This cohort is static. Create a new cohort to use a different type of cohort.')
-            ).toBeInTheDocument()
-            expect(
-                screen.getByText(
-                    'This cohort was snapshotted from criteria at creation time and will not update as people change. Create a new cohort to change how a static cohort is populated.'
-                )
-            ).toBeInTheDocument()
+            // The current value is always visible in plain text; the "why can't I change this"
+            // explanation lives in an info tooltip instead of being repeated inline.
+            const typeContainer = (await screen.findByText('Static')).closest('[data-attr="cohort-type"]')
+            const populateFromContainer = screen
+                .getByText('Criteria · One-time snapshot')
+                .closest('[data-attr="static-cohort-mode"]')
+            expect(typeContainer).toBeInTheDocument()
+            expect(populateFromContainer).toBeInTheDocument()
 
             // The locked controls are read-only text, not interactive select buttons (the dead click):
             // a LemonSelect would render the data-attr onto a <button>
-            expect(document.querySelector('[data-attr="cohort-type"]')?.tagName).not.toBe('BUTTON')
-            expect(document.querySelector('[data-attr="static-cohort-mode"]')?.tagName).not.toBe('BUTTON')
+            expect(typeContainer.tagName).not.toBe('BUTTON')
+            expect(populateFromContainer.tagName).not.toBe('BUTTON')
         })
     })
 })

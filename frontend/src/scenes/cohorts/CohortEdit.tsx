@@ -2,7 +2,7 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
+import { IconClock, IconCopy, IconInfo, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -407,21 +407,24 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 )}
                                             </LemonField>
                                         ) : (
-                                            <p
-                                                className="text-sm text-secondary my-0 max-w-prose"
-                                                data-attr="cohort-type"
-                                            >
-                                                This cohort is{' '}
-                                                <strong>{cohort.is_static ? 'static' : 'dynamic'}</strong>. Create a new
-                                                cohort to use a different type of cohort.
-                                            </p>
+                                            <div className="flex items-center gap-x-2" data-attr="cohort-type">
+                                                <span className="text-sm text-secondary">
+                                                    Type:{' '}
+                                                    <strong className="font-medium text-default">
+                                                        {cohort.is_static ? 'Static' : 'Dynamic'}
+                                                    </strong>
+                                                </span>
+                                                <Tooltip title="Create a new cohort to use a different type of cohort.">
+                                                    <IconInfo className="text-secondary text-base" />
+                                                </Tooltip>
+                                            </div>
                                         )}
 
                                         {cohort.is_static && (
                                             <div className="flex flex-col gap-y-2">
-                                                <h2 className="text-base mb-0">Populate from</h2>
                                                 {isNewCohort ? (
                                                     <>
+                                                        <h2 className="text-base mb-0">Populate from</h2>
                                                         <p className="text-sm text-secondary my-0 max-w-prose">
                                                             {staticCohortMode === 'criteria'
                                                                 ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
@@ -436,16 +439,30 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                         />
                                                     </>
                                                 ) : (
-                                                    <p
-                                                        className="text-sm text-secondary my-0 max-w-prose"
+                                                    <div
+                                                        className="flex items-center gap-x-2"
                                                         data-attr="static-cohort-mode"
                                                     >
-                                                        {staticCohortMode === 'criteria'
-                                                            ? 'This cohort was snapshotted from criteria at creation time and will not update as people change.'
-                                                            : 'This cohort was populated by uploading a CSV or selecting people individually.'}{' '}
-                                                        Create a new cohort to change how a static cohort is
-                                                        populated.
-                                                    </p>
+                                                        <span className="text-sm text-secondary">
+                                                            Populate from:{' '}
+                                                            <strong className="font-medium text-default">
+                                                                {
+                                                                    POPULATE_FROM_OPTIONS.find(
+                                                                        (option) => option.value === staticCohortMode
+                                                                    )?.label
+                                                                }
+                                                            </strong>
+                                                        </span>
+                                                        <Tooltip
+                                                            title={
+                                                                staticCohortMode === 'criteria'
+                                                                    ? 'This cohort was snapshotted from criteria at creation time and will not update as people change. Create a new cohort to change how a static cohort is populated.'
+                                                                    : 'This cohort was populated by uploading a CSV or selecting people individually. Create a new cohort to change how a static cohort is populated.'
+                                                            }
+                                                        >
+                                                            <IconInfo className="text-secondary text-base" />
+                                                        </Tooltip>
+                                                    </div>
                                                 )}
                                             </div>
                                         )}
