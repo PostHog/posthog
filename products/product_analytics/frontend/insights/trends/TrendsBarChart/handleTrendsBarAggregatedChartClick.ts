@@ -1,3 +1,4 @@
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import type { TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
@@ -26,8 +27,21 @@ export function handleTrendsBarAggregatedChartClick(dataIndex: number, deps: Tre
         return
     }
 
+    // Match the category-axis label so a null/other breakdown reads the same in the modal title.
+    const title =
+        dataset.breakdown_value != null
+            ? formatBreakdownLabel(
+                  dataset.breakdown_value,
+                  deps.breakdownFilter,
+                  deps.cohorts,
+                  deps.formatPropertyValueForDisplay,
+                  undefined,
+                  dataset.label
+              )
+            : dataset.label || ''
+
     deps.openPersonsModal({
-        title: dataset.label || '',
+        title,
         query: datasetToActorsQuery({ dataset, query: deps.querySource }),
         additionalSelect: {
             value_at_data_point: 'event_count',

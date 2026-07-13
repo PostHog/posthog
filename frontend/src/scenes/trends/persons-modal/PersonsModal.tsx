@@ -33,7 +33,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { isGroupType, isSessionType } from 'lib/utils/guards'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
-import { isOtherBreakdown } from 'scenes/insights/utils'
+import { BREAKDOWN_NULL_DISPLAY, isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay, pickBestPersonDistinctId } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -136,6 +136,10 @@ export function PersonsModal({
 
         if (isOtherBreakdown(title)) {
             return 'Other'
+        }
+
+        if (isNullBreakdown(title)) {
+            return BREAKDOWN_NULL_DISPLAY
         }
 
         return title

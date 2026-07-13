@@ -318,6 +318,9 @@ export function TrendsBarChart({
             resolvedDateRange: insightData?.resolved_date_range ?? null,
             querySource,
             indexedResults: indexedResults ?? [],
+            breakdownFilter,
+            cohorts: allCohorts?.results,
+            formatPropertyValueForDisplay,
             openPersonsModal,
         }),
         [
@@ -329,6 +332,9 @@ export function TrendsBarChart({
             insightData?.resolved_date_range,
             querySource,
             indexedResults,
+            breakdownFilter,
+            allCohorts?.results,
+            formatPropertyValueForDisplay,
         ]
     )
 

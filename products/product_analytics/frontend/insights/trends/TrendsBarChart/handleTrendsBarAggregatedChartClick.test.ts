@@ -1,3 +1,4 @@
+import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -67,6 +68,17 @@ describe('handleTrendsBarAggregatedChartClick', () => {
         })
         // No DateDisplay / day on aggregated — the actors query has no `day`.
         expect(call.query.day).toBeUndefined()
+    })
+
+    it('titles the modal with the readable null-breakdown label, not the raw sentinel', () => {
+        const openPersonsModal = jest.fn()
+        const results = [makeTrendResult({ id: 1, breakdown_value: BREAKDOWN_NULL_STRING_LABEL, label: 'none' })]
+        const deps = makeDeps({ openPersonsModal, indexedResults: results })
+
+        handleTrendsBarAggregatedChartClick(0, deps)
+
+        expect(openPersonsModal).toHaveBeenCalledTimes(1)
+        expect(openPersonsModal.mock.calls[0][0].title).toBe('None (i.e. no value)')
     })
 
     it.each([
