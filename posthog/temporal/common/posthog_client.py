@@ -4,6 +4,7 @@ from typing import Any, Optional
 import temporalio.exceptions
 from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
+from redis import exceptions as redis_exceptions
 from temporalio import activity, workflow
 from temporalio.worker import (
     ActivityInboundInterceptor,
@@ -19,6 +20,23 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+# Transient transport blips (a Redis read exceeding socket_timeout, a dropped connection) that
+# Temporal retries and recovers from. Reporting them on every attempt drips false issues into error
+# tracking for a recovery path that works, so we skip them while retries remain.
+_RETRYABLE_TRANSPORT_ERRORS = (redis_exceptions.ConnectionError, redis_exceptions.TimeoutError)
+
+
+def _temporal_will_retry_activity() -> bool:
+    """Whether Temporal has retry attempts left for the current activity. Conservative: if the
+    retry policy is unknown (older server) we return False so the exception is still reported."""
+    info = activity.info()
+    retry_policy = info.retry_policy
+    if retry_policy is None:
+        return False
+    maximum_attempts = retry_policy.maximum_attempts
+    # maximum_attempts == 0 means unlimited retries, so more attempts always remain.
+    return maximum_attempts == 0 or info.attempt < maximum_attempts
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -71,6 +89,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # rate limiter already records via record_outbound_decision) are expected control flow,
             # not defects — re-raise without reporting them to error tracking.
             if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+                raise
+            # Transient transport blips that Temporal will retry are expected recoverable noise,
+            # not defects — skip reporting while retries remain. If they exhaust every attempt
+            # (a genuine outage) the final attempt still gets reported below.
+            if isinstance(e, _RETRYABLE_TRANSPORT_ERRORS) and _temporal_will_retry_activity():
                 raise
             activity_info = activity.info()
             capture_kwargs = {
