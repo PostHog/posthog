@@ -385,13 +385,6 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(',')})`)
         : hogql.raw('')
     const trimmedSearch = filters.search?.trim()
-    // Email is stored on `persons.properties.email`, not on `hog_invocation_results` —
-    // resolve to person_ids via an `ILIKE %value%` subquery on `persons`. Runs on every
-    // non-empty search so partial matches (`meikel`, `@company.com`) work without the user
-    // having to type a full email.
-    const emailSearchClause = trimmedSearch
-        ? `OR person_id IN (SELECT id FROM persons WHERE properties.email ILIKE ${escapeHogQLString(`%${trimmedSearch}%`)})`
-        : ''
     const optionalSearchClause = trimmedSearch
         ? hogql.raw(
               `AND (
@@ -399,7 +392,6 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
                   OR event_uuid = ${escapeHogQLString(trimmedSearch)}
                   OR distinct_id = ${escapeHogQLString(trimmedSearch)}
                   OR person_id = ${escapeHogQLString(trimmedSearch)}
-                  ${emailSearchClause}
               )`
           )
         : hogql.raw('')
@@ -484,13 +476,6 @@ async function fetchRunsPage(
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(', ')})`)
         : hogql.raw('')
     const trimmedSearch = filters.search?.trim()
-    // Email is stored on `persons.properties.email`, not on `hog_invocation_results` —
-    // resolve to person_ids via an `ILIKE %value%` subquery on `persons`. Runs on every
-    // non-empty search so partial matches (`meikel`, `@company.com`) work without the user
-    // having to type a full email.
-    const emailSearchClause = trimmedSearch
-        ? `OR person_id IN (SELECT id FROM persons WHERE properties.email ILIKE ${escapeHogQLString(`%${trimmedSearch}%`)})`
-        : ''
     const optionalSearchClause = trimmedSearch
         ? hogql.raw(
               `AND (
@@ -498,7 +483,6 @@ async function fetchRunsPage(
                   OR event_uuid = ${escapeHogQLString(trimmedSearch)}
                   OR distinct_id = ${escapeHogQLString(trimmedSearch)}
                   OR person_id = ${escapeHogQLString(trimmedSearch)}
-                  ${emailSearchClause}
               )`
           )
         : hogql.raw('')
