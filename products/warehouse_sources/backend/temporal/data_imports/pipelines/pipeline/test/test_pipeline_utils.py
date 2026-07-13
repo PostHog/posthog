@@ -132,14 +132,21 @@ def test_table_from_py_list_inconsistent_types_with_str_and_dict():
     )
 
 
+# A source may declare a non-string type for a column that arrives as dicts; the serialized
+# column must coerce the schema field to string or from_pydict fails.
+_STRING_DATA_FIELDS: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("data", pa.string())]
+_STRUCT_DATA_FIELDS: list[pa.Field] = [
+    pa.field("id", pa.int64()),
+    pa.field("data", pa.struct([pa.field("a", pa.int64())])),
+]
+
+
 @pytest.mark.parametrize(
     "schema",
     [
         None,
-        pa.schema([pa.field("id", pa.int64()), pa.field("data", pa.string())]),
-        # A source may declare a non-string type for a column that arrives as dicts; the
-        # serialized column must coerce the schema field to string or from_pydict fails.
-        pa.schema([pa.field("id", pa.int64()), pa.field("data", pa.struct([pa.field("a", pa.int64())]))]),
+        pa.schema(_STRING_DATA_FIELDS),
+        pa.schema(_STRUCT_DATA_FIELDS),
     ],
 )
 def test_table_from_py_list_dict_column_preserves_original_documents(schema):
