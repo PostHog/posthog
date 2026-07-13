@@ -376,7 +376,7 @@
                                     "type": "string"
                                 },
                                 "warehouse": {
-                                    "description": "Snowflake warehouse used to run the load queries.",
+                                    "description": "Snowflake compute warehouse to use.",
                                     "type": "string"
                                 }
                             },
