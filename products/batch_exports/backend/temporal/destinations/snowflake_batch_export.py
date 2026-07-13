@@ -569,6 +569,13 @@ class SnowflakeClient:
     def from_inputs(cls, inputs: SnowflakeInsertInputs) -> typing.Self:
         """Initialize `SnowflakeClient` from `SnowflakeInsertInputs`."""
 
+        # account and user are optional on the inputs (integration-backed exports resolve them at run
+        # time in the activity), but they must be resolved by the time we open a connection.
+        account = inputs.account
+        user = inputs.user
+        if account is None or user is None:
+            raise SnowflakeAuthenticationError("Snowflake account and user are required")
+
         # User could have specified both password and private key in their batch export config.
         # (for example, if they've already created a batch export with password auth and are now switching to keypair auth)
         # Therefore we decide which one to use based on the authentication_type.
@@ -588,8 +595,8 @@ class SnowflakeClient:
             raise SnowflakeAuthenticationError(f"Invalid authentication type: {inputs.authentication_type}")
 
         return cls(
-            user=inputs.user,
-            account=inputs.account,
+            user=user,
+            account=account,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
