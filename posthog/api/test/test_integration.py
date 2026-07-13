@@ -3316,17 +3316,21 @@ class TestOauthIntegrationRevokeOnDisconnect:
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
 
-    def _create_salesforce_integration(self, sensitive_config: dict | None = None) -> Integration:
+    def _create_salesforce_integration(
+        self,
+        sensitive_config: dict | None = None,
+        instance_url: str = "https://example.my.salesforce.com",
+    ) -> Integration:
         return Integration.objects.create(
             team=self.team,
             kind="salesforce",
-            config={"instance_url": "https://example.my.salesforce.com"},
+            config={"instance_url": instance_url},
             sensitive_config=(
                 {"access_token": "sf-access", "refresh_token": "sf-refresh"}
                 if sensitive_config is None
                 else sensitive_config
             ),
-            integration_id="https://example.my.salesforce.com",
+            integration_id=instance_url,
             created_by=self.user,
         )
 
@@ -3340,7 +3344,27 @@ class TestOauthIntegrationRevokeOnDisconnect:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=integration.id).exists()
         mock_post.assert_called_once_with(
-            "https://login.salesforce.com/services/oauth2/revoke",
+            "https://example.my.salesforce.com/services/oauth2/revoke",
+            data={"token": "sf-refresh"},
+            timeout=10,
+            allow_redirects=False,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_sandbox_salesforce_revokes_at_sandbox_host(self, mock_post, client: HttpClient):
+        # Sandbox integrations are stored as kind "salesforce" with a sandbox instance_url; revoking
+        # must hit that host, not login.salesforce.com, or the sandbox grant is never invalidated.
+        integration = self._create_salesforce_integration(
+            instance_url="https://example--sandbox.sandbox.my.salesforce.com"
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_called_once_with(
+            "https://example--sandbox.sandbox.my.salesforce.com/services/oauth2/revoke",
             data={"token": "sf-refresh"},
             timeout=10,
             allow_redirects=False,

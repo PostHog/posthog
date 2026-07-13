@@ -1102,11 +1102,19 @@ class OauthIntegration:
         if not token:
             return
 
+        revoke_url = oauth_config.token_revoke_url
+        # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is only a
+        # token-exchange fallback), so the static prod revoke URL would miss them. Revoke at the
+        # org's own instance host instead - it serves oauth2/revoke and matches prod or sandbox.
+        instance_url = self.integration.config.get("instance_url")
+        if self.integration.kind == "salesforce" and instance_url:
+            revoke_url = f"{instance_url.rstrip('/')}/services/oauth2/revoke"
+
         # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
         # resending the token to another host. raise_for_status surfaces a provider rejection
         # to the caller's capture_exception instead of it passing silently as a revoke.
         response = requests.post(
-            oauth_config.token_revoke_url,
+            revoke_url,
             data={"token": token},
             timeout=10,
             allow_redirects=False,
