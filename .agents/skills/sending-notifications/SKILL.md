@@ -74,12 +74,12 @@ event = create_notification(
 
 **Required:**
 
-| Field               | Type               | Description                                             |
-| ------------------- | ------------------ | ------------------------------------------------------- |
-| `notification_type` | `NotificationType` | Determines the icon in the UI                           |
-| `title`             | `str`              | Notification headline (~100 chars recommended)          |
-| `body`              | `str`              | Longer description shown on expand. Can be empty string |
-| `target_type`       | `TargetType`       | Who receives this: `user`, `team`, `organization`, or `role` |
+| Field               | Type               | Description                                                           |
+| ------------------- | ------------------ | --------------------------------------------------------------------- |
+| `notification_type` | `NotificationType` | Determines the icon in the UI                                         |
+| `title`             | `str`              | Notification headline (~100 chars recommended)                        |
+| `body`              | `str`              | Longer description shown on expand. Can be empty string               |
+| `target_type`       | `TargetType`       | Who receives this: `user`, `team`, `organization`, or `role`          |
 | `target_id`         | `str`              | ID of the target (user ID, team ID, org UUID, or role UUID as string) |
 
 Plus **exactly one** scope field — `team_id` or `organization_id` — see [Scope](#scope-team-or-organization) above.
@@ -88,8 +88,8 @@ Plus **exactly one** scope field — `team_id` or `organization_id` — see [Sco
 
 | Field             | Type                               | Default  | Description                                                                                                                                                                                   |
 | ----------------- | ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `team_id`         | `int \| None`                      | `None`   | Team scope — see [Scope](#scope-team-or-organization). Required unless `organization_id` is set                                                                                                |
-| `organization_id` | `UUID \| None`                     | `None`   | Organization scope — see [Scope](#scope-team-or-organization). Required unless `team_id` is set                                                                                                |
+| `team_id`         | `int \| None`                      | `None`   | Team scope — see [Scope](#scope-team-or-organization). Required unless `organization_id` is set                                                                                               |
+| `organization_id` | `UUID \| None`                     | `None`   | Organization scope — see [Scope](#scope-team-or-organization). Required unless `team_id` is set                                                                                               |
 | `resource_type`   | `NotificationResourceType \| None` | `None`   | Access-controlled types (e.g. `"dashboard"`) auto-filter recipients without viewer access (team scope only)                                                                                   |
 | `resource_id`     | `str`                              | `""`     | ID of the resource for linking                                                                                                                                                                |
 | `source_url`      | `str`                              | `""`     | Relative URL path (e.g. `/dashboard/42`), shown as link icon in UI                                                                                                                            |
