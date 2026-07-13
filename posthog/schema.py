@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, Self, TypeVar
 
 from pydantic import (
     AwareDatetime,
@@ -305,14 +305,45 @@ from posthog.schema_enums import (
 _RootT = TypeVar("_RootT")
 
 
+def _ensure_built(cls: type[_PydanticBaseModel]) -> None:
+    """Build a deferred model's core schema before an unvalidated instance can exist.
+
+    Validation builds lazily, but pydantic-core's serializer does not: dumping a
+    never-validated instance nested in an `Any`-typed field raises `TypeError:
+    'MockValSer' object cannot be converted to 'SchemaSerializer'`. `model_construct`
+    and unpickling are the only ways to create an instance without validating, so
+    building here keeps every live instance serializable.
+    """
+    if not cls.__pydantic_complete__:
+        cls.model_rebuild()
+
+
 class BaseModel(_PydanticBaseModel):
     # Core-schema building is deferred to first use: see bin/patch-schema-defer-build.py
     model_config = ConfigDict(defer_build=True)
+
+    @classmethod
+    def model_construct(cls, _fields_set: set[str] | None = None, **values: Any) -> Self:
+        _ensure_built(cls)
+        return super().model_construct(_fields_set, **values)
+
+    def __setstate__(self, state: dict[Any, Any]) -> None:
+        _ensure_built(type(self))
+        super().__setstate__(state)
 
 
 class RootModel(_PydanticRootModel[_RootT], Generic[_RootT]):
     # Core-schema building is deferred to first use: see bin/patch-schema-defer-build.py
     model_config = ConfigDict(defer_build=True)
+
+    @classmethod
+    def model_construct(cls, root: _RootT, _fields_set: set[str] | None = None) -> Self:  # type: ignore[override]
+        _ensure_built(cls)
+        return super().model_construct(root, _fields_set=_fields_set)
+
+    def __setstate__(self, state: dict[Any, Any]) -> None:
+        _ensure_built(type(self))
+        super().__setstate__(state)
 
 
 class SchemaRoot(RootModel[Any]):

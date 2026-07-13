@@ -18,6 +18,15 @@ Two edits, applied after generation (run from bin/build-schema-python.sh):
    use, after the whole module is defined, so every forward reference resolves without an
    explicit rebuild — and keeping them would force eager builds of exactly the biggest
    model subgraphs.
+
+The injected base classes also force a build in `model_construct` and `__setstate__`.
+Validation lazily builds a deferred model, but pydantic-core's *serializer* does not:
+dumping a never-validated instance nested inside another model's `Any`-typed field hits
+the Rust serializer fallback, which raises `TypeError: 'MockValSer' object cannot be
+converted to 'SchemaSerializer'` instead of building (pydantic 2.12). The only ways an
+instance of an unbuilt class can exist are `model_construct` and unpickling, so building
+there guarantees every live instance is serializable. Web processes additionally build
+everything eagerly pre-fork — see posthog/schema_build.py.
 """
 
 import re
@@ -26,19 +35,50 @@ from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).parent.parent / "posthog" / "schema.py"
 
-DEFERRED_BASE = """\
+DEFERRED_BASE = '''\
 _RootT = TypeVar("_RootT")
+
+
+def _ensure_built(cls: type[_PydanticBaseModel]) -> None:
+    """Build a deferred model's core schema before an unvalidated instance can exist.
+
+    Validation builds lazily, but pydantic-core's serializer does not: dumping a
+    never-validated instance nested in an `Any`-typed field raises `TypeError:
+    'MockValSer' object cannot be converted to 'SchemaSerializer'`. `model_construct`
+    and unpickling are the only ways to create an instance without validating, so
+    building here keeps every live instance serializable.
+    """
+    if not cls.__pydantic_complete__:
+        cls.model_rebuild()
 
 
 class BaseModel(_PydanticBaseModel):
     # Core-schema building is deferred to first use: see bin/patch-schema-defer-build.py
     model_config = ConfigDict(defer_build=True)
 
+    @classmethod
+    def model_construct(cls, _fields_set: set[str] | None = None, **values: Any) -> Self:
+        _ensure_built(cls)
+        return super().model_construct(_fields_set, **values)
+
+    def __setstate__(self, state: dict[Any, Any]) -> None:
+        _ensure_built(type(self))
+        super().__setstate__(state)
+
 
 class RootModel(_PydanticRootModel[_RootT], Generic[_RootT]):
     # Core-schema building is deferred to first use: see bin/patch-schema-defer-build.py
     model_config = ConfigDict(defer_build=True)
-"""
+
+    @classmethod
+    def model_construct(cls, root: _RootT, _fields_set: set[str] | None = None) -> Self:  # type: ignore[override]
+        _ensure_built(cls)
+        return super().model_construct(root, _fields_set=_fields_set)
+
+    def __setstate__(self, state: dict[Any, Any]) -> None:
+        _ensure_built(type(self))
+        super().__setstate__(state)
+'''
 
 
 def main() -> None:
@@ -76,7 +116,7 @@ def main() -> None:
     source = source[: match.start()] + pydantic_import + source[match.end() :]
 
     match, typing_names = parse_import("typing")
-    merged = sorted(set(typing_names) | {"Generic", "TypeVar"})
+    merged = sorted(set(typing_names) | {"Any", "Generic", "Self", "TypeVar"})
     source = source[: match.start()] + f"from typing import {', '.join(merged)}" + source[match.end() :]
 
     # Insert the deferred base classes after the import block (the schema_enums import is

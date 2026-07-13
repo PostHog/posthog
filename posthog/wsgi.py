@@ -44,6 +44,15 @@ try:
     from django.urls import get_resolver
 
     _ = get_resolver().url_patterns  # property access triggers the build
+
+    # The generated schema models defer core-schema building to first use (see
+    # bin/patch-schema-defer-build.py). Web should not pay that build on a worker's
+    # first live request after a deploy — build everything here, pre-fork, so the
+    # built schemas land in the frozen heap and are copy-on-write shared. Non-web
+    # processes never load this module and keep the lazy win.
+    from posthog.schema_build import build_all_schema_models
+
+    build_all_schema_models()
 finally:
     gc.freeze()
     gc.enable()
