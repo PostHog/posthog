@@ -539,8 +539,10 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                 del data["bytecode"]
         else:
             data = compile_filters_bytecode(data, team)
-            # Check if bytecode compilation resulted in an error
-            if data.get("bytecode_error"):
+            # Uncompilable filters are only fatal when the function will run (stay enabled).
+            # Callers that allow saving anyway (e.g. disabling/deleting a hog function) opt out
+            # via context; the error stays persisted on the filters for the UI to surface.
+            if data.get("bytecode_error") and self.context.get("function_will_be_enabled", True):
                 raise serializers.ValidationError(f"Invalid filter configuration: {data['bytecode_error']}")
 
         return data
