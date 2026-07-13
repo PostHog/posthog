@@ -96,7 +96,9 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
             {
                 loadConnectionOptions: async (): Promise<ExternalDataSourceConnectionOptionApi[]> => {
                     try {
-                        return await externalDataSourcesConnectionsList(String(ApiConfig.getCurrentProjectId()))
+                        // The projects route treats the path param as a team id (environments transition),
+                        // so pass the current team id to keep per-environment scoping.
+                        return await externalDataSourcesConnectionsList(String(ApiConfig.getCurrentTeamId()))
                     } catch (error: any) {
                         if (error?.status === 403) {
                             return []

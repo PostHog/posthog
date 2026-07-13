@@ -62266,13 +62266,6 @@ export namespace Schemas {
     source_type: string;
     };
 
-    export type EnvironmentsExternalDataSourcesConnectionsListParams = {
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
     export type EnvironmentsExternalDataSourcesOauthAccountsRetrieveParams = {
     /**
      * The OAuth integration id whose accounts should be listed.
@@ -69302,13 +69295,6 @@ export namespace Schemas {
      * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
      */
     source_type: string;
-    };
-
-    export type ExternalDataSourcesConnectionsListParams = {
-    /**
-     * A search term.
-     */
-    search?: string;
     };
 
     export type ExternalDataSourcesOauthAccountsRetrieveParams = {

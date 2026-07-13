@@ -21,7 +21,6 @@ import type {
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectLinkRetrieveParams,
-    ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
@@ -846,23 +845,8 @@ export const externalDataSourcesConnectLinkRetrieve = async (
     })
 }
 
-export const getExternalDataSourcesConnectionsListUrl = (
-    projectId: string,
-    params?: ExternalDataSourcesConnectionsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_sources/connections/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_sources/connections/`
+export const getExternalDataSourcesConnectionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/connections/`
 }
 
 /**
@@ -870,16 +854,12 @@ export const getExternalDataSourcesConnectionsListUrl = (
  */
 export const externalDataSourcesConnectionsList = async (
     projectId: string,
-    params?: ExternalDataSourcesConnectionsListParams,
     options?: RequestInit
 ): Promise<ExternalDataSourceConnectionOptionApi[]> => {
-    return apiMutator<ExternalDataSourceConnectionOptionApi[]>(
-        getExternalDataSourcesConnectionsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+    return apiMutator<ExternalDataSourceConnectionOptionApi[]>(getExternalDataSourcesConnectionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getExternalDataSourcesDatabaseSchemaCreateUrl = (projectId: string) => {

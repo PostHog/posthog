@@ -7109,13 +7109,6 @@ export type ExternalDataSourcesConnectLinkRetrieveParams = {
     source_type: string
 }
 
-export type ExternalDataSourcesConnectionsListParams = {
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
 export type ExternalDataSourcesOauthAccountsRetrieveParams = {
     /**
      * The OAuth integration id whose accounts should be listed.

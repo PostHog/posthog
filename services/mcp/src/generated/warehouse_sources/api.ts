@@ -1769,10 +1769,6 @@ export const ExternalDataSourcesConnectionsListParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const ExternalDataSourcesConnectionsListQueryParams = /* @__PURE__ */ zod.object({
-    search: zod.string().optional().describe('A search term.'),
-})
-
 /**
  * One-shot data warehouse source setup.
  *

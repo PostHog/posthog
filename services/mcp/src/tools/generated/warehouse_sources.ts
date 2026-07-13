@@ -17,7 +17,6 @@ import {
     ExternalDataSchemasResyncCreateParams,
     ExternalDataSchemasRetrieveParams,
     ExternalDataSourcesConnectLinkRetrieveQueryParams,
-    ExternalDataSourcesConnectionsListQueryParams,
     ExternalDataSourcesCreateBody,
     ExternalDataSourcesCreateWebhookCreateBody,
     ExternalDataSourcesCreateWebhookCreateParams,
@@ -476,7 +475,7 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesConnectionsListSchema = ExternalDataSourcesConnectionsListQueryParams
+const ExternalDataSourcesConnectionsListSchema = z.object({})
 
 const externalDataSourcesConnectionsList = (): ToolBase<
     typeof ExternalDataSourcesConnectionsListSchema,
@@ -484,14 +483,12 @@ const externalDataSourcesConnectionsList = (): ToolBase<
 > => ({
     name: 'external-data-sources-connections-list',
     schema: ExternalDataSourcesConnectionsListSchema,
+    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesConnectionsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExternalDataSourceConnectionOption[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connections/`,
-            query: {
-                search: params.search,
-            },
         })
         return await withPostHogUrl(context, result, '/data-management/sources')
     },
