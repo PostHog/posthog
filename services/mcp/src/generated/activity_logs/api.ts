@@ -33,7 +33,7 @@ export const ActivityLogListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .max(activityLogListQueryPageSizeMax)
         .default(activityLogListQueryPageSizeDefault)
-        .describe('Number of results per page (default: 100, max: 1000). Only used with page-based pagination.'),
+        .describe('Number of results per page (default: 100, max: 1000). Applies to both page-based and cursor pagination.'),
     scope: zod
         .enum([
             'Cohort',

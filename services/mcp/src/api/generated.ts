@@ -65041,7 +65041,7 @@ export namespace Schemas {
      */
     page?: number;
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000). Applies to both page-based and cursor pagination.
      * @minimum 1
      * @maximum 1000
      */
@@ -65562,7 +65562,7 @@ export namespace Schemas {
      */
     page?: number;
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000). Applies to both page-based and cursor pagination.
      * @minimum 1
      * @maximum 1000
      */
@@ -65909,7 +65909,7 @@ export namespace Schemas {
      */
     page?: number;
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000). Applies to both page-based and cursor pagination.
      * @minimum 1
      * @maximum 1000
      */

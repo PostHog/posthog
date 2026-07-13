@@ -367,6 +367,18 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
         item_ids = {row["item_id"] for row in res.json()["results"]}
         assert item_ids == {"flag-1"}
 
+    def test_cursor_path_honors_page_size(self) -> None:
+        # Regression: the default (no `page` param) cursor path used to hardcode a page size of 100
+        # and ignore `page_size` entirely, so a caller — e.g. an MCP tool defaulting to page_size=10 —
+        # got the full page of full activity-log rows, ballooning the response. The three seeded org
+        # rows exceed page_size=2, so an honored page size returns exactly 2 with a cursor to continue.
+        res = self._list(page_size=2)
+
+        assert res.status_code == status.HTTP_200_OK
+        body = res.json()
+        assert len(body["results"]) == 2
+        assert body["next"] is not None
+
     def test_audit_logs_feature_required_on_cloud(self) -> None:
         self.organization.available_product_features = []
         self.organization.save()
