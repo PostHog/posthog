@@ -54,6 +54,45 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
         }
 
 
+class StamphogInstallInfoSerializer(serializers.Serializer):
+    """Static info the frontend needs to render the 'Connect a repository' button."""
+
+    app_slug = serializers.CharField(
+        read_only=True,
+        help_text="URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured.",
+    )
+    install_url = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the "
+            "App, or blank if the App slug is unconfigured."
+        ),
+    )
+
+
+class StamphogSyncInstallationRequestSerializer(serializers.Serializer):
+    """Request body for binding a completed GitHub App installation to the current team."""
+
+    installation_id = serializers.CharField(
+        help_text="GitHub App installation ID returned on the post-install Setup URL redirect.",
+    )
+
+
+class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
+    """Result of syncing an installation: rows created/kept for this team, plus conflicting repos skipped."""
+
+    synced = StamphogRepoConfigSerializer(
+        many=True,
+        read_only=True,
+        help_text="Repo configs now bound to this team for the installation (created this call or already present).",
+    )
+    skipped = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Repository full names skipped because another team already owns them under this installation.",
+    )
+
+
 @extend_schema_serializer(component_name="StamphogPullRequest")
 class PullRequestSerializer(serializers.ModelSerializer):
     repository = serializers.CharField(

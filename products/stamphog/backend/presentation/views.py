@@ -5,25 +5,31 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
-from django.db import IntegrityError
+from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from ..logic.github_client import StamphogGitHubClient
 from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from .serializers import (
     DigestChannelSerializer,
     DigestRunSerializer,
     PullRequestSerializer,
     ReviewRunSerializer,
+    StamphogInstallInfoSerializer,
     StamphogRepoConfigSerializer,
+    StamphogSyncInstallationRequestSerializer,
+    StamphogSyncInstallationResponseSerializer,
 )
 
 
@@ -63,6 +69,56 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             serializer.save(team_id=self.team_id)
         except IntegrityError:
             raise already_claimed_error
+
+    @extend_schema(responses={200: StamphogInstallInfoSerializer})
+    @action(detail=False, methods=["GET"], url_path="install_info")
+    def install_info(self, request: Request, **kwargs) -> Response:
+        # Lets the frontend render a "Connect a repository" button (deep link into GitHub's install
+        # page) without first completing the callback. No team data involved, so no scoping needed here.
+        slug = settings.STAMPHOG_GITHUB_APP_SLUG
+        install_url = f"https://github.com/apps/{slug}/installations/new" if slug else ""
+        data = StamphogInstallInfoSerializer({"app_slug": slug, "install_url": install_url}).data
+        return Response(data)
+
+    @extend_schema(
+        request=StamphogSyncInstallationRequestSerializer,
+        responses={200: StamphogSyncInstallationResponseSerializer},
+    )
+    @action(detail=False, methods=["POST"], url_path="sync_installation")
+    def sync_installation(self, request: Request, **kwargs) -> Response:
+        # Post-install binding: GitHub redirects the browser back with an installation_id, the frontend
+        # POSTs it here, and we register a StamphogRepoConfig for every repo the installation covers under
+        # the CURRENT team. A repo already owned by another team is skipped, not fatal, so one shared repo
+        # can't block the rest of the batch.
+        request_serializer = StamphogSyncInstallationRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        installation_id = request_serializer.validated_data["installation_id"]
+
+        client = StamphogGitHubClient(installation_id)
+        repositories = client.list_installation_repositories()
+
+        synced: list[StamphogRepoConfig] = []
+        skipped: list[str] = []
+        for full_name in repositories:
+            # Per-row savepoint: an IntegrityError from a cross-team conflict only rolls back that row,
+            # leaving the rest of the batch (and the outer autocommit context) intact.
+            try:
+                with transaction.atomic():
+                    config, _ = StamphogRepoConfig.objects.for_team(self.team_id).get_or_create(
+                        provider="github",
+                        installation_id=installation_id,
+                        repository=full_name,
+                        # for_team() scopes the read but not row creation, so team_id is explicit here.
+                        # enabled only seeds new rows; an existing row's toggle is never flipped back on.
+                        defaults={"team_id": self.team_id, "enabled": True},
+                    )
+            except IntegrityError:
+                skipped.append(full_name)
+                continue
+            synced.append(config)
+
+        response = StamphogSyncInstallationResponseSerializer({"synced": synced, "skipped": skipped})
+        return Response(response.data)
 
 
 class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):

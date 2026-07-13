@@ -55271,6 +55271,34 @@ export namespace Schemas {
     }
 
     /**
+     * Static info the frontend needs to render the 'Connect a repository' button.
+     */
+    export interface StamphogInstallInfo {
+      /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
+      readonly app_slug: string;
+      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. */
+      readonly install_url: string;
+    }
+
+    /**
+     * Request body for binding a completed GitHub App installation to the current team.
+     */
+    export interface StamphogSyncInstallationRequest {
+      /** GitHub App installation ID returned on the post-install Setup URL redirect. */
+      installation_id: string;
+    }
+
+    /**
+     * Result of syncing an installation: rows created/kept for this team, plus conflicting repos skipped.
+     */
+    export interface StamphogSyncInstallationResponse {
+      /** Repo configs now bound to this team for the installation (created this call or already present). */
+      readonly synced: readonly StamphogRepoConfig[];
+      /** Repository full names skipped because another team already owns them under this installation. */
+      readonly skipped: readonly string[];
+    }
+
+    /**
      * Response containing a JWT token (and resolved base URL) for reading a task run's live event stream
      */
     export interface StreamReadTokenResponse {

@@ -201,6 +201,7 @@ export const StamphogRepoConfigsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const stamphogRepoConfigsCreateBodyProviderDefault = `github`
 export const stamphogRepoConfigsCreateBodyProviderMax = 32
 
 export const stamphogRepoConfigsCreateBodyRepositoryMax = 255
@@ -211,7 +212,7 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .string()
         .max(stamphogRepoConfigsCreateBodyProviderMax)
-        .optional()
+        .default(stamphogRepoConfigsCreateBodyProviderDefault)
         .describe("SCM provider this config talks to. Defaults to 'github'."),
     repository: zod
         .string()

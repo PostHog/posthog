@@ -117,6 +117,7 @@ export const StamphogDigestChannelsPartialUpdateBody = /* @__PURE__ */ zod.objec
 /**
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
+export const stamphogRepoConfigsCreateBodyProviderDefault = `github`
 export const stamphogRepoConfigsCreateBodyProviderMax = 32
 
 export const stamphogRepoConfigsCreateBodyRepositoryMax = 255
@@ -127,7 +128,7 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .string()
         .max(stamphogRepoConfigsCreateBodyProviderMax)
-        .optional()
+        .default(stamphogRepoConfigsCreateBodyProviderDefault)
         .describe("SCM provider this config talks to. Defaults to 'github'."),
     repository: zod
         .string()
@@ -147,6 +148,7 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
+export const stamphogRepoConfigsUpdateBodyProviderDefault = `github`
 export const stamphogRepoConfigsUpdateBodyProviderMax = 32
 
 export const stamphogRepoConfigsUpdateBodyRepositoryMax = 255
@@ -157,7 +159,7 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .string()
         .max(stamphogRepoConfigsUpdateBodyProviderMax)
-        .optional()
+        .default(stamphogRepoConfigsUpdateBodyProviderDefault)
         .describe("SCM provider this config talks to. Defaults to 'github'."),
     repository: zod
         .string()
@@ -177,6 +179,7 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
+export const stamphogRepoConfigsPartialUpdateBodyProviderDefault = `github`
 export const stamphogRepoConfigsPartialUpdateBodyProviderMax = 32
 
 export const stamphogRepoConfigsPartialUpdateBodyRepositoryMax = 255
@@ -187,7 +190,7 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .string()
         .max(stamphogRepoConfigsPartialUpdateBodyProviderMax)
-        .optional()
+        .default(stamphogRepoConfigsPartialUpdateBodyProviderDefault)
         .describe("SCM provider this config talks to. Defaults to 'github'."),
     repository: zod
         .string()
@@ -205,3 +208,14 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
 })
+
+/**
+ * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
+ */
+export const StamphogRepoConfigsSyncInstallationCreateBody = /* @__PURE__ */ zod
+    .object({
+        installation_id: zod
+            .string()
+            .describe('GitHub App installation ID returned on the post-install Setup URL redirect.'),
+    })
+    .describe('Request body for binding a completed GitHub App installation to the current team.')

@@ -21,11 +21,14 @@ import type {
     ReviewRunApi,
     StamphogDigestChannelsListParams,
     StamphogDigestRunsListParams,
+    StamphogInstallInfoApi,
     StamphogPullRequestApi,
     StamphogPullRequestsListParams,
     StamphogRepoConfigApi,
     StamphogRepoConfigsListParams,
     StamphogReviewRunsListParams,
+    StamphogSyncInstallationRequestApi,
+    StamphogSyncInstallationResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -394,6 +397,43 @@ export const stamphogRepoConfigsDestroy = async (
     return apiMutator<void>(getStamphogRepoConfigsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getStamphogRepoConfigsInstallInfoRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/stamphog/repo_configs/install_info/`
+}
+
+/**
+ * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
+ */
+export const stamphogRepoConfigsInstallInfoRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<StamphogInstallInfoApi> => {
+    return apiMutator<StamphogInstallInfoApi>(getStamphogRepoConfigsInstallInfoRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getStamphogRepoConfigsSyncInstallationCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/stamphog/repo_configs/sync_installation/`
+}
+
+/**
+ * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
+ */
+export const stamphogRepoConfigsSyncInstallationCreate = async (
+    projectId: string,
+    stamphogSyncInstallationRequestApi: StamphogSyncInstallationRequestApi,
+    options?: RequestInit
+): Promise<StamphogSyncInstallationResponseApi> => {
+    return apiMutator<StamphogSyncInstallationResponseApi>(getStamphogRepoConfigsSyncInstallationCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(stamphogSyncInstallationRequestApi),
     })
 }
 

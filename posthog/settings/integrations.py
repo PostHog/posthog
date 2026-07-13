@@ -45,6 +45,9 @@ GITHUB_APP_CLIENT_SECRET = get_from_env("GITHUB_APP_CLIENT_SECRET", "")
 STAMPHOG_GITHUB_APP_ID = get_from_env("STAMPHOG_GITHUB_APP_ID", "")
 STAMPHOG_GITHUB_APP_PRIVATE_KEY = get_from_env("STAMPHOG_GITHUB_APP_PRIVATE_KEY", "")
 STAMPHOG_GITHUB_WEBHOOK_SECRET = get_from_env("STAMPHOG_GITHUB_WEBHOOK_SECRET", "")
+# URL-friendly App name in github.com/apps/<slug>; the install URL is built from it. Empty until
+# the App is provisioned, in which case the install-info endpoint returns a blank install URL.
+STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
 
 ZENDESK_ADMIN_EMAIL = get_from_env("ZENDESK_ADMIN_EMAIL", "")
 ZENDESK_API_TOKEN = get_from_env("ZENDESK_API_TOKEN", "")

@@ -281,6 +281,38 @@ class StamphogGitHubClient:
                 break
         return numbers
 
+    def list_installation_repositories(self) -> list[str]:
+        """Return the sorted ``owner/name`` full names this installation can access.
+
+        Reads ``GET /installation/repositories`` with the installation token (the endpoint is scoped to
+        the token's own installation, so no id goes in the path), paging until exhausted. Used by the
+        install→team binding flow to discover which repos to register when a user installs the App.
+        """
+        full_names: list[str] = []
+        for page in range(1, _MAX_PAGES + 1):
+            response = self._request(
+                "GET",
+                "/installation/repositories",
+                endpoint="/installation/repositories",
+                params={"per_page": _PER_PAGE, "page": page},
+            )
+            if response.status_code != 200:
+                raise StamphogGitHubError(
+                    f"Failed to list installation repositories: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            data = self._json(response, "/installation/repositories")
+            repositories = data.get("repositories") if isinstance(data, dict) else None
+            if not isinstance(repositories, list):
+                raise StamphogGitHubError("Unexpected installation repositories payload")
+            for repo in repositories:
+                full_name = repo.get("full_name") if isinstance(repo, dict) else None
+                if isinstance(full_name, str) and full_name:
+                    full_names.append(full_name)
+            if len(repositories) < _PER_PAGE:
+                break
+        return sorted(set(full_names))
+
     def get_default_branch_file(self, repo: str, path: str) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.
 
