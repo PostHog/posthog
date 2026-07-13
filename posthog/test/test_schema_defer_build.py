@@ -50,6 +50,31 @@ assert root.model_dump() == {"a": 1}
 assert root.model_dump_json() == '{"a":1}'
 """
 
+VALIDATOR_CREATED_CHILD_THROUGH_ANY = """
+from posthog.schema import QueryStatus, TrendsQuery
+# Validating a parent from raw dicts makes the parent's validator construct the child
+# instances; without the model_rebuild reachable-graph completion the child classes stay
+# unbuilt and dumping them through an Any field raises the MockValSer TypeError. This is
+# the query-runner shape that 500ed trends endpoints.
+query = TrendsQuery.model_validate({"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "x"}]})
+status = QueryStatus(id="x", team_id=1)
+status.results = [query.series[0]]
+assert status.model_dump()["results"][0]["event"] == "x"
+assert '"x"' in status.model_dump_json()
+"""
+
+TYPEADAPTER_CREATED_INSTANCE_THROUGH_ANY = """
+from pydantic import TypeAdapter
+from posthog.schema import EventsNode, QueryStatus
+# TypeAdapter builds its schema inline (temporal's pydantic payload converter does this),
+# so its validator constructs instances without completing the class — the
+# __get_pydantic_core_schema__ hook must complete it.
+nodes = TypeAdapter(list[EventsNode]).validate_python([{"kind": "EventsNode", "event": "x"}])
+status = QueryStatus(id="x", team_id=1)
+status.results = nodes
+assert status.model_dump()["results"][0]["event"] == "x"
+"""
+
 UNPICKLE_THEN_NESTED_DUMP = """
 import pickle, sys
 from posthog.schema import QueryStatus
@@ -76,6 +101,8 @@ class TestDeferredSchemaSerialization:
             ("construct_then_dump", CONSTRUCT_THEN_DUMP),
             ("nested_unvalidated_through_any", NESTED_UNVALIDATED_THROUGH_ANY),
             ("root_model_construct_then_dump", ROOT_MODEL_CONSTRUCT_THEN_DUMP),
+            ("validator_created_child_through_any", VALIDATOR_CREATED_CHILD_THROUGH_ANY),
+            ("typeadapter_created_instance_through_any", TYPEADAPTER_CREATED_INSTANCE_THROUGH_ANY),
         ]
     )
     def test_unvalidated_instance_serializes(self, _name: str, snippet: str) -> None:
