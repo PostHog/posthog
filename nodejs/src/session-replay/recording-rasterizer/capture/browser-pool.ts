@@ -91,6 +91,33 @@ export class BrowserPool {
         }
     }
 
+    // Fail fast at startup if the configured browser isn't chrome-headless-shell.
+    // puppeteer-capture drives deterministic frame capture through the CDP
+    // HeadlessExperimental.beginFrame command, which only exists in Linux
+    // chrome-headless-shell — not stock Chromium/Chrome. When the wrong binary is
+    // launched, puppeteer-capture rejects it mid-render with a bare
+    // "Not chrome-headless-shell: <path>", which surfaces deep inside a child
+    // workflow where it's hard to recognize. This reproduces puppeteer-capture's own
+    // spawnfile check (it matches on the `chrome-headless-shell` substring) at launch
+    // and raises an actionable error pointing at the fix.
+    async assertHeadlessShell(): Promise<void> {
+        await this.launch()
+        const spawnfile = this.idle[0]?.browser.process()?.spawnfile
+        if (!spawnfile || !spawnfile.includes('chrome-headless-shell')) {
+            const configured = process.env.PUPPETEER_EXECUTABLE_PATH
+            throw new Error(
+                `Rasterizer browser is not chrome-headless-shell (launched: ${spawnfile ?? 'unknown'}). ` +
+                    `Deterministic frame capture needs Linux chrome-headless-shell, which supports the ` +
+                    `HeadlessExperimental.beginFrame CDP command; stock Chromium/Chrome does not. ` +
+                    (configured
+                        ? `PUPPETEER_EXECUTABLE_PATH is set to "${configured}" — point it at a chrome-headless-shell binary. `
+                        : `Set PUPPETEER_EXECUTABLE_PATH to a chrome-headless-shell binary. `) +
+                    `Run the worker via the canonical image (Dockerfile.recording-rasterizer) or ` +
+                    `bin/temporal-recording-rasterizer-worker, which install and pin it.`
+            )
+        }
+    }
+
     async getPage(): Promise<Page> {
         let slot: BrowserSlot
         if (this.idle.length > 0) {
