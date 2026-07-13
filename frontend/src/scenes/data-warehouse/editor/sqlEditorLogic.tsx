@@ -140,7 +140,7 @@ export function renderQueryOutline(
     for (let line = startLine; line <= endLine; line++) {
         const lineMaxColumn = model.getLineMaxColumn(line)
         const leftCol = Math.min(line === startLine ? range.startColumn : 1, lineMaxColumn)
-        const rightCol = Math.min(line === endLine ? range.endColumn : lineMaxColumn, lineMaxColumn)
+        const rightCol = line === endLine ? Math.min(range.endColumn, lineMaxColumn) : lineMaxColumn
         if (leftCol >= rightCol) {
             continue
         }
