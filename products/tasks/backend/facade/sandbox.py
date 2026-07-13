@@ -9,9 +9,13 @@ heavy docker/modal dependencies stay off the light data-surface import path.
 
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
+from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.logic.services.agent_command import CommandResult, send_agent_command
 from products.tasks.backend.logic.services.connection_token import (
+    SandboxEventIngestTokenPayload,
     create_sandbox_connection_token as _create_sandbox_connection_token,
+    create_sandbox_event_ingest_token,
+    validate_sandbox_event_ingest_token,
 )
 from products.tasks.backend.logic.services.sandbox import (
     SandboxBase,
@@ -56,14 +60,18 @@ __all__ = [
     "SandboxBase",
     "SandboxClass",
     "SandboxConfig",
+    "SandboxEventIngestTokenPayload",
+    "SandboxNotFoundError",
     "SandboxResources",
     "SandboxRunRef",
     "SandboxStatus",
     "SandboxTemplate",
     "build_sandbox_environment_variables",
     "create_sandbox_connection_token",
+    "create_sandbox_event_ingest_token",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
     "is_public_sandbox_repo",
     "send_agent_command",
+    "validate_sandbox_event_ingest_token",
 ]

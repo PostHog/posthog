@@ -1,3 +1,4 @@
+import time
 import asyncio
 import datetime as dt
 import dataclasses
@@ -11,8 +12,14 @@ from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
+from products.pulse.backend.agent.async_completion import store_completion_context
 from products.pulse.backend.agent.mission import MissionBundle, build_general_brief_mission
-from products.pulse.backend.agent.sandbox_run import run_mission
+from products.pulse.backend.agent.sandbox_run import (
+    ReportTooLargeError,
+    cleanup_sandbox,
+    finalize_mission,
+    launch_mission,
+)
 from products.pulse.backend.config import MAX_ITEMS
 from products.pulse.backend.generation.accountability import MIN_AGE_DAYS, OpportunityStatusLine, collect_accountability
 from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
@@ -24,9 +31,11 @@ from products.pulse.backend.sources.anchored_insights import InsightResultsCache
 from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
+    CleanupSandboxInputs,
+    FinalizeAgentInputs,
     GenerateBriefWorkflowInputs,
+    LaunchAgentInputs,
     MarkBriefFailedInputs,
-    RunAgentInputs,
     SynthesizeActivityInputs,
 )
 from products.signals.backend.facade.api import emit_signal
@@ -208,25 +217,89 @@ def _store_agent_session(team_id: int, brief_id: str, agent_session_ref: str, tr
     brief.save(update_fields=["agent_session_ref", "artifacts", "updated_at"])
 
 
+def _record_launched_sandbox(team_id: int, brief_id: str, sandbox_id: str) -> None:
+    # Pin the sandbox id on the brief the moment it exists so a timed-out run (callback never
+    # arrived) can still be torn down by cleanup_orphaned_sandbox_activity from the brief row.
+    ProductBrief.objects.for_team(team_id).filter(id=brief_id).update(agent_session_ref=sandbox_id)
+
+
 @temporalio.activity.defn
-async def run_agent_activity(inputs: RunAgentInputs) -> dict:
-    """One agent run = one sandbox lifetime. This activity only transports: the report
-    it returns is untrusted agent output, validated on the trusted side by the
-    validate_and_persist step, never here."""
+async def launch_agent_activity(inputs: LaunchAgentInputs) -> dict:
+    """Deliver the mission, then complete asynchronously so no worker thread is held for the
+    ~25-min turn. The sandbox agent-server streams its events to the pulse agent-events callback,
+    which completes this activity (with the sandbox id) once the turn finishes."""
     brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
     if brief.created_by is None:
         raise ApplicationError("brief has no creating user to mint the run token for", non_retryable=True)
     bundle = MissionBundle.model_validate(inputs.bundle)
     run_id = temporalio.activity.info().workflow_run_id
-    result = await database_sync_to_async(run_mission, thread_sensitive=False)(
-        bundle, user=brief.created_by, run_id=run_id
+    task_token = temporalio.activity.info().task_token
+
+    def _on_sandbox_created(sandbox_id: str) -> None:
+        # Runs before mission delivery, so the token is resolvable before any turn-complete event.
+        store_completion_context(run_id, sandbox_id, task_token)
+        _record_launched_sandbox(inputs.team_id, inputs.brief_id, sandbox_id)
+
+    await database_sync_to_async(launch_mission, thread_sensitive=False)(
+        bundle, user=brief.created_by, run_id=run_id, on_sandbox_created=_on_sandbox_created
     )
+    # Hand off: the agent-events callback completes this activity when the turn ends.
+    temporalio.activity.raise_complete_async()
+
+
+@temporalio.activity.defn
+async def finalize_agent_activity(inputs: FinalizeAgentInputs) -> dict:
+    """Read the finished turn's report and transcript from the sandbox, then tear it down. This
+    activity only transports: the report is untrusted agent output, validated on the trusted side
+    (never here)."""
+    brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
+    bundle = MissionBundle.model_validate(inputs.bundle)
+    run_id = temporalio.activity.info().workflow_run_id
+    started = time.monotonic()
+    try:
+        result = await database_sync_to_async(finalize_mission, thread_sensitive=False)(
+            inputs.sandbox_id, bundle, run_id=run_id
+        )
+    except ReportTooLargeError as err:
+        # Deterministic: a retry produces the same oversized report, so fail terminally rather
+        # than re-read on each Temporal retry.
+        raise ApplicationError(str(err), type="ReportTooLargeError", non_retryable=True) from err
     # Stored even before validation: the transcript is the transparency panel for this
     # brief regardless of whether the report survives the trusted-side gate.
     await database_sync_to_async(_store_agent_session, thread_sensitive=False)(
         inputs.team_id, inputs.brief_id, result.agent_session_ref, result.transcript_key
     )
+    try:
+        # Success only; terminal failures are captured once by mark_brief_failed_activity. Lets the
+        # team chart agent-run latency and completion volume without mining Temporal metrics.
+        await database_sync_to_async(_report_mission_completed, thread_sensitive=False)(
+            brief, time.monotonic() - started, result.transcript_key is not None
+        )
+    except Exception:
+        logger.exception("pulse_mission_completed_capture_failed", team_id=inputs.team_id, brief_id=inputs.brief_id)
     return dataclasses.asdict(result)
+
+
+@temporalio.activity.defn
+async def cleanup_orphaned_sandbox_activity(inputs: CleanupSandboxInputs) -> None:
+    """Tear down a sandbox whose run timed out before the turn-complete callback arrived."""
+    await database_sync_to_async(cleanup_sandbox, thread_sensitive=False)(inputs.sandbox_id)
+
+
+def _report_mission_completed(brief: ProductBrief, duration_seconds: float, transcript_persisted: bool) -> None:
+    if brief.created_by is None:
+        return
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=brief.created_by.distinct_id,
+            event="pulse_agent_mission_completed",
+            properties={
+                "brief_id": str(brief.id),
+                "team_id": brief.team_id,
+                "duration_seconds": round(duration_seconds, 1),
+                "transcript_persisted": transcript_persisted,
+            },
+        )
 
 
 @temporalio.activity.defn

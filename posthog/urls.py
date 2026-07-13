@@ -58,6 +58,7 @@ from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_data_plane_status,
 )
 from products.product_tours.backend.api import product_tours
+from products.pulse.backend.api.agent_events import pulse_agent_events
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import (
@@ -476,6 +477,12 @@ urlpatterns = [
     path(
         "internal/notebooks/data_plane/query/<str:query_id>/",
         csrf_exempt(notebook_sql_v2_data_plane_status),
+    ),
+    # Internal pulse agent event stream — completes the async agent activity on turn end
+    # (auth: sandbox event ingest JWT)
+    path(
+        "internal/pulse/runs/<str:run_id>/agent-events/",
+        csrf_exempt(pulse_agent_events),
     ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(

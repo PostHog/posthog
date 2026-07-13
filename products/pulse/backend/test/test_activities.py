@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+import dataclasses
 
 import pytest
 from unittest.mock import patch
@@ -7,6 +8,9 @@ from unittest.mock import patch
 from django.conf import settings
 
 from asgiref.sync import sync_to_async
+
+# Private, but it's the only signal an activity uses to say "I'll be completed asynchronously".
+from temporalio.activity import _CompleteAsyncError
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
@@ -16,21 +20,27 @@ from posthog.models.scoping import team_scope
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 
 from products.pulse.backend.agent.mission import build_general_brief_mission
-from products.pulse.backend.agent.sandbox_run import MissionRunResult
-from products.pulse.backend.config import MAX_ITEMS
-from products.pulse.backend.generation.accountability import OpportunityStatusLine
-from products.pulse.backend.generation.goal import GoalStatus
+from products.pulse.backend.agent.sandbox_run import MissionRunResult, ReportTooLargeError
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
+    MAX_ITEMS,
+    cleanup_orphaned_sandbox_activity,
+    finalize_agent_activity,
     gather_brief_inputs_activity,
+    launch_agent_activity,
     prepare_mission_activity,
     resolve_period,
-    run_agent_activity,
     synthesize_brief_activity,
 )
-from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, RunAgentInputs, SynthesizeActivityInputs
+from products.pulse.backend.temporal.inputs import (
+    CleanupSandboxInputs,
+    FinalizeAgentInputs,
+    GenerateBriefWorkflowInputs,
+    LaunchAgentInputs,
+    SynthesizeActivityInputs,
+)
 from products.pulse.backend.temporal.registry import ACTIVITIES
 from products.pulse.backend.temporal.workflow import GenerateProductBriefWorkflow
 
@@ -207,32 +217,91 @@ async def test_prepare_mission_refuses_without_ai_consent(team, user) -> None:
 
 @sync_to_async
 def _bundle_dict(team, brief) -> dict:
-    return build_general_brief_mission(team=team, brief=brief, config=None, items=[]).model_dump(mode="json")
+    window_end = dt.datetime(2026, 7, 8, 12, tzinfo=dt.UTC)
+    return build_general_brief_mission(
+        team=team,
+        brief=brief,
+        config=None,
+        items=[],
+        window_start=window_end - dt.timedelta(days=7),
+        window_end=window_end,
+        lookback_days=7,
+    ).model_dump(mode="json")
 
 
-async def test_run_agent_activity_stores_session_ref_and_transcript_on_brief(team, user) -> None:
+async def test_launch_agent_activity_stashes_completion_context_and_completes_async(team, user) -> None:
+    brief = await _create_brief(team, user)
+    bundle = await _bundle_dict(team, brief)
+    env = ActivityEnvironment()
+
+    # The real activity passes an on_sandbox_created hook into launch_mission; invoke it so the
+    # completion-context + sandbox-id-on-brief side effects are exercised.
+    def _launch(bundle_arg, *, user, run_id, on_sandbox_created):
+        on_sandbox_created("sb-1")
+        return "sb-1"
+
+    with (
+        patch("products.pulse.backend.temporal.activities.launch_mission", side_effect=_launch),
+        patch("products.pulse.backend.temporal.activities.store_completion_context") as store_mock,
+    ):
+        with pytest.raises(_CompleteAsyncError):
+            await env.run(
+                launch_agent_activity, LaunchAgentInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle)
+            )
+    store_mock.assert_called_once()
+    assert store_mock.call_args.args[1] == "sb-1"
+    # Sandbox id pinned on the brief so a timed-out run can still be cleaned up.
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.agent_session_ref == "sb-1"
+
+
+async def test_launch_agent_activity_refuses_without_creating_user(team, user) -> None:
+    brief = await _create_brief(team, None)
+    bundle = await _bundle_dict(team, brief)
+    env = ActivityEnvironment()
+    with pytest.raises(ApplicationError) as exc_info:
+        await env.run(launch_agent_activity, LaunchAgentInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle))
+    assert exc_info.value.non_retryable is True
+
+
+async def test_finalize_agent_activity_stores_session_ref_and_transcript_on_brief(team, user) -> None:
     brief = await _create_brief(team, user)
     bundle = await _bundle_dict(team, brief)
     env = ActivityEnvironment()
     run_result = MissionRunResult(report={"sections": []}, agent_session_ref="sb-1", transcript_key="pulse/t.log")
-    with patch("products.pulse.backend.temporal.activities.run_mission", return_value=run_result) as run_mock:
+    with patch("products.pulse.backend.temporal.activities.finalize_mission", return_value=run_result) as fin_mock:
         result = await env.run(
-            run_agent_activity, RunAgentInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle)
+            finalize_agent_activity,
+            FinalizeAgentInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle, sandbox_id="sb-1"),
         )
     assert result == dataclasses.asdict(run_result)
-    assert run_mock.call_args.kwargs["user"] == user
+    assert fin_mock.call_args.args[0] == "sb-1"
     reloaded = await _reload_brief(brief.id)
     assert reloaded.agent_session_ref == "sb-1"
     assert "pulse/t.log" in reloaded.artifacts
 
 
-async def test_run_agent_activity_refuses_without_creating_user(team, user) -> None:
-    brief = await _create_brief(team, None)
+async def test_finalize_agent_activity_does_not_retry_oversized_report(team, user) -> None:
+    # An oversized report is deterministic, so retrying re-reads the same sandbox for nothing.
+    brief = await _create_brief(team, user)
     bundle = await _bundle_dict(team, brief)
     env = ActivityEnvironment()
-    with pytest.raises(ApplicationError) as exc_info:
-        await env.run(run_agent_activity, RunAgentInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle))
+    with patch(
+        "products.pulse.backend.temporal.activities.finalize_mission", side_effect=ReportTooLargeError("too big")
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await env.run(
+                finalize_agent_activity,
+                FinalizeAgentInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle, sandbox_id="sb-1"),
+            )
     assert exc_info.value.non_retryable is True
+
+
+async def test_cleanup_orphaned_sandbox_activity_tears_down(team) -> None:
+    env = ActivityEnvironment()
+    with patch("products.pulse.backend.temporal.activities.cleanup_sandbox") as cleanup_mock:
+        await env.run(cleanup_orphaned_sandbox_activity, CleanupSandboxInputs(sandbox_id="sb-1"))
+    cleanup_mock.assert_called_once_with("sb-1")
 
 
 async def test_synthesize_activity_marks_ready(team, user) -> None:
