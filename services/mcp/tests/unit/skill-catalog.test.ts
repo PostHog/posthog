@@ -18,7 +18,7 @@ function makeCatalog(): SkillCatalog {
         makeArchive({
             'retention-analysis/SKILL.md': makeSkill(
                 'retention-analysis',
-                'Find where users stop returning.',
+                'Find where users stop returning. 日本語のガイド。',
                 '# Retention analysis\n\nQuery weekly retention cohorts.'
             ),
             'retention-analysis/references/functions.md':
@@ -92,7 +92,7 @@ describe('SkillCatalog and exec learn', () => {
         )
     })
 
-    it('merges PostHog and project search results and supports quoted project paths', async () => {
+    it('merges PostHog and project search results and supports Unicode queries and quoted project paths', async () => {
         const projectSkills = {
             listNames: vi.fn(async () => ({ count: 1, names: ['team-conventions'], truncated: false })),
             searchResults: vi.fn(async () => [
@@ -110,6 +110,7 @@ describe('SkillCatalog and exec learn', () => {
 
         const listed = JSON.parse(await learn.execute('skills'))
         const result = await learn.execute('-s retention')
+        const unicodeResult = await learn.execute('-s 日本語')
 
         expect(listed.project).toEqual({
             available: true,
@@ -121,6 +122,9 @@ describe('SkillCatalog and exec learn', () => {
         expect(result.indexOf('## posthog:retention-analysis')).toBeLessThan(
             result.indexOf('## project:team-conventions')
         )
+        expect(unicodeResult).toContain('## posthog:retention-analysis')
+        expect(unicodeResult).toContain('## project:team-conventions')
+        expect(projectSkills.searchResults).toHaveBeenLastCalledWith('日本語')
         await expect(
             learn.execute('project:team-conventions "references/team guide.md" -s weekly retention')
         ).resolves.toBe('project file match')

@@ -408,7 +408,7 @@ function normalizeQuery(query: string): NormalizedQuery {
     if (!phrase) {
         throw new Error('Search query cannot be empty.')
     }
-    const tokens = [...new Set(phrase.match(/[a-z0-9]+/g) ?? [])]
+    const tokens = [...new Set(phrase.match(/[\p{L}\p{N}]+/gu) ?? [])]
     if (tokens.length === 0) {
         throw new Error('Search query must contain a letter or number.')
     }

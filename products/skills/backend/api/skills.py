@@ -382,29 +382,31 @@ class LLMSkillViewSet(
             matches.append(body_match)
 
         if len(matches) < SKILL_SEARCH_MATCH_LIMIT:
-            path_files = skill.files.filter(path__icontains=query).order_by("path")
-            for file in path_files:
-                matches.append({"matched_field": "file_path", "path": file.path, "excerpt": file.path})
-                if len(matches) == SKILL_SEARCH_MATCH_LIMIT:
-                    break
+            remaining_match_count = SKILL_SEARCH_MATCH_LIMIT - len(matches)
+            matching_paths = (
+                skill.files.filter(path__icontains=query)
+                .order_by("path")
+                .values_list("path", flat=True)[:remaining_match_count]
+            )
+            for path in matching_paths:
+                matches.append({"matched_field": "file_path", "path": path, "excerpt": path})
 
         if len(matches) < SKILL_SEARCH_MATCH_LIMIT:
+            remaining_match_count = SKILL_SEARCH_MATCH_LIMIT - len(matches)
             content_files = (
                 skill.files.filter(_is_markdown_file_query(), content__icontains=query)
-                .only("path", "content")
                 .order_by("path")
-            )
-            for file in content_files:
+                .values_list("path", "content")
+            )[:remaining_match_count]
+            for path, content in content_files:
                 match = _content_search_match(
-                    file.content,
+                    content,
                     query,
                     matched_field="file_content",
-                    path=file.path,
+                    path=path,
                 )
                 if match is not None:
                     matches.append(match)
-                if len(matches) == SKILL_SEARCH_MATCH_LIMIT:
-                    break
 
         return matches[:SKILL_SEARCH_MATCH_LIMIT]
 

@@ -2,6 +2,9 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -382,6 +385,44 @@ class TestLLMSkillAPI(APIBaseTest):
         ]
         assert results[3]["matches"][0]["path"] == "SKILL.md"
         assert results[5]["matches"][0]["line"] == 2
+
+    def test_search_skills_limits_file_queries_to_remaining_matches(self):
+        path_skill = self.create_skill(name="path-skill", body="# Path\nContains needle.")
+        content_skill = self.create_skill(name="content-skill", description="Contains needle.")
+        for index in range(3):
+            LLMSkillFile.objects.create(
+                skill=path_skill,
+                path=f"references/needle-{index}.txt",
+                content="Unused file content.",
+            )
+            LLMSkillFile.objects.create(
+                skill=content_skill,
+                path=f"references/guide-{index}.md",
+                content="# Guide\nContains needle.",
+                content_type="text/markdown",
+            )
+
+        with CaptureQueriesContext(connection) as captured_queries:
+            response = self.client.get(self._url("search?query=needle"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["matches"][-1]["matched_field"] for result in response.json()["results"]] == [
+            "file_content",
+            "file_path",
+        ]
+        file_queries = [
+            query["sql"]
+            for query in captured_queries.captured_queries
+            if query["sql"].lstrip().startswith('SELECT "llm_analytics_llmskillfile".')
+        ]
+        assert file_queries
+        assert all("LIMIT 1" in query for query in file_queries), "\n---\n".join(file_queries)
+        path_queries = [
+            query
+            for query in file_queries
+            if query.lstrip().startswith('SELECT "llm_analytics_llmskillfile"."path" AS "path" FROM ')
+        ]
+        assert len(path_queries) == 2
 
     def test_search_skills_returns_only_latest_active_ordinary_skills_for_the_current_team(self):
         self.create_skill(name="current-skill", body="Contains boundary-match.")
