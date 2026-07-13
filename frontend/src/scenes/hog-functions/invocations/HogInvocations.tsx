@@ -1081,7 +1081,7 @@ function PersonFilterPicker({ id, functionKind }: HogInvocationsLogicProps): JSX
                         <div className="max-h-64 overflow-y-auto">
                             {personSearchResults.map((person: PersonType) => (
                                 <LemonButton
-                                    key={person.id}
+                                    key={person.uuid}
                                     fullWidth
                                     size="small"
                                     onClick={() => {

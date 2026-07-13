@@ -752,8 +752,9 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 setPickedPerson: (_, { person }) => person,
                 // A URL-driven filter change without a matching pickedPerson means we came in
                 // from a shared link — clear the stale display until the hydrator populates it.
+                // `person.uuid` is the actual UUID; `person.id` is Django's numeric PK.
                 setFilters: (state, { filters }) =>
-                    'person_uuid' in filters && filters.person_uuid !== state?.id ? null : state,
+                    'person_uuid' in filters && filters.person_uuid !== state?.uuid ? null : state,
                 resetFilters: () => null,
             },
         ],
@@ -959,7 +960,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             actions.refresh()
             // Hydrate the picked-person display when a shared link seeds `person_uuid`
             // without a matching pickedPerson (e.g. someone pasted the URL).
-            if ('person_uuid' in filters && filters.person_uuid && values.pickedPerson?.id !== filters.person_uuid) {
+            if ('person_uuid' in filters && filters.person_uuid && values.pickedPerson?.uuid !== filters.person_uuid) {
                 const targetUuid = filters.person_uuid
                 try {
                     const byUuid = await api.persons.getByUUIDs([targetUuid])
@@ -982,7 +983,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             actions.refresh()
         },
         setPickedPerson: ({ person }) => {
-            actions.setFilters({ person_uuid: person?.id ?? undefined })
+            actions.setFilters({ person_uuid: person?.uuid ?? undefined })
         },
         loadRunsSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)
