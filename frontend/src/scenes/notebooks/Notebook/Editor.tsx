@@ -8,6 +8,7 @@ import { Placeholder } from '@tiptap/extensions'
 import { collab } from '@tiptap/pm/collab'
 import StarterKit, { StarterKitOptions } from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 import { useThrottledCallback } from 'use-debounce'
 
 import { IconComment } from '@posthog/icons'
@@ -76,8 +77,9 @@ const CustomDocument = ExtensionDocument.extend({
 
 export function Editor(): JSX.Element {
     const { shortId, mode, isEditable, content, collabEnabled, notebook, previewContent } = useValues(notebookLogic)
-    const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
+    const { setEditor, releaseEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
         useActions(notebookLogic)
+    const notebookEditorRef = useRef<NotebookEditor | null>(null)
     const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
     const { bindEditor, unbindEditor } = useActions(notebookCollabLogic({ shortId }))
     const { clientID } = useValues(notebookCollabLogic({ shortId }))
@@ -214,12 +216,19 @@ export function Editor(): JSX.Element {
                     getText: () => textContent(editor.state.doc),
                 }
 
+                notebookEditorRef.current = notebookEditor
                 setEditor(notebookEditor)
 
                 if (useCollab) {
                     bindEditor(editor)
                 } else {
                     unbindEditor()
+                }
+            }}
+            onDestroy={() => {
+                if (notebookEditorRef.current) {
+                    releaseEditor(notebookEditorRef.current)
+                    notebookEditorRef.current = null
                 }
             }}
         >

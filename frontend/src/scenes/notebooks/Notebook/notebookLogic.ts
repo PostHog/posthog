@@ -338,6 +338,7 @@ export const notebookLogic = kea<notebookLogicType>([
     })),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
+        releaseEditor: (editor: NotebookEditor) => ({ editor }),
         editorIsReady: true,
         onEditorUpdate: true,
         onEditorSelectionUpdate: true,
@@ -480,6 +481,7 @@ export const notebookLogic = kea<notebookLogicType>([
             null as NotebookEditor | null,
             {
                 setEditor: (_, { editor }) => editor,
+                releaseEditor: (currentEditor, { editor }) => (currentEditor === editor ? null : currentEditor),
             },
         ],
         ready: [
