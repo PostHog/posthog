@@ -74,43 +74,6 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner[WebGoalsQueryResponse]):
                     )
                 )
 
-                # Current/Previous Person ID
-                inner_aliases.append(
-                    ast.Alias(
-                        alias=f"action_current_person_id_{n}",
-                        expr=ast.Call(
-                            name="if",
-                            args=[
-                                ast.CompareOperation(
-                                    op=ast.CompareOperationOp.Gt,
-                                    left=ast.Field(chain=[f"action_current_count_{n}"]),
-                                    right=ast.Constant(value=0),
-                                ),
-                                ast.Field(chain=["web_goals_person_id"]),
-                                ast.Constant(value=None),
-                            ],
-                        ),
-                    )
-                )
-
-                inner_aliases.append(
-                    ast.Alias(
-                        alias=f"action_previous_person_id_{n}",
-                        expr=ast.Call(
-                            name="if",
-                            args=[
-                                ast.CompareOperation(
-                                    op=ast.CompareOperationOp.Gt,
-                                    left=ast.Field(chain=[f"action_previous_count_{n}"]),
-                                    right=ast.Constant(value=0),
-                                ),
-                                ast.Field(chain=["web_goals_person_id"]),
-                                ast.Constant(value=None),
-                            ],
-                        ),
-                    )
-                )
-
                 # Outer aliases
                 outer_aliases.append(ast.Alias(alias=f"action_name_{n}", expr=ast.Constant(value=action.name)))
                 outer_aliases.append(
@@ -127,13 +90,40 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner[WebGoalsQueryResponse]):
                     ),
                 )
 
+                # Converting users are counted in the outer query with `uniqIf` over the
+                # per-session `web_goals_person_id`, gated on the per-session count. Doing
+                # this here (rather than materializing an `if(count > 0, person_id, NULL)`
+                # column in the inner subquery) keeps the inner distributed subquery header
+                # free of `if(countIf(...), ...)` expressions, which ClickHouse's analyzer
+                # fails to match across shard/initiator when a step carries an IN-set filter
+                # (THERE_IS_NO_COLUMN on the countIf, ClickHouse#64487 family).
                 outer_aliases.append(
                     ast.Alias(
                         alias=f"action_uniques_{n}",
                         expr=ast.Tuple(
                             exprs=[
-                                ast.Call(name="uniq", args=[ast.Field(chain=[f"action_current_person_id_{n}"])]),
-                                ast.Call(name="uniq", args=[ast.Field(chain=[f"action_previous_person_id_{n}"])])
+                                ast.Call(
+                                    name="uniqIf",
+                                    args=[
+                                        ast.Field(chain=["web_goals_person_id"]),
+                                        ast.CompareOperation(
+                                            op=ast.CompareOperationOp.Gt,
+                                            left=ast.Field(chain=[f"action_current_count_{n}"]),
+                                            right=ast.Constant(value=0),
+                                        ),
+                                    ],
+                                ),
+                                ast.Call(
+                                    name="uniqIf",
+                                    args=[
+                                        ast.Field(chain=["web_goals_person_id"]),
+                                        ast.CompareOperation(
+                                            op=ast.CompareOperationOp.Gt,
+                                            left=ast.Field(chain=[f"action_previous_count_{n}"]),
+                                            right=ast.Constant(value=0),
+                                        ),
+                                    ],
+                                )
                                 if self.query_compare_to_date_range
                                 else ast.Constant(value=None),
                             ]
