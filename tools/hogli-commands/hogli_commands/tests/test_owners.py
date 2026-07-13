@@ -7,9 +7,7 @@ import pytest
 
 from hogli_commands.owners import fmt as fmt_module
 from hogli_commands.owners.cli import _consolidation_suggestions, _reserved_location_error
-from hogli_commands.owners.conversion import Converter, parse_soft_file, render_owners_yaml
 from hogli_commands.owners.fmt import CanonicalPlacer, CanonicalPlan
-from hogli_commands.owners.legacy_diff import DiffClass, LegacyOwners, classify
 from hogli_commands.owners.matcher import path_matches_pattern
 from hogli_commands.owners.resolver import OwnersResolver
 from hogli_commands.owners.schema import parse_owners_file
@@ -141,85 +139,6 @@ def test_resolver_slack_derivation_and_fallthrough(resolver_repo: Path, path: st
     assert OwnersResolver(repo_root=resolver_repo).resolve(path).slack == slack
 
 
-@pytest.fixture
-def conversion_repo(tmp_path: Path) -> Path:
-    for d in [
-        "frontend/src/scenes/surveys",
-        ".github/workflows",
-        "docs/onboarding/x",
-        "posthog",
-        "products/foo",
-        "products/bar",
-        "products/baz/backend/migrations",
-    ]:
-        (tmp_path / d).mkdir(parents=True, exist_ok=True)
-    return tmp_path
-
-
-def test_conversion_mapping(conversion_repo: Path) -> None:
-    soft = "\n".join(
-        [
-            "frontend/src/scenes/surveys/ @PostHog/team-surveys",
-            "posthog/email.py @PostHog/team-platform-features",
-            ".github/workflows/** @PostHog/team-devex",
-            ".github/workflows/ci-x.yml @PostHog/team-devex @PostHog/team-ai-gateway",
-            "products/foo/** @PostHog/team-foo",
-            "products/bar/** @PostHog/team-bar",
-            "products/baz/backend/migrations/** @PostHog/team-baz",
-            "Dockerfile @PostHog/team-devex",
-            "docs/onboarding/x/ @PostHog/team-x",
-            ".agents/skills/ingestion-*/ @PostHog/team-ingestion",
-            "bin/ @PostHog/team-devex",
-        ]
-    )
-    product_owners = {"foo": ["team-foo"], "bar": ["team-other"], "baz": ["team-baz"]}
-    summary = Converter(conversion_repo, product_owners).convert(parse_soft_file(soft))
-
-    assert summary.files["frontend/src/scenes/surveys"].owners == ["team-surveys"]
-
-    posthog = summary.files["posthog"]
-    assert posthog.owners == []
-    assert posthog.rules == [("/email.py", ["team-platform-features"])]
-    assert render_owners_yaml(posthog).splitlines()[1] == "owners: []"
-
-    workflows = summary.files[".github/workflows"]
-    assert workflows.owners == ["team-devex"]
-    assert ("/ci-x.yml", ["team-devex", "team-ai-gateway"]) in workflows.rules
-
-    assert summary.files["products/baz/backend/migrations"].owners == ["team-baz"]
-
-    root = summary.files[""]
-    assert root.owners == []
-    assert ("Dockerfile", ["team-devex"]) in root.rules
-    assert ("bin/", ["team-devex"]) in root.rules
-    assert "bin" not in summary.files
-    assert render_owners_yaml(root).splitlines()[1] == "owners: null"
-
-    assert not any("*" in d for d in summary.files)
-    assert ("/ingestion-*/", ["team-ingestion"]) in summary.files[".agents/skills"].rules
-
-    assert any("products/foo/**" in s for s in summary.redundant_skips)
-    assert any("products/bar/**" in s for s in summary.needs_decision)
-    assert "products/foo" not in summary.files
-    assert "products/bar" not in summary.files
-
-
-@pytest.mark.parametrize(
-    "old,new,expected",
-    [
-        ({"a"}, {"a"}, DiffClass.IDENTICAL),
-        (set(), set(), DiffClass.IDENTICAL),
-        ({"a", "b"}, {"a"}, DiffClass.NARROWED),
-        ({"a"}, set(), DiffClass.ORPHANED),
-        (set(), {"a"}, DiffClass.NEWLY_OWNED),
-        ({"a"}, {"a", "b"}, DiffClass.EXPANDED),
-        ({"a", "b"}, {"a", "c"}, DiffClass.EXPANDED),
-    ],
-)
-def test_diff_classify(old: set[str], new: set[str], expected: DiffClass) -> None:
-    assert classify(old, new) == expected
-
-
 @pytest.mark.parametrize(
     "rel,reserved",
     [
@@ -270,19 +189,6 @@ def test_reserved_location_error(rel: str, reserved: bool) -> None:
 )
 def test_consolidation_suggestions(owners_dirs: dict[str, bool], expected: list[tuple[str, int]]) -> None:
     assert _consolidation_suggestions(owners_dirs) == expected
-
-
-def test_legacy_owners_unions_matching_rules(tmp_path: Path) -> None:
-    soft_text = (
-        "posthog/x/ @PostHog/team-a\nposthog/x/y.py @PostHog/team-b\nproducts/foo/** @rafael @PostHog/team-foo\n"
-    )
-    _write(tmp_path, "products/foo/product.yaml", "name: Foo\nowners:\n  - team-foo\n  - '@handle'\n")
-    _write(tmp_path, "products/bar/product.yaml", "name: Bar\nowners:\n  - team-CHANGEME\n")
-    legacy = LegacyOwners(tmp_path, soft_text)
-
-    assert legacy.owners_of("posthog/x/y.py") == {"team-a", "team-b"}
-    assert legacy.owners_of("products/foo/z.py") == {"@rafael", "team-foo"}
-    assert legacy.owners_of("products/bar/z.py") == set()
 
 
 def _fmt_plan(tmp_path: Path, files: dict[str, str]) -> CanonicalPlan:

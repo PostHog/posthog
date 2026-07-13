@@ -81,7 +81,6 @@ owners: [team-error-tracking, '@pauldambra']
 # block is usually omitted; set a string to override, or `slack: false`.
 contact:
   slack: '#support-error-tracking'
-  oncall: pagerduty:error-tracking # opaque, scheme-prefixed reference
 
 # Lifecycle of the code under this directory.
 # active (default) | deprecated | generated | vendored
@@ -92,7 +91,9 @@ status: active
 inherit: true
 
 # Per-path overrides inside this directory, evaluated last-match-wins
-# *within this file only*. Any top-level field can be overridden per rule.
+# *within this file only*. owners, status, and inherit can be overridden
+# per rule; contact is file-scoped (a nested owners.yaml covers the rare
+# per-subtree contact case).
 rules:
   - match: 'generated/**'
     status: generated
@@ -204,8 +205,8 @@ The division of labor: `owners:lint`'s fold/split suggestions are the everyday i
 Everything lands atomically. The delivery order below is a review guide, not a merge sequence.
 
 1. **Resolver + schema.** `hogli_commands/owners/` (resolution per §4), `hogli owners:resolve --json`, JSON-schema for `owners.yaml`.
-2. **Convert `CODEOWNERS-soft` → distributed `owners.yaml`.** Mechanical translation of the 383 lines into per-directory files under `posthog/`, `frontend/src/scenes/`, `nodejs/`, `rust/`, `services/`, `ee/`, plugin-server, etc. Where the soft file relied on last-match ordering (e.g. the trailing managed-reverse-proxy block overriding a broad settings-scene rule), that intent becomes an explicit nested file or `rules:` entry — order-independence is the point.
-3. **Equivalence proof.** A differ resolves every `git ls-files` path under (old: soft + product.yaml) and (new: owners.yaml + product.yaml) and asserts identical reviewer sets. It runs as a test in the PR; intentional divergences (there will be a few — dead globs, stale teams the 422 fallback already skips) are listed explicitly in the PR description rather than slipping through.
+2. **Convert `CODEOWNERS-soft` → distributed `owners.yaml`.** Mechanical translation of the 383 lines into per-directory files under `posthog/`, `frontend/src/scenes/`, `nodejs/`, `rust/`, `services/`, `ee/`, plugin-server, etc. Where the soft file relied on last-match ordering (e.g. the trailing managed-reverse-proxy block overriding a broad settings-scene rule), that intent becomes an explicit nested file or `rules:` entry — order-independence is the point. This was driven by a one-shot converter that ran during the PR and was removed once the conversion landed (it remains in the branch history).
+3. **Equivalence proof.** A differ resolved every `git ls-files` path under (old: soft + product.yaml) and (new: owners.yaml + product.yaml) and asserted identical reviewer sets. It ran during the PR to verify the migration and was removed once the conversion landed; intentional divergences (there were a few — dead globs, stale teams the 422 fallback already skips) were listed explicitly in the PR description rather than slipping through.
 4. **Flip consumers.**
    - `assign-reviewers.js`: replace soft-file parsing + `loadProductYamlRules` with a call to `hogli owners:resolve --json` (workflow gains a Python setup step). Substantive-owner thresholds, 5-team cap, comment/label behavior unchanged; `@handle` owners become individual review requests instead of being skipped. `status: generated` replaces the hardcoded ignore list.
    - `gates.py`: replace the private CODEOWNERS-soft parser with a direct library import.
@@ -221,7 +222,7 @@ Safety properties of the atomic switch:
 
 ## 7. Open questions for maintainers
 
-1. **`contact.oncall`**: `contact.slack` now costs nothing (derived from the team slug by convention, override or `slack: false` only when needed), but is an oncall reference worth carrying in v1, or deferred until something consumes it?
+1. **`contact.oncall`**: resolved — dropped from v1. `contact.slack` costs nothing (derived from the team slug by convention, override or `slack: false` only when needed), but nothing consumes an oncall reference, so it is not carried. Re-adding it is additive once a consumer exists.
 2. **Resolver ownership**: resolved — the resolver package is covered by the hard `CODEOWNERS` (see §5).
 3. **Coverage gating cadence**: how soon after the PR to flip `owners:lint` coverage from warn to fail — immediately for _new_ directories (ratchet), or only once the whole tree is clean?
 4. **Hard-CODEOWNERS future** (explicitly out of scope now): if blocking gates ever move into the schema, approver inheritance should probably union up the tree rather than nearest-wins — parked until `team-security` wants to revisit.

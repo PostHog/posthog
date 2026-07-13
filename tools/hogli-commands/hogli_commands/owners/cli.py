@@ -1,19 +1,16 @@
-"""hogli owners:* commands — resolve, who, unowned, lint, convert, diff-legacy."""
+"""hogli owners:* commands — resolve, who, unowned, lint, fmt."""
 
 from __future__ import annotations
 
 import sys
 import json
 import subprocess
-from pathlib import Path
 
 import click
 
-from .conversion import Converter, parse_soft_file, write_generated_files
-from .legacy_diff import diff_all, render_markdown
 from .matcher import compile_pattern, normalize_path
 from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver, read_stdin_paths, resolution_to_wire
-from .schema import is_simple_owners_file, normalize_product_owners, parse_product_yaml_as_owners
+from .schema import is_simple_owners_file, normalize_product_owners
 
 
 def _read_paths(paths: tuple[str, ...]) -> list[str]:
@@ -53,8 +50,6 @@ def cmd_who(path: str) -> None:
         click.echo("owners:  (unowned)")
     click.echo(f"status:  {r.status}")
     click.echo(f"slack:   {r.slack or '(none)'}")
-    if r.oncall:
-        click.echo(f"oncall:  {r.oncall}")
     click.echo(f"source:  {r.source or '(none)'}")
 
 
@@ -244,105 +239,6 @@ def cmd_lint(live: bool) -> None:
         click.echo(f"\n✗ {len(errors)} owners.yaml error(s)", err=True)
         raise SystemExit(1)
     click.echo(f"\n✓ owners.yaml lint passed ({len(warnings)} warning(s))")
-
-
-def _load_product_owners(repo_root: Path) -> dict[str, list[str]]:
-    products_dir = repo_root / "products"
-    result: dict[str, list[str]] = {}
-    if not products_dir.is_dir():
-        return result
-    for entry in sorted(products_dir.iterdir()):
-        product_yaml = entry / "product.yaml"
-        if not entry.is_dir() or not product_yaml.is_file():
-            continue
-        parsed = parse_product_yaml_as_owners(
-            product_yaml.read_text(), path=product_yaml, directory=f"products/{entry.name}"
-        )
-        if parsed is not None:
-            result[entry.name] = normalize_product_owners(parsed.owners or [])
-    return result
-
-
-@click.command(name="owners:convert", help="Generate distributed owners.yaml from .github/CODEOWNERS-soft")
-@click.option("--dry-run", is_flag=True, help="Show what would be written without writing")
-def cmd_convert(dry_run: bool) -> None:
-    resolver = OwnersResolver()
-    repo_root = resolver.repo_root
-    soft_path = repo_root / ".github" / "CODEOWNERS-soft"
-    if not soft_path.is_file():
-        raise click.ClickException(f"no CODEOWNERS-soft at {soft_path}")
-
-    soft_rules = parse_soft_file(soft_path.read_text())
-    converter = Converter(repo_root, _load_product_owners(repo_root))
-    summary = converter.convert(soft_rules)
-    written = write_generated_files(summary, repo_root, dry_run=dry_run)
-
-    click.echo(f"{'Would write' if dry_run else 'Wrote'} {len(written)} owners.yaml file(s):")
-    for rel in written:
-        click.echo(f"  {rel}")
-    click.echo(f"\nRedundant (covered by product.yaml): {len(summary.redundant_skips)}")
-    for note in summary.redundant_skips:
-        click.echo(f"  {note}")
-    click.echo(f"\nNeeds decision (resolve by hand): {len(summary.needs_decision)}")
-    for note in summary.needs_decision:
-        click.echo(f"  {note}")
-    if summary.notes:
-        click.echo(f"\nNotes: {len(summary.notes)}")
-        for note in summary.notes:
-            click.echo(f"  {note}")
-
-
-def _load_soft_text(repo_root: Path, soft_file: str | None) -> str:
-    """Read CODEOWNERS-soft for the differ. The file is deleted post-migration, so
-    fall back to its git history: explicit ``--soft-file`` wins, then the on-disk
-    default, then ``git show HEAD:.github/CODEOWNERS-soft``."""
-    if soft_file:
-        return Path(soft_file).read_text()
-
-    default = repo_root / ".github" / "CODEOWNERS-soft"
-    if default.is_file():
-        return default.read_text()
-
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "show", "HEAD:.github/CODEOWNERS-soft"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        return result.stdout
-    raise click.ClickException(
-        "no CODEOWNERS-soft on disk or at HEAD:.github/CODEOWNERS-soft. "
-        "Pass --soft-file PATH, or run against a ref/commit that still has it "
-        "(e.g. `git show <ref>:.github/CODEOWNERS-soft > /tmp/soft && hogli owners:diff-legacy --soft-file /tmp/soft`)."
-    )
-
-
-@click.command(
-    name="owners:diff-legacy", help="Prove owners.yaml resolution matches legacy CODEOWNERS-soft + product.yaml"
-)
-@click.option("--report", "report_path", type=click.Path(), help="Write the full classified list as markdown")
-@click.option(
-    "--soft-file",
-    "soft_file",
-    type=click.Path(exists=True),
-    help="Path to a CODEOWNERS-soft snapshot (the file is deleted post-migration; defaults to HEAD's copy)",
-)
-def cmd_diff_legacy(report_path: str | None, soft_file: str | None) -> None:
-    resolver = OwnersResolver()
-    soft_text = _load_soft_text(resolver.repo_root, soft_file)
-    report = diff_all(resolver.repo_root, soft_text, resolver)
-
-    for klass, count in report.counts.items():
-        click.echo(f"{klass.value}: {count}")
-
-    if report_path:
-        Path(report_path).write_text(render_markdown(report))
-        click.echo(f"\nWrote report to {report_path}")
-
-    if report.violates_invariants:
-        click.echo("\n✗ invariant violated: ORPHANED or EXPANDED paths exist", err=True)
-        raise SystemExit(1)
-    click.echo("\n✓ no ORPHANED or EXPANDED paths (narrowing and newly-owned are allowed)")
 
 
 @click.command(

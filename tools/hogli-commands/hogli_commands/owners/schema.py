@@ -20,8 +20,8 @@ CHANGEME_SLUG = "team-CHANGEME"
 # Top-level keys allowed in owners.yaml. Rules allow the same set minus `version`
 # and `rules`, plus the required `match`.
 _TOP_LEVEL_KEYS = {"version", "owners", "contact", "status", "inherit", "rules"}
-_RULE_KEYS = {"match", "owners", "contact", "status", "inherit"}
-_CONTACT_KEYS = {"slack", "oncall"}
+_RULE_KEYS = {"match", "owners", "status", "inherit"}
+_CONTACT_KEYS = {"slack"}
 
 
 class _Unset:
@@ -48,8 +48,6 @@ class OwnersRule:
 
     match: str
     owners: list[str] | None | _Unset = UNSET
-    slack: str | bool | _Unset = UNSET
-    oncall: str | _Unset = UNSET
     status: str | _Unset = UNSET
     inherit: bool | _Unset = UNSET
 
@@ -63,7 +61,6 @@ class OwnersFile:
     owners: list[str] | None  # required; None = explicit unowned-by-design; [] = no contribution
     version: int = 1
     slack: str | bool | _Unset = UNSET
-    oncall: str | _Unset = UNSET
     status: str | _Unset = UNSET
     inherit: bool = True
     rules: list[OwnersRule] = field(default_factory=list)
@@ -86,12 +83,11 @@ def _validate_owners_value(value: object, where: str, errors: list[str]) -> list
     return normalize_product_owners([str(x) for x in value])
 
 
-def _validate_contact(value: object, where: str, errors: list[str]) -> tuple[str | bool | _Unset, str | _Unset]:
+def _validate_contact(value: object, where: str, errors: list[str]) -> str | bool | _Unset:
     slack: str | bool | _Unset = UNSET
-    oncall: str | _Unset = UNSET
     if not isinstance(value, dict):
         errors.append(f"{where}: 'contact' must be a mapping")
-        return slack, oncall
+        return slack
     for key in value:
         if key not in _CONTACT_KEYS:
             errors.append(f"{where}: unknown contact field '{key}'")
@@ -101,13 +97,7 @@ def _validate_contact(value: object, where: str, errors: list[str]) -> tuple[str
             slack = raw
         else:
             errors.append(f"{where}: 'contact.slack' must be a string starting with '#' or false")
-    if "oncall" in value:
-        raw = value["oncall"]
-        if isinstance(raw, str):
-            oncall = raw
-        else:
-            errors.append(f"{where}: 'contact.oncall' must be a string")
-    return slack, oncall
+    return slack
 
 
 def _validate_status(value: object, where: str, errors: list[str]) -> str | _Unset:
@@ -147,8 +137,6 @@ def _parse_rule(raw: object, index: int, errors: list[str]) -> OwnersRule | None
     rule = OwnersRule(match=match)
     if "owners" in raw:
         rule.owners = _validate_owners_value(raw["owners"], where, errors)
-    if "contact" in raw:
-        rule.slack, rule.oncall = _validate_contact(raw["contact"], where, errors)
     if "status" in raw:
         rule.status = _validate_status(raw["status"], where, errors)
     if "inherit" in raw:
@@ -187,7 +175,7 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
     file = OwnersFile(path=path, directory=directory, owners=owners)
 
     if "contact" in data:
-        file.slack, file.oncall = _validate_contact(data["contact"], "contact", errors)
+        file.slack = _validate_contact(data["contact"], "contact", errors)
     if "status" in data:
         file.status = _validate_status(data["status"], "status", errors)
     if "inherit" in data:
@@ -245,7 +233,7 @@ def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bo
     """
     if parsed is None or parsed.is_alias:
         return False
-    if parsed.inherit is False or parsed.status is not UNSET or parsed.slack is not UNSET or parsed.oncall is not UNSET:
+    if parsed.inherit is False or parsed.status is not UNSET or parsed.slack is not UNSET:
         return False
     if allow_anchored_rules:
         return not any(match_is_glob(r.match) for r in parsed.rules)

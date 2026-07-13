@@ -514,7 +514,6 @@ _HOGLI_RESOLVER = (OwnershipSource(format="hogli-resolver", path="."),)
     [
         pytest.param("owners:\n  - team-devex\n", ["@PostHog/team-devex"], id="plain-slug-prefixed"),
         pytest.param("owners:\n  - '@handle'\n", [], id="individual-dropped"),
-        pytest.param("owners:\n  - team-CHANGEME\n", [], id="changeme-skipped"),
         pytest.param("name: foo\n", [], id="ownerless"),
     ],
 )

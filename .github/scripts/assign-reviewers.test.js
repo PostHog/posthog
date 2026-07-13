@@ -31,89 +31,49 @@ function assertMatchObject(actual, partial) {
     }
 }
 
-test('isExcludedFile: frontend/src/generated/core/api.ts -> true', () => {
-    assert.equal(isExcludedFile('frontend/src/generated/core/api.ts'), true)
-})
-test('isExcludedFile: frontend/src/generated/core/api.schemas.ts -> true', () => {
-    assert.equal(isExcludedFile('frontend/src/generated/core/api.schemas.ts'), true)
-})
-test('isExcludedFile: products/surveys/frontend/generated/api.zod.ts -> true', () => {
-    assert.equal(isExcludedFile('products/surveys/frontend/generated/api.zod.ts'), true)
-})
-test('isExcludedFile: services/mcp/src/tools/generated/surveys.ts -> true', () => {
-    assert.equal(isExcludedFile('services/mcp/src/tools/generated/surveys.ts'), true)
-})
-test('isExcludedFile: pnpm-lock.yaml -> true', () => {
-    assert.equal(isExcludedFile('pnpm-lock.yaml'), true)
-})
-test('isExcludedFile: rust/Cargo.lock -> true', () => {
-    assert.equal(isExcludedFile('rust/Cargo.lock'), true)
-})
-test('isExcludedFile: uv.lock -> true', () => {
-    assert.equal(isExcludedFile('uv.lock'), true)
-})
-test('isExcludedFile: posthog/api/test/__snapshots__/test_survey.ambr -> true', () => {
-    assert.equal(isExcludedFile('posthog/api/test/__snapshots__/test_survey.ambr'), true)
-})
-test('isExcludedFile: frontend/src/scenes/x/Component.test.tsx.snap -> true', () => {
-    assert.equal(isExcludedFile('frontend/src/scenes/x/Component.test.tsx.snap'), true)
-})
-test('isExcludedFile: nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts -> true', () => {
-    assert.equal(isExcludedFile('nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts'), true)
-})
-test('isExcludedFile: nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json -> true', () => {
-    assert.equal(isExcludedFile('nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json'), true)
-})
-test('isExcludedFile: nodejs/src/ingestion/pipelines/ai/costs/providers/manual-providers.ts -> false', () => {
-    assert.equal(isExcludedFile('nodejs/src/ingestion/pipelines/ai/costs/providers/manual-providers.ts'), false)
-})
-test('isExcludedFile: posthog/api/survey.py -> false', () => {
-    assert.equal(isExcludedFile('posthog/api/survey.py'), false)
-})
-test('isExcludedFile: frontend/src/scenes/surveys/Survey.tsx -> false', () => {
-    assert.equal(isExcludedFile('frontend/src/scenes/surveys/Survey.tsx'), false)
-})
+for (const [filename, expected] of [
+    ['frontend/src/generated/core/api.ts', true],
+    ['frontend/src/generated/core/api.schemas.ts', true],
+    ['products/surveys/frontend/generated/api.zod.ts', true],
+    ['services/mcp/src/tools/generated/surveys.ts', true],
+    ['pnpm-lock.yaml', true],
+    ['rust/Cargo.lock', true],
+    ['uv.lock', true],
+    ['posthog/api/test/__snapshots__/test_survey.ambr', true],
+    ['frontend/src/scenes/x/Component.test.tsx.snap', true],
+    ['nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts', true],
+    ['nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json', true],
+    ['nodejs/src/ingestion/pipelines/ai/costs/providers/manual-providers.ts', false],
+    ['posthog/api/survey.py', false],
+    ['frontend/src/scenes/surveys/Survey.tsx', false],
+]) {
+    test(`isExcludedFile: ${filename} -> ${expected}`, () => {
+        assert.equal(isExcludedFile(filename), expected)
+    })
+}
 
-// a trailing slash is a directory boundary, not a name prefix
-test('fileMatchesPattern: posthog/models/ai/utils.py vs posthog/models/ai/', () => {
-    assert.equal(fileMatchesPattern('posthog/models/ai/utils.py', 'posthog/models/ai/'), true)
-})
-test('fileMatchesPattern: posthog/models/ai/sub/deep.py vs posthog/models/ai/', () => {
-    assert.equal(fileMatchesPattern('posthog/models/ai/sub/deep.py', 'posthog/models/ai/'), true)
-})
-test('fileMatchesPattern: posthog/models/ai_events/event.py vs posthog/models/ai/', () => {
-    assert.equal(fileMatchesPattern('posthog/models/ai_events/event.py', 'posthog/models/ai/'), false)
-})
-test('fileMatchesPattern: posthog/models/person/util.py vs posthog/models/person/', () => {
-    assert.equal(fileMatchesPattern('posthog/models/person/util.py', 'posthog/models/person/'), true)
-})
-test('fileMatchesPattern: posthog/models/person_overrides/x.py vs posthog/models/person/', () => {
-    assert.equal(fileMatchesPattern('posthog/models/person_overrides/x.py', 'posthog/models/person/'), false)
-})
-test('fileMatchesPattern: posthog/models/personal_api_key.py vs posthog/models/person/', () => {
-    assert.equal(fileMatchesPattern('posthog/models/personal_api_key.py', 'posthog/models/person/'), false)
-})
-// /** is bounded to the directory, same as a trailing slash
-test('fileMatchesPattern: posthog/models/ai/utils.py vs posthog/models/ai/**', () => {
-    assert.equal(fileMatchesPattern('posthog/models/ai/utils.py', 'posthog/models/ai/**'), true)
-})
-test('fileMatchesPattern: posthog/models/ai_events/event.py vs posthog/models/ai/**', () => {
-    assert.equal(fileMatchesPattern('posthog/models/ai_events/event.py', 'posthog/models/ai/**'), false)
-})
-// a single star stays within one path segment
-test('fileMatchesPattern: posthog/dags/sessions.py vs posthog/dags/*.py', () => {
-    assert.equal(fileMatchesPattern('posthog/dags/sessions.py', 'posthog/dags/*.py'), true)
-})
-test('fileMatchesPattern: posthog/dags/sub/sessions.py vs posthog/dags/*.py', () => {
-    assert.equal(fileMatchesPattern('posthog/dags/sub/sessions.py', 'posthog/dags/*.py'), false)
-})
-// exact-file patterns match only that file
-test('fileMatchesPattern: posthog/api/person.py vs posthog/api/person.py', () => {
-    assert.equal(fileMatchesPattern('posthog/api/person.py', 'posthog/api/person.py'), true)
-})
-test('fileMatchesPattern: posthog/api/person_other.py vs posthog/api/person.py', () => {
-    assert.equal(fileMatchesPattern('posthog/api/person_other.py', 'posthog/api/person.py'), false)
-})
+for (const [file, pattern, expected] of [
+    // a trailing slash is a directory boundary, not a name prefix
+    ['posthog/models/ai/utils.py', 'posthog/models/ai/', true],
+    ['posthog/models/ai/sub/deep.py', 'posthog/models/ai/', true],
+    ['posthog/models/ai_events/event.py', 'posthog/models/ai/', false],
+    ['posthog/models/person/util.py', 'posthog/models/person/', true],
+    ['posthog/models/person_overrides/x.py', 'posthog/models/person/', false],
+    ['posthog/models/personal_api_key.py', 'posthog/models/person/', false],
+    // /** is bounded to the directory, same as a trailing slash
+    ['posthog/models/ai/utils.py', 'posthog/models/ai/**', true],
+    ['posthog/models/ai_events/event.py', 'posthog/models/ai/**', false],
+    // a single star stays within one path segment
+    ['posthog/dags/sessions.py', 'posthog/dags/*.py', true],
+    ['posthog/dags/sub/sessions.py', 'posthog/dags/*.py', false],
+    // exact-file patterns match only that file
+    ['posthog/api/person.py', 'posthog/api/person.py', true],
+    ['posthog/api/person_other.py', 'posthog/api/person.py', false],
+]) {
+    test(`fileMatchesPattern: ${file} vs ${pattern}`, () => {
+        assert.equal(fileMatchesPattern(file, pattern), expected)
+    })
+}
 
 test('classifyOwner: @PostHog/team-surveys', () => {
     assert.deepEqual(classifyOwner('@PostHog/team-surveys'), {

@@ -28,7 +28,6 @@ class Resolution:
     owners: list[str] | None  # None for both explicit-null and no-contribution
     status: str
     slack: str | None
-    oncall: str | None
     source: str | None  # repo-relative path of the file that decided owners
     unowned_by_design: bool  # explicit `owners: null` exemption
 
@@ -77,7 +76,6 @@ class ParsedOwnershipFile:
 class _Merged:
     owners: list[str] | None | _Unset = UNSET
     slack: str | bool | _Unset = UNSET
-    oncall: str | _Unset = UNSET
     status: str | _Unset = UNSET
     source: str | None = None
 
@@ -170,17 +168,12 @@ class OwnersResolver:
             directory=f.directory,
             owners=f.owners,
             slack=f.slack,
-            oncall=f.oncall,
             status=f.status,
             inherit=f.inherit,
             is_alias=f.is_alias,
         )
         if not isinstance(matched.owners, _Unset):
             contrib.owners = matched.owners
-        if not isinstance(matched.slack, _Unset):
-            contrib.slack = matched.slack
-        if not isinstance(matched.oncall, _Unset):
-            contrib.oncall = matched.oncall
         if not isinstance(matched.status, _Unset):
             contrib.status = matched.status
         if not isinstance(matched.inherit, _Unset):
@@ -212,8 +205,6 @@ class OwnersResolver:
 
             if not isinstance(contrib.slack, _Unset):
                 merged.slack = contrib.slack
-            if not isinstance(contrib.oncall, _Unset):
-                merged.oncall = contrib.oncall
             if not isinstance(contrib.status, _Unset):
                 merged.status = contrib.status
 
@@ -239,14 +230,11 @@ class OwnersResolver:
 
         slack = self._effective_slack(merged.slack, owners)
 
-        oncall = None if isinstance(merged.oncall, _Unset) else merged.oncall
-
         return Resolution(
             path=path,
             owners=owners,
             status=status,
             slack=slack,
-            oncall=oncall,
             source=merged.source,
             unowned_by_design=unowned_by_design,
         )
