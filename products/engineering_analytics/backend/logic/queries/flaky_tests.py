@@ -100,9 +100,8 @@ def query_flaky_tests(
     limit: int,
 ) -> FlakyTestList:
     date_to_clause = "AND timestamp <= {date_to}" if date_to is not None else ""
-    repository_clause = (
-        "AND lower(resource_attributes['ci.repository']) = lower({repository})" if curated.repository else ""
-    )
+    repository = curated.repository
+    repository_clause = "AND lower(resource_attributes['ci.repository']) = lower({repository})" if repository else ""
     placeholders: dict[str, ast.Expr] = {
         "service_name": ast.Constant(value=_CI_SERVICE_NAME),
         "signal_outcomes": ast.Constant(value=_SIGNAL_OUTCOMES),
@@ -112,8 +111,8 @@ def query_flaky_tests(
         # +1 so a full page tells us more tests qualified than returned.
         "limit_plus_one": ast.Constant(value=limit + 1),
     }
-    if curated.repository:
-        placeholders["repository"] = ast.Constant(value=curated.repository)
+    if repository:
+        placeholders["repository"] = ast.Constant(value=repository)
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
 

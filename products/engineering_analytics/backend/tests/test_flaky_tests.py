@@ -114,11 +114,11 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             [f"'test.selector__str', '{selector}'"] if selector else []
         )
         attrs = f"map({', '.join(attr_pairs)})" if attr_pairs else "map()"
-        resource_pairs = (
-            ([f"'ci.pr_number', '{pr}'"] if pr else [])
-            + ([f"'ci.branch', '{branch}'"] if branch else [])
-            + ([f"'ci.repository', '{repo}'"] if repo else [])
-        )
+        resource_pairs = [
+            f"'{key}', '{value}'"
+            for key, value in (("ci.pr_number", pr), ("ci.branch", branch), ("ci.repository", repo))
+            if value
+        ]
         resource = f"map({', '.join(resource_pairs)})" if resource_pairs else "map()"
         stamp = ts.strftime("%Y-%m-%d %H:%M:%S")
         return (
