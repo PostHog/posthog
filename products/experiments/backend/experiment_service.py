@@ -1737,10 +1737,6 @@ class ExperimentService:
         feature_flag.archived = False
         feature_flag.save(update_fields=["archived"])
 
-        # Sync the cached relation so the serialized response reflects the flag we just
-        # mutated — experiment.feature_flag is a separately-loaded instance otherwise.
-        experiment.feature_flag = feature_flag
-
         experiment.feature_flag_auto_archived = False
         experiment.save(update_fields=["feature_flag_auto_archived"])
 
