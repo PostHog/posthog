@@ -6464,7 +6464,7 @@ class TestRlsActiveFromConnErrorHandling:
         capture_mock.assert_not_called()
 
     def test_unsupported_statement_timeout_error_is_not_captured(self):
-        # A Postgres-wire engine that rejects the best-effort `SET statement_timeout` (CrateDB,
+        # A Postgres-wire engine that rejects the best-effort `SET LOCAL statement_timeout` (CrateDB,
         # Materialize, Aurora DSQL, etc.) is an expected shape: degrade to no RLS warnings without
         # flooding error tracking.
         conn = self._conn_raising(
