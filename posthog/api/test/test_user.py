@@ -2186,7 +2186,7 @@ class TestToolbarAccessControl(APIBaseTest):
         """`team.app_urls` must not be dereferenced before the `team is None` guard, or a
         session-authed user with no current project crashes with an AttributeError instead of
         getting the expected 404."""
-        new_user = User.objects.create_user(email="no-team@posthog.com", password="testpass123")
+        new_user = User.objects.create_user(email="no-team@posthog.com", password="testpass123", first_name="")
         self.client.force_login(new_user)
 
         response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
