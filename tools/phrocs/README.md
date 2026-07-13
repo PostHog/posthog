@@ -79,6 +79,7 @@ You typically run phrocs via `hogli start` rather than directly.
 | `g`    | Cycle process grouping (from config `groups` field)     |
 | `a`    | Toggle show all registry processes                      |
 | `/`    | Enter search mode (then `tab` to switch to filter mode) |
+| `esc`  | Exit copy, search, and filter modes                     |
 | `↵`    | Send keystrokes to the process (output pane)            |
 | `?`    | Toggle full help                                        |
 | `q`    | Quit                                                    |
