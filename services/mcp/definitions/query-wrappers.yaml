@@ -189,6 +189,10 @@ wrappers:
         exclude_properties:
             - response
             - modifiers
+        # Full traces (per-generation prompts/completions, span state, tool defs, high event counts)
+        # routinely serialize to millions of tokens and overflow the caller's context window. Cap the
+        # response to a usable size; the complete trace stays available in the PostHog UI via _posthogUrl.
+        truncate_response: true
 
     query-trends-actors:
         schema_ref: AssistantTrendsActorsQuery

@@ -143,3 +143,116 @@ function removeAtPath(obj: unknown, segments: string[]): void {
         removeAtPath(record[head], rest)
     }
 }
+
+// --- LLM trace response truncation ---------------------------------------------------------------
+//
+// A single LLM/agent trace can serialize to millions of tokens: every generation carries the full
+// prompt (`$ai_input`), completion (`$ai_output` / `$ai_output_choices`), span state, tool
+// definitions, and — for embeddings — large numeric vectors, and a trace can contain thousands of
+// events. Returned verbatim to a calling agent, that overflows the context window. These caps bound
+// the response along all three axes (per-field size, total content size, event count) while keeping
+// the tree structure and every event's lightweight metadata (ids, model, tokens, costs, latency)
+// intact. The full, untruncated trace remains available in the PostHog UI via `_posthogUrl`.
+
+/** Event properties that carry unbounded content and must be capped. */
+const TRACE_HEAVY_PROPS = [
+    '$ai_input',
+    '$ai_output',
+    '$ai_output_choices',
+    '$ai_input_state',
+    '$ai_output_state',
+    '$ai_tools',
+] as const
+
+/** Max events returned per trace; excess (chronologically latest) events are dropped. */
+export const TRACE_MAX_EVENTS = 250
+/** Max characters kept for a single heavy field (before the global budget also applies). */
+export const TRACE_MAX_FIELD_CHARS = 20_000
+/** Global budget (characters) for heavy content across the whole response, ~tens of thousands of tokens. */
+export const TRACE_MAX_TOTAL_HEAVY_CHARS = 120_000
+
+const TRACE_FULL_CONTENT_HINT = 'open the full trace in PostHog via `_posthogUrl`'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function safeStringify(value: unknown): string {
+    try {
+        return typeof value === 'string' ? value : (JSON.stringify(value) ?? '')
+    } catch {
+        return ''
+    }
+}
+
+export interface TraceTruncationSummary {
+    truncated: boolean
+    /** Number of trace events dropped because the trace exceeded `TRACE_MAX_EVENTS`. */
+    omittedEvents: number
+}
+
+/**
+ * Truncate an LLM trace query response in place so it stays within an agent-consumable size.
+ * `results` is the `TraceQueryResponse.results` array (`LLMTrace[]`); non-array or non-trace input
+ * is a no-op. Typical (small) traces are returned untouched — only the bloated tail is capped.
+ */
+export function truncateTraceContent(results: unknown): TraceTruncationSummary {
+    const summary: TraceTruncationSummary = { truncated: false, omittedEvents: 0 }
+    if (!Array.isArray(results)) {
+        return summary
+    }
+
+    let heavyBudget = TRACE_MAX_TOTAL_HEAVY_CHARS
+
+    const capField = (container: Record<string, unknown>, key: string): void => {
+        const value = container[key]
+        if (value === undefined || value === null) {
+            return
+        }
+        if (heavyBudget <= 0) {
+            container[key] = `[omitted — response size limit reached; ${TRACE_FULL_CONTENT_HINT}]`
+            summary.truncated = true
+            return
+        }
+        const serialized = safeStringify(value)
+        const keep = Math.min(TRACE_MAX_FIELD_CHARS, heavyBudget)
+        if (serialized.length <= keep) {
+            heavyBudget -= serialized.length
+            return
+        }
+        container[key] =
+            `${serialized.slice(0, keep)}… [truncated ${serialized.length - keep} chars — ${TRACE_FULL_CONTENT_HINT}]`
+        heavyBudget -= keep
+        summary.truncated = true
+    }
+
+    for (const trace of results) {
+        if (!isRecord(trace)) {
+            continue
+        }
+        capField(trace, 'inputState')
+        capField(trace, 'outputState')
+
+        const events = trace.events
+        if (!Array.isArray(events)) {
+            continue
+        }
+        if (events.length > TRACE_MAX_EVENTS) {
+            summary.omittedEvents += events.length - TRACE_MAX_EVENTS
+            trace.events = events.slice(0, TRACE_MAX_EVENTS)
+            summary.truncated = true
+        }
+        for (const event of trace.events as unknown[]) {
+            if (!isRecord(event) || !isRecord(event.properties)) {
+                continue
+            }
+            for (const prop of TRACE_HEAVY_PROPS) {
+                if (prop in event.properties) {
+                    capField(event.properties, prop)
+                }
+            }
+        }
+    }
+
+    return summary
+}

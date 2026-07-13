@@ -10,6 +10,17 @@ Use cases:
 
 CRITICAL: This tool requires a `traceId`. Get the trace ID from `query-llm-traces-list` results first.
 
+# Response size
+
+To stay within the context window, the response is capped to a usable size by default. Very large
+traces are truncated along three axes: individual heavy fields (`$ai_input`, `$ai_output`,
+`$ai_output_choices`, `$ai_input_state`, `$ai_output_state`, `$ai_tools`) are cut off, total heavy
+content is bounded, and traces with a very high event count keep only the earliest events. When any
+truncation happens the response carries an `_agentNote` and truncated values end with an inline
+marker. Every event's lightweight metadata (ids, model, tokens, costs, latency, error flags) and the
+tree structure are always preserved. To read the complete, untruncated input/output, open the trace
+in the PostHog UI via the `_posthogUrl` field.
+
 # Response shape
 
 The response contains a single trace in JSON format with:

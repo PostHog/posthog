@@ -1600,6 +1600,9 @@ function generateCategoryFile(
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
                 }
+                if (wrapperConfig.truncate_response) {
+                    configParts.push('truncateResponse: true')
+                }
                 return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
             })
             .join('\n')
@@ -1953,6 +1956,9 @@ function generateQueryWrapperFile(
 
             if (toolConfig.url_prefix) {
                 configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
+            }
+            if (toolConfig.truncate_response) {
+                configParts.push('truncateResponse: true')
             }
             return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
         })

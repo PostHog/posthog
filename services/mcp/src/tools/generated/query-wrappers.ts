@@ -1757,6 +1757,7 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         schema: AssistantTraceQuery,
         kind: 'TraceQuery',
         outputFormat: 'json',
+        truncateResponse: true,
     }),
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',

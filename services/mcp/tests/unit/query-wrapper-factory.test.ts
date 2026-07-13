@@ -306,6 +306,60 @@ describe('createQueryWrapper output_format handling', () => {
     })
 })
 
+describe('createQueryWrapper truncateResponse', () => {
+    function createMockContext(results: unknown): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({
+                    runQuery: vi.fn().mockResolvedValue({ results, formatted_results: null }),
+                    trendsActors: vi.fn(),
+                    lifecycleActors: vi.fn(),
+                }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    const schema = z.object({ traceId: z.string() })
+
+    function oversizedTraceResults(): unknown[] {
+        return [
+            {
+                id: 't1',
+                events: [
+                    {
+                        id: 'e1',
+                        event: '$ai_generation',
+                        properties: { $ai_model: 'claude', $ai_output: 'z'.repeat(60_000) },
+                    },
+                ],
+            },
+        ]
+    }
+
+    it('truncates and attaches _agentNote when enabled', async () => {
+        const context = createMockContext(oversizedTraceResults())
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery', truncateResponse: true })()
+
+        const result = (await tool.handler(context, { traceId: 't1' })) as any
+
+        expect(result._agentNote).toContain('_posthogUrl')
+        expect(result.results[0].events[0].properties.$ai_output).toContain('truncated')
+        expect(result.results[0].events[0].properties.$ai_model).toBe('claude')
+    })
+
+    it('leaves the response untouched when disabled', async () => {
+        const context = createMockContext(oversizedTraceResults())
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
+
+        const result = (await tool.handler(context, { traceId: 't1' })) as any
+
+        expect(result._agentNote).toBeUndefined()
+        expect(result.results[0].events[0].properties.$ai_output).toHaveLength(60_000)
+    })
+})
+
 describe('createQueryWrapper actors dispatch', () => {
     function createMockContext(): Context {
         return {

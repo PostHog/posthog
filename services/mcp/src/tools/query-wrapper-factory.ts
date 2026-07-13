@@ -7,6 +7,7 @@ import {
     type ToolBase,
     type ZodObjectAny,
 } from '@/tools/types'
+import { truncateTraceContent } from '@/tools/tool-utils'
 
 interface QueryWrapperConfig<T extends ZodObjectAny> {
     name: string
@@ -21,6 +22,13 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     outputFormat?: 'optimized' | 'json'
     /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new#q=...`. */
     urlPrefix?: string
+    /**
+     * Cap the response to an agent-consumable size. Intended for LLM trace queries, whose full
+     * per-generation content (prompts, completions, span state, tool defs) plus high event counts
+     * routinely overflow the caller's context window. See `truncateTraceContent`. The complete,
+     * untruncated trace stays available in the PostHog UI via `_posthogUrl`.
+     */
+    truncateResponse?: boolean
 }
 
 function buildInsightUrl(
@@ -89,6 +97,18 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
+
+            let agentNote: string | undefined
+            if (config.truncateResponse) {
+                const { truncated, omittedEvents } = truncateTraceContent(data.results)
+                if (truncated) {
+                    agentNote =
+                        'Response truncated to stay within a usable size' +
+                        (omittedEvents > 0 ? ` (${omittedEvents} trace event(s) omitted)` : '') +
+                        '. Truncated fields carry an inline marker; open the full trace in PostHog via `_posthogUrl` for complete input/output.'
+                }
+            }
+
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
@@ -98,6 +118,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 ...(data.warnings ? { warnings: data.warnings } : {}),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
+                ...(agentNote ? { _agentNote: agentNote } : {}),
             }
         },
         _meta: {
