@@ -19,11 +19,11 @@ from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.visitor import MAX_QUERY_DEPTH, CloningVisitor, TraversingVisitor, Visitor
 
 
-def _deeply_nested_expr(depth: int) -> ast.ArithmeticOperation:
+def _deeply_nested_expr(depth: int) -> ast.Expr:
     node: ast.Expr = ast.Constant(value=1)
     for _ in range(depth):
         node = ast.ArithmeticOperation(left=node, right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add)
-    return node  # type: ignore[return-value]
+    return node
 
 
 class TestVisitor(BaseTest):
