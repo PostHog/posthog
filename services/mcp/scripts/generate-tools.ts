@@ -890,12 +890,20 @@ function buildResponseFilter(config: ToolConfig): {
 /**
  * When `response.selectable` is set, emit a `.extend({ fields: ... })` clause adding an optional
  * `fields` request param constrained (via `z.enum`) to the `include` allowlist. Returns '' when the
- * tool doesn't opt in, so the schema expression is left untouched.
+ * tool doesn't opt in, so the schema expression is left untouched. Throws when `selectable` is set
+ * without an `include` allowlist, since there would be nothing to constrain the `fields` param to.
  */
 function buildSelectableFieldsExtension(config: ToolConfig): string {
-    const include = config.response?.include
-    if (!config.response?.selectable || !include?.length) {
+    if (!config.response?.selectable) {
         return ''
+    }
+    const include = config.response?.include
+    if (!include?.length) {
+        // selectable has no allowlist to constrain the `fields` param against — fail codegen loudly
+        // rather than silently emitting a tool whose `selectable` flag does nothing.
+        throw new Error(
+            `response.selectable requires a non-empty response.include allowlist — add the fields the tool may return, or remove selectable`
+        )
     }
     const enumValues = include.map((f) => `'${f}'`).join(', ')
     const description =

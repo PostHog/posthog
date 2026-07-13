@@ -388,6 +388,31 @@ describe('generateToolCode with input_schema', () => {
         // And the response filter must honor it, falling back to the full allowlist when omitted.
         expect(result.code).toContain("params.fields?.length ? params.fields : ['id', 'name']")
     })
+
+    it('throws when selectable is set without an include allowlist', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            response: { selectable: true },
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        // selectable has no allowlist to constrain `fields` against — codegen must fail loudly rather
+        // than silently emit a tool whose selectable flag does nothing.
+        expect(() =>
+            generateToolCode(
+                'things-list',
+                config,
+                resolved,
+                defaultCategory,
+                makeSpec(),
+                new Set<string>(),
+                stubGetQuerySchema
+            )
+        ).toThrow(/response\.selectable requires a non-empty response\.include allowlist/)
+    })
 })
 
 describe('generateToolCode without input_schema', () => {
