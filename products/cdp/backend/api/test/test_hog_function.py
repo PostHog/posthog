@@ -320,6 +320,31 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if expected == status.HTTP_400_BAD_REQUEST:
             assert "static cohort" in response.json()["detail"]
 
+    def test_uncompilable_filters_disable_with_string_boolean_value(self):
+        # A client may send the boolean as a JSON string ("false"). The enable-guard reads the raw
+        # value before field coercion, so it must coerce rather than rely on truthiness - otherwise
+        # "false" is truthy and the disable is wrongly rejected with the filter error.
+        cohort = Cohort.objects.create(team=self.team, name="Test users", is_static=True)
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk}]
+        self.team.save()
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Destination with stale filters",
+            type="destination",
+            enabled=True,
+            inputs_schema=[],
+            inputs={},
+            hog="return event",
+            filters={"filter_test_accounts": True},
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
+            data={"enabled": "false"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        fn.refresh_from_db()
+        assert fn.enabled is False
+
     def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
