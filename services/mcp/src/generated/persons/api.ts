@@ -51,7 +51,7 @@ export const PersonsListQueryParams = /* @__PURE__ */ zod.object({
                                 zod.array(zod.union([zod.string(), zod.number()])),
                             ])
                             .describe(
-                                'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
+                                'Value of your filter. For example `test@example.com` or `https:/\/example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                             ),
                         operator: zod
                             .union([
