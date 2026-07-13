@@ -14,6 +14,7 @@ class DisplayType(StrEnum):
     DATE = "date"
     DATETIME = "datetime"
     BOOLEAN = "boolean"
+    SELECT = "select"
 
 
 class DataType(StrEnum):
@@ -31,6 +32,7 @@ DATA_TYPE_BY_DISPLAY_TYPE: dict[DisplayType, DataType] = {
     DisplayType.DATE: DataType.DATETIME,
     DisplayType.DATETIME: DataType.DATETIME,
     DisplayType.BOOLEAN: DataType.BOOLEAN,
+    DisplayType.SELECT: DataType.STRING,
 }
 
 NUMERIC_DISPLAY_TYPES = [
@@ -48,6 +50,12 @@ class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields
     )
     is_big_number = models.BooleanField(
         default=False, help_text="Whether the property is a big number and should be abbreviated. E.g.: 10,000 -> 10K"
+    )
+    options = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="For select properties: the allowed options, each {'id', 'label', 'color'}. Null for other types.",
     )
 
     class Meta:

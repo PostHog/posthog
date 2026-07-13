@@ -35,6 +35,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_logs_bytes_in_period,
     get_teams_with_recording_count_in_period,
+    get_teams_with_replay_vision_credits_used_in_period,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_signals_credits_used_in_period,
@@ -87,6 +88,7 @@ class QuotaResource(Enum):
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
     LOGS_MB_INGESTED = "logs_mb_ingested"
+    REPLAY_VISION_CREDITS = "replay_vision_credits"
 
 
 class QuotaLimitingCaches(Enum):
@@ -110,12 +112,14 @@ OVERAGE_BUFFER = {
     QuotaResource.WORKFLOW_EMAILS: 0,
     QuotaResource.WORKFLOW_DESTINATIONS: 0,
     QuotaResource.LOGS_MB_INGESTED: 0,
+    QuotaResource.REPLAY_VISION_CREDITS: 0,
 }
 
 # These resources are exempt from any grace periods, whether trust-based or never_drop_data
 GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
     QuotaResource.AI_CREDITS,
     QuotaResource.SIGNALS_CREDITS,
+    QuotaResource.REPLAY_VISION_CREDITS,
 }
 
 
@@ -136,6 +140,7 @@ class UsageCounters(TypedDict):
     workflow_emails: int
     workflow_destinations_dispatched: int
     logs_mb_ingested: int
+    replay_vision_credits: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -255,18 +260,33 @@ def org_quota_limited_until(
     summary = organization.usage.get(resource.value, {})
     if not summary:
         return None
-    usage = summary.get("usage", 0)
-    todays_usage = summary.get("todays_usage", 0)
+    usage = summary.get("usage") or 0
+    todays_usage = summary.get("todays_usage") or 0
     limit = summary.get("limit")
+    quota_limited_until = summary.get("quota_limited_until", None)
+    quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
 
     if limit is None:
+        if quota_limiting_suspended_until is not None or quota_limited_until is not None:
+            report_organization_action(
+                organization,
+                "org_quota_limited_until",
+                properties={
+                    "event": "limit removed",
+                    "current_usage": usage + todays_usage,
+                    "resource": resource.value,
+                    "quota_limited_until": quota_limited_until,
+                    "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                },
+            )
+            update_organization_usage_fields(
+                organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+            )
         return None
 
     is_over_limit = usage + todays_usage >= limit + OVERAGE_BUFFER[resource]
     billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
-    quota_limited_until = summary.get("quota_limited_until", None)
-    quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
 
     # - customer_trust_scores can be empty {} for orgs not yet synced from billing. Default to 0 (no grace period)
     # - customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values)
@@ -901,6 +921,14 @@ def update_all_orgs_billing_quotas(
                 "workflow_invocations", get_teams_with_workflow_billable_invocations_in_period, period_start, period_end
             )
         ),
+        "teams_with_replay_vision_credits_used_in_period": convert_team_usage_rows_to_dict(
+            _timed_query(
+                "replay_vision_credits",
+                get_teams_with_replay_vision_credits_used_in_period,
+                period_start,
+                period_end,
+            )
+        ),
         "teams_with_logs_mb_in_period": {
             team_id: int(bytes_val // 1_000_000)
             for team_id, bytes_val in convert_team_usage_rows_to_dict(
@@ -961,6 +989,7 @@ def update_all_orgs_billing_quotas(
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
             workflow_destinations_dispatched=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
             logs_mb_ingested=all_data["teams_with_logs_mb_in_period"].get(team.id, 0),
+            replay_vision_credits=all_data["teams_with_replay_vision_credits_used_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)

@@ -35,7 +35,13 @@ from posthog.cdp.validation import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_FIELD,
+    MAX_SEARCH_LENGTH,
+    NAME_FIELD,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+)
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
@@ -252,6 +258,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
+        # Uncompilable filters only block saves that leave the function enabled - disabling or
+        # deleting must stay possible even when e.g. the team's test account filters have since
+        # gained a cohort that real-time filters can't evaluate. Coerce via BooleanField so
+        # form-encoded string values ("true"/"false") are read correctly, not by Python truthiness.
+        to_bool = serializers.BooleanField().to_internal_value
+        deleted = to_bool(data["deleted"]) if data.get("deleted") is not None else False
+        enabled = (
+            to_bool(data["enabled"]) if data.get("enabled") is not None else (instance.enabled if instance else False)
+        )
+        self.context["function_will_be_enabled"] = False if deleted else enabled
         # Warehouse-table sources deliver the synced row under event.properties, so input templates
         # may use the `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
         self.context["is_dwh_source"] = data["filters"].get("source") == "data-warehouse-table"
@@ -603,6 +619,9 @@ class HogFunctionViewSet(
             queryset = queryset.filter(combined_q)
 
         return queryset
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
     @action(detail=False, methods=["GET"])
     def icons(self, request: Request, *args, **kwargs):

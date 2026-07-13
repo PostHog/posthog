@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
+import { IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -47,7 +47,7 @@ import {
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
 import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
-import { evaluationTypeCanBeCreated, evaluationTypeUsesProviderKey } from './evaluationCapabilities'
+import { evaluationTypeUsesProviderKey } from './evaluationCapabilities'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -130,11 +130,9 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         unhealthyProviderKeysUsedByEvaluations,
         canEnableEvaluation,
     } = useValues(evaluationsLogic)
-    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
-        useActions(evaluationsLogic)
+    const { setEvaluationsFilter, toggleEvaluationEnabled, loadEvaluations, setDates } = useActions(evaluationsLogic)
     const { evaluationsWithMetrics } = useValues(metricsLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.aiObservabilityEvaluation(id), searchParams).url
@@ -192,12 +190,9 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         </Tooltip>
                     )
                 }
-                const canUseEvaluationType = evaluationTypeCanBeCreated(evaluation.evaluation_type, featureFlags)
-                const canEnable = canEnableEvaluation(evaluation) && (evaluation.enabled || canUseEvaluationType)
+                const canEnable = canEnableEvaluation(evaluation)
                 const isBlocked = !canEnable && !evaluation.enabled
-                const blockedReason = !canUseEvaluationType
-                    ? 'Sentiment evaluations are not available for this project.'
-                    : 'Trial evaluation limit reached. Add a provider API key to re-enable.'
+                const blockedReason = 'Add a provider API key to enable this evaluation.'
                 return (
                     <div className="flex items-center gap-2">
                         <AccessControlAction
@@ -330,17 +325,6 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         <LemonButton
                             size="small"
                             type="secondary"
-                            icon={<IconCopy />}
-                            onClick={() => duplicateEvaluation(evaluation.id)}
-                        />
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
                             status="danger"
                             icon={<IconTrash />}
                             onClick={() => {
@@ -375,7 +359,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <TrialUsageMeter showSettingsLink={false} />
+            <TrialUsageMeter showSettingsLink />
 
             {unhealthyProviderKeysUsedByEvaluations.length > 0 && (
                 <LemonBanner type="warning">

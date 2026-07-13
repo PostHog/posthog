@@ -16,6 +16,7 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
@@ -84,6 +85,7 @@ FieldType = Union[
     SourceFieldSwitchGroupConfig,
     SourceFieldSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldSSHTunnelConfig,
 ]
@@ -100,7 +102,23 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     # Default `False` for every source; `SQLSource` flips to `True` (subclasses opt out
     # via their own override if a driver genuinely can't project columns).
+    # `True` means the source lists typed columns at schema discovery and applies
+    # `enabled_columns` itself (SELECT projection). Sources left `False` still get column
+    # selection — the pipeline drops non-enabled columns just before the Delta write and
+    # captures the observed columns into `schema_metadata` after the first sync.
     supports_column_selection: bool = False
+
+    # `True` only for sources that push `row_filters` into their query (SQL WHERE).
+    # Sources without pushdown must reject filters — a saved-but-ignored filter would
+    # silently sync unfiltered rows.
+    supports_row_filters: bool = False
+
+    # `True` for sources whose HogQL tables use a PostHog-managed canonical schema
+    # (`external_table_definitions`) — Stripe, Paddle, Zendesk. Their query exposes a fixed
+    # field set (and powers revenue analytics), so the physical column set must stay complete.
+    # Column selection is disabled for these: dropping a canonically-referenced column makes the
+    # generated s3() structure miss it and the query fails to resolve the field.
+    has_managed_hogql_schema: bool = False
 
     # Opt-in: set `True` only on sources whose `get_schemas` iterates a static endpoint
     # catalog with NO I/O — no network, no DB, no credentials. Those sources surface their

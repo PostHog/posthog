@@ -1,0 +1,110 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+# Descriptions sourced from the official Tremendous API reference
+# (https://developers.tremendous.com/reference).
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "orders": {
+        "description": "An order wraps around the fulfilment of one or more rewards.",
+        "docs_url": "https://developers.tremendous.com/reference/list-orders",
+        "columns": {
+            "id": "Tremendous ID of the order.",
+            "external_id": "Customer-supplied idempotency reference for this order.",
+            "campaign_id": "ID of the campaign in your account that defines the products the recipient can choose from.",
+            "created_at": "Date the order was created.",
+            "status": "Execution status of the order (e.g. CART, EXECUTED, FAILED, CANCELED).",
+            "channel": "Name of the channel in which the order was created (e.g. API, UI, EMBED).",
+            "payment": "Cost breakdown of the order (cost of rewards plus fees), denominated in the organization's currency.",
+            "invoice_id": "ID of the invoice associated with this order.",
+            "rewards": "Rewards fulfilled by this order.",
+        },
+    },
+    "rewards": {
+        "description": "A single reward, sent to a recipient. A reward is always part of an order.",
+        "docs_url": "https://developers.tremendous.com/reference/get-rewards",
+        "columns": {
+            "id": "Tremendous ID of the reward.",
+            "order_id": "Tremendous ID of the order this reward is part of.",
+            "created_at": "Date the reward was created.",
+            "expires_at": "Expiration date of the reward. Null if the reward does not expire.",
+            "value": "Monetary value of the reward (denomination and currency code).",
+            "recipient": "Details of the recipient of the reward (name, email, phone).",
+            "deliver_at": "Scheduled delivery date of the reward.",
+            "custom_fields": "Custom field values attached to the reward.",
+            "delivery": "Details on how the reward is delivered to the recipient (method and status).",
+        },
+    },
+    "invoices": {
+        "description": "Invoices are instruments to fund your Tremendous account's balance. Once paid, the respective funds are added to the account balance.",
+        "docs_url": "https://developers.tremendous.com/reference/core-invoices-list",
+        "columns": {
+            "id": "The invoice number.",
+            "po_number": "Reference to the purchase order number within your organization.",
+            "amount": "Amount of the invoice.",
+            "currency_code": "Currency of the invoice.",
+            "international": "Whether the invoice is international.",
+            "status": "Status of the invoice (e.g. OPEN, PAID, DELETED).",
+            "orders": "List of order IDs related to the invoice.",
+            "rewards": "List of reward IDs related to the invoice.",
+            "created_at": "Timestamp of when the invoice was created.",
+            "paid_at": "Timestamp of when the invoice was paid.",
+        },
+    },
+    "members": {
+        "description": "Users that can access and manage the organization through the Tremendous dashboard.",
+        "docs_url": "https://developers.tremendous.com/reference/core-members-list",
+        "columns": {
+            "id": "Tremendous ID of the member.",
+            "email": "Email address of the member.",
+            "name": "Full name of the member.",
+            "active": "Whether this member is currently active in the organization.",
+            "role": "The role ID associated with the member within the organization.",
+            "status": "Current status of the member's account (INVITED or REGISTERED).",
+            "created_at": "Timestamp when this member was created.",
+            "last_login_at": "Timestamp when this member most recently logged into the dashboard.",
+        },
+    },
+    "campaigns": {
+        "description": "Campaigns define the look and feel of how rewards are sent out and the products recipients can choose from.",
+        "docs_url": "https://developers.tremendous.com/reference/core-campaigns-list",
+        "columns": {
+            "id": "Tremendous ID of the campaign.",
+            "name": "Name of the campaign.",
+            "description": "Description of the campaign.",
+            "products": "List of IDs of products (gift cards, charity, etc.) available in this campaign.",
+            "fee_charged_to": "Whether premium product fees are added to the order total (SENDER) or deducted from the recipient's reward (RECIPIENT).",
+            "webpage_style": "Definition of the reward redemption webpage style.",
+            "email_style": "Definition of the reward email style.",
+        },
+    },
+    "products": {
+        "description": "A product represents one way to pay out a reward to its recipient, e.g. a specific gift card, charity donation, or prepaid card.",
+        "docs_url": "https://developers.tremendous.com/reference/core-products-index",
+        "columns": {
+            "id": "Tremendous ID of the product.",
+            "name": "Name of the product.",
+            "description": "Detailed description of the product.",
+            "category": "Category of the product (e.g. ach, charity, merchant_card, paypal, visa_card).",
+            "subcategory": "Additional classification for merchant card products.",
+            "disclosure": "Legal disclosures for this product.",
+            "skus": "Denomination bands in which this product may be used for payouts.",
+            "currency_codes": "Available currencies for this product.",
+            "countries": "Countries in which this product is available to recipients.",
+            "images": "Product images (e.g. logos or images of the gift cards).",
+            "usage_instructions": "Instructions for how to use the product, if applicable.",
+        },
+    },
+    "funding_sources": {
+        "description": "Payment methods used to fund rewards in the organization's account.",
+        "docs_url": "https://developers.tremendous.com/reference/core-funding-source-list",
+        "columns": {
+            "id": "Tremendous ID of the funding source.",
+            "method": "Payment method of the funding source (e.g. balance, bank_account, credit_card, invoice).",
+            "usage_permissions": "Which actions this funding source can perform.",
+            "status": "Status of the funding source.",
+            "type": "Invoice type; only available when method is invoice.",
+            "meta": "Method-specific metadata (e.g. current balance, card details).",
+        },
+    },
+}

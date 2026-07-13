@@ -159,7 +159,7 @@ GROUP BY day ORDER BY day
 ```
 
 - **Zero ever, launched > 24h ago** — broken wiring: the SDK method used doesn't record `$feature_flag_called` (bulk accessors like `getAllFlags()` don't), the flag is at 0% rollout or inactive, or a custom exposure event is missing its `$feature/<flag-key>` property. Check `experiment-get`'s flag state before filing a report — a **paused** experiment (flag deactivated, status "paused") legitimately has no fresh exposures. And before diagnosing a custom-exposure experiment as dormant, confirm with both signals: the custom event by `$feature/<flag-key>` **and** `$feature_flag_called` for the flag — if the flag is being called but the custom event never fires, the break is in the custom event wiring, not the experiment.
-- **Healthy baseline then a cliff to ~zero** — the flag-reading call was removed from code, or an upstream deploy broke the path. Date the cliff; cross-check `activity-log-list` and `feature-flags-activity-retrieve` around it.
+- **Healthy baseline then a cliff to ~zero** — the flag-reading call was removed from code, or an upstream deploy broke the path. Date the cliff; cross-check `advanced-activity-logs-list` and `feature-flags-activity-retrieve` around it.
 - **Asymptotic plateau after weeks** (e.g. +4 exposures over 100 days) — the eligible audience is exhausted; the experiment is done recruiting. Fold into the zombie check.
 
 #### Mid-run flag mutation
@@ -171,7 +171,7 @@ GROUP BY day ORDER BY day
 - Release-condition tightening, bucketing-key change, variant key rename — all rebucket.
 - `active` flips date pause/resume windows — context for stalls, usually deliberate.
 
-Also `activity-log-list {scope: "Experiment", item_id: <id>}` for experiment-level edits (exposure criteria swaps, metric changes near a decision point).
+Also `advanced-activity-logs-list {scopes: ["Experiment"], item_ids: [<id>]}` for experiment-level edits (exposure criteria swaps, metric changes near a decision point).
 
 #### Lifecycle drift (zombie / decided / lingering flags)
 
@@ -235,7 +235,7 @@ Direct calls (read-only):
 - `experiment-stats` — project-wide velocity aggregate (launched / completed last 30d, active count). Cheap context for the hygiene pass.
 - `experiment-timeseries-results` — day-by-day per-variant results for one metric (`metric_uuid` + `fingerprint` from the metrics array). Use sparingly, for the zombie "decide now" check.
 - `feature-flag-get-definition` / `feature-flags-activity-retrieve` — flag state and edit-history diffs; the latter is how you date mid-run mutations.
-- `activity-log-list` (`scope: "Experiment"`) — experiment-level edit timeline.
+- `advanced-activity-logs-list` (`scopes: ["Experiment"]`) — experiment-level edit timeline.
 - `execute-sql` against `events` — exposure analysis. Properties: `$feature_flag` (flag key) + `$feature_flag_response` (variant, incl. `$multiple`) on `$feature_flag_called`; `$feature/<flag-key>` on custom exposure events.
 - `read-data-schema` — confirm a custom exposure event and its properties exist before aggregating over them.
 

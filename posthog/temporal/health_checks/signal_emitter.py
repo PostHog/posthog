@@ -4,13 +4,13 @@ from dataclasses import dataclass
 import structlog
 from asgiref.sync import async_to_sync
 
-from posthog.schema import SignalRemediation
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.alerts import _check_class_for_kind
 from posthog.temporal.health_checks.framework import _SEVERITY_PRIORITY
+
+from products.signals.backend.contracts import SignalRemediation
 
 logger = structlog.get_logger(__name__)
 

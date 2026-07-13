@@ -31,10 +31,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.workflow import (
     ErrorTrackingFingerprintEmbeddingResultWorkflow,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import (
-    HealthState,
-    start_health_server,
-)
+from products.warehouse_sources.backend.facade.pipelines import HealthState, start_health_server
 
 logger = structlog.get_logger(__name__)
 

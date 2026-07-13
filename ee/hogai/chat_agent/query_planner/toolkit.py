@@ -224,7 +224,7 @@ class TaxonomyAgentToolkit:
         else:
             query = EventTaxonomyQuery(actionId=event_name_or_action_id, maxPropertyValues=25)
             verbose_name = f"action with ID {event_name_or_action_id}"
-        runner = EventTaxonomyQueryRunner(query, self._team)
+        runner = EventTaxonomyQueryRunner(query, self._team, user=self._user)
         with tags_context(
             product=Product.MAX_AI,
             feature=Feature.POSTHOG_AI,
@@ -430,7 +430,7 @@ class TaxonomyAgentToolkit:
             team_id=self._team.pk,
             org_id=self._team.organization_id,
         ):
-            response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
+            response = ActorsPropertyTaxonomyQueryRunner(query, self._team, user=self._user).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
                 analytics_props={"source": EventSource.POSTHOG_AI},
             )
