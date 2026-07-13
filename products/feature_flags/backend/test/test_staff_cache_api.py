@@ -1,15 +1,19 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.http import QueryDict
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
-from products.feature_flags.backend.api.staff_cache import MAX_TEAMS_PER_MUTATION, READABLE_CACHE_CHOICES
-from products.feature_flags.backend.flags_cache import flags_hypercache
-from products.feature_flags.backend.local_evaluation import (
-    flag_definitions_hypercache,
-    flag_definitions_without_cohorts_hypercache,
+from products.feature_flags.backend.api.staff_cache import (
+    MAX_TEAMS_PER_MUTATION,
+    READABLE_CACHE_CHOICES,
+    StaffCacheStatusQuerySerializer,
 )
+from products.feature_flags.backend.flags_cache import flags_hypercache
+from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 REBUILD_URL = "/api/feature_flags_staff_cache/rebuild/"
@@ -134,24 +138,10 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
-    def test_status_reports_the_two_definitions_variants_independently(self):
-        self.addCleanup(flag_definitions_hypercache.clear_cache, self.team)
-        self.addCleanup(flag_definitions_without_cohorts_hypercache.clear_cache, self.team)
-
-        # Only warm the without-cohorts variant; the with-cohorts variant stays cold.
-        flag_definitions_without_cohorts_hypercache.update_cache(self.team)
-
-        response = self.client.get(f"/api/feature_flags_staff_cache/?team_ids={self.team.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"][0]
-        self.assertEqual(results["definitions_no_cohorts"]["source"], "redis")
-        self.assertEqual(results["definitions"]["source"], "miss")
-
     @parameterized.expand(
         [
             ("evaluation", flags_hypercache),
             ("definitions", flag_definitions_hypercache),
-            ("definitions_no_cohorts", flag_definitions_without_cohorts_hypercache),
         ]
     )
     def test_entry_reads_the_hypercache_matching_the_cache_param(self, cache_kind, hypercache):
@@ -160,7 +150,6 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         # regardless of how the test ends.
         self.addCleanup(flags_hypercache.clear_cache, self.team)
         self.addCleanup(flag_definitions_hypercache.clear_cache, self.team)
-        self.addCleanup(flag_definitions_without_cohorts_hypercache.clear_cache, self.team)
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -197,3 +186,21 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         missing_id = self.team.id + 9999
         response = self.client.get(ENTRY_URL, {"team_id": str(missing_id), "cache": "evaluation"})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TestTeamIdsFieldQueryParamFormats(SimpleTestCase):
+    # Our generated TS client (and plain URLSearchParams) serializes a number[] query param as one
+    # comma-joined value rather than repeated keys. If `_team_ids_field` ever reverts to a plain
+    # `serializers.ListField`, the comma-separated case starts failing validation while the
+    # repeated-keys case keeps passing, silently breaking every caller that uses the generated
+    # client against a team_ids-backed query endpoint.
+    @parameterized.expand(
+        [
+            ("repeated_keys", "team_ids=1&team_ids=2"),
+            ("comma_separated", "team_ids=1,2"),
+        ]
+    )
+    def test_accepts_both_repeated_and_comma_separated_team_ids(self, _name, query_string):
+        serializer = StaffCacheStatusQuerySerializer(data=QueryDict(query_string))
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["team_ids"], [1, 2])
