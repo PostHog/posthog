@@ -440,8 +440,8 @@ async def get_credentials_using_user_aws_role(
         try:
             async with external_session.client("sts") as sts:
                 try:
-                    # This first call is expected to fail, as it does not
-                    # include an ExternalId. Passing here would indicate the
+                    # This first call is expected to fail, as it includes an
+                    # invalid ExternalId. Passing here would indicate the
                     # customer has not included ExternalId condition in their
                     # policy, and we should fail.
                     _ = await sts.assume_role(
