@@ -1,1 +1,1 @@
-learn [skills|-s <query>|<guide>|(posthog|project):<skill> [path] [-s <query>|--lines <start>:<end>]] — discover and load optional guides or skills
+learn [skills|-s <query>|(posthog|project):<skill> [path] [-s <query>|--lines <start>:<end>]] — discover and load skills
