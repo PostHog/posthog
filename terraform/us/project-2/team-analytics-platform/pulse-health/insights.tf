@@ -3,13 +3,25 @@
 #
 # Every query reads only pulse capture events. The panel <-> event contract
 # (including which properties come from the helpfulness-voting work) is
-# documented in README.md next to this file.
+# documented in products/pulse/backend/EVENTS.md.
 # =============================================================================
 
 locals {
+  # Shared 7-day-rolling-window parameters. Both rolling queries (action rate
+  # and emit health) read these so the window can't drift between them:
+  # lookback must cover the displayed span plus one full window minus a day, so
+  # the oldest displayed day still sees a complete trailing window.
+  pulse_rolling_window_days  = 7
+  pulse_rolling_display_days = 28
+  pulse_rolling_lookback_days = (
+    local.pulse_rolling_display_days + local.pulse_rolling_window_days
+  ) # 35
+
   # Row budgets (with 2x margin): series count * time buckets.
   pulse_generation_volume_limit = 6 * 28 * 2 # 3 statuses * 2 triggers * 28 days
   pulse_action_rate_limit       = 2 * 28 * 2 # 2 metrics * 28 days
+  pulse_engagement_limit        = 3 * 12 * 2 # surfaced/acted/dismissed * 12 weeks
+  pulse_actions_by_kind_limit   = 6 * 12 * 2 # 3 kinds * acted/dismissed * 12 weeks
   pulse_brief_feedback_limit    = 4 * 12 * 2 # helpful/not * goal/no-goal * 12 weeks
   pulse_opp_feedback_limit      = 6 * 12 * 2 # 3 kinds * helpful/not * 12 weeks
   pulse_attention_limit         = 2 * 13 * 2 # 2 metrics * 13 weeks
@@ -74,7 +86,7 @@ resource "posthog_insight" "pulse_generation_volume" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "pulse_action_rate" {
   name        = "Pulse: Opportunity action rate (7d rolling)"
-  description = "opportunity_acted (and opportunity_dismissed) over opportunities surfaced (sum of new_opportunity_count from product_brief_generated), as 7-day rolling rates."
+  description = "opportunity_acted (and opportunity_dismissed) over opportunities surfaced (sum of new_opportunity_count from product_brief_generated), as 7-day rolling rates. Days with nothing surfaced in the trailing window render as gaps, not 0%: 0/0 is an undefined rate, and drawing 0% would falsely read as 'we surfaced opportunities and nobody acted'."
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -88,11 +100,11 @@ resource "posthog_insight" "pulse_action_rate" {
                 toFloat(countIf(event = 'opportunity_dismissed')) AS dismissed
             FROM events
             WHERE event IN ('product_brief_generated', 'opportunity_acted', 'opportunity_dismissed')
-              AND timestamp >= now() - INTERVAL 35 DAY
+              AND timestamp >= now() - INTERVAL ${local.pulse_rolling_lookback_days} DAY
             GROUP BY date
         ),
         date_range AS (
-            SELECT toDate(now()) - number AS date FROM numbers(35)
+            SELECT toDate(now()) - number AS date FROM numbers(${local.pulse_rolling_lookback_days})
         ),
         base AS (
             SELECT
@@ -110,7 +122,7 @@ resource "posthog_insight" "pulse_action_rate" {
                 sum(acted) OVER w AS acted7,
                 sum(dismissed) OVER w AS dismissed7
             FROM base
-            WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)
+            WINDOW w AS (ORDER BY date ASC ROWS BETWEEN ${local.pulse_rolling_window_days - 1} PRECEDING AND CURRENT ROW)
         )
         SELECT date AS day, metric, value
         FROM (
@@ -122,7 +134,7 @@ resource "posthog_insight" "pulse_action_rate" {
                     if(surfaced7 > 0, round(dismissed7 / surfaced7 * 100, 1), NULL)
                 ] AS vals
             FROM rolling
-            WHERE date >= toDate(now()) - 27
+            WHERE date >= toDate(now()) - ${local.pulse_rolling_display_days - 1}
         )
         ARRAY JOIN metrics AS metric, vals AS value
         ORDER BY day ASC, metric ASC
@@ -146,6 +158,115 @@ resource "posthog_insight" "pulse_action_rate" {
         { column = "day", settings = { formatting = { prefix = "", suffix = "" } } },
         { column = "metric", settings = { formatting = { prefix = "", suffix = "" } } },
         { column = "value", settings = { formatting = { prefix = "", suffix = "%" } } },
+      ]
+    }
+  })
+
+  dashboard_ids = [posthog_dashboard.pulse_health.id]
+  tags          = ["managed-by:terraform", "pulse"]
+}
+
+# ---------------------------------------------------------------------------
+# 2b. Opportunity engagement: are surfaced opportunities used, or just noise?
+# Weekly surfaced (created) vs acted (used) vs dismissed (explicit noise) as
+# absolute volumes — the counterpart to the action-rate panel's ratios.
+# ---------------------------------------------------------------------------
+resource "posthog_insight" "pulse_opportunity_engagement" {
+  name        = "Pulse: Opportunity engagement"
+  description = "Weekly opportunities surfaced (sum of new_opportunity_count from product_brief_generated), acted (opportunity_acted), and dismissed (opportunity_dismissed). Shows how many opportunities we create and how many get used versus ignored. The current (partial) week undercounts until it ends."
+  query_json = jsonencode({
+    kind = "DataVisualizationNode"
+    source = {
+      kind  = "HogQLQuery"
+      query = <<-SQL
+        SELECT week AS time, metric, value
+        FROM (
+            SELECT
+                toStartOfWeek(timestamp) AS week,
+                sumIf(coalesce(toFloat(properties.new_opportunity_count), 0.0), event = 'product_brief_generated') AS surfaced,
+                toFloat(countIf(event = 'opportunity_acted')) AS acted,
+                toFloat(countIf(event = 'opportunity_dismissed')) AS dismissed
+            FROM events
+            WHERE event IN ('product_brief_generated', 'opportunity_acted', 'opportunity_dismissed')
+              AND timestamp >= now() - INTERVAL 12 WEEK
+            GROUP BY week
+        )
+        ARRAY JOIN
+            ['Surfaced', 'Acted', 'Dismissed'] AS metric,
+            [surfaced, acted, dismissed] AS value
+        ORDER BY time ASC, metric ASC
+        LIMIT ${local.pulse_engagement_limit}
+      SQL
+    }
+    display = "ActionsBar"
+    chartSettings = {
+      xAxis = { column = "time" }
+      yAxis = [
+        {
+          column   = "value"
+          settings = { formatting = { prefix = "", suffix = "" } }
+        }
+      ]
+      seriesBreakdownColumn = "metric"
+      showLegend            = true
+    }
+    tableSettings = {
+      columns = [
+        { column = "time", settings = { formatting = { prefix = "", suffix = "" } } },
+        { column = "metric", settings = { formatting = { prefix = "", suffix = "" } } },
+        { column = "value", settings = { formatting = { prefix = "", suffix = "" } } },
+      ]
+    }
+  })
+
+  dashboard_ids = [posthog_dashboard.pulse_health.id]
+  tags          = ["managed-by:terraform", "pulse"]
+}
+
+# ---------------------------------------------------------------------------
+# 2c. Opportunity actions by kind: what kind of opportunities get acted on
+# versus dismissed (build / fix / instrument).
+# ---------------------------------------------------------------------------
+resource "posthog_insight" "pulse_actions_by_kind" {
+  name        = "Pulse: Opportunity actions by kind"
+  description = "Weekly opportunity_acted vs opportunity_dismissed counts, split by opportunity kind (build / fix / instrument). Surfaces which kinds people engage with and which they skip."
+  query_json = jsonencode({
+    kind = "DataVisualizationNode"
+    source = {
+      kind  = "HogQLQuery"
+      query = <<-SQL
+        SELECT
+            toStartOfWeek(timestamp) AS week,
+            concat(
+                coalesce(properties.kind, 'unknown'),
+                if(event = 'opportunity_acted', ' · acted', ' · dismissed')
+            ) AS series,
+            count() AS actions
+        FROM events
+        WHERE event IN ('opportunity_acted', 'opportunity_dismissed')
+          AND timestamp >= now() - INTERVAL 12 WEEK
+        GROUP BY week, series
+        ORDER BY week ASC, series ASC
+        LIMIT ${local.pulse_actions_by_kind_limit}
+      SQL
+    }
+    display = "ActionsBar"
+    chartSettings = {
+      xAxis = { column = "week" }
+      yAxis = [
+        {
+          column   = "actions"
+          settings = { formatting = { prefix = "", suffix = "" } }
+        }
+      ]
+      seriesBreakdownColumn = "series"
+      showLegend            = true
+    }
+    tableSettings = {
+      columns = [
+        { column = "week", settings = { formatting = { prefix = "", suffix = "" } } },
+        { column = "series", settings = { formatting = { prefix = "", suffix = "" } } },
+        { column = "actions", settings = { formatting = { prefix = "", suffix = "" } } },
       ]
     }
   })
@@ -336,7 +457,7 @@ resource "posthog_insight" "pulse_attention_retention" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "pulse_investigation_survival" {
   name        = "Pulse: Investigation step survival rate"
-  description = "Daily share of investigation steps that succeeded (1 - failed/total) across product_brief_generated events with at least one step."
+  description = "Daily share of investigation steps that succeeded (1 - failed/total) across product_brief_generated events with at least one step. investigation_step_count / investigation_failed_count are parked (not emitted yet), so this renders empty until the goal-investigation stage ships."
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -344,10 +465,13 @@ resource "posthog_insight" "pulse_investigation_survival" {
       query = <<-SQL
         SELECT
             toDate(timestamp) AS day,
-            round(
-                (1 - sum(coalesce(toFloat(properties.investigation_failed_count), 0.0))
-                   / sum(toFloat(properties.investigation_step_count))) * 100,
-                1
+            greatest(
+                0,
+                round(
+                    (1 - sum(coalesce(toFloat(properties.investigation_failed_count), 0.0))
+                       / sum(toFloat(properties.investigation_step_count))) * 100,
+                    1
+                )
             ) AS survival_rate
         FROM events
         WHERE event = 'product_brief_generated'
@@ -386,17 +510,18 @@ resource "posthog_insight" "pulse_investigation_survival" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "pulse_investigation_steps" {
   name        = "Pulse: Investigation step-count distribution"
-  description = "How many briefs ran N investigation steps over the last 28 days. A spike at the maximum means investigations are being truncated."
+  description = "How many briefs ran N investigation steps over the last 28 days. A spike at the maximum means investigations are being truncated. investigation_step_count is parked (not emitted yet); briefs without it are excluded, so this renders empty until the goal-investigation stage ships."
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
       kind  = "HogQLQuery"
       query = <<-SQL
         SELECT
-            coalesce(toInt(properties.investigation_step_count), 0) AS steps,
+            toInt(properties.investigation_step_count) AS steps,
             count() AS briefs
         FROM events
         WHERE event = 'product_brief_generated'
+          AND properties.investigation_step_count IS NOT NULL
           AND timestamp >= now() - INTERVAL 28 DAY
         GROUP BY steps
         ORDER BY steps ASC
@@ -432,7 +557,7 @@ resource "posthog_insight" "pulse_investigation_steps" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "pulse_emit_health" {
   name        = "Pulse: Signal emit failure rate (7d rolling)"
-  description = "emit_failed_count over new_opportunity_count from product_brief_generated, as a 7-day rolling failure rate. Emits are best-effort, so failures never fail the brief — this chart is where they become visible."
+  description = "emit_failed_count over new_opportunity_count from product_brief_generated, as a 7-day rolling failure rate. Emits are best-effort, so failures never fail the brief — this chart is where they become visible. Days with nothing emitted in the trailing window render as gaps, not 0%, since 0/0 is an undefined rate."
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -445,11 +570,11 @@ resource "posthog_insight" "pulse_emit_health" {
                 sum(coalesce(toFloat(properties.emit_failed_count), 0.0)) AS failed
             FROM events
             WHERE event = 'product_brief_generated'
-              AND timestamp >= now() - INTERVAL 35 DAY
+              AND timestamp >= now() - INTERVAL ${local.pulse_rolling_lookback_days} DAY
             GROUP BY date
         ),
         date_range AS (
-            SELECT toDate(now()) - number AS date FROM numbers(35)
+            SELECT toDate(now()) - number AS date FROM numbers(${local.pulse_rolling_lookback_days})
         ),
         base AS (
             SELECT
@@ -465,13 +590,13 @@ resource "posthog_insight" "pulse_emit_health" {
                 sum(emitted) OVER w AS emitted7,
                 sum(failed) OVER w AS failed7
             FROM base
-            WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)
+            WINDOW w AS (ORDER BY date ASC ROWS BETWEEN ${local.pulse_rolling_window_days - 1} PRECEDING AND CURRENT ROW)
         )
         SELECT
             date AS day,
             if(emitted7 > 0, round(failed7 / emitted7 * 100, 1), NULL) AS emit_failure_rate
         FROM rolling
-        WHERE date >= toDate(now()) - 27
+        WHERE date >= toDate(now()) - ${local.pulse_rolling_display_days - 1}
         ORDER BY day ASC
         LIMIT ${local.pulse_emit_health_limit}
       SQL
