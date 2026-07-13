@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -356,23 +356,68 @@ GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
 
 
-def _mcp_token_issued_cache_key(run_id: str) -> str:
-    return f"posthog_ai:task-run-mcp-token-issued:{run_id}"
+def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
+    """Cache scope for the marks describing what a run's sandbox holds.
 
-
-def mark_mcp_token_issued(run_id: str) -> None:
-    """Record that a fresh MCP token was issued to the sandbox for this run.
-
-    The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
-    `should_refresh_mcp_token` returns True again past that window.
+    The freshness and identity marks below describe the state of a *sandbox*,
+    so they key on the sandbox id: a replacement sandbox (fresh provision,
+    snapshot restore, mid-run workflow retry) starts unmarked by construction
+    and therefore falls back to the boot-time default — nothing ever needs
+    clearing. Falls back to the run id for runs that haven't recorded a
+    sandbox id in their state yet.
     """
-    get_tasks_cache().set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    return (state or {}).get("sandbox_id") or run_id
 
 
-def should_refresh_mcp_token(run_id: str) -> bool:
-    """Return True if no MCP token has been issued for this run within the
-    last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
-    return get_tasks_cache().get(_mcp_token_issued_cache_key(run_id)) is None
+def _mcp_token_issued_cache_key(scope: str, user_id: int) -> str:
+    return f"posthog_ai:sandbox-mcp-token-issued:{scope}:{user_id}"
+
+
+def mark_mcp_token_issued(scope: str, user_id: int) -> None:
+    """Record that a fresh MCP token for ``user_id`` was issued to the sandbox.
+
+    ``scope`` comes from ``sandbox_identity_scope``. The entry self-expires
+    after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so ``should_refresh_mcp_token``
+    returns True again past that window.
+    """
+    get_tasks_cache().set(_mcp_token_issued_cache_key(scope, user_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def should_refresh_mcp_token(scope: str, user_id: int) -> bool:
+    """True when no MCP token for ``user_id`` was issued to the sandbox within
+    the last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
+    return get_tasks_cache().get(_mcp_token_issued_cache_key(scope, user_id)) is None
+
+
+# How long the sandbox's session identity is remembered — comfortably past any
+# plausible sandbox lifetime. On eviction the identity is assumed to be the
+# boot-time one (the task creator).
+SANDBOX_IDENTITY_TTL_SECONDS = 7 * 24 * 60 * 60
+
+SandboxIdentityKind = Literal["mcp"]
+
+
+def _sandbox_identity_cache_key(scope: str, kind: SandboxIdentityKind) -> str:
+    return f"posthog_ai:sandbox-{kind}-identity:{scope}"
+
+
+def mark_sandbox_identity(scope: str, kind: SandboxIdentityKind, value: int | str) -> None:
+    """Record which identity the sandbox's live session currently holds.
+
+    ``mcp`` stores the user id the last-pushed OAuth token was minted for.
+    The run-state actor (``get_task_run_credential_user``) says who *should*
+    be acting; this mark says whose token the session actually has — the gap
+    between the two is an identity transition that must bypass the freshness
+    rate limit. ``scope`` comes from ``sandbox_identity_scope``, so a
+    replacement sandbox starts unmarked.
+    """
+    get_tasks_cache().set(_sandbox_identity_cache_key(scope, kind), value, timeout=SANDBOX_IDENTITY_TTL_SECONDS)
+
+
+def get_last_sandbox_identity(scope: str, kind: SandboxIdentityKind) -> int | str | None:
+    """Return the identity the sandbox session was last bound to for a kind,
+    or None when unknown (never pushed, or the entry was evicted)."""
+    return get_tasks_cache().get(_sandbox_identity_cache_key(scope, kind))
 
 
 @dataclass(frozen=True)

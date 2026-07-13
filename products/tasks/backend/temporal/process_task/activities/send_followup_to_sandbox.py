@@ -27,11 +27,14 @@ from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_d
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
+    get_last_sandbox_identity,
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_slack_interaction_state,
     mark_mcp_token_issued,
+    mark_sandbox_identity,
+    sandbox_identity_scope,
     should_refresh_mcp_token,
 )
 
@@ -216,6 +219,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
 
+def _mark_sandbox_session(scope: str, user_id: int) -> None:
+    """Record whose token the sandbox session now holds and start that user's
+    freshness window."""
+    mark_mcp_token_issued(scope, user_id)
+    mark_sandbox_identity(scope, "mcp", user_id)
+
+
 def _refresh_sandbox_mcp(
     task_run: TaskRun,
     scopes: PosthogMcpScopes,
@@ -226,17 +236,32 @@ def _refresh_sandbox_mcp(
     Best-effort: retries once on failure, then logs and returns. Never raises
     — a failed refresh should not block an otherwise-valid follow-up.
 
-    Skipped entirely if a token was issued for this run within the last
-    MCP_TOKEN_REFRESH_INTERVAL_SECONDS — the in-sandbox token is still fresh.
+    Skipped only when the sandbox's live session already holds a fresh token
+    for *this message's actor*: the freshness window is keyed per
+    (sandbox, user), and an actor transition (the run-state actor differs from
+    the identity last pushed to the sandbox) bypasses the window entirely, so
+    the session rebinds before the new speaker's turn is delivered.
     """
     run_id = str(task_run.id)
-    if not should_refresh_mcp_token(run_id):
-        logger.info("refresh_mcp_skipped_within_interval", run_id=run_id)
-        return
-
     task = task_run.task
+    scope = sandbox_identity_scope(run_id, task_run.state)
     try:
         actor_user = get_task_run_credential_user(task, task_run.state)
+        if actor_user is not None:
+            # Until a refresh records otherwise, the sandbox holds the
+            # boot-time token, which was minted for the task creator.
+            last_identity = get_last_sandbox_identity(scope, "mcp") or task.created_by_id
+            identity_changed = actor_user.id != last_identity
+            if not identity_changed and not should_refresh_mcp_token(scope, actor_user.id):
+                logger.info("refresh_mcp_skipped_within_interval", run_id=run_id, user_id=actor_user.id)
+                return
+            if identity_changed:
+                logger.info(
+                    "refresh_mcp_identity_transition",
+                    run_id=run_id,
+                    previous_user_id=last_identity,
+                    user_id=actor_user.id,
+                )
         access_token = create_oauth_access_token_for_run(task, task_run.state, scopes=scopes)
     except Exception as e:
         logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, error=str(e))
@@ -260,6 +285,10 @@ def _refresh_sandbox_mcp(
             mcp_configs = mcp_configs + user_mcp_configs
 
     if not mcp_configs:
+        # Nothing to push means there is no MCP session to rebind — mark the
+        # window anyway so we don't re-mint a token on every message.
+        if actor_user is not None:
+            _mark_sandbox_session(scope, actor_user.id)
         logger.info("refresh_mcp_skipped_no_configs", run_id=run_id)
         return
 
@@ -272,7 +301,8 @@ def _refresh_sandbox_mcp(
         timeout=REFRESH_TIMEOUT_SECONDS,
     )
     if result.success:
-        mark_mcp_token_issued(run_id)
+        if actor_user is not None:
+            _mark_sandbox_session(scope, actor_user.id)
         logger.info("refresh_mcp_delivered", run_id=run_id, attempts=1)
         return
 
@@ -290,7 +320,8 @@ def _refresh_sandbox_mcp(
         timeout=REFRESH_TIMEOUT_SECONDS,
     )
     if retry.success:
-        mark_mcp_token_issued(run_id)
+        if actor_user is not None:
+            _mark_sandbox_session(scope, actor_user.id)
         logger.info("refresh_mcp_delivered", run_id=run_id, attempts=2)
         return
 

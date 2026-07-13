@@ -16,19 +16,29 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     _mcp_token_issued_cache_key,
+    _sandbox_identity_cache_key,
     mark_mcp_token_issued,
+    mark_sandbox_identity,
 )
 
 pytestmark = pytest.mark.django_db
 
+_GATE_CACHE_KEYS = [
+    _mcp_token_issued_cache_key("run-1", 42),
+    _mcp_token_issued_cache_key("run-1", 99),
+    _mcp_token_issued_cache_key("sb-2", 42),
+    _sandbox_identity_cache_key("run-1", "mcp"),
+    _sandbox_identity_cache_key("sb-2", "mcp"),
+]
+
 
 @pytest.fixture(autouse=True)
 def _clear_mcp_token_cache():
-    """Ensure each test starts with no recorded token issuances so the
-    refresh gate doesn't carry state between tests."""
-    cache.delete(_mcp_token_issued_cache_key("run-1"))
+    """Ensure each test starts with no recorded token issuances or session
+    identities so the refresh gate doesn't carry state between tests."""
+    cache.delete_many(_GATE_CACHE_KEYS)
     yield
-    cache.delete(_mcp_token_issued_cache_key("run-1"))
+    cache.delete_many(_GATE_CACHE_KEYS)
 
 
 def _make_mcp_config(name: str = "posthog", token: str = "tok") -> McpServerConfig:
@@ -235,15 +245,15 @@ class TestRefreshSandboxMcp:
 
 class TestRefreshIntervalGate:
     """Refreshes within MCP_TOKEN_REFRESH_INTERVAL_SECONDS of a previous
-    successful issuance must be skipped without minting a new token or
-    contacting the sandbox."""
+    successful issuance for the same actor must be skipped without minting a
+    new token or contacting the sandbox."""
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
     )
     def test_skipped_when_token_recently_issued(self, mock_oauth, mock_send_refresh):
-        mark_mcp_token_issued("run-1")
+        mark_mcp_token_issued("run-1", 42)
 
         _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
 
@@ -268,8 +278,10 @@ class TestRefreshIntervalGate:
 
         _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
 
-        # Cache entry now exists → next refresh within the interval is gated.
-        assert cache.get(_mcp_token_issued_cache_key("run-1")) is True
+        # Cache entries now exist → next refresh for this actor within the
+        # interval is gated, and the session identity is recorded.
+        assert cache.get(_mcp_token_issued_cache_key("run-1", 42)) is True
+        assert cache.get(_sandbox_identity_cache_key("run-1", "mcp")) == 42
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
@@ -295,7 +307,7 @@ class TestRefreshIntervalGate:
 
         _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
 
-        assert cache.get(_mcp_token_issued_cache_key("run-1")) is True
+        assert cache.get(_mcp_token_issued_cache_key("run-1", 42)) is True
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
@@ -319,7 +331,96 @@ class TestRefreshIntervalGate:
         _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
 
         # Cache stays empty so the next follow-up retries the dispatch.
-        assert cache.get(_mcp_token_issued_cache_key("run-1")) is None
+        assert cache.get(_mcp_token_issued_cache_key("run-1", 42)) is None
+        assert cache.get(_sandbox_identity_cache_key("run-1", "mcp")) is None
+
+
+def _patch_actor(user_id: int):
+    """Pin the resolved credential user so tests can drive actor transitions
+    without building real run state."""
+    return patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user",
+        return_value=MagicMock(id=user_id),
+    )
+
+
+@patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
+@patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs")
+@patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs")
+@patch(
+    "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+)
+class TestIdentityTransitionGate:
+    """An actor transition (run-state actor differs from the identity last
+    pushed to the sandbox) must bypass the freshness window and rebind the
+    session; the marks are keyed per sandbox so a replacement sandbox starts
+    unmarked."""
+
+    def _arm_success(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
+        mock_oauth.return_value = "fresh-token"
+        mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
+        mock_user_configs.return_value = []
+        mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
+
+    def test_actor_change_bypasses_freshness_window(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
+    ):
+        self._arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
+        # The creator's token is fresh and the session is bound to them…
+        mark_mcp_token_issued("run-1", 42)
+        mark_sandbox_identity("run-1", "mcp", 42)
+
+        # …but the next message comes from a different actor.
+        with _patch_actor(99):
+            _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+
+        mock_send_refresh.assert_called_once()
+        assert cache.get(_sandbox_identity_cache_key("run-1", "mcp")) == 99
+        assert cache.get(_mcp_token_issued_cache_key("run-1", 99)) is True
+
+    def test_switch_back_to_creator_refreshes_despite_fresh_window(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
+    ):
+        self._arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
+        # The creator's window is still warm, but the session was last bound
+        # to another user — the creator speaking again is a transition.
+        mark_mcp_token_issued("run-1", 42)
+        mark_sandbox_identity("run-1", "mcp", 99)
+
+        with _patch_actor(42):
+            _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+
+        mock_send_refresh.assert_called_once()
+        assert cache.get(_sandbox_identity_cache_key("run-1", "mcp")) == 42
+
+    def test_same_actor_within_window_is_skipped(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
+    ):
+        self._arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
+        mark_mcp_token_issued("run-1", 99)
+        mark_sandbox_identity("run-1", "mcp", 99)
+
+        with _patch_actor(99):
+            _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+
+        mock_oauth.assert_not_called()
+        mock_send_refresh.assert_not_called()
+
+    def test_replacement_sandbox_starts_unmarked(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
+    ):
+        self._arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
+        # Marks recorded against the run id (legacy scope) must not gate a run
+        # whose state now points at a concrete sandbox.
+        mark_mcp_token_issued("run-1", 42)
+        mark_sandbox_identity("run-1", "mcp", 42)
+
+        with _patch_actor(42):
+            _refresh_sandbox_mcp(_make_task_run_mock(state={"sandbox_id": "sb-2"}), "read_only", auth_token=None)
+
+        mock_send_refresh.assert_called_once()
+        assert cache.get(_mcp_token_issued_cache_key("sb-2", 42)) is True
+        assert cache.get(_sandbox_identity_cache_key("sb-2", "mcp")) == 42
 
 
 class TestSendFollowupActivityRefreshOrdering:
