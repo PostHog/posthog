@@ -375,7 +375,7 @@ class ActiveRunRef:
     workflow_run_id: str | None
     pending_batches: int
     total_batches: int
-    latest_activity_at: datetime | None
+    latest_activity_at: datetime
 
 
 @dataclass(frozen=True, slots=True)

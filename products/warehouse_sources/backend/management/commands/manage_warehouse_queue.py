@@ -86,7 +86,7 @@ class FailTarget:
     total_batches: int
     # Newest queue activity for queue-visible runs; job creation time for
     # job-only targets (there is no queue activity to measure).
-    last_activity_at: datetime | None
+    last_activity_at: datetime
 
 
 class Command(BaseCommand):
@@ -423,7 +423,7 @@ class Command(BaseCommand):
                 if t.run_uuid
                 else "no queue batches in retention window (job-only)"
             )
-            activity = self._age(t.last_activity_at) + " ago" if t.last_activity_at else "-"
+            activity = self._age(t.last_activity_at) + " ago"
             self.stdout.write(
                 f"  run={t.run_uuid or '-'} job={t.job_id} (status={job_status}) team={t.team_id} "
                 f"schema={t.schema_id or '-'} {queue_note} last_activity={activity} "
@@ -507,7 +507,7 @@ class Command(BaseCommand):
         """Keep targets whose last queue activity (or job creation, for job-only
         targets) is older than ``grace_seconds``. Returns (stuck, skipped_count)."""
         cutoff = datetime.now(UTC) - timedelta(seconds=grace_seconds)
-        stuck = [t for t in targets if t.last_activity_at is not None and t.last_activity_at <= cutoff]
+        stuck = [t for t in targets if t.last_activity_at <= cutoff]
         return stuck, len(targets) - len(stuck)
 
     def _fail_target(
