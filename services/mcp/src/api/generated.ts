@@ -12486,32 +12486,6 @@ export namespace Schemas {
       failing_workflows?: string[];
     }
 
-    /**
-     * * `evaluation` - evaluation
-     * * `definitions` - definitions
-     * * `definitions_no_cohorts` - definitions_no_cohorts
-     */
-    export type CacheEnum = typeof CacheEnum[keyof typeof CacheEnum];
-
-
-    export const CacheEnum = {
-      Evaluation: 'evaluation',
-      Definitions: 'definitions',
-      DefinitionsNoCohorts: 'definitions_no_cohorts',
-    } as const;
-
-    /**
-     * * `evaluation` - evaluation
-     * * `definitions` - definitions
-     */
-    export type CachesEnum = typeof CachesEnum[keyof typeof CachesEnum];
-
-
-    export const CachesEnum = {
-      Evaluation: 'evaluation',
-      Definitions: 'definitions',
-    } as const;
-
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
       value: number;
@@ -14712,6 +14686,17 @@ export namespace Schemas {
       access_secret: string;
     }
 
+    export interface CurrentBranchHealth {
+      /** Detected default branch ('master' or 'main') from runs in the same 24-hour window. */
+      default_branch: string;
+      /** Workflows with at least one completed run in the last 24 hours. */
+      settled_workflows: number;
+      /** Workflows whose latest completed run in the last 24 hours failed or timed out. */
+      failing_workflows: number;
+      /** Alphabetical preview of failing workflow names, capped at 20; use failing_workflows for the complete count. */
+      failing_workflow_names: string[];
+    }
+
     export interface CurrentMapping {
       /** A utm_source value already mapped to an integration */
       raw_utm_source: string;
@@ -15600,6 +15585,92 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * Normalized envelope returned by the metric-run endpoint.
+     */
+    export interface DataCatalogMetricRun {
+      /** Lifecycle state of the metric that produced these results. */
+      status: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). Only status 'approved' with is_drifted false is canonical. */
+      is_drifted: boolean;
+      /**
+         * Unit of the result, e.g. usd, percent.
+         * @nullable
+         */
+      unit: string | null;
+      /**
+         * Query kind that was executed.
+         * @nullable
+         */
+      kind: string | null;
+      /** The query results, for an executable metric. Null for a markdown metric. */
+      results: unknown;
+      /**
+         * The compiled HogQL, when available.
+         * @nullable
+         */
+      compiled_query: string | null;
+      /** Async query status, when the run is not blocking. */
+      query_status: unknown;
+      /**
+         * Deep link to open the query in the app (SQL editor or insight).
+         * @nullable
+         */
+      posthog_url: string | null;
+      /**
+         * For a markdown (agent-calculated) metric, the steps to follow to compute it. Null for an executable metric.
+         * @nullable
+         */
+      instructions: string | null;
+    }
+
+    /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type DataCatalogMetricRunRequestIntervalEnum = typeof DataCatalogMetricRunRequestIntervalEnum[keyof typeof DataCatalogMetricRunRequestIntervalEnum];
+
+
+    export const DataCatalogMetricRunRequestIntervalEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    /**
+     * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
+     */
+    export interface DataCatalogMetricRunRequest {
+      /** Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL. */
+      date_from?: string;
+      /** Override the end of the query window. */
+      date_to?: string;
+      /** Override the bucket interval. Rejected for HogQLQuery metrics.
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `hour` - hour
+       * * `day` - day
+       * * `week` - week
+       * * `month` - month
+       * * `quarter` - quarter
+       * * `year` - year */
+      interval?: DataCatalogMetricRunRequestIntervalEnum;
+      /** Client-supplied id to correlate or cancel the run. */
+      query_id?: string;
     }
 
     export interface DataColorTheme {
@@ -55854,6 +55925,18 @@ export namespace Schemas {
     export type StaffCacheEntryResponseData = { [key: string]: unknown } | null;
 
     /**
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     */
+    export type StaffCacheKindEnum = typeof StaffCacheKindEnum[keyof typeof StaffCacheKindEnum];
+
+
+    export const StaffCacheKindEnum = {
+      Evaluation: 'evaluation',
+      Definitions: 'definitions',
+    } as const;
+
+    /**
      * * `redis` - redis
      * * `miss` - miss
      */
@@ -55871,9 +55954,8 @@ export namespace Schemas {
       /** Which cache this entry is for.
        *
        * * `evaluation` - evaluation
-       * * `definitions` - definitions
-       * * `definitions_no_cohorts` - definitions_no_cohorts */
-      cache: CacheEnum;
+       * * `definitions` - definitions */
+      cache: StaffCacheKindEnum;
       /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
        *
        * * `redis` - redis
@@ -55906,7 +55988,7 @@ export namespace Schemas {
          */
       team_ids: number[];
       /** Which logical caches to act on: 'evaluation' (the /flags cache) and/or 'definitions' (the /flags/definitions local-eval cache). Defaults to both. */
-      caches?: CachesEnum[];
+      caches?: StaffCacheKindEnum[];
     }
 
     export interface StaffCacheMutationResponse {
@@ -55921,10 +56003,8 @@ export namespace Schemas {
       team_id: number;
       /** Status of the /flags evaluation cache. */
       evaluation: StaffCacheEntryStatus;
-      /** Status of the /flags/definitions local-eval cache (with-cohorts variant). */
+      /** Status of the /flags/definitions local-eval cache. */
       definitions: StaffCacheEntryStatus;
-      /** Status of the /flags/definitions local-eval cache (without-cohorts variant, cohort filters transformed to properties for simple SDK clients). */
-      definitions_no_cohorts: StaffCacheEntryStatus;
     }
 
     export interface StaffCacheStatusResponse {
@@ -65782,11 +65862,10 @@ export namespace Schemas {
 
     export type FeatureFlagsStaffCacheEntryRetrieveParams = {
     /**
-     * Which cache to fetch: 'evaluation' (the /flags cache), 'definitions' (the /flags/definitions local-eval cache, with-cohorts variant), or 'definitions_no_cohorts' (the without-cohorts variant served to simple SDK clients).
+     * Which cache to fetch: 'evaluation' (the /flags cache) or 'definitions' (the /flags/definitions local-eval cache).
      *
      * * `evaluation` - evaluation
      * * `definitions` - definitions
-     * * `definitions_no_cohorts` - definitions_no_cohorts
      * @minLength 1
      */
     cache: FeatureFlagsStaffCacheEntryRetrieveCache;
@@ -65802,7 +65881,6 @@ export namespace Schemas {
     export const FeatureFlagsStaffCacheEntryRetrieveCache = {
       Evaluation: 'evaluation',
       Definitions: 'definitions',
-      DefinitionsNoCohorts: 'definitions_no_cohorts',
     } as const;
 
     export type FeatureFlagsStaffTeamConfigListParams = {
@@ -67998,6 +68076,33 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DataCatalogMetricsRunCreateParams = {
+    /**
+     * Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.
+     *
+     * * `blocking` - blocking
+     * * `async` - async
+     * * `lazy_async` - lazy_async
+     * * `force_blocking` - force_blocking
+     * * `force_async` - force_async
+     * * `force_cache` - force_cache
+     * @minLength 1
+     */
+    refresh?: DataCatalogMetricsRunCreateRefresh;
+    };
+
+    export type DataCatalogMetricsRunCreateRefresh = typeof DataCatalogMetricsRunCreateRefresh[keyof typeof DataCatalogMetricsRunCreateRefresh];
+
+
+    export const DataCatalogMetricsRunCreateRefresh = {
+      Blocking: 'blocking',
+      Async: 'async',
+      LazyAsync: 'lazy_async',
+      ForceBlocking: 'force_blocking',
+      ForceAsync: 'force_async',
+      ForceCache: 'force_cache',
+    } as const;
+
     export type DataColorThemesListParams = {
     /**
      * Number of results to return per page.
@@ -68329,6 +68434,13 @@ export namespace Schemas {
      * 'owner/name' repository the pull request belongs to.
      */
     repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsCurrentBranchHealthParams = {
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

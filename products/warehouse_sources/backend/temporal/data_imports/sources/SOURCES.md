@@ -344,6 +344,7 @@ the row lists both.
 | salesflare              | HTTP                        | requests                                                        | ✅                          |
 | salesloft               | HTTP                        | requests                                                        | ✅                          |
 | savvycal                | HTTP                        | requests                                                        | ✅                          |
+| scale_ai                | HTTP                        | requests                                                        | ✅                          |
 | scaleway                | HTTP                        | requests                                                        | ✅                          |
 | secoda                  | HTTP                        | requests                                                        | ✅                          |
 | segment                 | HTTP                        | requests                                                        | ✅                          |
@@ -399,6 +400,7 @@ the row lists both.
 | typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                 | HTTP                        | requests                                                        | ✅                          |
 | unleash                 | HTTP                        | requests                                                        | ✅                          |
+| vellum                  | HTTP                        | requests                                                        | ✅                          |
 | vercel                  | HTTP                        | requests                                                        | ✅                          |
 | vitally                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                 | HTTP                        | requests                                                        | ✅                          |
@@ -762,6 +764,7 @@ doesn't conflict with concurrent PRs.
 - sap_successfactors
 - savvycal
 - scale_ai
+- scaleway
 - search_ads_360
 - sendpulse
 - senseforce
@@ -838,7 +841,6 @@ doesn't conflict with concurrent PRs.
 - vantage
 - vapi
 - veeqo
-- vellum
 - vespa
 - visma_economic
 - vultr
