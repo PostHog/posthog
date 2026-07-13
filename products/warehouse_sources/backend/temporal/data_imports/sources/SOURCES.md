@@ -137,6 +137,7 @@ the row lists both.
 | deel                    | HTTP                        | requests                                                        | ✅                          |
 | deepgram                | HTTP                        | requests                                                        | ✅                          |
 | delighted               | HTTP                        | requests                                                        | ✅                          |
+| deno_deploy             | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                | HTTP                        | requests                                                        | ✅                          |
 | ding_connect            | HTTP                        | requests                                                        | ✅                          |
 | dixa                    | HTTP                        | requests                                                        | ✅                          |

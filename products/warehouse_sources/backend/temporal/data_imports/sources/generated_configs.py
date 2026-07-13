@@ -1039,7 +1039,7 @@ class DelightedSourceConfig(config.Config):
 
 @config.config
 class DenoDeploySourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
