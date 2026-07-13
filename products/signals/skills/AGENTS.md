@@ -188,6 +188,20 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   prioritizes issues an agent can resolve via the MCP over credential-gated ones.
   Its discriminator is kind-concentration × severity × agent-fixability ×
   persistence, not raw firing count.
+- `signals-scout-ingestion-warnings/` — root-cause watcher for the ingestion
+  warnings stream: events and person/group updates dropped, mangled, or partially
+  rejected at ingestion, read via the `ingestion-warnings-list` MCP tool. Watches
+  for new warning types, bursts above a type's own baseline, and error-severity
+  clusters with broad reach. Warning counts are debounced by the producers
+  (some types bypass the debounce and record every occurrence), so it weights
+  by reach — distinct affected IDs — not raw count; its discriminator is
+  severity-weighted data loss × reach ×
+  novelty against the type's own baseline (`error` = dropped, `warning` =
+  ingested-but-modified, `info` = intentional). On the **report channel**
+  (`emit_report` / `edit_report`): files one report per actionable root cause —
+  which may span several warning types — with the dated onset, reach, and the
+  fix. Triage of `ingestion_warning` _health issues_ stays with the health-checks
+  scout; this scout owns the stream depth the deterministic check can't reach.
 - `signals-scout-inbox-validation/` — follow-up watcher for the inbox itself.
   Watches reports that recently transitioned to `resolved` (implementation PR
   merged), waits out a deployment soak window, then re-probes the entities the
@@ -256,9 +270,12 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   fields the project captures (they split by regime — PostHog's own hono server vs
   external SDK servers) and picks lenses to match, resting detection only on always-present
   fields (error flag, duration, tool name, session). On the **report channel**
-  (`emit_report` / `edit_report`): files one report per tool carrying the fix hypothesis,
-  editing the live report when the problem persists; bundles `references/queries.md`, a
-  HogQL cookbook validated against real telemetry.
+  (`emit_report` / `edit_report`): files one report per problem category
+  (`$mcp_tool_category`, the owning product team) listing that category's problem tools
+  each with a fix hypothesis, editing the live category report while the category still
+  has problem tools; falls back to one report per tool where category coverage is absent
+  (external-SDK regime); bundles `references/queries.md`, a HogQL cookbook validated
+  against real telemetry.
 
 ### How the coordinator decides what runs
 

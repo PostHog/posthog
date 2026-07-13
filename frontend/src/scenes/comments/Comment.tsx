@@ -9,6 +9,7 @@ import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Toolti
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -19,7 +20,6 @@ import {
 } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { CommentType } from '~/types'
 
 import { CommentWithRepliesType, commentsLogic } from './commentsLogic'

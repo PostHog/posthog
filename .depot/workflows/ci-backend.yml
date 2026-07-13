@@ -16,10 +16,11 @@
 #   auto-commit (handle-snapshots), posthog-github-action telemetry,
 #   --store-durations write, test-selection verdict, Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
-#   external Trunk service and gate the job on the quarantine list; the shadow
-#   strips them — no Trunk posting from a non-blocking timing trial — and so also
-#   omits the test steps' continue-on-error and the fork/no-gate failure
-#   fallbacks that exist only to hand the pass/fail verdict to that gate)
+#   external Trunk service; the upload is best-effort and a local "Fail on test
+#   failure" step owns the pass/fail verdict. The shadow strips all of it — no
+#   Trunk posting from a non-blocking timing trial — and so also omits the test
+#   steps' continue-on-error and that verdict step, letting each shard's test
+#   exit code be the verdict directly)
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
@@ -166,7 +167,7 @@ jobs:
                       echo "::notice::Optional Backend CI: PR sampled OUT (bucket $bucket >= ${PERCENT}%) — skipped."
                   fi
     # Job to decide if we should run backend ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped
         # at percent 0/unset), which cascades the whole workflow off.
@@ -795,7 +796,17 @@ jobs:
                       --reuse-db
                       --durations-path ../../.test_durations
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
-              run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+              run: |
+                  set +e
+                  pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+                  exit_code=$?
+                  set -e
+                  if [ $exit_code -eq 5 ]; then
+                      echo "No tests collected for this shard, this is expected when splitting tests"
+                      exit 0
+                  else
+                      exit $exit_code
+                  fi
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
     repo-checks:
@@ -1560,9 +1571,9 @@ jobs:
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
-                      # No --splits/--group (no sharding), and no --reruns in selected mode. The full
-                      # run keeps a reduced --reruns 1 cold-start net, mirroring canonical (which runs
-                      # it until Trunk's quarantine list matures; the shadow strips the gate itself).
+                      # No --splits/--group (no sharding), and no --reruns anywhere, mirroring
+                      # canonical: retries mask the raw flake signal Trunk needs (the shadow
+                      # strips the quarantine gate itself).
                       if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
@@ -1593,7 +1604,6 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
-                        --reruns 1 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
                         $PYTEST_ARGS
@@ -1662,7 +1672,7 @@ jobs:
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --reruns — see the core selected branch;
-                      # the full run keeps a reduced --reruns 1 cold-start net mirroring canonical.
+                      # the full run also skips --reruns, mirroring canonical.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
@@ -1684,7 +1694,6 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
-                          --reruns 1 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS

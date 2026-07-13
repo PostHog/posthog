@@ -1,4 +1,79 @@
 {
+    "account-relationship-definitions-create": {
+        "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create account relationship definition",
+        "title": "Create account relationship definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "account-relationship-definitions-destroy": {
+        "description": "Permanently delete a Customer Analytics account relationship definition by id. This also deletes every assignment of the relationship — active and historical — across all accounts. To stop a single account's assignment instead, use `accounts-relationships-end-create`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete account relationship definition",
+        "title": "Delete account relationship definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "account-relationship-definitions-list": {
+        "description": "List Customer Analytics account relationship definitions for the project. A definition is a team-defined relationship type between a PostHog user and an account (e.g. CSM, Onboarding manager) with a `name`, optional `description`, and `is_single_holder` flag (whether only one user can hold it per account at a time). Definitions are team-scoped and shared across all accounts; the users assigned to a specific account are managed via the account relationship tools. To query definitions in bulk, HogQL `system.account_relationship_definitions` covers the same data.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account relationship definitions",
+        "title": "List account relationship definitions",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "account-relationship-definitions-partial-update": {
+        "description": "Update fields on an existing Customer Analytics account relationship definition. Accepts a subset of fields; unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the team), `description`, and `is_single_holder`. Changing `is_single_holder` does not end existing assignments; it only affects future assigns.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update account relationship definition",
+        "title": "Update account relationship definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "account-relationship-definitions-retrieve": {
+        "description": "Fetch a single Customer Analytics account relationship definition by id. Returns its `name`, optional `description`, and `is_single_holder` flag. A definition is a team-defined relationship type between a PostHog user and an account; the users holding it on a specific account are managed via the account relationship tools.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get account relationship definition",
+        "title": "Get account relationship definition",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "accounts-create": {
         "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account.",
         "category": "Customer analytics",
@@ -146,6 +221,51 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-relationships-create": {
+        "description": "Assign a PostHog user to a relationship on a Customer Analytics account. Pass `definition` (the relationship definition UUID — list or create with the account relationship definition tools) and `user` (the numeric PostHog user id, which must be a member of the account's organization; resolve an email to an id via `org-members-list`). If the user already actively holds the relationship on this account, the existing assignment is returned unchanged. For single-holder definitions, assigning a new user automatically ends the current holder's assignment.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Assign account relationship",
+        "title": "Assign account relationship",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-relationships-end-create": {
+        "description": "End an active relationship assignment on a Customer Analytics account by the assignment `id` (from `accounts-relationships-list`). The assignment is closed by setting `ended_at`, not deleted — it remains visible in the account's history via `accounts-relationships-list` with `include_history`. Returns 404 if the assignment does not exist or has already ended.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "End account relationship",
+        "title": "End account relationship",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-relationships-list": {
+        "description": "List the relationship assignments of a single Customer Analytics account — which PostHog users hold which relationship (CSM, Onboarding manager, ...) on it. Each result includes the assignment `id`, the relationship `definition`, the assigned `user` ({id, email}; null when the user was deleted), `started_at`, and `ended_at` (null while active). By default only active assignments are returned; pass `include_history: true` for the full timeline including ended ones. To query assignments across all accounts in bulk, HogQL `system.account_relationships` covers the same data.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account relationships",
+        "title": "List account relationships",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "customer-analytics-csp"
     },
@@ -5933,6 +6053,21 @@
         },
         "feature_flag": "logs-patterns-view"
     },
+    "logs-patterns-diff": {
+        "description": "Compare the log patterns of two time windows and return what changed: templates that are **new**, templates whose rate **shifted** (with magnitude, e.g. 4x), and templates that are **gone**. This is the single most useful call for incident triage — \"what is different about now vs. before it broke\" in one round trip, instead of mining two windows yourself and hand-matching templates.\n\nAll parameters must be nested inside a `query` object, with an optional sibling `baselineDateRange`.\n\n# When to use\n\n- **Incident triage (the primary loop):** set `query.dateRange` to the incident window. Omit `baselineDateRange` (defaults to the same window one week earlier) or set it to a known-good window just before the incident. The `new` and biggest `rate_shift` entries are your suspects; pivot to their raw lines with `query-logs`.\n- **Post-deploy check:** current window = since the deploy; `baselineDateRange` = the same-length window just before it. New error-severity templates right after a deploy are the classic regression signature.\n- **\"What changed this week?\"** — current = `-1d`, baseline auto. Good periodic sweep for a service you own.\n\n## Pick the right tool\n\n- Just summarize one window's content → `logs-patterns`.\n- Explain a _count_ change without needing message content → `logs-count-ranges` (cheaper).\n- Use **this** tool when you need to know _which messages_ are new or behaving differently between two periods.\n\n# Reading the response\n\nEntries come sorted most-interesting-first: `new` (by volume), then `rate_shift` (by magnitude), then `gone`, then `unchanged`.\n\n- `classification` — trust the labels; the thresholds already handle sampling honesty:\n  - `new` requires clearing a novelty floor (~1% volume share, or any error/fatal lines). Below the floor, absence from the baseline sample is not evidence of novelty.\n  - `rate_shift` requires ≥2x change in per-second rate (windows of different lengths are normalized) _and_ enough raw samples on both sides.\n  - `unchanged` means \"no confident claim\", not \"provably identical\".\n- `rate_ratio` — current rate / baseline rate. 4.0 = 4x faster now, 0.25 = quartered.\n- `pattern` — full pattern stats including `match_regex` / `match_literal`, so you can pivot straight to the matching lines (same recipe as `logs-patterns`: message regex filter + the pattern's services/severities).\n- **Check `baseline.total_count` before trusting a wall of `new` entries** — an empty or tiny baseline (logging only started recently, service didn't exist last week) makes everything look new.\n- Both windows are mined from samples (`sampled: true`), so counts are estimates and templates rarer than ~1 in 10,000 rows may be invisible in either window.\n\nTemplate identity across the two windows is fingerprint-based (literal content), so the miner rendering `User <*> not found` in one window and `User <num> not found` in the other still compares as one pattern rather than a false new+gone pair.\n\n# Parameters\n\n## query.dateRange\n\nThe current (foreground) window — the period you are investigating. Same format as `logs-patterns`.\n\n## baselineDateRange\n\nOptional, sibling of `query` (not inside it). The comparison window. Omit for the default: the current window shifted back exactly one week, which absorbs daily/weekly volume cycles. Provide explicitly to compare against a pre-deploy or pre-incident period. It does not need to be the same length as the current window — rates are normalized per second.\n\n## query.severityLevels / query.serviceNames / query.searchTerm / query.filterGroup\n\nSame as `logs-patterns`; applied to **both** windows. Scoping by service is recommended — it prunes both scans and focuses the sample budget.\n\n# Examples\n\n## What changed during the incident vs. just before it\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"2026-07-07T09:30:00Z\", \"date_to\": \"2026-07-07T10:30:00Z\" },\n    \"serviceNames\": [\"checkout\"]\n  },\n  \"baselineDateRange\": { \"date_from\": \"2026-07-07T08:00:00Z\", \"date_to\": \"2026-07-07T09:00:00Z\" }\n}\n```\n\n## What is new or different today vs. the same time last week\n\n```json\n{ \"query\": { \"dateRange\": { \"date_from\": \"-1d\" } } }\n```\n\n## Did the deploy change what the service logs?\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"2026-07-07T14:00:00Z\" },\n    \"serviceNames\": [\"api\"]\n  },\n  \"baselineDateRange\": { \"date_from\": \"2026-07-07T10:00:00Z\", \"date_to\": \"2026-07-07T14:00:00Z\" }\n}\n```",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Diff log patterns between two windows",
+        "title": "Diff log patterns between two windows",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-patterns-view"
+    },
     "logs-services-create": {
         "description": "Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate, plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking attribute-values + per-service counts.",
         "category": "Logs",
@@ -8897,7 +9032,7 @@
         "feature_flag": "replay-vision"
     },
     "vision-quota-retrieve": {
-        "description": "Get the organization's monthly Replay Vision observation budget. Returns `monthly_quota`, `usage_this_month` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, and the `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session` — observations requested over quota are silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining budget.",
+        "description": "Get the organization's monthly Replay vision credit budget (1 credit = $0.01; observations cost credits by model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, `projected_monthly_credits`, and the `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session` — observations requested over budget are silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining budget.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Get replay vision quota",

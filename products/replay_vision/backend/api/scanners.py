@@ -32,10 +32,14 @@ from products.replay_vision.backend.api.filters import (
 from products.replay_vision.backend.api.trigger import (
     WorkflowStartOutcome,
     check_observation_quota,
+    check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import provision_scanner_digest
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
+from products.replay_vision.backend.feedback_themes import cached_feedback_themes
+from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     SamplingMode,
@@ -51,7 +55,7 @@ from products.replay_vision.backend.queries import (
     project_monthly_observations,
     refresh_scanner_estimate,
 )
-from products.replay_vision.backend.quota import sum_enabled_scanner_estimates
+from products.replay_vision.backend.quota import sum_enabled_scanner_estimated_credits
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
@@ -122,6 +126,35 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
     if unknown:
         return f"Unknown scanner configuration keys: {', '.join(sorted(unknown))}."
     return None
+
+
+class FeedbackThemeSessionSerializer(serializers.Serializer):
+    observation_id = serializers.CharField(help_text="Observation whose feedback comment backs this theme.")
+    session_id = serializers.CharField(help_text="Session recording the feedback comment was about.")
+
+
+class FeedbackThemeSerializer(serializers.Serializer):
+    theme = serializers.CharField(
+        help_text='Short failure mode in sentence case, for example "Review page mistaken for confirmation".'
+    )
+    count = serializers.IntegerField(help_text="How many feedback comments describe this failure mode.")
+    examples = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Up to two short representative quotes from the feedback comments.",
+    )
+    sessions = FeedbackThemeSessionSerializer(
+        many=True,
+        help_text="The rated sessions whose feedback comments back this theme. Empty for summaries generated "
+        "before session tracking.",
+    )
+
+
+class FeedbackThemesSerializer(serializers.Serializer):
+    themes = FeedbackThemeSerializer(many=True, help_text="Recurring failure modes, most frequent first.")
+    feedback_count = serializers.IntegerField(
+        help_text="Number of thumbs-down feedback comments the summary was generated from."
+    )
+    generated_at = serializers.DateTimeField(help_text="When the summary was generated.")
 
 
 class ReplayScannerSerializer(serializers.ModelSerializer):
@@ -196,6 +229,12 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Latest projected observations/month for this scanner. Null until first computed.",
     )
+    credits_per_observation = serializers.SerializerMethodField(
+        help_text="Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`.",
+    )
+    estimated_monthly_credits = serializers.SerializerMethodField(
+        help_text="`estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.",
+    )
     last_swept_at = serializers.DateTimeField(
         read_only=True,
         help_text="Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
@@ -205,6 +244,23 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="User who created the scanner.",
     )
+    feedback_themes = serializers.SerializerMethodField(
+        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes. "
+        "Refreshed with prompt recommendations; null until enough feedback accumulates."
+    )
+
+    @extend_schema_field(FeedbackThemesSerializer(allow_null=True))
+    def get_feedback_themes(self, scanner: ReplayScanner) -> dict[str, Any] | None:
+        cached = cached_feedback_themes(scanner)
+        if not cached:
+            return None
+        # The staleness fingerprint is internal bookkeeping, not API surface.
+        return {
+            # Summaries cached before session tracking lack the key, so default it to keep the shape stable.
+            "themes": [{**theme, "sessions": theme.get("sessions") or []} for theme in cached.get("themes") or []],
+            "feedback_count": cached.get("feedback_count", 0),
+            "generated_at": cached.get("generated_at"),
+        }
 
     class Meta:
         model = ReplayScanner
@@ -223,20 +279,36 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "emits_signals",
             "scanner_version",
             "estimated_monthly_observations",
+            "credits_per_observation",
+            "estimated_monthly_credits",
             "last_swept_at",
             "created_at",
             "created_by",
             "updated_at",
+            "feedback_themes",
         ]
         read_only_fields = [
             "id",
             "scanner_version",
             "estimated_monthly_observations",
+            "credits_per_observation",
+            "estimated_monthly_credits",
             "last_swept_at",
             "created_at",
             "created_by",
             "updated_at",
+            "feedback_themes",
         ]
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_credits_per_observation(self, scanner: ReplayScanner) -> int:
+        return observation_credits_for_model(scanner.model)
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
+        if scanner.estimated_monthly_observations is None:
+            return None
+        return scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Surface the (team_id, name) uniqueness as a 400 instead of letting the DB raise 500.
@@ -489,9 +561,15 @@ class EstimateRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't "
-            "double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+            "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate "
+            "isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
         ),
+    )
+    model = serializers.ChoiceField(
+        choices=ScannerModel.choices,
+        required=False,
+        default=ScannerModel.GEMINI_3_FLASH,
+        help_text="Proposed model; determines `credits_per_observation` in the response.",
     )
 
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
@@ -541,7 +619,7 @@ class ScannerCreatorsResponseSerializer(serializers.Serializer):
 
 
 class EstimateResponseSerializer(serializers.Serializer):
-    """Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic."""
+    """Forward-looking volume and credit-cost estimate for a proposed scanner."""
 
     matched_sessions_in_window = serializers.IntegerField(
         help_text=(
@@ -559,11 +637,17 @@ class EstimateResponseSerializer(serializers.Serializer):
             "Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate."
         ),
     )
-    other_enabled_scanners_monthly = serializers.IntegerField(
+    credits_per_observation = serializers.IntegerField(
+        help_text="Credits one observation costs at the proposed `model` (1 credit = $0.01).",
+    )
+    estimated_credits_per_month = serializers.IntegerField(
+        help_text="`estimated_observations_per_month` priced at `credits_per_observation`.",
+    )
+    other_enabled_scanners_monthly_credits = serializers.IntegerField(
         help_text=(
-            "Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from "
-            "their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count "
-            "the edited scanner."
+            "Credit-weighted projected monthly spend of the org's other enabled scanners (excluding `scanner_id`), "
+            "from their cached estimates. Read from the same snapshot as this estimate so the forecast can't "
+            "double-count the edited scanner."
         ),
     )
     sampling_rate = serializers.FloatField(
@@ -733,14 +817,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
 
-        check_observation_quota(self.team.organization_id)
+        check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        check_team_in_flight_capacity(self.team.id)
 
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         session_id: str = body.validated_data["session_id"]
         user = cast(User, request.user)
 
-        workflow_id, outcome = start_apply_scanner_workflow(scanner, session_id, triggered_by_user_id=user.id)
+        workflow_id, outcome = start_apply_scanner_workflow(
+            scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
+        )
         if outcome is WorkflowStartOutcome.FAILED:
             return Response(
                 {"error": "Failed to start observation workflow"},
@@ -787,10 +874,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team=self.team, query=recordings_query, sampling_mode=body.validated_data["sampling_mode"]
         )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
+        credits_per_observation = observation_credits_for_model(body.validated_data["model"])
 
         # The OTHER enabled scanners' projected total (same source as the quota snapshot), so the editor adds this
         # estimate on top of a consistent snapshot instead of subtracting a possibly-stale per-scanner field.
-        other_enabled_scanners_monthly = sum_enabled_scanner_estimates(
+        other_enabled_scanners_monthly_credits = sum_enabled_scanner_estimated_credits(
             self.team.organization_id, exclude_scanner_id=scanner_id
         )
 
@@ -800,7 +888,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "matched_sessions_in_window": estimate.matched_sessions,
                     "window_days": estimate.effective_window_days,
                     "estimated_observations_per_month": observations_per_month,
-                    "other_enabled_scanners_monthly": other_enabled_scanners_monthly,
+                    "credits_per_observation": credits_per_observation,
+                    "estimated_credits_per_month": observations_per_month * credits_per_observation,
+                    "other_enabled_scanners_monthly_credits": other_enabled_scanners_monthly_credits,
                     "sampling_rate": sampling_rate,
                 }
             ).data

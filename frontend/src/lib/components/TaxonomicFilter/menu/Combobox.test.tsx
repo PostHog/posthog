@@ -60,6 +60,7 @@ function renderAll(options: {
     pinnedEntries?: any[]
     searchQuery?: string
     onCommit?: any
+    eventNames?: string[]
 }): ReturnType<typeof render> {
     return render(
         <Provider>
@@ -67,6 +68,7 @@ function renderAll(options: {
                 taxonomicGroupTypes={options.groupTypes}
                 onChange={jest.fn()}
                 searchQuery={options.searchQuery ?? ''}
+                eventNames={options.eventNames}
             >
                 <MenuFilterCombobox
                     drillTo="all"
@@ -432,6 +434,37 @@ describe('MenuFilterCombobox', () => {
         const recentIdx = rows.findIndex((t) => t.includes('my_recent_event'))
         const contentIdx = rows.findIndex((t) => t.includes('autocapture'))
         expect(contentIdx).toBeGreaterThan(recentIdx)
+    })
+
+    it("promotes the context event's primary property after recents, above the content rows", async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            eventNames: ['$mcp_tool_call'],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'my_recent_event', 'Events')],
+        })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
+        const rows = rowTexts()
+        expect(rows[0]).toContain('my_recent_event')
+        expect(rows[1]).toContain('MCP tool name')
+        const contentIdx = rows.findIndex((t) => t.includes('autocapture'))
+        expect(contentIdx).toBeGreaterThan(1)
+    })
+
+    it('shows a promoted property that is also a recent only once, under recents', async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            eventNames: ['$mcp_tool_call'],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, '$mcp_tool_name', 'Event properties')],
+        })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
+        const promotedRows = rowTexts().filter((t) => t.includes('MCP tool name') || t.includes('$mcp_tool_name'))
+        expect(promotedRows).toHaveLength(1)
     })
 
     it('shows a recent that is also in the catalog only once (deduped from content)', async () => {

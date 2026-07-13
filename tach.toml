@@ -98,6 +98,7 @@ depends_on = [
     "products.logs",
     "products.marketing_analytics",
     "products.messaging",
+    "products.metrics",
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",

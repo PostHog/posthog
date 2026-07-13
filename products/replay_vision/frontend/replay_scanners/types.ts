@@ -5,10 +5,13 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type {
     PatchedReplayScannerApi,
+    ReplayObservationApi,
     ReplayScannerApi,
     ScannerTypeEnumApi,
     UserBasicApi,
+    VisionObservationsRetrieveParams,
 } from '../generated/api.schemas'
+import { formatCredits } from '../utils/credits'
 
 export type ScannerType = ScannerTypeEnumApi
 
@@ -18,6 +21,27 @@ export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
     scorer: 'warning',
     summarizer: 'success',
 }
+
+export const OBSERVATION_TRIGGER_TAG: Record<
+    ReplayObservationApi['triggered_by'],
+    { label: string; type: LemonTagType }
+> = {
+    schedule: { label: 'Schedule', type: 'default' },
+    on_demand: { label: 'On demand', type: 'highlight' },
+    retry: { label: 'Retry', type: 'completion' },
+}
+
+// Typed against the generated retrieve params so a renamed or dropped backend filter fails the build.
+export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRetrieveParams)[] = [
+    'status',
+    'triggered_by',
+    'verdict',
+    'tags',
+    'session_id',
+    'recording_subject',
+    'labeled',
+    'order_by',
+]
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
@@ -116,10 +140,26 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
     { value: 'disabled', label: 'Disabled' },
 ]
 
-export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = [
-    { value: ScannerModelEnumApi.Gemini3FlashPreview, label: 'Gemini 3 Flash' },
-    { value: ScannerModelEnumApi.Gemini31FlashLitePreview, label: 'Gemini 3 Flash Lite' },
-]
+// Mirrors the backend `OBSERVATION_CREDITS_BY_MODEL` table (the scanner/estimate API responses are authoritative);
+// the picker needs a price per model before anything is saved, so it can't come from a per-instance response.
+export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
+    [ScannerModelEnumApi.Gemini25Flash]: 2,
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 5,
+    [ScannerModelEnumApi.Gemini35Flash]: 15,
+}
+
+const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
+    [ScannerModelEnumApi.Gemini25Flash]: 'Gemini 2.5 Flash',
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash',
+    [ScannerModelEnumApi.Gemini35Flash]: 'Gemini 3.5 Flash',
+}
+
+export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
+    (value) => ({
+        value,
+        label: `${MODEL_NAMES[value]} (${formatCredits(OBSERVATION_CREDITS_BY_MODEL[value])}/observation)`,
+    })
+)
 
 export function modelLabel(model: string | null | undefined): string {
     if (!model) {
