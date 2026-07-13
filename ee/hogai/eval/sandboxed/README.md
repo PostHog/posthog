@@ -107,6 +107,9 @@ The per-case timeout starts when the slot is acquired, so a case queued behind t
 
 ## Adding an eval suite
 
+The `/writing-sandboxed-evals` skill ([.agents/skills/writing-sandboxed-evals](../../../../.agents/skills/writing-sandboxed-evals/SKILL.md)) covers the full authoring workflow — cases, seeders, synthesizers, scorer patterns, and verification.
+The short version:
+
 There is no registry. Suites are discovered by convention:
 
 1. Create `ee/hogai/eval/sandboxed/<domain>/eval_<name>.py`. The directory becomes the suite's domain.
