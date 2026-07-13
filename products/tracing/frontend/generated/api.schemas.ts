@@ -156,6 +156,29 @@ export interface _TracingAttributeBreakdownRequestApi {
     query: _TracingAttributeBreakdownQueryBodyApi
 }
 
+export interface _TracingAttributeBreakdownRowApi {
+    /** The attribute's value for this group. Spans without the attribute group under ''. */
+    value: string
+    /** Number of matching spans with this value. */
+    count: number
+    /** Number of matching error spans (status_code = 2). */
+    error_count: number
+    /** Median span duration in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th percentile span duration in nanoseconds. */
+    p95_duration_nano: number
+}
+
+export interface _TracingAttributeBreakdownResponseApi {
+    /** One row per distinct attribute value, ordered by the requested column descending. */
+    results: _TracingAttributeBreakdownRowApi[]
+    /**
+     * Rows for the comparison window when compareFilter.compare is true, else null.
+     * @nullable
+     */
+    compare: _TracingAttributeBreakdownRowApi[] | null
+}
+
 /**
  * * `key` - key
  * * `value` - value

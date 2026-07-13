@@ -334,7 +334,13 @@ export function createExecTool(
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
                     const tool = findTool(allTools, infoArgs)
-                    const fullSchema = stripOutputFormatProperty(z.toJSONSchema(tool.schema) as Record<string, unknown>)
+                    // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
+                    // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
+                    // are optional and auto-filled. The default `io: 'output'` would list them as
+                    // required, misrepresenting them as mandatory input the caller must supply.
+                    const fullSchema = stripOutputFormatProperty(
+                        z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
+                    )
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
@@ -371,8 +377,10 @@ export function createExecTool(
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
                     const schemaTool = findTool(allTools, schemaToolName)
+                    // See the `info` command: `io: 'input'` keeps this in sync with the advertised
+                    // schema and validation, so `.default()` fields aren't shown as required.
                     const fullJsonSchema = stripOutputFormatProperty(
-                        z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
+                        z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
                     )
 
                     if (!fieldPath) {
