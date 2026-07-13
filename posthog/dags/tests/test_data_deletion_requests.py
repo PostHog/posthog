@@ -671,6 +671,29 @@ def test_load_property_removal_request_rejects_empty_properties():
         load_property_removal_request(context, config)
 
 
+@pytest.mark.django_db
+def test_load_property_removal_request_persists_marker_across_attempts():
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["$ip"],
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+
+    first = load_property_removal_request(build_op_context(), config)
+    request.refresh_from_db()
+    assert request.property_removal_marker is not None
+    assert first.inserted_at_marker == request.property_removal_marker
+
+    DataDeletionRequest.objects.filter(pk=request.pk).update(status=RequestStatus.APPROVED)
+    second = load_property_removal_request(build_op_context(), config)
+    assert second.inserted_at_marker == first.inserted_at_marker
+
+
 def _insert_events_with_person_properties(events: list[tuple], client: Client) -> None:
     """Insert events with (team_id, event, uuid, timestamp, person_properties_json)."""
     client.execute(
