@@ -85,9 +85,18 @@ def _build_prompt(prs: list[PullRequest]) -> str:
     return "\n".join(lines)
 
 
+def _strip_code_fence(content: str) -> str:
+    """Models sometimes wrap the JSON in a ```json fence despite the strict-JSON instruction."""
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.split("\n", 1)[1] if "\n" in stripped else ""
+        stripped = stripped.rsplit("```", 1)[0]
+    return stripped.strip()
+
+
 def _parse_llm_response(content: str, prs_by_number: dict[int, PullRequest]) -> DigestSummary:
     """Map the model's JSON back onto captured PRs. Unknown PR numbers are ignored."""
-    data = json.loads(content)
+    data = json.loads(_strip_code_fence(content))
     intro = str(data.get("intro") or "").strip()
     picked: list[DigestPRSummary] = []
     for item in data.get("prs") or []:
