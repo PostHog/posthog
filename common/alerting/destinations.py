@@ -51,8 +51,24 @@ class AlertDestinationConfig:
 
 
 @dataclass(frozen=True)
+class Button:
+    """One action button on a rendered alert message."""
+
+    url: str
+    label: str
+
+
+@dataclass(frozen=True)
 class EventKindSpec:
-    """Product-authored content for one alert event kind (firing, resolved, ...)."""
+    """Product-authored content for one alert event kind (firing, resolved, ...).
+
+    Products customize within this vocabulary — never by supplying their own
+    rendering — so the message structure stays uniform per destination type.
+    The optional fields default to the standard layout: structured detail rows
+    and a single action button. A prose-shaped product (e.g. insight alerts
+    with one breach description per series) sets `body_lines`; a product with
+    several actions adds `extra_buttons`.
+    """
 
     event_id: str
     display_kind: str
@@ -64,6 +80,10 @@ class EventKindSpec:
     webhook_body: dict[str, Any]
     # e.g. "logs alert", "billing alert" — used in the HogFunction description.
     product_label: str = "alert"
+    # Free-form prose lines rendered above the detail rows (one line each).
+    body_lines: tuple[str, ...] = ()
+    # Action buttons rendered after the primary button_url/button_label one.
+    extra_buttons: tuple[Button, ...] = ()
 
     def destination_description(self, alert_name: str) -> str:
         return f'Sends {self.display_kind} notifications for {self.product_label} "{alert_name}".'
@@ -91,8 +111,14 @@ def destination_filter(alert_id: str, event_id: str) -> dict[str, Any]:
 
 
 def slack_body(spec: EventKindSpec) -> str:
-    # Slack mrkdwn: *single asterisks* for bold, one line per detail.
-    return "\n".join(f"*{label}:* {value}" for label, value in spec.details)
+    # Slack mrkdwn: *single asterisks* for bold, one line per detail. Prose lines
+    # come first, separated from the detail rows by a blank line.
+    parts = []
+    if spec.body_lines:
+        parts.append("\n".join(spec.body_lines))
+    if spec.details:
+        parts.append("\n".join(f"*{label}:* {value}" for label, value in spec.details))
+    return "\n\n".join(parts)
 
 
 def slack_blocks(spec: EventKindSpec, context_elements: tuple[str, ...]) -> list[dict]:
@@ -108,10 +134,11 @@ def slack_blocks(spec: EventKindSpec, context_elements: tuple[str, ...]) -> list
             "type": "actions",
             "elements": [
                 {
-                    "url": spec.button_url,
-                    "text": {"text": spec.button_label, "type": "plain_text"},
+                    "url": button.url,
+                    "text": {"text": button.label, "type": "plain_text"},
                     "type": "button",
                 }
+                for button in (Button(url=spec.button_url, label=spec.button_label), *spec.extra_buttons)
             ],
         },
     ]
@@ -119,10 +146,19 @@ def slack_blocks(spec: EventKindSpec, context_elements: tuple[str, ...]) -> list
 
 def teams_text(spec: EventKindSpec) -> str:
     # The Microsoft Teams template renders a single Adaptive Card TextBlock from `text`, so fold
-    # the header, details, and action into one markdown string (the button becomes an inline link).
+    # the header, prose, details, and actions into one markdown string (buttons become inline links).
     # Adaptive Card markdown: **double asterisks** for bold, blank lines between paragraphs.
-    details = "\n\n".join(f"**{label}:** {value}" for label, value in spec.details)
-    return f"**{spec.header}**\n\n{details}\n\n[{spec.button_label}]({spec.button_url})"
+    parts = [f"**{spec.header}**"]
+    parts.extend(spec.body_lines)
+    if spec.details:
+        parts.append("\n\n".join(f"**{label}:** {value}" for label, value in spec.details))
+    parts.append(
+        " · ".join(
+            f"[{button.label}]({button.url})"
+            for button in (Button(url=spec.button_url, label=spec.button_label), *spec.extra_buttons)
+        )
+    )
+    return "\n\n".join(parts)
 
 
 def _base_config(
