@@ -678,4 +678,15 @@ class VisionActionRunViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet[VisionActionRun]) -> QuerySet[VisionActionRun]:
         action = self._action_for_url()
-        return queryset.filter(team_id=self.team_id, vision_action_id=action.id).order_by("-created_at", "id")
+        return (
+            queryset.filter(team_id=self.team_id, vision_action_id=action.id)
+            # Alert-state bookkeeping runs exist so the engine can resolve breach transitions
+            # (alerts._EVALUATED_SKIP_REASONS — literals duplicated here to keep the temporal
+            # package off the API import path). They aren't user-facing outcomes: run history
+            # shows actual firings, failures, and summary skips, not every quiet check.
+            .exclude(
+                status=VisionActionRunStatus.SKIPPED,
+                error__skip_reason__in=["not_breached", "still_breached"],
+            )
+            .order_by("-created_at", "id")
+        )

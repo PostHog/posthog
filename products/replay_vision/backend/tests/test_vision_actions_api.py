@@ -329,6 +329,19 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         self.assertNotIn("synthesized_markdown", completed)
         self.assertNotIn("observations", completed)
 
+    def test_hides_alert_state_bookkeeping_runs(self) -> None:
+        # Quiet alert checks (not_breached/still_breached skips) are engine state, not user-facing
+        # outcomes — run history must show only actual firings, failures, and summary skips.
+        fired = self._create_run(status=VisionActionRunStatus.COMPLETED, synthesized_markdown="3 new matches")
+        failed = self._create_run(status=VisionActionRunStatus.FAILED, error={"message": "boom"})
+        quiet = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "not_breached"})
+        suppressed = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "still_breached"})
+
+        results = self.client.get(self.runs_url()).json()["results"]
+        self.assertEqual({r["id"] for r in results}, {str(fired.id), str(failed.id)})
+        self.assertEqual(self.client.get(f"{self.runs_url()}{quiet.id}/").status_code, 404)
+        self.assertEqual(self.client.get(f"{self.runs_url()}{suppressed.id}/").status_code, 404)
+
     def test_retrieve_returns_summary_and_observations_in_stored_order(self) -> None:
         obs_a = self._create_observation("sess-a", title="Checkout")
         obs_b = self._create_observation("sess-b", title="Onboarding")
