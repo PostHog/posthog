@@ -6486,8 +6486,8 @@ class TestRlsActiveFromConnErrorHandling:
 
     def test_unsupported_statement_timeout_error_is_not_captured(self):
         # A Postgres-wire engine that rejects the best-effort `SET statement_timeout` (CrateDB,
-        # Materialize, etc.) is an expected shape: degrade to no RLS warnings without flooding
-        # error tracking.
+        # Materialize, Aurora DSQL, etc.) is an expected shape: degrade to no RLS warnings without
+        # flooding error tracking.
         conn = self._conn_raising(
             psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
         )
