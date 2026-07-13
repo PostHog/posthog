@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         SafeAddIndexConcurrently(
             model_name="replayobservation",
             index=models.Index(
-                condition=models.Q(("status", "succeeded"), ("event_emitted_at__isnull", True)),
+                condition=models.Q(("event_emitted_at__isnull", True), ("status", "succeeded")),
                 fields=["completed_at"],
                 name="rlo_event_backfill_idx",
             ),
