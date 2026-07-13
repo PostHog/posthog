@@ -33,23 +33,30 @@ _RELEVANT_SCHEMAS = (WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA)
 def sync_engineering_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:
     """Called after validate_schema_and_update_table links a DataWarehouseTable to the schema.
 
-    Returns early unless a GitHub runs/jobs endpoint just loaded. Builds the expected views first;
-    if the team has no source with both endpoints synced there's nothing to expose, so no viewset
-    row is created. Otherwise get-or-creates the team's engineering-analytics viewset and syncs.
+    Returns early unless a GitHub runs/jobs endpoint just loaded. In the steady state the team's
+    viewset already exists, so it re-syncs directly (``sync_views`` recomputes the expected views).
+    The expected-views guard runs only on first provisioning: a team whose jobs source isn't synced
+    yet has no view to expose, so the viewset row isn't created until both endpoints exist.
     """
     try:
         if source.source_type != ExternalDataSourceType.GITHUB or schema.name not in _RELEVANT_SCHEMAS:
             return
 
-        # Build first: a team whose jobs source isn't synced yet has no view to expose, so don't
-        # even create the viewset row (keeps sync a no-op until both endpoints exist).
-        if not get_expected_warehouse_views(schema.team):
-            return
-
-        managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+        managed_viewset = DataWarehouseManagedViewSet.objects.filter(
             team=schema.team,
             kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
-        )
+        ).first()
+
+        # Only on first provisioning: computing the expected views is the expensive part, so once the
+        # viewset exists we skip this guard and re-sync directly (one compute inside sync_views). A
+        # team whose jobs source isn't synced yet has no view to expose — don't create the viewset row.
+        if managed_viewset is None:
+            if not get_expected_warehouse_views(schema.team):
+                return
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+                team=schema.team,
+                kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
+            )
 
         logger.info(
             "sync_engineering_analytics_views_starting",

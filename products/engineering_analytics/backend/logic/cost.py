@@ -199,10 +199,10 @@ class PRCostAggregate:
 # constants above (never a literal duplicate of a rate, prefix, OS token, or multiplier), so the
 # view SQL can only ever drift from the Python model if these constants change — which the
 # ClickHouse-backed parity test guards against. Each renderer takes SQL expression strings for
-# its inputs (a parsed Array(String) labels column, an elapsed-seconds column) and returns a
-# HogQL expression; the caller (logic.views.job_costs) threads them through nested subqueries so
-# provider/os/vcpu are computed once and reused. Parity-critical notes mirror classify_runner /
-# _depot_vcpu / billing_multiplier / estimate_job_cost_usd exactly.
+# its inputs and returns a HogQL expression; the caller (logic.views.job_costs) threads them
+# through nested subqueries so the two label picks (``render_depot_label`` / ``render_hosted_label``)
+# and then provider/os/vcpu are each computed once per row and reused. Parity-critical notes mirror
+# classify_runner / _depot_vcpu / billing_multiplier / estimate_job_cost_usd exactly.
 
 
 def _has_os_token_sql(label_sql: str) -> str:
@@ -234,45 +234,57 @@ def _depot_vcpu_sql(label_sql: str) -> str:
     return f"if(length({segments}) >= 4 AND match({last}, '^[0-9]+$'), toInt({last}), {_DEFAULT_DEPOT_VCPU})"
 
 
-def _depot_label_sql(labels_array_sql: str) -> str:
+def render_depot_label(labels_array_sql: str) -> str:
     """First label (array order) that is a real Depot runner: ``depot-`` prefixed AND names an OS.
-    Empty string when none — Depot wins over hosted because provider/os/vcpu test this first."""
+    Empty string when none — Depot wins over hosted because provider/os/vcpu test this first.
+
+    This is the expensive ``arrayFilter`` label scan, so the caller computes it once as its own
+    column and feeds that column (not the array) into ``render_provider`` / ``render_os`` / ``render_vcpu``.
+    """
     is_depot = f"(startsWith(lowerUTF8(_label), '{_DEPOT_PREFIX}') AND {_has_os_token_sql('_label')})"
     return f"arrayElement(arrayFilter(_label -> {is_depot}, {labels_array_sql}), 1)"
 
 
-def _hosted_label_sql(labels_array_sql: str) -> str:
+def render_hosted_label(labels_array_sql: str) -> str:
     """First label (array order) that names an OS but is NOT ``depot-`` prefixed — the
-    github-hosted fallback (``hosted_os`` in ``classify_runner``). Empty string when none."""
+    github-hosted fallback (``hosted_os`` in ``classify_runner``). Empty string when none.
+
+    Like ``render_depot_label``, the expensive ``arrayFilter`` scan — computed once as its own
+    column and reused across the provider/os/vcpu renderers.
+    """
     is_hosted = f"(NOT startsWith(lowerUTF8(_label), '{_DEPOT_PREFIX}') AND {_has_os_token_sql('_label')})"
     return f"arrayElement(arrayFilter(_label -> {is_hosted}, {labels_array_sql}), 1)"
 
 
-def render_provider(labels_array_sql: str) -> str:
+def render_provider(depot_label_sql: str, hosted_label_sql: str) -> str:
     """RunnerProvider value ('depot' / 'github_hosted') or NULL — the SQL form of
-    ``classify_runner(...).provider``. Depot before hosted (Depot is the only billed provider)."""
-    depot = _depot_label_sql(labels_array_sql)
-    hosted = _hosted_label_sql(labels_array_sql)
+    ``classify_runner(...).provider`` over the two precomputed label picks (``render_depot_label`` /
+    ``render_hosted_label``). Depot before hosted (Depot is the only billed provider)."""
     return (
-        f"multiIf({depot} != '', '{RunnerProvider.DEPOT.value}', "
-        f"{hosted} != '', '{RunnerProvider.GITHUB_HOSTED.value}', NULL)"
+        f"multiIf({depot_label_sql} != '', '{RunnerProvider.DEPOT.value}', "
+        f"{hosted_label_sql} != '', '{RunnerProvider.GITHUB_HOSTED.value}', NULL)"
     )
 
 
-def render_os(labels_array_sql: str) -> str:
-    """RunnerOS value ('linux' / 'macos' / 'windows') or NULL — the OS of the winning label
-    (Depot label if any, else the hosted one), matching ``classify_runner(...).os``."""
-    depot = _depot_label_sql(labels_array_sql)
-    hosted = _hosted_label_sql(labels_array_sql)
-    return f"multiIf({depot} != '', {_os_of_label_sql(depot)}, {hosted} != '', {_os_of_label_sql(hosted)}, NULL)"
+def render_os(depot_label_sql: str, hosted_label_sql: str) -> str:
+    """RunnerOS value ('linux' / 'macos' / 'windows') or NULL — the OS of the winning label (the
+    precomputed Depot label if any, else the hosted one), matching ``classify_runner(...).os``. Both
+    inputs are the label-pick columns from ``render_depot_label`` / ``render_hosted_label``, so this is
+    a cheap ``multiIf`` over string columns, not a re-scan of the labels array."""
+    return (
+        f"multiIf({depot_label_sql} != '', {_os_of_label_sql(depot_label_sql)}, "
+        f"{hosted_label_sql} != '', {_os_of_label_sql(hosted_label_sql)}, NULL)"
+    )
 
 
-def render_vcpu(labels_array_sql: str) -> str:
+def render_vcpu(depot_label_sql: str, hosted_label_sql: str) -> str:
     """vCPU of the winning runner or NULL — Depot reads its size segment, github-hosted is the
-    2-vCPU default (``_DEFAULT_DEPOT_VCPU``), matching ``classify_runner(...).vcpu``."""
-    depot = _depot_label_sql(labels_array_sql)
-    hosted = _hosted_label_sql(labels_array_sql)
-    return f"multiIf({depot} != '', {_depot_vcpu_sql(depot)}, {hosted} != '', {_DEFAULT_DEPOT_VCPU}, NULL)"
+    2-vCPU default (``_DEFAULT_DEPOT_VCPU``), matching ``classify_runner(...).vcpu``. Both inputs are
+    the precomputed label-pick columns (``render_depot_label`` / ``render_hosted_label``)."""
+    return (
+        f"multiIf({depot_label_sql} != '', {_depot_vcpu_sql(depot_label_sql)}, "
+        f"{hosted_label_sql} != '', {_DEFAULT_DEPOT_VCPU}, NULL)"
+    )
 
 
 def render_multiplier(vcpu_sql: str) -> str:

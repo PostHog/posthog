@@ -27,6 +27,8 @@ from enum import StrEnum
 
 from pydantic.dataclasses import dataclass
 
+from posthog.hogql.database.models import FieldOrTable
+
 
 class GitHubSourceNotConnectedError(Exception):
     """Raised when a team has no GitHub warehouse source — the curated queries
@@ -152,15 +154,17 @@ class GitHubSource:
 @dataclass(frozen=True)
 class ExpectedWarehouseView:
     """A code-generated warehouse view this product exposes as a team-scoped DataWarehouse saved
-    query. Framework-free on purpose: data_modeling adapts it into its own ``ExpectedView`` without
-    importing this product's internals (avoids a dependency cycle). ``query`` is the HogQL SELECT
-    body; ``columns`` maps column name -> ``{"hogql": <field class name>, "clickhouse": <type>}``,
-    the shape data_modeling stores on the saved query.
+    query. data_modeling adapts it into its own ``ExpectedView`` without importing this product's
+    internals (avoids a dependency cycle). ``query`` is the HogQL SELECT body; ``fields`` maps column
+    name -> a ``FieldOrTable`` instance, from which data_modeling derives the stored
+    ``{"hogql": <field class>, "clickhouse": <type>, "valid": True}`` metadata via its shared
+    ``_get_columns_from_fields`` path (the same one revenue analytics uses) — so the type strings are
+    never hand-written here and can't drift from the real field classes.
     """
 
     name: str
     query: str
-    columns: dict[str, dict[str, str]]
+    fields: dict[str, FieldOrTable]
 
 
 @dataclass(frozen=True)

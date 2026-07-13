@@ -18,4 +18,4 @@ def get_expected_warehouse_views(team: Team) -> list[ExpectedWarehouseView]:
     query = job_costs.build_team_view(team)
     if query is None:
         return []
-    return [ExpectedWarehouseView(name=job_costs.VIEW_NAME, query=query, columns=job_costs.COLUMNS)]
+    return [ExpectedWarehouseView(name=job_costs.VIEW_NAME, query=query, fields=job_costs.FIELDS)]

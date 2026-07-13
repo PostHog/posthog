@@ -104,13 +104,9 @@ def _sum_aggregates(rows: Iterable[tuple]) -> PRCostAggregate:
         costed += int(row_costed or 0)
         unsettled += int(row_unsettled or 0)
         excluded += int(row_excluded or 0)
-    return PRCostAggregate(
-        billable_seconds=billable_seconds,
-        estimated_cost_usd=cost_sum if costed else None,
-        costed_jobs=costed,
-        unsettled_jobs=unsettled,
-        excluded_jobs=excluded,
-    )
+    # Delegate the PRCostAggregate construction (incl. the None-vs-$0.00 rule) to _aggregate, so that
+    # rule lives in exactly one place — the folded columns are just its five inputs.
+    return _aggregate(billable_seconds, cost_sum, costed, unsettled, excluded)
 
 
 _EMPTY = PRCostSummary(

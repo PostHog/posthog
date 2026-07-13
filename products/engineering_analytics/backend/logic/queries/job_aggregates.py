@@ -19,7 +19,11 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowJobAggregate
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
-from products.engineering_analytics.backend.logic.queries._workflow_filters import DURATION_PERCENTILE_CONDITION
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    DURATION_PERCENTILE_CONDITION,
+    branch_filter_clause,
+    date_to_filter_clause,
+)
 
 _LIMIT = 200
 
@@ -95,20 +99,23 @@ def query_job_aggregates(
         "workflow_name": ast.Constant(value=workflow_name),
         "date_from": ast.Constant(value=date_from),
     }
-    if date_to is not None:
-        placeholders["date_to"] = ast.Constant(value=date_to)
-    if branch:
-        placeholders["branch"] = ast.Constant(value=branch)
+    # Shared filter clauses (each registers its own placeholder). The jobs/cost templates window and
+    # branch-filter on the per-job created_at + head_branch; the run-count template reads the run
+    # source's run_started_at (its head_branch is still the per-run branch).
+    date_to_clause = date_to_filter_clause(date_to, placeholders, column="created_at")
+    runs_date_to_clause = date_to_filter_clause(date_to, placeholders, column="run_started_at")
+    branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
+    runs_branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
 
     def fill(template: str) -> str:
         return (
             template.replace("__JOBS_SOURCE__", jobs_source)
             .replace("__COST_SOURCE__", cost_source)
             .replace("__RUNS_SOURCE__", curated.run_source())
-            .replace("__DATE_TO__", "AND created_at <= {date_to}" if date_to is not None else "")
-            .replace("__RUNS_DATE_TO__", "AND run_started_at <= {date_to}" if date_to is not None else "")
-            .replace("__BRANCH__", "AND head_branch = {branch}" if branch else "")
-            .replace("__RUNS_BRANCH__", "AND head_branch = {branch}" if branch else "")
+            .replace("__DATE_TO__", date_to_clause)
+            .replace("__RUNS_DATE_TO__", runs_date_to_clause)
+            .replace("__BRANCH__", branch_clause)
+            .replace("__RUNS_BRANCH__", runs_branch_clause)
         )
 
     response = curated.run(

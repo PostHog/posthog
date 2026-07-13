@@ -333,7 +333,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             ExpectedView(
                 name=view.name,
                 query={"kind": "HogQLQuery", "query": view.query},
-                columns={column: {**meta, "valid": True} for column, meta in view.columns.items()},
+                columns=self._get_columns_from_fields(view.fields),
                 materialized=False,
             )
             for view in get_expected_warehouse_views(self.team)
