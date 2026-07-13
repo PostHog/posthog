@@ -799,7 +799,6 @@ doesn't conflict with concurrent PRs.
 - telli
 - tempo
 - terra_api
-- testrail
 - thinkific_courses
 - thrive_learning
 - ticketmaster
