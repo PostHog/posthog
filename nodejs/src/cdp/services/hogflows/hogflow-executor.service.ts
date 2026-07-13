@@ -2,6 +2,7 @@ import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
@@ -462,12 +463,16 @@ export class HogFlowExecutorService {
             }
 
             try {
-                const handlerResult = await handler.execute({
-                    invocation,
-                    action: currentAction,
-                    result,
-                    hogExecutorOptions: options?.hogExecutorOptions,
-                })
+                const handlerResult = await instrumentFn(
+                    { key: `hogFlow.action.${currentAction.type}`, sendException: false },
+                    () =>
+                        handler.execute({
+                            invocation,
+                            action: currentAction,
+                            result,
+                            hogExecutorOptions: options?.hogExecutorOptions,
+                        })
+                )
 
                 if (handlerResult.error) {
                     throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
