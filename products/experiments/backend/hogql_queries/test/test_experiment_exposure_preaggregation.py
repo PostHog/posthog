@@ -332,11 +332,15 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert runner._precompute_skip_reason() == "group_aggregation"
         assert PreaggregationJob.objects.count() == 0
 
+        # Query dict without the group index in its filters — the runner must gate on the
+        # DB flag, not on whatever feature_flag shape the caller happened to pass.
+        flag_dict = model_to_dict(feature_flag)
+        flag_dict["filters"] = {k: v for k, v in flag_dict["filters"].items() if k != "aggregation_group_type_index"}
         exposure_query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=experiment.id,
             experiment_name=experiment.name,
-            feature_flag=model_to_dict(feature_flag),
+            feature_flag=flag_dict,
             holdout=None,
             start_date=experiment.start_date.isoformat(),
             end_date=experiment.end_date.isoformat(),

@@ -69,11 +69,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         feature_flag_key = self.query.feature_flag.get("key")
         if not isinstance(feature_flag_key, str) or not feature_flag_key:
             raise ValidationError("feature_flag key is required")
-        self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
         self.exposure_criteria = self.query.exposure_criteria
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
+        # From the DB flag, not the query dict — callers vary in the feature_flag shape they
+        # pass (full flag object vs bare filters), and a missed group index would bypass the
+        # group-aggregation precompute gate below. Mirrors feature_flag_key above.
+        self.group_type_index = (self.experiment.feature_flag.filters or {}).get("aggregation_group_type_index")
 
         # The analysis window comes from the query, not live model state: this runner's result is
         # cached under a key hashed from self.query (see get_cache_payload), so the window it computes
