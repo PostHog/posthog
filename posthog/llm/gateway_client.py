@@ -39,6 +39,23 @@ def _team_id_header(team_id: int) -> dict[str, str]:
     return {"x-posthog-property-team_id": str(team_id)}
 
 
+def _gateway_base_url() -> str:
+    """Validated `LLM_GATEWAY_URL` (trailing slash stripped), or raise `ValueError`.
+
+    Fails loudly here on two config states that otherwise surface as an opaque error deep in the
+    request: both halves being unset, and a URL with no `http(s)://` scheme. A scheme-less value
+    (e.g. `gateway:8080`) is accepted by the SDK's `base_url` but makes httpx raise
+    `UnsupportedProtocol` on the first request, which bubbles up as a generic connection error far
+    from its cause. Catching it at construction turns a misconfig into an actionable message.
+    """
+    url, api_key = settings.LLM_GATEWAY_URL, settings.LLM_GATEWAY_API_KEY
+    if not url or not api_key:
+        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+    if urlparse(url).scheme not in ("http", "https"):
+        raise ValueError(f"LLM_GATEWAY_URL must include an http:// or https:// scheme, got: {url!r}")
+    return url.rstrip("/")
+
+
 def get_llm_client(product: Product = "django", team_id: int | None = None) -> OpenAI:
     """
     Get an OpenAI-compatible client for the internal LLM gateway.
@@ -88,10 +105,7 @@ def get_llm_client(product: Product = "django", team_id: int | None = None) -> O
             When provided, sent on every request as the `x-posthog-property-team_id` header;
             when omitted, the event is attributed to the gateway key owner's team.
     """
-    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
-
-    base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
+    base_url = f"{_gateway_base_url()}/{product}/v1"
     return OpenAI(
         base_url=base_url,
         api_key=settings.LLM_GATEWAY_API_KEY,
@@ -105,10 +119,7 @@ def get_async_llm_client(product: Product = "django", team_id: int | None = None
     Async variant of `get_llm_client`. See `get_llm_client` for the rationale on `team_id`
     attribution and how to attach extra per-call event properties.
     """
-    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
-
-    base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
+    base_url = f"{_gateway_base_url()}/{product}/v1"
     return AsyncOpenAI(
         base_url=base_url,
         api_key=settings.LLM_GATEWAY_API_KEY,
@@ -145,14 +156,12 @@ def get_async_anthropic_gateway_client(
     returns a 5xx/429 (or its circuit breaker is open) the gateway retries the request against
     Bedrock instead of failing. Sent as the `x-posthog-use-bedrock-fallback` default header.
     """
-    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+    base_url = f"{_gateway_base_url()}/{product}"
 
     default_headers = _team_id_header(team_id) if team_id is not None else {}
     if use_bedrock_fallback:
         default_headers["x-posthog-use-bedrock-fallback"] = "true"
 
-    base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}"
     return AsyncAnthropic(
         base_url=base_url,
         api_key=settings.LLM_GATEWAY_API_KEY,

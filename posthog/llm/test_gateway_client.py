@@ -41,6 +41,15 @@ class TestGetLlmClient:
         with pytest.raises(ValueError, match="LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured"):
             get_llm_client(product="django", team_id=1)
 
+    @pytest.mark.parametrize("scheme_less_url", ["gateway:8080", "localhost:3308", "gateway.svc/django", "//gateway"])
+    @patch("posthog.llm.gateway_client.settings")
+    def test_raises_when_gateway_url_has_no_scheme(self, mock_settings, scheme_less_url: str):
+        mock_settings.LLM_GATEWAY_URL = scheme_less_url
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        with pytest.raises(ValueError, match="must include an http:// or https:// scheme"):
+            get_llm_client(product="django", team_id=1)
+
     @patch("posthog.llm.gateway_client.settings")
     def test_returns_client_with_correct_base_url(self, mock_settings):
         mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
@@ -123,6 +132,15 @@ class TestGetAsyncAnthropicGatewayClient:
         mock_settings.LLM_GATEWAY_API_KEY = "test-key"
 
         with pytest.raises(ValueError, match="LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured"):
+            get_async_anthropic_gateway_client(product="signals", team_id=1)
+
+    @patch("posthog.llm.gateway_client.settings")
+    def test_raises_when_gateway_url_has_no_scheme(self, mock_settings):
+        # A scheme-less base_url makes the Anthropic SDK fire an UnsupportedProtocol request; fail loudly instead.
+        mock_settings.LLM_GATEWAY_URL = "gateway:8080"
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        with pytest.raises(ValueError, match="must include an http:// or https:// scheme"):
             get_async_anthropic_gateway_client(product="signals", team_id=1)
 
     @patch("posthog.llm.gateway_client.settings")
