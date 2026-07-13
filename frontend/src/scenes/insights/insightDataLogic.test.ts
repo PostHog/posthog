@@ -15,7 +15,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { useMocks } from '~/mocks/jest'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
-import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
 import {
@@ -25,6 +24,7 @@ import {
     ResultCustomizationBy,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { FunnelVizType, InsightShortId, InsightType } from '~/types'
 
@@ -299,7 +299,7 @@ describe('insightDataLogic', () => {
             })
                 .toDispatchActions(['setQuery'])
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             breakdownFilter: {
@@ -359,9 +359,8 @@ describe('insightDataLogic', () => {
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
-                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         },
-                    },
+                    }),
                 })
         })
         it('does not set query override is not set', async () => {
