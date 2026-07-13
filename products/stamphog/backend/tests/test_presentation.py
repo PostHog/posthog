@@ -1,6 +1,7 @@
 import hmac
 import json
 import hashlib
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -18,7 +19,7 @@ def _signature(body: bytes, secret: str) -> str:
 
 def _request(body: bytes, *, event: str = "pull_request", delivery_id: str = "delivery-1", signature: str | None):
     factory = RequestFactory()
-    headers = {"HTTP_X_GITHUB_EVENT": event, "HTTP_X_GITHUB_DELIVERY": delivery_id}
+    headers: dict[str, Any] = {"HTTP_X_GITHUB_EVENT": event, "HTTP_X_GITHUB_DELIVERY": delivery_id}
     if signature is not None:
         headers["HTTP_X_HUB_SIGNATURE_256"] = signature
     return factory.post("/stamphog/webhook/", data=body, content_type="application/json", **headers)

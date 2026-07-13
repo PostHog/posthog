@@ -211,6 +211,7 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
+    { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },

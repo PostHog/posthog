@@ -190,7 +190,8 @@ class PullRequestSerializer(serializers.ModelSerializer):
 
 
 class ReviewRunSerializer(serializers.ModelSerializer):
-    pull_request = serializers.PrimaryKeyRelatedField(
+    pull_request = serializers.UUIDField(
+        source="pull_request_id",
         read_only=True,
         help_text="ID of the pull request this review run belongs to.",
     )

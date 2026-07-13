@@ -5,6 +5,8 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
+from uuid import UUID
+
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -17,6 +19,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
@@ -53,7 +56,7 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet[StamphogRepoConfig]) -> QuerySet[StamphogRepoConfig]:
         return queryset.filter(team_id=self.team_id).order_by("repository")
 
-    def perform_create(self, serializer: StamphogRepoConfigSerializer) -> None:
+    def perform_create(self, serializer: BaseSerializer[StamphogRepoConfig]) -> None:
         # installation_id is read-only on this serializer, so a manual create can never claim an
         # installation the caller hasn't proven ownership of — only the verified sync_installation flow
         # sets it. A manually created config therefore carries an empty installation and won't resolve
@@ -270,7 +273,7 @@ class DigestChannelViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet[DigestChannel]) -> QuerySet[DigestChannel]:
         return queryset.filter(team_id=self.team_id).order_by("audience_key")
 
-    def perform_create(self, serializer: DigestChannelSerializer) -> None:
+    def perform_create(self, serializer: BaseSerializer[DigestChannel]) -> None:
         serializer.save(team_id=self.team_id)
 
 
@@ -288,7 +291,11 @@ class DigestRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
 
         digest_channel = self.request.query_params.get("digest_channel")
         if digest_channel:
-            queryset = queryset.filter(digest_channel=digest_channel)
+            try:
+                channel_id = UUID(digest_channel)
+            except ValueError:
+                return queryset.none()
+            queryset = queryset.filter(digest_channel_id=channel_id)
 
         return queryset
 

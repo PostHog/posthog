@@ -5721,6 +5721,7 @@ export type APIScopeObject =
     | 'session_recording_playlist'
     | 'sharing_configuration'
     | 'signal_scout'
+    | 'stamphog'
     | 'subscription'
     | 'survey'
     | 'tagger'

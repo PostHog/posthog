@@ -35,8 +35,9 @@ from __future__ import annotations
 import os
 import json
 import uuid
+from collections.abc import Callable
 from contextlib import ExitStack
-from typing import Any
+from typing import Any, cast
 
 from unittest.mock import patch
 
@@ -91,16 +92,25 @@ class _TxShim:
         func()
 
 
+def _activity_body(fn: Any) -> Callable[[Any], Any]:
+    """The undecorated function behind a Temporal @activity.defn, called directly in this harness.
+
+    functools.wraps stores it on __wrapped__ at runtime, but the attribute isn't on the decorated
+    type, so cast off the Any-typed lookup to keep this typed without a per-call ignore.
+    """
+    return cast(Callable[[Any], Any], fn.__wrapped__)
+
+
 def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
     """Mirror StamphogReviewWorkflow by driving the real activities in order (sync bodies)."""
     inp = StamphogReviewInput(review_run_id=review_run_id, team_id=team_id)
     try:
-        fetch_review_context.__wrapped__(inp)
-        run_review_in_sandbox.__wrapped__(inp)
-        post_verdict.__wrapped__(inp)
+        _activity_body(fetch_review_context)(inp)
+        _activity_body(run_review_in_sandbox)(inp)
+        _activity_body(post_verdict)(inp)
     except Exception as e:  # noqa: BLE001 — mirror the workflow's failure path
         _log(f"workflow error, marking run failed: {e}")
-        mark_review_failed.__wrapped__(MarkReviewFailedInput(review_run_id, team_id, str(e)))
+        _activity_body(mark_review_failed)(MarkReviewFailedInput(review_run_id, team_id, str(e)))
 
 
 def _post_webhook(client: Client, payload: dict[str, Any]) -> int:
@@ -289,7 +299,7 @@ def _cleanup(team_id: int, integration_id: int, org: Any) -> None:
     for model in (DigestRun, ReviewRun, PullRequest, DigestChannel, StamphogRepoConfig):
         model.objects.unscoped().filter(team_id=team_id).delete()
     try:
-        Integration.objects.filter(id=integration_id).delete()
+        Integration.objects.filter(id=integration_id, team_id=team_id).delete()
         org.delete()
         _log("deleted scenario org + rows")
     except Exception as e:  # noqa: BLE001 — cleanup must not mask the scenario result

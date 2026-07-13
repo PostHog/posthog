@@ -287,7 +287,7 @@ def _harden_reviewer_command(command: Sequence[str] | str) -> str:
     installation token. ``--no-config`` ignores discovered uv config, ``--no-project`` ignores
     the surrounding project/lockfile; the engine's own PEP 723 script pins its deps.
     """
-    parts = list(command) if isinstance(command, (list, tuple)) else shlex.split(command)
+    parts = shlex.split(command) if isinstance(command, str) else list(command)
     if len(parts) >= 2 and parts[0] == "uv" and parts[1] == "run":
         parts = [*parts[:2], "--no-config", "--no-project", *parts[2:]]
     return shlex.join(parts)

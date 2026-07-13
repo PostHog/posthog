@@ -9,12 +9,11 @@ disallow reverse relations with related_name='+'.
 
 from __future__ import annotations
 
-import uuid
-
 from django.db import models
 from django.db.models import Q
 
 from posthog.models.scoping.product_mixin import ProductTeamModel
+from posthog.models.utils import uuid7
 
 from .facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
 
@@ -23,7 +22,7 @@ from .facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewRunSta
 # inherits ProductTeamModel: team_id is a plain BigIntegerField (no cross-DB FK
 # to Team) and the manager is fail-closed. See posthog/models/scoping/README.md.
 class StamphogRepoConfig(ProductTeamModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     # SCM provider this config talks to. GitHub is the only implemented provider
     # today, but the installation/repository identity is provider-scoped so the
     # field is part of the cross-team uniqueness identity.
@@ -64,7 +63,7 @@ class PullRequest(ProductTeamModel):
     digest picks up, so a failed post leaves them for tomorrow to retry.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     repo_config = models.ForeignKey(StamphogRepoConfig, on_delete=models.CASCADE, related_name="pull_requests")
     pr_number = models.IntegerField()
     title = models.CharField(max_length=512, blank=True)
@@ -113,7 +112,7 @@ class PullRequest(ProductTeamModel):
 
 
 class ReviewRun(ProductTeamModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     pull_request = models.ForeignKey(PullRequest, on_delete=models.CASCADE, related_name="review_runs")
     head_sha = models.CharField(max_length=64)
     # GitHub webhook delivery id — unique so a redelivered event dedupes.
@@ -154,7 +153,7 @@ class DigestChannel(ProductTeamModel):
     `resolution_source` records which.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     audience_key = models.CharField(max_length=255)
     # Plain id of a main-DB posthog.Integration row (kind="slack"). No FK: this model lives on a
     # separate product DB and can't hold a cross-database constraint — the id is resolved against
@@ -188,7 +187,7 @@ class DigestChannel(ProductTeamModel):
 class DigestRun(ProductTeamModel):
     """One posted (or attempted) daily digest for a channel."""
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     digest_channel = models.ForeignKey(DigestChannel, on_delete=models.CASCADE, related_name="runs")
     status = models.CharField(
         max_length=32,
