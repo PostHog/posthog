@@ -11,7 +11,7 @@ def forwards(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("warehouse_sources", "0065_direct_query_enabled_default_false")]
+    dependencies = [("warehouse_sources", "0067_direct_query_enabled_default_false")]
 
     operations = [
         migrations.RunPython(forwards, migrations.RunPython.noop, elidable=True),

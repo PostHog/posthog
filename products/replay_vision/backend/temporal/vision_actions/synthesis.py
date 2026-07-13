@@ -55,8 +55,11 @@ MAX_OBSERVATIONS = 100
 # cap guards against) samples across its newest SAMPLE_SCAN_LIMIT observations rather than every row,
 # so this activity can't materialize an unbounded id list.
 SAMPLE_SCAN_LIMIT = 10_000
-# Stay comfortably under Slack's ~40k message-text limit; truncate the tail if a report runs long.
-SLACK_TEXT_MAX = 38_000
+# Keep the whole report inside ONE Slack message. Slack's hard API limit is ~40k characters, but
+# anything over ~4,000 gets auto-split into multiple messages at arbitrary positions — which cuts
+# `<url|[N]>` citation tokens in half and renders both halves as garbage. The full report is always
+# available in-app, so truncate with a pointer instead of risking the split.
+SLACK_TEXT_MAX = 3_900
 
 _SYSTEM_PROMPT = (
     "You are summarizing automated observations of user session recordings into one concise group summary "
@@ -86,9 +89,10 @@ _MARKDOWN_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
 # both resolve them to observation links. The captured group is the 1-based observation number.
 _OBS_CITATION_RE = re.compile(r"\[obs (\d+)\]")
 # Cap adjacent citations on the stored report so an over-cited theme renders a representative handful, not a
-# wall of links. Cross-section variety stays the prompt's job.
+# wall of links. Cross-section variety stays the prompt's job. Markers count as one run across any mix of
+# whitespace/comma/semicolon separators — the model writes `[obs 1], [obs 4]` as often as `[obs 1] [obs 4]`.
 _MAX_CITATIONS_PER_RUN = 6
-_CITATION_RUN_RE = re.compile(r"\[obs \d+\](?:\s*\[obs \d+\])+")
+_CITATION_RUN_RE = re.compile(r"\[obs \d+\](?:[\s,;]*\[obs \d+\])+")
 
 
 def _cap_citation_runs(markdown: str) -> str:
@@ -470,8 +474,16 @@ def _markdown_to_slack(markdown: str, *, team_id: int, observation_ids: list[str
     text = _MARKDOWN_HEADING_RE.sub(lambda m: f"*{m.group(1)}*", text)
     text = _MARKDOWN_BOLD_RE.sub(lambda m: f"*{m.group(1)}*", text)
     if len(text) > SLACK_TEXT_MAX:
-        text = text[:SLACK_TEXT_MAX].rstrip() + "\n\n…_(truncated — see the full group summary in PostHog)_"
-        # Re-run link sanitization: truncation may have split a defanged `` `url` `` code span,
-        # dropping the closing backtick and re-exposing the bare URL to Slack's auto-unfurler.
+        cut = text[:SLACK_TEXT_MAX]
+        # Back up to the last line break so the cut can't land inside a `<url|[N]>` link or a
+        # defanged `` `url` `` code span — neither contains a newline. Only if the slice is one
+        # giant line, fall back to cutting just before an unterminated `<...` token.
+        newline = cut.rfind("\n")
+        if newline > 0:
+            cut = cut[:newline]
+        elif cut.rfind("<") > cut.rfind(">"):
+            cut = cut[: cut.rfind("<")]
+        text = cut.rstrip() + "\n\n…_(truncated — see the full group summary in PostHog)_"
+        # Re-run link sanitization as a belt-and-braces guard against any re-exposed bare URL.
         text = strip_external_links_markdown(text)
     return text

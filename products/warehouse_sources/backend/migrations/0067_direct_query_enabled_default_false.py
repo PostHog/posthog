@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("warehouse_sources", "0064_datawarehousetable_column_order")]
+    dependencies = [("warehouse_sources", "0066_alter_externaldatasource_source_type_and_more")]
 
     operations = [
         migrations.AlterField(

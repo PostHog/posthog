@@ -23254,7 +23254,12 @@
                 "Zep",
                 "Hex",
                 "Singular",
-                "Swonkie"
+                "Swonkie",
+                "Sumsub",
+                "GoogleChat",
+                "Kickscale",
+                "Zellify",
+                "RudderStack"
             ],
             "type": "string"
         },
