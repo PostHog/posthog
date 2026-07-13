@@ -10,13 +10,14 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.common.posthog_client import SkipsErrorTracking
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 
-class NonRetryableException(Exception):
+class NonRetryableException(SkipsErrorTracking):
     @property
     def cause(self) -> Optional[BaseException]:
         """Cause of the exception.
