@@ -80,6 +80,7 @@ import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { IntegrationUsageApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -5478,6 +5479,8 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+    /** Usage counts, only present on list/retrieve responses */
+    usage?: IntegrationUsageApi | null
 }
 
 export interface EmailIntegrationDomainGroupedType {

@@ -29869,6 +29869,18 @@ export namespace Schemas {
     }
 
     /**
+     * Counts of pipeline entities configured to use an integration.
+     */
+    export interface IntegrationUsage {
+      /** Number of non-deleted pipeline functions (destinations, transformations, etc.) using this integration. */
+      destinations: number;
+      /** Number of non-archived workflows using this integration. */
+      workflows: number;
+      /** Number of non-deleted data warehouse sources using this integration. */
+      sources: number;
+    }
+
+    /**
      * Standard Integration serializer.
      */
     export interface IntegrationConfig {
@@ -29879,6 +29891,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly errors: string;
       readonly display_name: string;
+      /** Counts of destinations, workflows and data warehouse sources using this integration. Only computed when listing or retrieving integrations; null otherwise. */
+      readonly usage: IntegrationUsage | null;
     }
 
     export interface RecommendedAction {
@@ -41253,6 +41267,8 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly errors?: string;
       readonly display_name?: string;
+      /** Counts of destinations, workflows and data warehouse sources using this integration. Only computed when listing or retrieving integrations; null otherwise. */
+      readonly usage?: IntegrationUsage | null;
     }
 
     export interface PatchedIntervieweeContext {

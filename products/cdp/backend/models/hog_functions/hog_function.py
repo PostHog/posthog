@@ -252,10 +252,39 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         return f"HogFunction {self.id}: {self.name}"
 
 
+class HogFunctionIntegration(models.Model):
+    """Join row recording that a hog function's inputs reference an integration.
+
+    Derived from the function's JSON inputs (which stay the runtime source of truth) and kept
+    in sync on save — see products/cdp/backend/services/integration_usage.py. Exists so
+    reverse lookups ("what uses this integration?") don't need to scan JSON blobs.
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    hog_function = models.ForeignKey("cdp.HogFunction", on_delete=models.CASCADE, related_name="integration_links")
+    integration = models.ForeignKey("posthog.Integration", on_delete=models.CASCADE, related_name="hog_function_links")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["hog_function", "integration"], name="unique_hog_function_integration"),
+        ]
+
+    def __str__(self):
+        return f"HogFunctionIntegration {self.hog_function_id} -> {self.integration_id}"
+
+
 @receiver(post_save, sender=HogFunction)
 def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
     if instance.type is None or instance.type in TYPES_THAT_RELOAD_PLUGIN_SERVER:
         reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
+
+
+@receiver(post_save, sender=HogFunction)
+def hog_function_integration_links_synced(sender, instance: HogFunction, created, **kwargs):
+    # The service imports this module's models — import at call time to break the cycle.
+    from products.cdp.backend.services.integration_usage import sync_hog_function_integrations  # noqa: PLC0415
+
+    sync_hog_function_integrations(instance)
 
 
 @receiver(post_save, sender=Action)

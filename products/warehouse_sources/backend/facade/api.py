@@ -18,6 +18,8 @@ first facade serves the read consumers and the framework-free helpers.
 
 from uuid import UUID
 
+from django.db.models import Count
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
@@ -45,6 +47,8 @@ __all__ = [
     "get_table",
     "list_tables_for_source",
     "list_jobs_for_source",
+    "count_sources_using_integrations",
+    "list_source_labels_using_integration",
     # framework-free helper transforms
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
@@ -179,3 +183,24 @@ def list_jobs_for_source(source_id: UUID, team_id: int) -> list[contracts.Extern
         .order_by("-created_at")
     )
     return [_to_job(j) for j in qs]
+
+
+def count_sources_using_integrations(team_id: int, integration_ids: list[int]) -> dict[int, int]:
+    """Number of non-deleted sources whose credentials come from each integration, keyed by integration ID."""
+    if not integration_ids:
+        return {}
+    rows = (
+        _ExternalDataSource.objects.filter(team_id=team_id, integration_id__in=integration_ids)
+        .exclude(deleted=True)
+        .values("integration_id")
+        .annotate(count=Count("id"))
+    )
+    return {row["integration_id"]: row["count"] for row in rows}
+
+
+def list_source_labels_using_integration(team_id: int, integration_id: int) -> list[str]:
+    """Human-readable labels of non-deleted sources whose credentials come from the integration."""
+    sources = _ExternalDataSource.objects.filter(team_id=team_id, integration_id=integration_id).exclude(deleted=True)
+    return sorted(
+        f"{source.source_type} ({source.prefix})" if source.prefix else source.source_type for source in sources
+    )

@@ -1,6 +1,7 @@
 import hmac
 import json
 import time
+import uuid
 import hashlib
 from datetime import timedelta
 from urllib.parse import quote, urlencode
@@ -44,6 +45,7 @@ from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.workflows.backend.models import HogFlow
 
 
@@ -4478,6 +4480,119 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert "Slack flow" in content
         assert "Slack notifier" in content
         assert Integration.objects.filter(id=self.integration.id).exists()
+
+
+class TestIntegrationDeletionExternalDataSourceGuard:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="salesforce",
+            integration_id="sf-123",
+            config={"instance_url": "https://example.my.salesforce.com"},
+            created_by=self.user,
+        )
+
+    def _create_source(self, *, deleted: bool = False, prefix: str | None = None) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Salesforce",
+            prefix=prefix,
+            deleted=deleted,
+            job_inputs={"salesforce_integration_id": self.integration.id},
+        )
+
+    def _delete(self, client: HttpClient):
+        client.force_login(self.user)
+        return client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
+
+    def test_destroy_blocked_when_source_references_integration(self, client: HttpClient):
+        self._create_source(prefix="sf_")
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Salesforce (sf_)" in response.content.decode()
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_allowed_when_source_deleted(self, client: HttpClient):
+        self._create_source(deleted=True)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+
+class TestIntegrationUsageCounts:
+    @pytest.fixture(autouse=True)
+    def setup_integrations(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={"team": {"id": "T123", "name": "Test workspace"}},
+            created_by=self.user,
+        )
+        self.unused_integration = Integration.objects.create(
+            team=self.team,
+            kind="hubspot",
+            integration_id="hs-1",
+            config={},
+            created_by=self.user,
+        )
+
+    def test_list_includes_usage_counts(self, client: HttpClient):
+        HogFunction.objects.create(
+            team=self.team,
+            name="Slack notifier",
+            type="destination",
+            hog="return event",
+            enabled=True,
+            inputs_schema=[{"key": "slack_workspace", "type": "integration"}],
+            inputs={"slack_workspace": {"value": self.integration.id}},
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Slack flow",
+            status="draft",
+            actions=[
+                {
+                    "id": "action_function_1",
+                    "type": "function",
+                    "config": {"inputs": {"slack_workspace": {"value": {"integrationId": self.integration.id}}}},
+                }
+            ],
+            edges=[],
+        )
+        ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Slack",
+            job_inputs={"slack_integration_id": self.integration.id},
+        )
+
+        client.force_login(self.user)
+        response = client.get(f"/api/environments/{self.team.pk}/integrations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        usage_by_id = {row["id"]: row["usage"] for row in response.json()["results"]}
+        assert usage_by_id[self.integration.id] == {"destinations": 1, "workflows": 1, "sources": 1}
+        assert usage_by_id[self.unused_integration.id] == {"destinations": 0, "workflows": 0, "sources": 0}
 
 
 class TestIntegrationRequestAccessAPI(APIBaseTest):

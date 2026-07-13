@@ -13,7 +13,7 @@ from django.utils import timezone
 
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_serializer
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -92,9 +92,19 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
-from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.cdp.backend.services.integration_usage import (
+    count_hog_functions_using_integrations,
+    get_enabled_hog_functions_using_integration,
+)
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
-from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+from products.warehouse_sources.backend.facade.api import (
+    count_sources_using_integrations,
+    list_source_labels_using_integration,
+)
+from products.workflows.backend.services.integration_usage import (
+    count_hog_flows_using_integrations,
+    get_active_hog_flows_using_integration,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -372,16 +382,38 @@ class IntegrationAccessRequestResponseSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(component_name="IntegrationUsage")
+class IntegrationUsageSerializer(serializers.Serializer):
+    """Counts of pipeline entities configured to use an integration."""
+
+    destinations = serializers.IntegerField(
+        help_text="Number of non-deleted pipeline functions (destinations, transformations, etc.) using this integration."
+    )
+    workflows = serializers.IntegerField(help_text="Number of non-archived workflows using this integration.")
+    sources = serializers.IntegerField(help_text="Number of non-deleted data warehouse sources using this integration.")
+
+
 @extend_schema_serializer(component_name="IntegrationConfig")
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    usage = serializers.SerializerMethodField(
+        help_text="Counts of destinations, workflows and data warehouse sources using this integration. "
+        "Only computed when listing or retrieving integrations; null otherwise."
+    )
 
     class Meta:
         model = Integration
-        fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name"]
-        read_only_fields = ["id", "created_at", "created_by", "errors", "display_name"]
+        fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name", "usage"]
+        read_only_fields = ["id", "created_at", "created_by", "errors", "display_name", "usage"]
+
+    @extend_schema_field(IntegrationUsageSerializer(allow_null=True))
+    def get_usage(self, integration: Integration) -> dict[str, int] | None:
+        usage_by_integration_id = self.context.get("integration_usage")
+        if usage_by_integration_id is None:
+            return None
+        return usage_by_integration_id.get(integration.id, {"destinations": 0, "workflows": 0, "sources": 0})
 
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
@@ -931,11 +963,35 @@ class IntegrationViewSet(
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        # Usage counts take three aggregate queries, so only pay for them where they're shown.
+        if getattr(self, "action", None) in ("list", "retrieve") and not getattr(self, "swagger_fake_view", False):
+            context["integration_usage"] = self._build_integration_usage_map()
+        return context
+
+    def _build_integration_usage_map(self) -> dict[int, dict[str, int]]:
+        integration_ids = list(Integration.objects.filter(team_id=self.team_id).values_list("id", flat=True))
+        destination_counts = count_hog_functions_using_integrations(self.team_id, integration_ids)
+        workflow_counts = count_hog_flows_using_integrations(self.team_id, integration_ids)
+        source_counts = count_sources_using_integrations(self.team_id, integration_ids)
+        return {
+            integration_id: {
+                "destinations": destination_counts.get(integration_id, 0),
+                "workflows": workflow_counts.get(integration_id, 0),
+                "sources": source_counts.get(integration_id, 0),
+            }
+            for integration_id in integration_ids
+        }
+
     def perform_destroy(self, instance) -> None:
         flows_using_integration = get_active_hog_flows_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
         functions_using_integration = get_enabled_hog_functions_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+        source_labels_using_integration = list_source_labels_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
         used_by = []
@@ -947,6 +1003,8 @@ class IntegrationViewSet(
                 sorted(function.name or str(function.id) for function in functions_using_integration)
             )
             used_by.append(f"enabled data pipelines: {function_names}")
+        if source_labels_using_integration:
+            used_by.append(f"data warehouse sources: {', '.join(source_labels_using_integration)}")
         if used_by:
             raise ValidationError(
                 f"This integration is used by {' and '.join(used_by)}. "

@@ -321,6 +321,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "FeatureFlagEvaluationContext",  # via FeatureFlag
         "FeatureFlagRoleAccess",  # via FeatureFlag
         "HeatmapSnapshot",  # via SavedHeatmap
+        "HogFlowIntegration",  # via HogFlow
+        "HogFunctionIntegration",  # via HogFunction
         "LLMSkillFile",  # via LLMSkill
         "LogsAlertCheck",  # via LogsAlertConfiguration
         "LogsAlertEvent",  # via LogsAlertConfiguration

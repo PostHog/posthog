@@ -12,6 +12,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -19,6 +20,22 @@ import { IntegrationType } from '~/types'
 
 import { integrationsLogic } from './integrationsLogic'
 import { getIntegrationNameFromKind } from './utils'
+
+function integrationUsageSummary(integration: IntegrationType): string | null {
+    if (!integration.usage) {
+        return null
+    }
+    const { destinations, workflows, sources } = integration.usage
+    const parts = [
+        destinations > 0 ? pluralize(destinations, 'destination') : null,
+        workflows > 0 ? pluralize(workflows, 'workflow') : null,
+        sources > 0 ? pluralize(sources, 'source') : null,
+    ].filter(Boolean)
+    if (parts.length === 0) {
+        return 'Not used by any destinations, workflows or sources'
+    }
+    return `Used by ${parts.join(', ')}`
+}
 
 export function IntegrationView({
     integration,
@@ -65,6 +82,7 @@ export function IntegrationView({
     )
 
     const integrationName = getIntegrationNameFromKind(integration.kind)
+    const usageSummary = integrationUsageSummary(integration)
 
     return (
         <div className="rounded border bg-surface-primary">
@@ -105,6 +123,7 @@ export function IntegrationView({
                                 />
                             </div>
                         ) : null}
+                        {usageSummary ? <div className="text-secondary text-xs">{usageSummary}</div> : null}
                         {isGitHub && (
                             <GitHubRepoSummary
                                 repoNames={repositories}

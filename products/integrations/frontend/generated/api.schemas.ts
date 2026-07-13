@@ -236,6 +236,18 @@ export const IntegrationKindEnumApi = {
 } as const
 
 /**
+ * Counts of pipeline entities configured to use an integration.
+ */
+export interface IntegrationUsageApi {
+    /** Number of non-deleted pipeline functions (destinations, transformations, etc.) using this integration. */
+    destinations: number
+    /** Number of non-archived workflows using this integration. */
+    workflows: number
+    /** Number of non-deleted data warehouse sources using this integration. */
+    sources: number
+}
+
+/**
  * Standard Integration serializer.
  */
 export interface IntegrationConfigApi {
@@ -246,6 +258,8 @@ export interface IntegrationConfigApi {
     readonly created_by: UserBasicApi
     readonly errors: string
     readonly display_name: string
+    /** Counts of destinations, workflows and data warehouse sources using this integration. Only computed when listing or retrieving integrations; null otherwise. */
+    readonly usage: IntegrationUsageApi | null
 }
 
 export interface PaginatedIntegrationConfigListApi {
@@ -295,6 +309,8 @@ export interface PatchedIntegrationConfigApi {
     readonly created_by?: UserBasicApi
     readonly errors?: string
     readonly display_name?: string
+    /** Counts of destinations, workflows and data warehouse sources using this integration. Only computed when listing or retrieving integrations; null otherwise. */
+    readonly usage?: IntegrationUsageApi | null
 }
 
 export interface GitHubBranchesResponseApi {
