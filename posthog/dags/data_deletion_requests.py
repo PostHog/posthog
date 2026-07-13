@@ -588,7 +588,7 @@ def process_property_removal_shard(
 
     Safe to re-execute individually against a request in FAILED status: the deletion_request
     context carries the persisted marker (no marker regeneration), the copy pass's anti-join
-    makes re-running convergent, and this op performs no Django ORM access.
+    makes re-running convergent, and this op performs no ORM writes and no status transitions.
 
     On a single host (the temp table is local non-replicated MergeTree):
 
@@ -780,8 +780,16 @@ def process_property_removal_shard(
         except Exception:
             # Drop the staging table on the SAME host before surfacing the error. The job-level
             # failure hook must not broadcast this DROP cluster-wide: sibling shard ops may still
-            # be running and share the staging table name on their own hosts.
-            client.execute(f"DROP TABLE IF EXISTS {db}.{temp}")
+            # be running and share the staging table name on their own hosts. Best-effort: if the
+            # connection that hit the original failure is dead (e.g. a timed-out mutation), the
+            # DROP fails too — don't let that mask the root cause.
+            try:
+                client.execute(f"DROP TABLE IF EXISTS {db}.{temp}")
+            except Exception:
+                context.log.warning(
+                    f"[shard {shard_num}] failed to drop staging table {db}.{temp}; "
+                    "re-execution will truncate and reuse it"
+                )
             raise
 
     context.log.info(f"[shard {shard_num}] processing")
