@@ -634,7 +634,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                         type: zod
                             .literal('feature')
                             .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/" prepended'),
+                            .describe('Event property with "$feature/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1743,7 +1743,7 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .literal('feature')
                             .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/" prepended'),
+                            .describe('Event property with "$feature/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -2823,7 +2823,7 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .literal('feature')
                             .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/" prepended'),
+                            .describe('Event property with "$feature/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -3933,7 +3933,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .literal('feature')
                             .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/" prepended'),
+                            .describe('Event property with "$feature/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -5038,7 +5038,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                             type: zod
                                 .literal('feature')
                                 .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                                .describe('Event property with "$feature/" prepended'),
+                                .describe('Event property with "$feature/\" prepended'),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -5682,7 +5682,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                         zod.array(zod.union([zod.string(), zod.number()])),
                     ])
                     .describe(
-                        'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
+                        'Value of your filter. For example `test@example.com` or `https:/\/example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                     ),
                 operator: zod
                     .union([
@@ -5888,7 +5888,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                         zod.array(zod.union([zod.string(), zod.number()])),
                     ])
                     .describe(
-                        'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
+                        'Value of your filter. For example `test@example.com` or `https:/\/example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                     ),
                 operator: zod
                     .union([
@@ -6711,7 +6711,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                         type: zod
                             .literal('feature')
                             .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/" prepended'),
+                            .describe('Event property with "$feature/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -7802,7 +7802,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                         type: zod
                             .literal('feature')
                             .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/" prepended'),
+                            .describe('Event property with "$feature/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
