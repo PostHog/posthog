@@ -57,8 +57,10 @@ interface PoisonRow {
     function_id: string | null
     queue_name: string
     priority: number
-    scheduled: Date
-    created: Date
+    // pg returns these as ISO strings here (same as the worker's dequeue rows),
+    // not Date objects — parse with fromISO, never fromJSDate.
+    scheduled: string
+    created: string
     parent_run_id: string | null
     state: Buffer | null
     distinct_id: string | null
@@ -334,8 +336,8 @@ export class CyclotronV2Janitor {
             functionId: row.function_id,
             queueName: row.queue_name,
             priority: row.priority,
-            scheduled: DateTime.fromJSDate(row.scheduled),
-            created: DateTime.fromJSDate(row.created),
+            scheduled: DateTime.fromISO(row.scheduled, { zone: 'utc' }),
+            created: DateTime.fromISO(row.created, { zone: 'utc' }),
             parentRunId: row.parent_run_id,
             transitionCount: row.transition_count,
             state: row.state,

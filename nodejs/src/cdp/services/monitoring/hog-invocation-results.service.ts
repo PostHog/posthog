@@ -425,8 +425,11 @@ export class HogInvocationResultsService {
             return false
         }
 
-        const row = this.buildLifecycleRow(invocation, 'failed', opts)
+        // Build inside the try too — a malformed invocation (e.g. an unparseable
+        // date) must fail this record safely so the caller keeps the job, never
+        // crash the whole janitor cycle.
         try {
+            const row = this.buildLifecycleRow(invocation, 'failed', opts)
             await this.produceRow(row)
             counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
             return true
@@ -434,7 +437,7 @@ export class HogInvocationResultsService {
             counterHogInvocationResultProduceFailed.inc()
             logger.error('⚠️', `failed to durably record terminal failure: ${error}`, {
                 error: String(error),
-                invocation_id: row.invocation_id,
+                invocation_id: invocation.id,
             })
             captureException(error)
             return false
