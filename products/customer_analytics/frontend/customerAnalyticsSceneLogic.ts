@@ -150,7 +150,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
     selectors({
         activeTab: [
             (s) => [s.sceneKey],
-            (sceneKey): 'dashboard' | 'journeys' | 'accounts' | 'notes' => {
+            (sceneKey): 'dashboard' | 'journeys' | 'accounts' | 'notes' | 'announcements' => {
                 if (sceneKey === 'customerAnalyticsJourneys') {
                     return 'journeys'
                 }
@@ -159,6 +159,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 }
                 if (sceneKey === 'customerAnalyticsNotes') {
                     return 'notes'
+                }
+                if (sceneKey === 'customerAnalyticsAnnouncements') {
+                    return 'announcements'
                 }
                 return 'dashboard'
             },

@@ -30,6 +30,7 @@ import { SessionInsights } from 'products/customer_analytics/frontend/components
 
 import { AccountNotesTabContent } from './components/AccountNotes/AccountNotesTabContent'
 import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
+import { AnnouncementsTabContent } from './components/Announcements/AnnouncementsTabContent'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
@@ -115,6 +116,15 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             label: 'Notes',
             content: <AccountNotesTabContent />,
             link: combineUrl(urls.customerAnalyticsNotes(), searchParams).url,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ANNOUNCEMENTS]) {
+        tabs.push({
+            key: 'announcements',
+            label: 'Announcements',
+            content: <AnnouncementsTabContent />,
+            link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
         })
     }
 
