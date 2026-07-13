@@ -33,7 +33,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
@@ -137,7 +137,9 @@ jobs:
                   file: Dockerfile.ml-mirror-image-scrub
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
-                  platforms: linux/amd64
+                  # Both arches: the charts-side Karpenter NodePool defaults to arm64 (Graviton), and an
+                  # amd64-only manifest fails there with "no match for platform in manifest".
+                  platforms: linux/amd64,linux/arm64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
 

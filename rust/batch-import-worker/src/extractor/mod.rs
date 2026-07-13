@@ -98,7 +98,31 @@ const PRODUCER_BLOCK_SIZE: usize = 64 * 1024;
 /// applies backpressure to the producer thread, so memory stays bounded.
 const PRODUCER_CHANNEL_CAPACITY: usize = 32;
 
-type Block = Result<Vec<u8>, String>;
+pub(crate) type Block = Result<Vec<u8>, String>;
+
+/// Spawn a decompression producer on a dedicated OS thread (not the tokio blocking
+/// pool — the decoder owns the thread for the lifetime of the read) feeding a bounded
+/// channel. The thread exits when the receiver is dropped.
+///
+/// Guards against a producer panic (e.g. an internal flate2/zip panic): without this, a
+/// panic would drop `tx` and consumers would read the closed channel as a clean EOF,
+/// recording a truncated part as complete (silent data loss). The panic is converted
+/// into a channel error instead. Shared by [`StreamingReader`] and the staging
+/// pipeline so both consumers get identical bytes and identical panic semantics.
+pub(crate) fn spawn_producer_thread<F>(producer: F) -> mpsc::Receiver<Block>
+where
+    F: FnOnce(mpsc::Sender<Block>) + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel(PRODUCER_CHANNEL_CAPACITY);
+    std::thread::spawn(move || {
+        let err_tx = tx.clone();
+        if std::panic::catch_unwind(AssertUnwindSafe(move || producer(tx))).is_err() {
+            let _unused =
+                err_tx.blocking_send(Err("decompression producer thread panicked".to_string()));
+        }
+    });
+    rx
+}
 
 /// A decompressed range returned by [`StreamingReader::read_at`].
 pub struct ReadChunk {
@@ -137,23 +161,8 @@ impl StreamingReader {
     where
         F: FnOnce(mpsc::Sender<Block>) + Send + 'static,
     {
-        let (tx, rx) = mpsc::channel(PRODUCER_CHANNEL_CAPACITY);
-        // A dedicated OS thread (not the tokio blocking pool) owns the decoder for
-        // the lifetime of the read. It exits when the receiver is dropped.
-        //
-        // Guard against a producer panic (e.g. an internal flate2/zip panic): without
-        // this, a panic would drop `tx`, and `read_at` would read the closed channel as
-        // a clean EOF and record a truncated part as complete (silent data loss). Convert
-        // the panic into a channel error so `read_at` surfaces it instead.
-        std::thread::spawn(move || {
-            let err_tx = tx.clone();
-            if std::panic::catch_unwind(AssertUnwindSafe(move || producer(tx))).is_err() {
-                let _unused =
-                    err_tx.blocking_send(Err("decompression producer thread panicked".to_string()));
-            }
-        });
         Self {
-            rx,
+            rx: spawn_producer_thread(producer),
             carry: Vec::new(),
             carry_start: 0,
             decoded_end: 0,
@@ -234,7 +243,7 @@ impl PartExtractor for PlainGzipExtractor {
 /// `GzDecoder` decodes a single gzip member (it stops at the first member's end).
 /// This matches the previous materializing extractor; the export endpoints we
 /// consume emit single-member gzip streams, not concatenated members.
-fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
+pub(crate) fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
     let file = match std::fs::File::open(&raw_file_path) {
         Ok(f) => f,
         Err(e) => {
@@ -291,7 +300,7 @@ fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
 /// Decompress every `.json.gz` member of a zip archive in natural-sorted order,
 /// streaming blocks to `tx`. A trailing newline is appended after each non-empty
 /// member that didn't end with one, matching the previous concatenation behavior.
-fn run_zip_gzip_json_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
+pub(crate) fn run_zip_gzip_json_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
     let file = match std::fs::File::open(&raw_file_path) {
         Ok(f) => f,
         Err(e) => {

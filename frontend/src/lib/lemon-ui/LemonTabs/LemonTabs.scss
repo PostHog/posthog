@@ -86,6 +86,10 @@
             color: var(--color-text-primary);
         }
 
+        &:not(:hover) .LemonTag {
+            color: var(--color-text-tertiary);
+        }
+
         &.LemonTabs__tab--disabled {
             color: var(--color-text-tertiary);
             opacity: 0.5;

@@ -56,6 +56,7 @@ import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { NODE_ICONS } from '../nodeIcons'
@@ -156,7 +157,18 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
     // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
-    { tagName: 'SQLV2', category: 'SQL', label: 'SQL (v2)', insertCommand: { aliases: ['data', 'sql'] } },
+    {
+        tagName: 'SQLV2',
+        category: 'SQL',
+        label: 'SQL (v2)',
+        insertCommand: {
+            aliases: ['data', 'sql'],
+            // New cells get a durable nodeId up front: parsed markdown block ids are content
+            // fingerprints, so without a persisted id every prop change (running the cell
+            // writes runId/result) would orphan the cell's run history and cross-cell refs.
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2), nodeId: uuid() }),
+        },
+    },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },

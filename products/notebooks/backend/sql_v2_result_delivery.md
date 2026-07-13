@@ -109,9 +109,12 @@ reads stay stateless.
 
 ## Where the full result lives
 
-**Now: kernel-resident.** The full dataframe stays as a variable in the live
-kernel (mirrors the existing DuckSQL/HogQL nodes, which page via
-`api.notebooks.kernelDataframe`). `result_id` identifies that resident frame.
+**Now: a capped in-memory cache in the kernel-server.** A run fetches up to
+`RESULT_CACHE_ROWS` (300) rows in one ClickHouse query; the kernel-server keeps
+them per run (LRU over the last 20 runs). `/page` requests within the cache are
+local slices — no ClickHouse work, no held backend workers. Paging beyond the
+cache, or after a kernel restart emptied it, falls back to a LIMIT/OFFSET
+re-query through the data plane.
 
 **Later: durable store** (object storage / Parquet / a results table). The
 sandbox materializes the full result at run time; `result_id` is the storage key.

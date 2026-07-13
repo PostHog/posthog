@@ -78,6 +78,7 @@ import {
     collectHogqlSqlNodes,
     collectNodeIndices,
     collectPythonNodes,
+    collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
@@ -105,6 +106,7 @@ import {
     serializeMarkdownNotebookComponent,
 } from './markdownNotebookV2'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { buildNotebookOpenedEvent } from './notebookAnalytics'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
@@ -1211,6 +1213,7 @@ export const notebookLogic = kea<notebookLogicType>([
         pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
         duckSqlNodeSummaries: [(s) => [s.content], (content) => collectDuckSqlNodes(content)],
         hogqlSqlNodeSummaries: [(s) => [s.content], (content) => collectHogqlSqlNodes(content)],
+        sqlV2NodeSummaries: [(s) => [s.content], (content) => collectSqlV2Nodes(content)],
         dependencyGraph: [(s) => [s.content], (content) => buildNotebookDependencyGraph(content)],
 
         pythonNodeIndices: [
@@ -1985,6 +1988,17 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.scheduleNotebookRefresh()
             actions.maybeLoadComments()
             actions.processPendingMarkdownStreamEvents()
+
+            // `notebook opened` is a human/browser open — capture once per mount. This listener
+            // also runs on every polling refresh (scheduleNotebookRefresh above), so gate on a
+            // per-instance flag; the flag resets on remount, so revisiting counts as a new open.
+            if (!cache.hasCapturedOpen) {
+                const openedEvent = buildNotebookOpenedEvent(values.notebook, values.user, values.isShared)
+                if (openedEvent) {
+                    cache.hasCapturedOpen = true
+                    posthog.capture('notebook opened', openedEvent)
+                }
+            }
         },
         loadNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()

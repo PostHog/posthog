@@ -6,7 +6,7 @@ from posthog.settings import EE_AVAILABLE
 
 ColumnName = str
 TablesWithMaterializedColumns = TableWithProperties
-MATERIALIZATION_VALID_TABLES = {"events", "person", "groups"}
+MATERIALIZATION_VALID_TABLES: frozenset[TablesWithMaterializedColumns] = frozenset({"events", "person", "groups"})
 
 DMAT_STRING_COLUMN_NAME_PREFIX = "dmat_string_"
 # Naming prefixes for physical materialized columns; mat_/pmat_ are minted by

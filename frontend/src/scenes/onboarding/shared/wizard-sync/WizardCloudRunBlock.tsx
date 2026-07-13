@@ -67,6 +67,7 @@ export function WizardCloudRunBlock({
     if (activeCloudRun) {
         return (
             <InstallationProgressView
+                mode="cloud"
                 runId={activeCloudRun.runId}
                 taskId={activeCloudRun.taskId}
                 onRetryLocally={onRetryLocally}

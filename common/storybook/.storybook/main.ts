@@ -99,6 +99,11 @@ const config: StorybookConfig = {
             },
             optimizeDeps: {
                 include: ['buffer'],
+                // @posthog/brand's png stubs locate their image via new URL(..., import.meta.url);
+                // prebundling into .vite/deps would break that relative resolution. The package is
+                // pure ESM, so serving it unbundled is safe, and Vite's build handles the URL
+                // pattern natively.
+                exclude: ['@posthog/brand'],
             },
             build: {
                 rollupOptions: {
@@ -107,7 +112,10 @@ const config: StorybookConfig = {
                         // are meaningless here, and barrel-file re-export cycles are endemic to
                         // the app's index.ts files. Together they bury real warnings in ~1000
                         // lines of noise per CI build.
-                        if (warning.code === 'MODULE_LEVEL_DIRECTIVE' || warning.code === 'CYCLIC_CROSS_CHUNK_REEXPORT') {
+                        if (
+                            warning.code === 'MODULE_LEVEL_DIRECTIVE' ||
+                            warning.code === 'CYCLIC_CROSS_CHUNK_REEXPORT'
+                        ) {
                             return
                         }
                         defaultHandler(warning)

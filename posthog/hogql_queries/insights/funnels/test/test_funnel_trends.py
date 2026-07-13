@@ -10,7 +10,6 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -3476,8 +3475,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
             compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
         )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_default_previous_period_tags_rows(self, _feature_enabled):
+    def test_compare_default_previous_period_tags_rows(self):
         # Current period 2021-06-07 .. 2021-06-13. Default previous is the prior 7-day window
         # (2021-05-31 .. 2021-06-06). One conversion lands in each window.
         journeys_for(
@@ -3515,8 +3513,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(current_series["days"][0], "2021-06-07")
         self.assertEqual(previous_series["days"][0], "2021-05-31")
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_with_custom_offset_shifts_previous_window(self, _feature_enabled):
+    def test_compare_with_custom_offset_shifts_previous_window(self):
         # Custom offset `-30d` puts the previous window 30 days before the current window's start
         # regardless of the current window's length.
         journeys_for(
@@ -3549,8 +3546,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         # The 2021-06-01 conversion (default-previous window) does NOT contribute here.
         self.assertEqual(previous_series["data"].count(100.0), 1)
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_with_empty_previous_period(self, _feature_enabled):
+    def test_compare_with_empty_previous_period(self):
         # Only the current period has events; previous-period series must still be returned (zeroed).
         journeys_for(
             {
@@ -3573,8 +3569,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(previous_series["days"]), 7)
         self.assertEqual(set(previous_series["data"]), {0.0})
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_holds_funnel_window_constant(self, _feature_enabled):
+    def test_compare_holds_funnel_window_constant(self):
         # The previous-period sub-runner must use the same funnel window as the current-period one.
         # Only the date range shifts when compare is on; funnelWindowInterval / funnelWindowIntervalUnit
         # stay put. This is what keeps current and previous comparable.
@@ -3588,28 +3583,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         # Sanity: previous query's dateRange differs from current.
         self.assertNotEqual(previous_funnel.context.query.dateRange, runner.query.dateRange)
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_compare_feature_flag_off_returns_single_period(self, _feature_enabled):
-        # When the `funnels-compare` flag is off, the runner ignores compareFilter and behaves
-        # as if compare=False — saved-funnel safety.
-        journeys_for(
-            {
-                "u": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
-                ],
-            },
-            self.team,
-        )
-
-        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
-
-        # Single-period response: one summarized series, no compare_label tagging.
-        self.assertEqual(len(results), 1)
-        self.assertNotIn("compare_label", results[0])
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_with_all_time_date_range(self, _feature_enabled):
+    def test_compare_with_all_time_date_range(self):
         # When date_from='all', mirror trends' behavior: the runner does not reject the query;
         # the previous period is whatever QueryPreviousPeriodDateRange resolves to and rows are
         # tagged accordingly. The frontend toggle hides "compare" when date_from='all', but the

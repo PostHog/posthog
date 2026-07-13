@@ -835,6 +835,38 @@ export interface PatchedTicketApi {
 }
 
 /**
+ * * `good` - good
+ * * `bad` - bad
+ */
+export type RatingEnumApi = (typeof RatingEnumApi)[keyof typeof RatingEnumApi]
+
+export const RatingEnumApi = {
+    Good: 'good',
+    Bad: 'bad',
+} as const
+
+/**
+ * Payload for recording reviewer feedback on an AI reply.
+ */
+export interface AiFeedbackRequestApi {
+    /**
+     * ID of the AI message being rated.
+     * @maxLength 200
+     */
+    message_id: string
+    /** Reviewer rating: good or bad.
+     *
+     * * `good` - good
+     * * `bad` - bad */
+    rating: RatingEnumApi
+    /**
+     * Optional text explaining a bad rating.
+     * @maxLength 2000
+     */
+    feedback_text?: string
+}
+
+/**
  * A single message in a ticket thread (output-only).
  */
 export interface TicketMessageApi {

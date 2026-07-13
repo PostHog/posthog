@@ -28,15 +28,23 @@ def _json_cell(value: Any) -> Any:
     return str(value)
 
 
+def json_safe_rows(rows: list[tuple[Any, ...]]) -> list[list[Any]]:
+    return [[_json_cell(cell) for cell in row] for row in rows]
+
+
 def from_columns_and_rows(
-    columns: list[str], rows: list[tuple[Any, ...]], types: list[list[str]] | None = None
+    columns: list[str],
+    rows: list[tuple[Any, ...]],
+    types: list[list[str]] | None = None,
+    has_more: bool = False,
 ) -> dict[str, Any]:
     return {
         "status": "ok",
         "columns": columns,
         "types": types or [],
         "row_count": len(rows),
-        "first_page": [[_json_cell(cell) for cell in row] for row in rows],
+        "first_page": json_safe_rows(rows),
+        "has_more": has_more,
         "result_id": str(uuid.uuid4()),
     }
 

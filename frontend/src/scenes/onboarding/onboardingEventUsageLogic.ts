@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { projectLogic } from 'scenes/projectLogic'
 
 import type { onboardingEventUsageLogicType } from './onboardingEventUsageLogicType'
 import { resolveOnboardingFlowVariant } from './onboardingVariants'
@@ -45,13 +44,16 @@ function wizardSyncEventProps(featureFlags: FeatureFlagsSet): {
     }
 }
 
-// One exposure per project per pageload: the install step remounts on navigation, and a re-fired
-// exposure would inflate the denominator, but a project switch mid-session is a fresh exposure.
-// Module-scoped, mirroring the wizard tracker's once-per-session report guards.
-const reportedCloudRunExperimentExposures = new Set<string>()
+// Once-per-run guards for the completed-handoff funnel (exposure → CTA shown → CTA clicked). The
+// same run renders on several surfaces (inline panel, FAB card, dialog) and those remount freely —
+// deduping here, keyed by run, keeps the funnel's denominators honest without every surface
+// carrying its own guard.
+const reportedHandoffShownRuns = new Set<string>()
+const reportedDashboardCtaShownRuns = new Set<string>()
 
 export function resetCloudRunExperimentExposureForTests(): void {
-    reportedCloudRunExperimentExposures.clear()
+    reportedHandoffShownRuns.clear()
+    reportedDashboardCtaShownRuns.clear()
 }
 
 /**
@@ -64,7 +66,7 @@ export function resetCloudRunExperimentExposureForTests(): void {
 export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
     path(['scenes', 'onboarding', 'onboardingEventUsageLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], projectLogic, ['currentProjectId']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
         reportContextOnboardingStarted: true,
@@ -90,9 +92,6 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             prOpened: boolean
             prUrl: string | null
         }) => props,
-        // Exposure marker for the cloud-wizard AB test (GROW-117): fired when a user reaches the
-        // surface where the arms diverge (the install step on cloud/dev instances).
-        reportWizardCloudRunExperimentExposed: true,
         // Engagement with the shared wizard sync surface (FAB card / launcher / dialog), fired for
         // both variants and both run modes (GROW-121).
         reportWizardSyncExpanded: (props: { runKey: string; mode: 'cloud' | 'local'; phase: string }) => props,
@@ -103,6 +102,25 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             mode: 'cloud' | 'local'
             phase: string
             elapsedSeconds: number
+        }) => props,
+        // The completed-handoff funnel: exposure (a run's completed state rendered anywhere), the
+        // dashboard CTA becoming visible, and the CTA click. Deduped per run per pageload here, so
+        // surfaces can report unconditionally. No dashboard names or ids — same rule as repo names.
+        reportWizardSyncHandoffShown: (props: {
+            runKey: string
+            mode: 'cloud' | 'local'
+            surface: 'inline' | 'fab'
+            prOpened: boolean
+        }) => props,
+        reportWizardSyncDashboardCtaShown: (props: {
+            runKey: string
+            mode: 'cloud' | 'local'
+            surface: 'inline' | 'fab'
+        }) => props,
+        reportWizardSyncDashboardCtaClicked: (props: {
+            runKey: string
+            mode: 'cloud' | 'local'
+            surface: 'inline' | 'fab'
         }) => props,
     }),
     listeners(({ values }) => ({
@@ -178,24 +196,6 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },
-        reportWizardCloudRunExperimentExposed: () => {
-            // Enrollment-gated: callers fire on readiness (preflight + receivedFeatureFlags), and a
-            // null arm means the user is not in the experiment — no exposure, no guard, so a later
-            // dispatch after enrollment resolves can still count them. Never stamp a guessed arm:
-            // a mis-bucketed exposure cannot be repaired retroactively.
-            const arm = resolveCloudRunExperimentArm(values.featureFlags)
-            if (arm === null) {
-                return
-            }
-            const projectKey = String(values.currentProjectId ?? 'unknown')
-            if (reportedCloudRunExperimentExposures.has(projectKey)) {
-                return
-            }
-            reportedCloudRunExperimentExposures.add(projectKey)
-            posthog.capture('wizard cloud run experiment exposed', {
-                ...wizardSyncEventProps(values.featureFlags),
-            })
-        },
         reportWizardSyncExpanded: ({ runKey, mode, phase }) => {
             posthog.capture('wizard sync expanded', {
                 run_key: runKey,
@@ -226,6 +226,41 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 mode,
                 phase,
                 elapsed_seconds: elapsedSeconds,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardSyncHandoffShown: ({ runKey, mode, surface, prOpened }) => {
+            if (reportedHandoffShownRuns.has(runKey)) {
+                return
+            }
+            reportedHandoffShownRuns.add(runKey)
+            posthog.capture('wizard sync handoff shown', {
+                run_key: runKey,
+                mode,
+                surface,
+                pr_opened: prOpened,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardSyncDashboardCtaShown: ({ runKey, mode, surface }) => {
+            if (reportedDashboardCtaShownRuns.has(runKey)) {
+                return
+            }
+            reportedDashboardCtaShownRuns.add(runKey)
+            posthog.capture('wizard sync dashboard cta shown', {
+                run_key: runKey,
+                mode,
+                surface,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        // Clicks are NOT deduped: a user returning to the dashboard through the CTA twice is real
+        // engagement, and the shown-event denominator is already stable.
+        reportWizardSyncDashboardCtaClicked: ({ runKey, mode, surface }) => {
+            posthog.capture('wizard sync dashboard cta clicked', {
+                run_key: runKey,
+                mode,
+                surface,
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },

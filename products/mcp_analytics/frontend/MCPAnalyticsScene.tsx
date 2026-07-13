@@ -13,6 +13,7 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { askPostHogAI } from './askPostHogAI'
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
+import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { MCPAnalyticsLoading, MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
@@ -40,19 +41,31 @@ export function MCPAnalyticsScene(): JSX.Element {
 function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
-    const { onboardingState, signals } = useValues(mcpAnalyticsOnboardingLogic)
+    const { onboardingState, signals, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
 
     // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
     const { search: _search, ...sharedParams } = searchParams
 
+    const activityTab: LemonTab<MCPAnalyticsTab> = {
+        key: 'activity',
+        label: 'Activity',
+        content: <MCPAnalyticsActivityDashboard />,
+        link: combineUrl(urls.mcpAnalyticsActivity(), sharedParams).url,
+        'data-attr': 'mcp-analytics-activity-tab',
+    }
+    const dashboardTab: LemonTab<MCPAnalyticsTab> = {
+        key: 'dashboard',
+        label: 'Dashboard',
+        content: <MCPAnalyticsDashboard />,
+        link: combineUrl(urls.mcpAnalyticsDashboard(), sharedParams).url,
+        'data-attr': 'mcp-analytics-dashboard-tab',
+    }
+
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
-        {
-            key: 'dashboard',
-            label: 'Dashboard',
-            content: <MCPAnalyticsDashboard />,
-            link: combineUrl(urls.mcpAnalyticsDashboard(), sharedParams).url,
-            'data-attr': 'mcp-analytics-dashboard-tab',
-        },
+        // The default landing tab leads: Activity while the project is low-volume,
+        // Dashboard once it graduates — matching the landing redirect so the first
+        // tab is always the one you arrive on.
+        ...(dashboardStage === 'activity' ? [activityTab, dashboardTab] : [dashboardTab, activityTab]),
         {
             key: 'sessions',
             label: 'Sessions',

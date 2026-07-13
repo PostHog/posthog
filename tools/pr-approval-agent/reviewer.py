@@ -209,7 +209,7 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     from GitHub. Do NOT read files outside the repository.
     1. Review the diff provided in the prompt
     2. Read source files only if something looks off
-    3. ESCALATE if you'd need deep review to feel confident
+    3. ESCALATE if only deep domain review could rule out a showstopper
 
     Verify before you flag (every tier, including quick T1a reviews):
     - Never claim a symbol "does not exist" or "will throw at runtime" from the
@@ -221,8 +221,8 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     Verdicts:
     - APPROVE: no showstoppers found
     - REFUSE: concrete issue found
-    - ESCALATE: not confident, or needs domain expertise
-    When in doubt, ESCALATE rather than APPROVE.
+    - ESCALATE: risky territory without assurance, or needs domain expertise
+    Borderline calls follow the operating philosophy's when-in-doubt rule.
 
     IMPORTANT: The "reasoning" field is 1-2 sentences — your judgment call, not a
     code review. Do NOT describe what the code does. Do NOT mention internal

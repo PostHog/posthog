@@ -21,6 +21,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
@@ -69,6 +70,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         currentPeriodResult,
         breakdownFilter,
         trendsFilter,
+        stickinessFilter,
         formula,
         labelGroupType,
         hasPersonsModal,
@@ -123,10 +125,11 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 showCrosshair: true,
                 tooltip: tooltipConfig,
             }),
+            curve: chartStyleCurve(stickinessFilter?.chartStyle),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig]
+        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal

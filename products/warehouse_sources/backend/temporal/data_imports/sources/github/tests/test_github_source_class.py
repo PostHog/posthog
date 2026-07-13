@@ -72,6 +72,53 @@ class TestGithubSource:
 
         assert expected_error in self.source.get_non_retryable_errors()
 
+    def test_endpoint_permissions_surface_credential_errors_per_table(self):
+        # The schema-picker caller swallows exceptions from get_endpoint_permissions and falls back
+        # to "all reachable", so a raising token fetch must be mapped to a per-table reason here or
+        # a broken integration shows the org tables as available and fails only at sync time.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="oauth", personal_access_token=""),
+            repository="acme/widgets",
+        )
+
+        result = self.source.get_endpoint_permissions(config, self.team_id, ["teams", "team_members", "issues"])
+
+        assert result["issues"] is None
+        assert result["teams"] == "No GitHub account is connected. Please reconnect your GitHub account."
+        assert result["team_members"] == result["teams"]
+
+    @pytest.mark.parametrize("endpoint", ["teams", "team_members"])
+    def test_org_schemas_are_full_refresh_only_and_off_by_default(self, endpoint):
+        # teams / team_members expose no timestamps, so they must never advertise incremental,
+        # append, or webhook sync; otherwise the picker would offer a mode that syncs nothing.
+        # And they need an org grant repo-scoped connections lack, so they must start
+        # deselected; default-on would make a fresh source's first sync fail with 403/404.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
+            repository="acme/widgets",
+        )
+        schemas = {s.name: s for s in self.source.get_schemas(config, self.team_id)}
+
+        assert endpoint in schemas
+        schema = schemas[endpoint]
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+        assert schema.supports_webhooks is False
+        assert schema.webhook_only is False
+        assert schema.should_sync_default is False
+
+    def test_existing_workflow_schemas_stay_webhook_capable(self):
+        # Guard that adding the org endpoints didn't disturb the webhook-capable schemas.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
+            repository="acme/widgets",
+        )
+        schemas = {s.name: s for s in self.source.get_schemas(config, self.team_id)}
+
+        assert schemas["workflow_runs"].supports_webhooks is True
+        assert schemas["workflow_jobs"].supports_webhooks is True
+        assert all(s.should_sync_default for s in schemas.values() if s.name not in ("teams", "team_members"))
+
     def test_get_access_token_returns_pat(self):
         config = GithubSourceConfig(
             auth_method=GithubAuthMethodConfig(

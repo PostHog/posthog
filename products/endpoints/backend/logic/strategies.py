@@ -34,6 +34,7 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.team import Team
+from posthog.schema_migrations.upgrade import upgrade
 
 from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
 from products.endpoints.backend.logic.pagination import EndpointPagination
@@ -285,7 +286,12 @@ def _emit_breakdown_limit_signal(team: Team, endpoint: Endpoint) -> None:
 # ---------------------------------------------------------------------------
 
 FILTERS_OVERRIDE_DEPRECATION_HEADERS = {
-    "X-PostHog-Warn": "filters_override is deprecated. Use variables instead: https://posthog.com/docs/api/endpoints"
+    "X-PostHog-Warn": (
+        "filters_override is deprecated. Use variables instead, "
+        "or mark the breakdown property as optional on the endpoint "
+        "if you want to call /run without supplying its value: "
+        "https://posthog.com/docs/api/endpoints"
+    )
 }
 
 
@@ -308,7 +314,8 @@ class EndpointQueryStrategy(abc.ABC):
         self.endpoint = endpoint
         self.version = version
         self.team = team
-        self.query: dict = version.query
+        # Stored snapshots are immutable and may predate the current query schema
+        self.query: dict = upgrade(version.query)
 
     @property
     def query_kind(self) -> str | None:

@@ -1,12 +1,12 @@
 import { Link } from '@posthog/lemon-ui'
-import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
-import { Card, CardContent, Skeleton } from '@posthog/quill-primitives'
+import { type ChartTheme } from '@posthog/quill-charts'
 
 import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
-import { formatMs, formatNumber } from './formatters'
+import { formatBucketLabel, formatMs, formatNumber } from './formatters'
+import { MetricTile } from './MetricTile'
 
 interface TileSpec {
     label: string
@@ -15,45 +15,38 @@ interface TileSpec {
     format: (n: number) => string
     color: string
     loading: boolean
-    // Overrides the default "vs. prior" comparison line — used to flag a tile
-    // whose value isn't scoped by the dashboard filters.
+    summaryLabel: string
+    // Overrides the summary caption — used to flag a tile whose value isn't
+    // scoped by the dashboard filters.
     subtitle?: string
 }
 
 function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.Element {
     const { metric } = tile
-    const hasSparkline = metric.sparkline.length > 0
-    const hasComparison = metric.deltaPct !== null
 
     return (
         <Link to={tile.href} subtle className="group/tile flex h-full">
-            <Card size="sm" className="flex-1 transition-transform group-hover/tile:-translate-y-0.5">
-                {tile.loading ? (
-                    <CardContent className="flex flex-col gap-2">
-                        <Skeleton className="h-3 w-16" />
-                        <Skeleton className="h-7 w-20" />
-                    </CardContent>
-                ) : (
-                    <CardContent>
-                        <MetricCard
-                            className="text-primary"
-                            title={tile.label}
-                            value={metric.value}
-                            data={hasSparkline ? metric.sparkline : undefined}
-                            theme={theme}
-                            color={tile.color}
-                            goodDirection={metric.goodDirection}
-                            formatValue={tile.format}
-                            subtitle={
-                                tile.subtitle ??
-                                (hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined)
-                            }
-                            sparklineHeight={50}
-                            sparklineClassName="mt-3 -mx-3 -mb-3"
-                        />
-                    </CardContent>
-                )}
-            </Card>
+            <MetricTile
+                className="transition-transform group-hover/tile:-translate-y-0.5"
+                label={tile.label}
+                loading={tile.loading}
+                value={metric.value}
+                data={metric.sparkline}
+                labels={metric.sparklineLabels.map(formatBucketLabel)}
+                theme={theme}
+                color={tile.color}
+                goodDirection={metric.goodDirection}
+                formatValue={tile.format}
+                change={metric.deltaPct !== null ? { value: metric.deltaPct } : null}
+                changeTooltip={
+                    metric.deltaPct !== null
+                        ? `vs. ${tile.format(metric.previousValue)} in the previous period`
+                        : undefined
+                }
+                hoverChangeFromPreviousPoint
+                restingSubtitle={tile.subtitle ?? tile.summaryLabel}
+                sparklineHeight={50}
+            />
         </Link>
     )
 }
@@ -82,6 +75,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[2],
             loading: usersLoading,
+            summaryLabel: 'Total',
         },
         {
             label: 'Sessions',
@@ -90,6 +84,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            summaryLabel: 'Total',
         },
         {
             label: 'Tool calls',
@@ -98,6 +93,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            summaryLabel: 'Total',
         },
         {
             label: 'Error rate',
@@ -106,6 +102,7 @@ export function KpiTiles({
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
+            summaryLabel: 'Latest',
         },
         {
             label: 'p95 latency',
@@ -114,6 +111,7 @@ export function KpiTiles({
             format: formatMs,
             color: theme.colors[0],
             loading: kpisLoading,
+            summaryLabel: 'Latest',
         },
         {
             label: 'Intent clusters',
@@ -122,6 +120,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[6],
             loading: false,
+            summaryLabel: 'Total',
             // Clusters come from the latest clustering snapshot across all sessions, so
             // unlike the other tiles this count isn't scoped by the date or test-account
             // filters. Label it so the grid doesn't read as a single consistent scope.

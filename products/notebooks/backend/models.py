@@ -196,6 +196,9 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
     node_id = models.CharField(max_length=128)
+    # The node's code at run time — paging must re-query what produced the result,
+    # not whatever the editor holds now.
+    code = models.TextField(blank=True, default="")
     status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
     envelope: JSONField = JSONField(default=None, null=True, blank=True)
     result_id = models.UUIDField(null=True, blank=True)

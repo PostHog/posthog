@@ -37,9 +37,11 @@ _CALLBACK_TOKEN_MAX_AGE_SECONDS = 3600
 _DATA_PLANE_TOKEN_SALT = "notebooks.sql_v2.data_plane"
 _DATA_PLANE_TOKEN_MAX_AGE_SECONDS = 3600
 
-# Rows in the display page the kernel fetches for a run. Paging beyond it re-queries
-# ClickHouse (push-to-CH: a displayed HogQL node is never fully materialized).
+# Rows in the display page the run envelope carries to the UI.
 DISPLAY_PAGE_LIMIT = 50
+# Rows the kernel fetches and caches per run. Pages within the cache are local slices
+# (no ClickHouse re-query); paging beyond it falls back to a LIMIT/OFFSET re-query.
+RESULT_CACHE_ROWS = 300
 
 # The container port the sandbox already exposes (mapped to a host port at create
 # time). Mirrors docker_sandbox.AGENT_SERVER_PORT (47821) and
@@ -55,11 +57,25 @@ _SERVER_LOG_PATH = "/tmp/nb_kernel_server.log"
 _SERVER_PID_PATH = "/tmp/nb_kernel_server.pid"
 _SERVER_READY_TIMEOUT_SECONDS = 15
 _RUN_POST_TIMEOUT_SECONDS = 10
+# A page fetch holds a web worker for the whole kernel -> data plane -> CH round trip.
+_PAGE_POST_TIMEOUT_SECONDS = 60
+# Safety-net TTL for the per-user page-fetch lock: sized just past the POST timeout so a
+# worker killed before its finally-release can't wedge the user's paging for long.
+PAGE_LOCK_TTL_SECONDS = _PAGE_POST_TIMEOUT_SECONDS + 10
 _COMMAND_TOKEN_TTL_SECONDS = 300
+
+
+def sql_v2_page_lock_key(team_id: int, user_id: int | None) -> str:
+    """One in-flight page fetch per user: each holds a web worker for up to the POST timeout."""
+    return f"sqlv2_page_inflight:{team_id}:{user_id if user_id is not None else 'anon'}"
 
 
 class SQLV2KernelNotRunning(Exception):
     """Raised when a run is dispatched but the notebook has no running sandbox."""
+
+
+class SQLV2PageError(Exception):
+    """A page fetch the kernel rejected or failed; message is user-facing."""
 
 
 def is_sql_v2_enabled(user: User | None) -> bool:
@@ -152,15 +168,32 @@ def _find_running_runtime(notebook: Notebook, user: User | None) -> KernelRuntim
     return runtime
 
 
-def _with_connect_token(url: str, connect_token: str | None) -> str:
-    return f"{url}?_modal_connect_token={connect_token}" if connect_token else url
+_COMMAND_TOKEN_HEADER = "X-Command-Token"
+
+
+def _sandbox_auth_headers(connect_token: str | None, command_token: str | None = None) -> dict[str, str]:
+    """Auth headers for a request into the sandbox.
+
+    The Modal connect token rides `Authorization: Bearer` — Modal's edge accepts it there
+    as well as in the query string, and headers stay out of proxy/access logs while URLs
+    do not. With that slot taken, the kernel's command token travels in its own header.
+    """
+    headers: dict[str, str] = {}
+    if connect_token:
+        headers["Authorization"] = f"Bearer {connect_token}"
+    if command_token:
+        headers[_COMMAND_TOKEN_HEADER] = command_token
+    return headers
 
 
 def _server_version(server_url: str, connect_token: str | None) -> str | None:
     """The deployed package hash the running server reports, or None if unreachable."""
-    health_url = _with_connect_token(f"{server_url.rstrip('/')}/health", connect_token)
     try:
-        response = requests.get(health_url, timeout=2)
+        response = requests.get(
+            f"{server_url.rstrip('/')}/health",
+            headers=_sandbox_auth_headers(connect_token),
+            timeout=2,
+        )
         if response.status_code != 200:
             return None
         return str(response.json().get("version") or "")
@@ -246,7 +279,7 @@ def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNode
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
     response = requests.post(
-        _with_connect_token(f"{runtime.server_url.rstrip('/')}/run", runtime.server_connect_token),
+        f"{runtime.server_url.rstrip('/')}/run",
         json={
             "run_id": str(run.id),
             "code": code,
@@ -255,8 +288,61 @@ def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNode
             "data_plane_url": build_data_plane_url(),
             "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
             "page_limit": DISPLAY_PAGE_LIMIT,
+            "cache_limit": RESULT_CACHE_ROWS,
         },
-        headers={"Authorization": f"Bearer {command_token}"},
+        headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
         timeout=_RUN_POST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
+
+
+def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRun, offset: int, limit: int) -> dict:
+    """Fetch one result page through the kernel — a bounded synchronous re-query.
+
+    Unlike a run this never bootstraps the server (no control plane from a web
+    worker); a missing or unreachable server means the user has to re-run.
+    """
+    runtime = _find_running_runtime(notebook, user)
+    if runtime is None or not runtime.server_url:
+        raise SQLV2KernelNotRunning()
+
+    command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
+    user_id = user.id if isinstance(user, User) else None
+    try:
+        response = requests.post(
+            f"{runtime.server_url.rstrip('/')}/page",
+            json={
+                "run_id": str(run.id),
+                "code": run.code,
+                "offset": offset,
+                "limit": limit,
+                "data_plane_url": build_data_plane_url(),
+                "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
+            },
+            headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
+            timeout=_PAGE_POST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        raise SQLV2KernelNotRunning() from exc
+
+    if response.status_code in (404, 401, 403):
+        # 404 → kernel-server predates the /page route; 401/403 → the command token expired or
+        # the kernel was redeployed with a new secret. All are session-level, not query errors —
+        # a re-run redeploys/reissues, so surface them as "re-run" (503), not a page failure.
+        raise SQLV2KernelNotRunning()
+    if response.status_code == 400:
+        raise SQLV2PageError(_kernel_error_detail(response))
+    if response.status_code != 200:
+        # Any other non-200 (e.g. a kernel 500) is an infrastructure problem, not a bad query.
+        raise SQLV2KernelNotRunning()
+    return response.json()
+
+
+def _kernel_error_detail(response: requests.Response) -> str:
+    try:
+        detail = response.json().get("error")
+        if isinstance(detail, str) and detail:
+            return detail
+    except ValueError:
+        pass
+    return "Page fetch failed in the sandbox."

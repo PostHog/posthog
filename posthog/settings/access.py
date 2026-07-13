@@ -130,6 +130,12 @@ TASKS_AGENT_PROXY_INGEST_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INGEST_U
 # is set AND the read-via-proxy flag is enabled for the user; unset means clients read from Django.
 TASKS_AGENT_PROXY_PUBLIC_URL: str | None = os.getenv("TASKS_AGENT_PROXY_PUBLIC_URL") or None
 
+# In-cluster base URL of the agent-proxy for backend consumers (e.g. the Temporal worker relaying a
+# run's live stream to Slack) that read the stream leg without going through the ingress/CDN. Points
+# at the ClusterIP service (e.g. http://agent-proxy.agent-proxy.svc.cluster.local:8003). Unset falls
+# back to TASKS_AGENT_PROXY_PUBLIC_URL, then to reading the Django-side Redis stream directly.
+TASKS_AGENT_PROXY_INTERNAL_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INTERNAL_URL") or None
+
 # Shared service-to-service secret proving a call to the agent-proxy side-effect callback came from the
 # agent-proxy and not directly from a sandbox (which also holds the event-ingest JWT). When set, the
 # callback requires a matching X-Agent-Proxy-Secret header. Provision the same value to Django and the

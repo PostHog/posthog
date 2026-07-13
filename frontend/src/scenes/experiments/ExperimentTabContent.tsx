@@ -7,6 +7,7 @@ import type { FeatureFlagType } from '~/types'
 import { CreateDraftExperimentCard } from './ExperimentTabContent/CreateDraftExperimentCard'
 import { RelatedExperimentsTable } from './ExperimentTabContent/RelatedExperimentsTable'
 import { experimentTabLogic } from './experimentTabLogic'
+import { getFlagVariants } from './utils'
 
 type ExperimentTabContentProps = {
     featureFlag: FeatureFlagType
@@ -24,10 +25,8 @@ export const ExperimentTabContent = ({
         experimentTabLogic({ featureFlagId: featureFlag.id! })
     )
 
-    const isValidMultivariateFlag =
-        featureFlag.filters.multivariate &&
-        featureFlag.filters.multivariate.variants.length > 1 &&
-        featureFlag.filters.multivariate.variants.some((variant) => variant.key === 'control')
+    const variants = getFlagVariants(featureFlag)
+    const isValidMultivariateFlag = variants.length > 1 && variants.some((variant) => variant.key === 'control')
 
     if (!isValidMultivariateFlag) {
         return (

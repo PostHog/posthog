@@ -43,10 +43,10 @@ _MALFORMED_PEM_MESSAGE = (
 )
 
 SnowflakeErrors = {
-    "No active warehouse selected in the current session": "No warehouse found for selected role",
+    "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then try again.",
     "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
     "Incorrect username or password was specified": "Incorrect username or password was specified",
-    "This session does not have a current database": "Database specified not found",
+    "This session does not have a current database": "No database is available for this connection. Check that the configured database exists and that the connecting role has USAGE on it, then try again.",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
     "Multi-factor authentication is required for this account": "This Snowflake account requires multi-factor authentication enrollment. Connect with a service user that uses key-pair authentication or is exempt from MFA.",
     # Snowflake error 290404: the login-request endpoint 404s because the account identifier doesn't

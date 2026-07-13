@@ -7,7 +7,14 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../inboxAnalytics'
-import { ACTIONABLE_ACTIONABILITY_VALUES, INBOX_SCOPE_FOR_YOU, InboxFlatListTabKey, SignalReport } from '../types'
+import {
+    ACTIONABLE_ACTIONABILITY_VALUES,
+    INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_SCOPE_FOR_YOU,
+    InboxFlatListTabKey,
+    InboxScope,
+    SignalReport,
+} from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
@@ -46,6 +53,29 @@ function teammateUuidFromScope(scope: string): string | undefined {
 }
 
 /**
+ * Whether to auto-switch the reviewer scope to Entire project on first load. True only for the
+ * Pull requests tab when the user is still on the (default) For-you scope, hasn't chosen a scope
+ * themselves, has resolved to a real user, and has zero PRs suggested to them — so a user with
+ * nothing assigned doesn't land on an empty view. Pure so the branching is unit-testable without
+ * mounting the logic.
+ */
+export function shouldDefaultToEntireProject(input: {
+    tabKey: InboxFlatListTabKey
+    scope: InboxScope
+    hasUserChosenScope: boolean
+    hasResolvedUser: boolean
+    count: number | null
+}): boolean {
+    return (
+        input.tabKey === 'pulls' &&
+        input.scope === INBOX_SCOPE_FOR_YOU &&
+        !input.hasUserChosenScope &&
+        input.hasResolvedUser &&
+        input.count === 0
+    )
+}
+
+/**
  * Keyed per-tab report list. Mounted once per flat tab (pulls / reports / not-actionable),
  * each with its own fixed `listParams`, so every tab is its own filtered request with its
  * own accurate `count` and its own pagination. The shared user chrome (search, sort, source,
@@ -62,13 +92,29 @@ export const reportListLogic = kea<reportListLogicType>([
     connect(() => ({
         values: [
             inboxFiltersLogic,
-            ['scope', 'searchQuery', 'sortField', 'sortDirection', 'sourceProductFilter', 'priorityFilter'],
+            [
+                'scope',
+                'hasUserChosenScope',
+                'searchQuery',
+                'sortField',
+                'sortDirection',
+                'sourceProductFilter',
+                'priorityFilter',
+            ],
             userLogic,
             ['user'],
         ],
         actions: [
             inboxFiltersLogic,
-            ['setSearchQuery', 'setSort', 'toggleSourceProduct', 'togglePriority', 'setScope', 'clearFilters'],
+            [
+                'setSearchQuery',
+                'setSort',
+                'toggleSourceProduct',
+                'togglePriority',
+                'setScope',
+                'applyDefaultScope',
+                'clearFilters',
+            ],
         ],
     })),
 
@@ -167,7 +213,24 @@ export const reportListLogic = kea<reportListLogicType>([
         isLoaded: [(s) => [s.reportsResponse], (reportsResponse): boolean => reportsResponse !== null],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        // First For-you count for the Pull requests tab: if the user has no PRs suggested to them,
+        // default to Entire project so they don't land on an empty view. Only when they haven't
+        // picked a scope themselves, and only once the user's uuid has resolved (so the count is
+        // genuinely theirs, not an unfiltered project-wide count).
+        loadCountSuccess: () => {
+            if (
+                shouldDefaultToEntireProject({
+                    tabKey: props.tabKey,
+                    scope: values.scope,
+                    hasUserChosenScope: values.hasUserChosenScope,
+                    hasResolvedUser: !!values.user?.uuid,
+                    count: values.count,
+                })
+            ) {
+                actions.applyDefaultScope(INBOX_SCOPE_ENTIRE_PROJECT)
+            }
+        },
         ensureLoaded: () => {
             if (values.reportsResponse === null && !values.reportsResponseLoading) {
                 actions.loadReports()
@@ -193,6 +256,7 @@ export const reportListLogic = kea<reportListLogicType>([
         toggleSourceProduct: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
         setScope: () => actions.refresh(),
+        applyDefaultScope: () => actions.refresh(),
         clearFilters: () => actions.refresh(),
         // For-you scope needs the current user's uuid; reload once it resolves.
         [userLogic.actionTypes.loadUserSuccess]: () => {

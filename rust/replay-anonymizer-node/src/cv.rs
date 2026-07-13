@@ -1,5 +1,4 @@
 //! Decode/scrub/re-encode per-event `cv` compression (gzip stored as latin-1 codepoints).
-//! Mirrors `anonymize/cv.ts`.
 
 use anyhow::{bail, Context, Result};
 use simd_json::borrowed::{Object, Value};

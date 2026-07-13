@@ -315,8 +315,9 @@ export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnefourTyp
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnefiveTypeDefault = `data_warehouse`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnesixTypeDefault = `data_warehouse_person_property`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
-export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwozeroTypeDefault = `revenue_analytics`
-export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwooneTypeDefault = `workflow_variable`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnenineTypeDefault = `metric_attribute`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwooneTypeDefault = `revenue_analytics`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwotwoTypeDefault = `workflow_variable`
 export const endpointsRunCreateBodyRefreshDefault = `cache`
 
 export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
@@ -415,7 +416,10 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                         'Tri-state test-account override. Null/absent = inherit; true = force on; false = force off.'
                     ),
                 interval: zod
-                    .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                    .union([
+                        zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year']),
+                        zod.null(),
+                    ])
                     .optional()
                     .describe('Time granularity forced onto every insight that supports one. Absent/null = inherit.'),
                 properties: zod
@@ -1335,6 +1339,60 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         'icontains_multi',
                                         'not_icontains_multi',
                                     ]),
+                                    type: zod
+                                        .literal('metric_attribute')
+                                        .default(
+                                            endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnenineTypeDefault
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
                                     type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
                                     value: zod
                                         .union([
@@ -1388,7 +1446,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                     type: zod
                                         .literal('revenue_analytics')
                                         .default(
-                                            endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwozeroTypeDefault
+                                            endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwooneTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -1442,7 +1500,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                     type: zod
                                         .literal('workflow_variable')
                                         .default(
-                                            endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwooneTypeDefault
+                                            endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwotwoTypeDefault
                                         ),
                                     value: zod
                                         .union([

@@ -72,7 +72,7 @@ export function InstallationStatusNavButton({ iconOnly = false }: { iconOnly?: b
     const sidebarEnabled = useFeatureFlag('ONBOARDING_WIZARD_SIDEBAR', 'test')
     // Gate BEFORE mounting any logic: the inner component mounts the session detector (directly and
     // via installationStatusNavLogic's connect), whose afterMount starts a 60s REST poll. Flag-off
-    // users must not pay that traffic (INC-886 pattern, mirrors WizardProgressFab).
+    // users must not pay that traffic (INC-886 pattern, mirrors WizardSyncLocalGate).
     if (!sidebarEnabled) {
         return null
     }

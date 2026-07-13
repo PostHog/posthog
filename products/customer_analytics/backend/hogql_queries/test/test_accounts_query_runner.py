@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 
 from django.test import override_settings
@@ -158,7 +160,9 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self._assign(assigned, holder)
         previously_assigned = create_account(team_id=self.team.id, name="Previously assigned")
         rel = self._assign(previously_assigned, holder)
-        relationships_logic.end_relationship(team_id=self.team.id, relationship_id=str(rel.id))
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=str(previously_assigned.id), relationship_id=str(rel.id)
+        )
         never_assigned = create_account(team_id=self.team.id, name="Never assigned")
 
         self.assertEqual(set(self._ids(allRolesUnassigned=True)), {str(previously_assigned.id), str(never_assigned.id)})
@@ -203,7 +207,9 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         holder = self._create_user("holder@x.com")
         account = create_account(team_id=self.team.id, name="Handed off")
         rel = self._assign(account, holder)
-        relationships_logic.end_relationship(team_id=self.team.id, relationship_id=str(rel.id))
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=str(account.id), relationship_id=str(rel.id)
+        )
         self.assertEqual(self._ids(assignedToUserIds=[holder.id]), [])
 
     def test_assigned_to_user_matches_any_of_multiple_ids(self):
@@ -468,6 +474,53 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             search="match",
             filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50",
         )
+        self.assertEqual(names, ["Match"])
+
+    def test_filter_expression_can_reference_a_custom_property_not_in_select(self):
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        match = create_account(team_id=self.team.id, name="Enterprise co")
+        create_account(team_id=self.team.id, name="No value")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=match, definition=definition, value_str="enterprise"
+        )
+        # The custom-property filter UI compiles to filterExpression fragments like this, and the
+        # filtered property is usually not a selected column — the WHERE reference alone must
+        # expand the custom_properties lazy join.
+        names = self._names(filterExpression=f"accounts.custom_properties.values.`{definition.id}` = 'enterprise'")
+        self.assertEqual(names, ["Enterprise co"])
+
+    @parameterized.expand(
+        [
+            (
+                "boolean",
+                {"value_bool": True},
+                {"value_bool": False},
+                "accounts.custom_properties.values.`{id}` = 'true'",
+            ),
+            (
+                "datetime",
+                {"value_datetime": datetime(2026, 1, 10, tzinfo=UTC)},
+                {"value_datetime": datetime(2026, 6, 10, tzinfo=UTC)},
+                "parseDateTimeBestEffort(accounts.custom_properties.values.`{id}`) < parseDateTimeBestEffort('2026-03-01')",
+            ),
+        ]
+    )
+    def test_typed_custom_property_filter_expression_round_trips(
+        self, display_type, match_value, other_value, expression_template
+    ):
+        # These are the exact predicate shapes the filter UI compiles; they must match against
+        # the coalesced string column as it comes back through the federated read (where e.g.
+        # a PostgreSQL boolean arrives as UInt8, not as 'true'/'false').
+        definition = create_custom_property_definition(team_id=self.team.id, name="Prop", display_type=display_type)
+        match = create_account(team_id=self.team.id, name="Match")
+        other = create_account(team_id=self.team.id, name="Other")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=match, definition=definition, **match_value
+        )
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=other, definition=definition, **other_value
+        )
+        names = self._names(filterExpression=expression_template.format(id=definition.id))
         self.assertEqual(names, ["Match"])
 
     def test_custom_property_value_round_trips_through_a_selected_alias(self):

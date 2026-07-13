@@ -30,10 +30,15 @@ export function reconcileById<T>(
         return next
     }
     const previousById = new Map(previous.map((item) => [getId(item), item]))
-    return next.map((item) => {
+    const result = next.map((item) => {
         const existing = previousById.get(getId(item))
         return existing && isReusable(item) && objectsEqual(existing, item) ? existing : item
     })
+    // Keep the collection itself reference-stable too: consumers that diff by reference
+    // (e.g. ReactFlow's controlled nodes/edges props) must see an unchanged reconcile as
+    // unchanged, or every rebuild re-syncs them and can amplify churn into an update loop.
+    const unchanged = result.length === previous.length && result.every((item, index) => item === previous[index])
+    return unchanged ? previous : result
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
