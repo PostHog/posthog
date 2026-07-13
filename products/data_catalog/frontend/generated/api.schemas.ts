@@ -8,17 +8,6 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `user` - user
- * * `ai_generated` - ai_generated
- */
-export type CreatedSourceEnumApi = (typeof CreatedSourceEnumApi)[keyof typeof CreatedSourceEnumApi]
-
-export const CreatedSourceEnumApi = {
-    User: 'user',
-    AiGenerated: 'ai_generated',
-} as const
-
-/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -74,6 +63,17 @@ export interface UserBasicApi {
 }
 
 /**
+ * * `user` - user
+ * * `ai_generated` - ai_generated
+ */
+export type CreatedSourceEnumApi = (typeof CreatedSourceEnumApi)[keyof typeof CreatedSourceEnumApi]
+
+export const CreatedSourceEnumApi = {
+    User: 'user',
+    AiGenerated: 'ai_generated',
+} as const
+
+/**
  * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
  * @nullable
  */
@@ -118,13 +118,18 @@ export interface DataCatalogMetricApi {
     readonly referenced_table_names: unknown
     /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
     readonly status: string
+    /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+    readonly is_drifted: boolean
     /** @nullable */
     readonly approved_at: string | null
+    /** User who approved this metric as canonical, or null. */
+    readonly approved_by: UserBasicApi | null
     /**
-     * Short ID of the insight this metric was created from, for drift detection.
+     * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+     * @maxLength 12
      * @nullable
      */
-    readonly source_insight_short_id: string | null
+    source_insight_short_id?: string | null
     /**
      * When the metric was last run (30-minute throttle).
      * @nullable
@@ -208,13 +213,18 @@ export interface PatchedDataCatalogMetricApi {
     readonly referenced_table_names?: unknown
     /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
     readonly status?: string
+    /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+    readonly is_drifted?: boolean
     /** @nullable */
     readonly approved_at?: string | null
+    /** User who approved this metric as canonical, or null. */
+    readonly approved_by?: UserBasicApi | null
     /**
-     * Short ID of the insight this metric was created from, for drift detection.
+     * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+     * @maxLength 12
      * @nullable
      */
-    readonly source_insight_short_id?: string | null
+    source_insight_short_id?: string | null
     /**
      * When the metric was last run (30-minute throttle).
      * @nullable
