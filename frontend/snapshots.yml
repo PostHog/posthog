@@ -4715,7 +4715,7 @@ snapshots:
     replay-tabs-home-filters-banner--product-analytics-over-limit--dark:
         hash: v1.k794b7964.9ee25b6594b07076cff0c2d285096a7e2d2031e3d30e58d4d043c8e3e0d44447.0wsqTslGRLqaidPoW0-teojry4FMwKSiOqo9E6i6AG8
     replay-tabs-home-filters-banner--product-analytics-over-limit--light:
-        hash: v1.k794b7964.9e6e0a6b500bea8a289281eaadb397a36a19381074a6d72291d186c7dbc89837.O2Q9Dv4VQBJqT5IlxRTwoYrGw7cXNkhGd2ikmDmIrZc
+        hash: v1.k794b7964.ce83ea4567a5c8b4590bcb893fc88f377137ad27fa80fe4055c11b6c67fddc2c.HiIRJnhWKP43v-EpZ0_1C8Cm7oxSslck6_CDTBx1UzI
     replay-tabs-home-filters-banner--product-analytics-under-limit--dark:
         hash: v1.k794b7964.052e0b53efc698c71dfbc8cafdef6531e668f9c0fb096dc450af86bcb2c9dab6.y_OoXV1G5NBt353KuAQwJlMVI4v_frkvWNqkoqTAhfg
     replay-tabs-home-filters-banner--product-analytics-under-limit--light:
@@ -5636,6 +5636,10 @@ snapshots:
         hash: v1.k794b7964.cfd075c10189496c867372e36391cf5985948fe5a8137c434545f5825b15ac7e.CBhNqr7PbQNz8qkKG2U9CTIyRe5lDAYRM83-AJ8_zVw
     scenes-app-heatmap-new--new-form--light:
         hash: v1.k794b7964.efcfe6e747715ec98507ddc9a223cc52e821d9c44cde876551edc9e5813c2930.GJ6WxbvpypQJHEukgIxvQmhzq0GFcmtyTNZtdfA959A
+    scenes-app-heatmap-recording--recording-mode-with-clickmap--dark:
+        hash: v1.k794b7964.94340efcd25e5f475e20772c984cdeaefa5f2494526c091498b618420430e76a.Bhqax55vaG6-yMtQOys8JykowfBEm0mZLG2hLipNB2k
+    scenes-app-heatmap-recording--recording-mode-with-clickmap--light:
+        hash: v1.k794b7964.22f3a94ca40cb149e4304284f5a3ed613728ed22a1d4554fa94754aca6dc38e8.RL9cCxn6_8zy2HgMxnfhUCDvQk_-tWwn_vmZNIZjF4I
     scenes-app-heatmaps-saved--list--dark:
         hash: v1.k794b7964.8368377e136c567c3c500c97924486837234c230858baf0eb14678b6900d68c6.qpjMZIE3Ii8vpyLrfaKjCdym7waJtp38DGez1iugMMo
     scenes-app-heatmaps-saved--list--light:
