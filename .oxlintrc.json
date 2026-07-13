@@ -13,7 +13,7 @@
         "nodejs",
         ".semgrep",
         ".github/actions/paths-filter",
-        ".github/scripts/codeowners.js",
+        ".github/scripts",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
         "common/plugin_transpiler/dist",
