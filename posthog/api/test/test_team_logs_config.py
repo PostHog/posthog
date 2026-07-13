@@ -72,17 +72,21 @@ class TestTeamLogsConfig(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @parameterized.expand(URL_PREFIXES)
-    def test_regular_member_can_patch(self, _name: str, prefix: str):
+    def test_regular_member_can_read_but_not_patch(self, _name: str, prefix: str):
+        # Writes are admin-only, matching the admin-gated settings UI; reads stay open
+        # to members so the settings page can render for everyone.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        response = self.client.patch(
+        get_response = self.client.get(self._url(prefix))
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+
+        patch_response = self.client.patch(
             self._url(prefix),
             {"logs_distinct_id_attribute_key": "user.id"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["logs_distinct_id_attribute_key"], "user.id")
+        self.assertEqual(patch_response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand(URL_PREFIXES)
     def test_config_is_scoped_per_environment(self, _name: str, prefix: str):

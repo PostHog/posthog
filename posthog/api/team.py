@@ -2108,11 +2108,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["GET", "PATCH"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="logs_config",
     )
     def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage logs product configuration for this environment."""
+        """Manage logs product configuration for this environment. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
         return handle_logs_config(request, self.get_object())
 
     @action(
