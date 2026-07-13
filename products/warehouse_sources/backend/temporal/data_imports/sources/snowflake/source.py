@@ -266,8 +266,12 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # never succeed until the user pastes a valid PEM key.
             "Unable to load PEM file": _MALFORMED_PEM_MESSAGE.format(action="resync."),
             # See `_WRONG_KEY_PASSPHRASE_MESSAGE`: the encrypted key-pair private key can't be decrypted
-            # with the configured passphrase, so retrying can never succeed until the user fixes it.
+            # because the passphrase is wrong (ValueError) or was never provided (TypeError), so retrying
+            # can never succeed until the user fixes it.
             "Incorrect password, could not decrypt key": _WRONG_KEY_PASSPHRASE_MESSAGE.format(action="resync."),
+            "Password was not given but private key is encrypted": _WRONG_KEY_PASSPHRASE_MESSAGE.format(
+                action="resync."
+            ),
             # Snowflake error 002003 (SQLSTATE 42S02 for tables / 02000 for schemas): a table or
             # schema the source syncs was dropped or renamed in Snowflake, or the role's grant on it
             # was revoked, after the schema was discovered. The driver raises "<object> does not exist
@@ -322,13 +326,18 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
 
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
+            error_str = str(e)
             # A malformed key-pair private key fails to parse in `load_pem_private_key` before we ever
             # reach Snowflake — a user config error, not an unexpected failure worth capturing.
-            if "Unable to load PEM file" in str(e):
+            if "Unable to load PEM file" in error_str:
                 return False, _MALFORMED_PEM_MESSAGE.format(action="try again.")
-            # An encrypted private key with a missing/wrong passphrase — also a user config error.
-            if "Incorrect password, could not decrypt key" in str(e):
+            # An encrypted private key whose passphrase is wrong (ValueError) or was never provided
+            # (TypeError) — also a user config error.
+            if (
+                "Incorrect password, could not decrypt key" in error_str
+                or "Password was not given but private key is encrypted" in error_str
+            ):
                 return False, _WRONG_KEY_PASSPHRASE_MESSAGE.format(action="try again.")
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."
