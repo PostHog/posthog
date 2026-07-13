@@ -62,8 +62,8 @@ export const SignalReportStatusEnumApi = {
 } as const
 
 /**
- * * `pr_incorrect` - Pr Incorrect
- * * `pr_not_useful` - Pr Not Useful
+ * * `pr_incorrect` - PR incorrect
+ * * `pr_not_useful` - PR not useful
  * * `duplicate` - Duplicate
  * * `other` - Other
  */
@@ -92,8 +92,8 @@ export interface SignalReportRefundApi {
     readonly id: string
     /** Why the user refunded this PR (feeds the refund review).
      *
-     * * `pr_incorrect` - Pr Incorrect
-     * * `pr_not_useful` - Pr Not Useful
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
      * * `duplicate` - Duplicate
      * * `other` - Other */
     readonly reason: SignalReportRefundReasonEnumApi
@@ -123,9 +123,9 @@ export interface SignalReportRefundApi {
 }
 
 /**
- * * `posthog_health_check` - Posthog Health Check
- * * `posthog_onboarding` - Posthog Onboarding
- * * `posthog_system` - Posthog System
+ * * `posthog_health_check` - PostHog health check
+ * * `posthog_onboarding` - PostHog onboarding
+ * * `posthog_system` - PostHog system
  */
 export type BillingExemptReasonEnumApi = (typeof BillingExemptReasonEnumApi)[keyof typeof BillingExemptReasonEnumApi]
 
@@ -190,9 +190,9 @@ export interface SignalReportApi {
     readonly refund: SignalReportRefundApi | null
     /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
      *
-     * * `posthog_health_check` - Posthog Health Check
-     * * `posthog_onboarding` - Posthog Onboarding
-     * * `posthog_system` - Posthog System */
+     * * `posthog_health_check` - PostHog health check
+     * * `posthog_onboarding` - PostHog onboarding
+     * * `posthog_system` - PostHog system */
     readonly billing_exempt_reason: BillingExemptReasonEnumApi | null
 }
 
@@ -230,8 +230,8 @@ export interface PatchedSignalReportContentUpdateApi {
 export interface SignalReportRefundRequestApi {
     /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
      *
-     * * `pr_incorrect` - Pr Incorrect
-     * * `pr_not_useful` - Pr Not Useful
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
      * * `duplicate` - Duplicate
      * * `other` - Other */
     reason: SignalReportRefundReasonEnumApi
@@ -246,8 +246,8 @@ export interface SignalReportRefundResponseApi {
     readonly id: string
     /** Why the user refunded this PR (feeds the refund review).
      *
-     * * `pr_incorrect` - Pr Incorrect
-     * * `pr_not_useful` - Pr Not Useful
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
      * * `duplicate` - Duplicate
      * * `other` - Other */
     readonly reason: SignalReportRefundReasonEnumApi

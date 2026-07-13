@@ -57,10 +57,10 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
     reason: zod
         .enum(['pr_incorrect', 'pr_not_useful', 'duplicate', 'other'])
         .describe(
-            '\* `pr_incorrect` - Pr Incorrect\n\* `pr_not_useful` - Pr Not Useful\n\* `duplicate` - Duplicate\n\* `other` - Other'
+            '\* `pr_incorrect` - PR incorrect\n\* `pr_not_useful` - PR not useful\n\* `duplicate` - Duplicate\n\* `other` - Other'
         )
         .describe(
-            "Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.\n\n\* `pr_incorrect` - Pr Incorrect\n\* `pr_not_useful` - Pr Not Useful\n\* `duplicate` - Duplicate\n\* `other` - Other"
+            "Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.\n\n\* `pr_incorrect` - PR incorrect\n\* `pr_not_useful` - PR not useful\n\* `duplicate` - Duplicate\n\* `other` - Other"
         ),
     note: zod
         .string()

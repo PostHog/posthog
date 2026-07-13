@@ -132,7 +132,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         ]
     )
     @freeze_time(_NOW)
-    def test_missing_billing_period_falls_back_to_calendar_month(self, _name, pr_created_at, expected_status, _flag):
+    def test_missing_billing_period_falls_back_to_calendar_month(self, _flag, _name, pr_created_at, expected_status):
         self.organization.usage = None
         self.organization.save()
         report = self._report_with_pr(pr_created_at=pr_created_at)

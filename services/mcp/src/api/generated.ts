@@ -11931,9 +11931,9 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `posthog_health_check` - Posthog Health Check
-     * * `posthog_onboarding` - Posthog Onboarding
-     * * `posthog_system` - Posthog System
+     * * `posthog_health_check` - PostHog health check
+     * * `posthog_onboarding` - PostHog onboarding
+     * * `posthog_system` - PostHog system
      */
     export type BillingExemptReasonEnum = typeof BillingExemptReasonEnum[keyof typeof BillingExemptReasonEnum];
 
@@ -36046,8 +36046,8 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `pr_incorrect` - Pr Incorrect
-     * * `pr_not_useful` - Pr Not Useful
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
      * * `duplicate` - Duplicate
      * * `other` - Other
      */
@@ -36065,8 +36065,8 @@ export namespace Schemas {
       readonly id: string;
       /** Why the user refunded this PR (feeds the refund review).
        *
-       * * `pr_incorrect` - Pr Incorrect
-       * * `pr_not_useful` - Pr Not Useful
+       * * `pr_incorrect` - PR incorrect
+       * * `pr_not_useful` - PR not useful
        * * `duplicate` - Duplicate
        * * `other` - Other */
       readonly reason: SignalReportRefundReasonEnum;
@@ -36150,9 +36150,9 @@ export namespace Schemas {
       readonly refund: SignalReportRefund | null;
       /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
        *
-       * * `posthog_health_check` - Posthog Health Check
-       * * `posthog_onboarding` - Posthog Onboarding
-       * * `posthog_system` - Posthog System */
+       * * `posthog_health_check` - PostHog health check
+       * * `posthog_onboarding` - PostHog onboarding
+       * * `posthog_system` - PostHog system */
       readonly billing_exempt_reason: BillingExemptReasonEnum | null;
     }
 
@@ -51952,8 +51952,8 @@ export namespace Schemas {
     export interface SignalReportRefundRequest {
       /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
        *
-       * * `pr_incorrect` - Pr Incorrect
-       * * `pr_not_useful` - Pr Not Useful
+       * * `pr_incorrect` - PR incorrect
+       * * `pr_not_useful` - PR not useful
        * * `duplicate` - Duplicate
        * * `other` - Other */
       reason: SignalReportRefundReasonEnum;
@@ -51968,8 +51968,8 @@ export namespace Schemas {
       readonly id: string;
       /** Why the user refunded this PR (feeds the refund review).
        *
-       * * `pr_incorrect` - Pr Incorrect
-       * * `pr_not_useful` - Pr Not Useful
+       * * `pr_incorrect` - PR incorrect
+       * * `pr_not_useful` - PR not useful
        * * `duplicate` - Duplicate
        * * `other` - Other */
       readonly reason: SignalReportRefundReasonEnum;
