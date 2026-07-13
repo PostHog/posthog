@@ -32,6 +32,48 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
     },
 }
 
+// `credential` is null on tables saved without one (the API only enforces credentials on
+// creation via this form), so it must be guarded — reading through it crashed the page.
+export function selfManagedTableFormErrors({
+    name,
+    url_pattern,
+    credential,
+    format,
+}: Partial<DataWarehouseTable>): Record<string, unknown> {
+    const HOGQL_TABLE_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+    // Let the empty-name case fall through to the friendlier "Please enter a name." below,
+    // rather than the naming-rules error which only makes sense once something's been typed.
+    if (name && !HOGQL_TABLE_NAME_REGEX.test(name)) {
+        return {
+            name: 'Invalid table name. Table names must start with a letter or underscore and contain only alphanumeric characters or underscores.',
+        }
+    }
+
+    if (url_pattern?.startsWith('s3://')) {
+        return {
+            url_pattern:
+                'Please use the https version of your bucket url e.g. https://your-org.s3.amazonaws.com/airbyte/stripe/invoices/*.pqt',
+        }
+    }
+
+    if (url_pattern?.startsWith('https://storage.cloud.google.com')) {
+        return {
+            url_pattern:
+                'Google Cloud links must start with "https://storage.googleapis.com". Please update your URL pattern.',
+        }
+    }
+
+    return {
+        name: !name && 'Please enter a name.',
+        url_pattern: !url_pattern && 'Please enter a url pattern.',
+        credential: {
+            access_secret: !credential?.access_secret && 'Please enter an access secret.',
+            access_key: !credential?.access_key && 'Please enter an access key.',
+        },
+        format: !format && 'Please enter the format of your files.',
+    }
+}
+
 export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
     path(['products', 'dataWarehouse', 'selfManagedSourceLogic']),
     props({} as TableLogicProps),
@@ -101,40 +143,7 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
     forms(({ actions, props }) => ({
         table: {
             defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
-            errors: ({ name, url_pattern, credential, format }) => {
-                const HOGQL_TABLE_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/
-                // Let the empty-name case fall through to the friendlier "Please enter a name." below,
-                // rather than the naming-rules error which only makes sense once something's been typed.
-                if (name && !HOGQL_TABLE_NAME_REGEX.test(name)) {
-                    return {
-                        name: 'Invalid table name. Table names must start with a letter or underscore and contain only alphanumeric characters or underscores.',
-                    }
-                }
-
-                if (url_pattern?.startsWith('s3://')) {
-                    return {
-                        url_pattern:
-                            'Please use the https version of your bucket url e.g. https://your-org.s3.amazonaws.com/airbyte/stripe/invoices/*.pqt',
-                    }
-                }
-
-                if (url_pattern?.startsWith('https://storage.cloud.google.com')) {
-                    return {
-                        url_pattern:
-                            'Google Cloud links must start with "https://storage.googleapis.com". Please update your URL pattern.',
-                    }
-                }
-
-                return {
-                    name: !name && 'Please enter a name.',
-                    url_pattern: !url_pattern && 'Please enter a url pattern.',
-                    credential: {
-                        access_secret: !credential.access_secret && 'Please enter an access secret.',
-                        access_key: !credential.access_key && 'Please enter an access key.',
-                    },
-                    format: !format && 'Please enter the format of your files.',
-                }
-            },
+            errors: selfManagedTableFormErrors,
             submit: async (tablePayload) => {
                 try {
                     if (props.id && props.id !== 'new') {

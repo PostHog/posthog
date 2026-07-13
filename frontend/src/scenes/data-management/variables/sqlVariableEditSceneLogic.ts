@@ -9,7 +9,11 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
+import {
+    coerceListVariableValue,
+    getListVariableValues,
+} from '~/queries/nodes/DataVisualization/Components/Variables/VariableFields'
+import { ListVariable, Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
 import { QueryBasedInsightModel } from '~/types'
 
 import { fetchInsightsUsingVariable } from './insightsLoader'
@@ -25,6 +29,19 @@ const NEW_VARIABLE_DEFAULTS: Partial<Variable> = {
     default_value: '',
     code_name: '',
 }
+
+// List `values` come from a JSONField and may hold non-string entries (e.g. objects
+// from API-created variables), which crash React if rendered — sanitize on the way
+// into the form so editing and saving repairs them.
+export const variableToFormValues = (variable: Variable): Partial<Variable> =>
+    ({
+        name: variable.name,
+        type: variable.type,
+        default_value:
+            variable.type === 'List' ? (coerceListVariableValue(variable.default_value) ?? '') : variable.default_value,
+        code_name: variable.code_name,
+        ...(variable.type === 'List' && { values: getListVariableValues(variable as ListVariable) }),
+    }) as Partial<Variable>
 
 export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
     props({} as SqlVariableEditSceneLogicProps),
@@ -164,17 +181,7 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
     listeners(({ actions }) => ({
         loadVariableSuccess: ({ variable }: { variable: Variable | null }) => {
             if (variable) {
-                // TypeScript can't narrow discriminated union types properly here,
-                // but we know the data is valid since it comes from a typed Variable object
-                const formValues = {
-                    name: variable.name,
-                    type: variable.type,
-                    default_value: variable.default_value,
-                    code_name: variable.code_name,
-                    ...(variable.type === 'List' && { values: (variable as any).values }),
-                } as Partial<Variable>
-
-                actions.resetVariableForm(formValues)
+                actions.resetVariableForm(variableToFormValues(variable))
                 actions.loadInsightsUsingVariable()
             }
         },

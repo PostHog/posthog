@@ -33,12 +33,37 @@ class InsightVariableSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         variable_type = attrs.get("type", getattr(self.instance, "type", None))
-        if variable_type == InsightVariable.Type.LIST:
-            values = attrs.get("values", getattr(self.instance, "values", None))
+        # Only validate `values` when the payload provides it — instance data may hold
+        # legacy shapes that shouldn't block unrelated updates (reads normalize them).
+        if variable_type == InsightVariable.Type.LIST and "values" in attrs:
+            values = attrs["values"]
             if not isinstance(values, list):
                 attrs["values"] = []
+            else:
+                attrs["values"] = self._coerce_list_values(values)
 
         return attrs
+
+    def _coerce_list_values(self, values: list) -> list[str]:
+        coerced: list[str] = []
+        for index, value in enumerate(values):
+            if value is None:
+                continue
+            if isinstance(value, str):
+                coerced.append(value)
+            elif isinstance(value, bool):
+                # bool before int/float: bool is an int subclass, and the UI uses lowercase
+                coerced.append("true" if value else "false")
+            elif isinstance(value, int | float):
+                coerced.append(str(value))
+            else:
+                shape = "an object" if isinstance(value, dict) else "an array"
+                raise ValidationError(
+                    {
+                        "values": f"List variable values must be strings or numbers (got {shape} at index {index}). Provide each option as a plain string."
+                    }
+                )
+        return coerced
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
