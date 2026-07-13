@@ -210,4 +210,88 @@ describe('featureFlagsStaffToolsLogic', () => {
                 .toMatchValues({ teamSearchResults: [TEAM], knownTeams: { 5: TEAM } })
         })
     })
+
+    describe('team config', () => {
+        const TEAM_CONFIG_URL = '/api/feature_flags_staff_team_config'
+        const SET_URL = '/api/feature_flags_staff_team_config/set'
+
+        it('loads team config alongside cache status when the team selection changes', async () => {
+            useMocks({
+                get: { [TEAM_CONFIG_URL]: { results: [{ team_id: 5, minimal_flag_called_events: true }] } },
+            })
+
+            logic.actions.setSelectedTeamIds([5])
+            await expectLogic(logic).toDispatchActionsInAnyOrder([
+                'loadCacheStatus',
+                'loadTeamConfig',
+                'loadTeamConfigSuccess',
+            ])
+            await expectLogic(logic).toMatchValues({
+                teamConfigByTeamId: { 5: { team_id: 5, minimal_flag_called_events: true } },
+            })
+        })
+
+        it('setMinimalFlagCalledEvents updates teamConfigByTeamId and shows a success toast', async () => {
+            useMocks({
+                get: { [TEAM_CONFIG_URL]: { results: [{ team_id: 5, minimal_flag_called_events: false }] } },
+                post: { [SET_URL]: { team_id: 5, minimal_flag_called_events: true } },
+            })
+
+            // The switch only renders once its row has loaded, so seed the selection first —
+            // the mutation reducer patches an existing row in place, it doesn't add a new one.
+            logic.actions.setSelectedTeamIds([5])
+            await expectLogic(logic).toDispatchActions(['loadTeamConfigSuccess'])
+
+            logic.actions.setMinimalFlagCalledEvents(5, true)
+            // setMinimalFlagCalledEvents is a plain listener (not kea-loaders), since the
+            // auto-generated Failure action wouldn't carry the team_id needed to clear the
+            // right row's pending state on failure. teamConfigMutationSucceeded/Settled are the
+            // actions it dispatches instead of the usual Success/Failure pair.
+            await expectLogic(logic).toDispatchActions(['teamConfigMutationSucceeded', 'teamConfigMutationSettled'])
+
+            expect(lemonToast.success).toHaveBeenCalled()
+            await expectLogic(logic).toMatchValues({
+                pendingTeamConfigTeamIds: [],
+                teamConfigByTeamId: { 5: { team_id: 5, minimal_flag_called_events: true } },
+            })
+        })
+
+        it('shows an error toast and leaves the value unchanged on failure', async () => {
+            useMocks({
+                get: { [TEAM_CONFIG_URL]: { results: [{ team_id: 5, minimal_flag_called_events: false }] } },
+                post: { [SET_URL]: () => [500, {}] },
+            })
+
+            // Seed a known-good value first so a no-op failure is verifiably "unchanged", not just
+            // absent. loadTeamConfig() alone would no-op: the loader bails out when
+            // selectedTeamIds is empty, so the selection must be set first.
+            logic.actions.setSelectedTeamIds([5])
+            await expectLogic(logic).toDispatchActions(['loadTeamConfigSuccess'])
+
+            logic.actions.setMinimalFlagCalledEvents(5, true)
+            // No teamConfigMutationSucceeded on failure — only the settle action fires, clearing
+            // the pending row.
+            await expectLogic(logic).toDispatchActions(['teamConfigMutationSettled'])
+
+            expect(lemonToast.error).toHaveBeenCalled()
+            await expectLogic(logic).toMatchValues({
+                pendingTeamConfigTeamIds: [],
+                teamConfigByTeamId: { 5: { team_id: 5, minimal_flag_called_events: false } },
+            })
+        })
+
+        it('only sends one mutation request when double-submitted for the same team', async () => {
+            const handleSet = jest.fn(() => [200, { team_id: 5, minimal_flag_called_events: true }])
+            useMocks({ post: { [SET_URL]: handleSet } })
+
+            // Both dispatches happen before either mocked request resolves, exercising the
+            // double-submit guard rather than two sequential, already-settled calls.
+            await expectLogic(logic, () => {
+                logic.actions.setMinimalFlagCalledEvents(5, true)
+                logic.actions.setMinimalFlagCalledEvents(5, true)
+            }).toFinishAllListeners()
+
+            expect(handleSet).toHaveBeenCalledTimes(1)
+        })
+    })
 })

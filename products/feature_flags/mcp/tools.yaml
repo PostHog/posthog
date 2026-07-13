@@ -285,6 +285,12 @@ tools:
     feature-flags-staff-cache-rebuild-create:
         operation: feature_flags_staff_cache_rebuild_create
         enabled: false
+    feature-flags-staff-team-config-list:
+        operation: feature_flags_staff_team_config_list
+        enabled: false
+    feature-flags-staff-team-config-set-create:
+        operation: feature_flags_staff_team_config_set_create
+        enabled: false
     feature-flags-staff-teams-list:
         operation: feature_flags_staff_teams_list
         enabled: false
