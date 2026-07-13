@@ -3,7 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 
 import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconServer } from '@posthog/icons'
-import { LemonCollapse, LemonDialog, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -67,20 +67,11 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
     const hasPayload = !!featureFlag.filters?.payloads?.['true']
 
     const handleToggleClick = (): void => {
-        LemonDialog.open({
-            title: featureFlag.active ? 'Disable feature flag?' : 'Enable feature flag?',
-            description: featureFlag.active
-                ? 'This will immediately disable the flag for all users. Are you sure?'
-                : 'This will immediately enable the flag according to its release conditions. Are you sure?',
-            primaryButton: {
-                children: featureFlag.active ? 'Disable' : 'Enable',
-                status: featureFlag.active ? 'danger' : 'default',
-                onClick: () => toggleFeatureFlagActive(!featureFlag.active),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
+        // The single confirmation flow lives in featureFlagLogic's toggleFeatureFlagActive listener,
+        // which shows a confirmation modal when the team has feature_flag_confirmation_enabled set or
+        // the flag has dependents, and otherwise applies the change immediately. Opening our own dialog
+        // here would stack a second, redundant modal on top of it.
+        toggleFeatureFlagActive(!featureFlag.active)
     }
 
     const getFlagTypeDisplay = (): { icon: JSX.Element; label: string; description: string } => {
