@@ -34,16 +34,10 @@ def get_org_ids_with_exceptions() -> list[str]:
 
 
 def _query_daily_rows(team: Team) -> list:
-    """One 14-day pass over ``$exception`` events, aggregated per day, test-accounts filtered.
+    """Per-day counts over 14 days (≤14 rows — HogQL silently appends LIMIT 100 to unbounded selects).
 
-    The summary and daily-count sections both derive from this result. HogQL silently appends
-    ``LIMIT 100`` to top-level selects, so every digest query must return a provably bounded row set —
-    grouping by day caps this one at 14 rows regardless of issue cardinality. An event without
-    ``$exception_issue_id`` is an ingestion failure (the pipeline could not assign it to an issue).
-
-    Query errors are NOT swallowed: a ClickHouse failure propagates so the per-org task fails and is
-    retried, instead of being mistaken for "no activity" and silently dropping the team's section. A
-    successful query with zero rows returns ``[]`` — that genuinely means no exceptions this week.
+    Missing ``$exception_issue_id`` = ingestion failure. Query errors propagate so the task retries
+    instead of mistaking a failure for "no activity".
     """
     from posthog.hogql.query import execute_hogql_query
 
@@ -70,12 +64,7 @@ def _query_daily_rows(team: Team) -> list:
 
 
 def get_exception_summary_for_team(team: Team, daily_rows: list | None = None) -> dict:
-    """Filtered exception counts, ingestion failures, and previous-week count for a single team.
-
-    Derived from the shared daily rows (see ``_query_daily_rows``); fetches its own when called
-    without them. ``day`` is a date, so "this week" is 1-7 days ago and the previous week is
-    8-14 days ago — matching the ``toStartOfDay(now())`` boundaries of the query.
-    """
+    """Exception counts, ingestion failures, and previous-week count. This week = 1-7 days ago, previous = 8-14."""
     if daily_rows is None:
         daily_rows = _query_daily_rows(team)
     if not daily_rows:
@@ -228,7 +217,7 @@ def get_crash_free_sessions(team: Team) -> dict:
 
 
 def get_daily_exception_counts(team: Team, daily_rows: list | None = None) -> list[dict]:
-    """Exception counts per day for the last 7 days, as sparkline-ready bars. Derived from the shared daily rows."""
+    """Exception counts per day for the last 7 days, as sparkline-ready bars."""
     if daily_rows is None:
         daily_rows = _query_daily_rows(team)
 
@@ -265,15 +254,11 @@ def _new_issue_ids(team: Team) -> list[str]:
 
 
 def _query_issue_rows(team: Team, new_issue_ids: list[str]) -> list:
-    """Ranked per-issue rows for the last 7 days: ``(issue_id, occurrence_count, daily_counts, is_new)``.
+    """Ranked ``(issue_id, occurrence_count, daily_counts, is_new)`` rows for the last 7 days.
 
-    ``issue_id_v2`` resolves each event's fingerprint through ``error_tracking_fingerprint_issue_state``,
-    so merged issues are attributed the same way as the error tracking UI.
-
-    ``LIMIT 5 BY is_new`` keeps the top 5 of each group, and the overall top 5 is always a subset of
-    that union — so one bounded query (≤10 rows) feeds both the top-issues and new-issues sections.
-    The explicit bound matters: HogQL silently appends ``LIMIT 100`` to top-level selects, and an
-    unbounded per-issue result would be truncated arbitrarily for high-cardinality teams.
+    ``LIMIT 5 BY is_new`` (≤10 rows) feeds both the top-issues and new-issues sections: the overall
+    top 5 is always a subset of the per-group union. ``issue_id_v2`` attributes merged issues like
+    the error tracking UI does.
     """
     from posthog.hogql import ast
     from posthog.hogql.parser import parse_expr
@@ -424,8 +409,7 @@ def build_team_digest_data(team: Team) -> dict[str, Any] | None:
     # import the helper at call time so this module doesn't pull the task graph.
     from posthog.tasks.email_utils import compute_week_over_week_change  # noqa: PLC0415
 
-    # Two bounded ClickHouse passes feed summary, daily counts, top issues and new issues (crash-free
-    # needs a different scan, so it stays separate): three queries per team instead of five.
+    # Two bounded ClickHouse passes + crash-free: three queries per team instead of five.
     daily_rows = _query_daily_rows(team)
     counts = get_exception_summary_for_team(team, daily_rows)
     if not counts or counts["exception_count"] == 0:

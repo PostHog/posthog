@@ -281,8 +281,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         assert result == []
 
     def test_summary_not_suppressed_by_high_issue_cardinality(self):
-        # 101+ distinct prior-week issues used to fill HogQL's silently-injected LIMIT (oldest-first)
-        # and truncate away the current week, making an active project look like it had no exceptions.
+        # 101+ prior-week issues used to fill HogQL's injected LIMIT 100 and truncate away the current week
         for _ in range(101):
             self._create_exception_event(issue_id=uuid7(), timestamp=_days_ago(10))
         issue = self._create_issue()
@@ -301,7 +300,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
             id=uuid7(), team=self.team, status=ErrorTrackingIssue.Status.ACTIVE, name="MergedIntoIssue"
         )
         ErrorTrackingIssueFingerprintV2.objects.filter(issue=issue_a).update(issue=issue_b)
-        # sync versions come from time.time() millis; force a later version so the merge wins argMax
+        # force a later state version so the merge wins argMax
         with patch("products.error_tracking.backend.models.time") as mock_time:
             mock_time.time.return_value = time.time() + 10
             sync_issues_to_clickhouse(issue_ids=[issue_b.id], team_id=self.team.pk)
