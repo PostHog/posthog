@@ -80,6 +80,7 @@ from django.db import connections
 from django.db.models import Max
 
 import dagster
+import pydantic
 import structlog
 from prometheus_client import Counter
 
@@ -425,11 +426,11 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
 
 
 class EagerWarmConfig(dagster.Config):
-    # Percentage (0-100) of the most active WA dashboard teams (last 24h, ranked by
+    # Percentage of the most active WA dashboard teams (last 24h, ranked by
     # tile-query volume) to warm on top of the static enrollment lists. Defaults to
     # 0 = static lists only; set in the run config when launching manually to ramp
     # the warm-audience experiment (e.g. 5 -> 25 -> 100).
-    active_teams_pct: int = 0
+    active_teams_pct: int = pydantic.Field(default=0, ge=0, le=100)
 
 
 @dagster.op
@@ -437,6 +438,21 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
     """Run the baseline tile matrix against every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting."""
     started = time.monotonic()
     team_ids, gate_reason, diagnostics = _resolve_eager_audience(active_teams_pct=config.active_teams_pct)
+    # Captured before the ramp enrollment below mutates the setting — this set is
+    # what "statically enrolled" means for the priority sort further down.
+    static_ids = {
+        *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS,
+        *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS,
+    }
+    if config.active_teams_pct > 0:
+        # Enroll the ramp audience for the lifetime of this run's process: the warm
+        # queries route through `is_precompute_enabled_for_team`, whose org-flag
+        # fallback fails closed in Dagster — without this, ramp teams would silently
+        # take the RAW path and the experiment would fan heavy live queries across
+        # thousands of teams instead of building precompute windows.
+        settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS = list(
+            dict.fromkeys([*settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS, *team_ids])
+        )
     diag_str = " ".join(f"{k}={v}" for k, v in diagnostics.items())
     context.log.info(
         f"eager_baseline_warming_start teams={len(team_ids)} gate_reason={gate_reason} {diag_str}".rstrip()
@@ -507,7 +523,12 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
         .values_list("team_id", "last")
     )
     never_computed = datetime.min.replace(tzinfo=UTC)
-    eligible.sort(key=lambda t: last_computed.get(t.pk) or never_computed)
+    # Two tiers: statically enrolled teams first (stalest first within the tier),
+    # then the ramp audience. A large `active_teams_pct` audience is mostly
+    # never-warmed, and a flat staleness sort would push the always-enrolled teams
+    # behind thousands of ramp teams whenever a run hits `max_runtime`.
+    # `static_ids` was captured before the ramp enrollment mutated the setting.
+    eligible.sort(key=lambda t: (t.pk not in static_ids, last_computed.get(t.pk) or never_computed))
 
     # Running progress counter for the pool — `itertools.count.__next__` is
     # atomic under the GIL, so it's safe to call from the worker threads. Each
