@@ -228,6 +228,7 @@ import {
     WebhookInfo,
 } from '~/types'
 
+import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from 'products/alerts/frontend/types'
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import type {
     ErrorTrackingRule,
@@ -269,7 +270,6 @@ import type {
 
 import { AgentMode } from '../queries/schema'
 import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -4894,7 +4894,13 @@ const api = {
         },
         async sqlV2Run(
             notebookId: NotebookType['short_id'],
-            data: { node_id: string; code: string; refs?: Record<string, string> }
+            data: {
+                node_id: string
+                code: string
+                refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+                node_type?: 'hogql' | 'python'
+                output_name?: string
+            }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
@@ -4909,6 +4915,9 @@ const api = {
                 row_count?: number
                 first_page?: (string | number | null)[][]
                 has_more?: boolean
+                stdout?: string
+                stderr?: string
+                media?: { mime_type: string; data: string }[]
             } | null
             error: string | null
         }> {
@@ -6157,17 +6166,20 @@ const api = {
             return await new ApiRequest().subscription(subscriptionId).update({ data })
         },
         async list({
-            insightId,
+            insights,
             dashboardId,
+            dashboardTiles,
             resourceType,
         }: {
-            insightId?: number
+            insights?: number[]
             dashboardId?: number
+            dashboardTiles?: number
             resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
             const params = [
-                insightId ? `insight=${insightId}` : null,
+                insights?.length ? `insights=${insights.join(',')}` : null,
                 dashboardId ? `dashboard=${dashboardId}` : null,
+                dashboardTiles ? `dashboard_tiles=${dashboardTiles}` : null,
                 resourceType ? `resource_type=${resourceType}` : null,
             ].filter(Boolean)
             return await new ApiRequest().subscriptions().withQueryString(params.join('&')).get()

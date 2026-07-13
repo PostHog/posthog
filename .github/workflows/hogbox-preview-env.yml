@@ -440,10 +440,21 @@ jobs:
                   tags: tag:hogland-ci
 
             - name: Mint hogland OIDC token
+              # Retry the mint across transient GitHub OIDC hiccups (a ~12-min
+              # outage on 2026-07-09 leaked two preview pens). curl -sf makes an
+              # HTTP error a non-zero exit, but a `curl | jq` pipe takes jq's exit
+              # — and jq succeeds on empty input — so the empty-token guard is the
+              # load-bearing backstop AFTER the retries, never dropped.
               run: |
-                  token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
-                  [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed"; exit 1; }
+                  token=""
+                  for attempt in 1 2 3; do
+                    token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value') || token=""
+                    [ -n "$token" ] && [ "$token" != "null" ] && break
+                    echo "::warning::OIDC mint attempt ${attempt} failed; retrying"
+                    [ "$attempt" -lt 3 ] && sleep 5
+                  done
+                  [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed after 3 attempts"; exit 1; }
                   echo "::add-mask::$token"
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
 
@@ -464,7 +475,7 @@ jobs:
                   # frontend is swapped in afterwards (once build-frontend finishes,
                   # below) so this step runs in parallel with the FE build. The tool
                   # streams `[hogbox-preview +NNNs] <stage>` lines to STDERR for
-                  # per-stage visibility; stdout stays the url=/box_id= contract.
+                  # per-stage visibility; stdout stays the url=/box_id=/pen_id= contract.
                   out=$(uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 \
                     python -m hogbox_preview \
                     --host "$HOG_HOST" \
@@ -477,6 +488,7 @@ jobs:
                   {
                     echo "url=$(echo "$out" | sed -n 's/^url=//p')"
                     echo "box_id=$(echo "$out" | sed -n 's/^box_id=//p')"
+                    echo "pen_id=$(echo "$out" | sed -n 's/^pen_id=//p')"
                   } >> "$GITHUB_OUTPUT"
               working-directory: tools/hogbox-preview
 
@@ -553,7 +565,10 @@ jobs:
               env:
                   URL: ${{ steps.build.outputs.url }}
                   BOX: ${{ steps.build.outputs.box_id }}
+                  PEN: ${{ steps.build.outputs.pen_id }}
                   SWAP: ${{ steps.fe.outputs.swap }}
+                  # The hogland admin/console host (same value as the OIDC audience).
+                  CONSOLE_HOST: ${{ env.HOG_OIDC_AUDIENCE }}
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -578,6 +593,16 @@ jobs:
                       const running = process.env.SWAP === 'true'
                           ? "this PR's backend **and** frontend, on the PostHog `:master` base"
                           : "this PR's backend on the PostHog `:master` base (frontend unchanged by this PR)";
+                      // Admin/console link for the pen — lets folks inspect and
+                      // debug box state in hogland. Only when both the host and pen
+                      // id are known.
+                      // Guard the literal 'None' too — the CLI parser can surface
+                      // it as a string, and it would otherwise be truthy here.
+                      const pen = process.env.PEN;
+                      const consoleHost = process.env.CONSOLE_HOST;
+                      const adminUrl = (consoleHost && pen && pen !== 'None')
+                          ? `https://${consoleHost}/console/fleet/pens/${pen}`
+                          : null;
                       const marker = '<!-- hogbox-preview-comment -->';
                       const body =
                           `${marker}\n### 🦔 Hogbox preview &middot; ✅ ready\n\n` +
@@ -587,6 +612,7 @@ jobs:
                           `| 🧩 **Running** | ${running} |\n` +
                           `| 🔗 **Link** | **stable across rebuilds** — a re-push swaps the box underneath, the URL stays |\n` +
                           `| 🔒 **Access** | tailnet only (PostHog VPN) |\n` +
+                          (adminUrl ? `| 🛠️ **Admin** | [inspect & debug state in hogland](${adminUrl}) |\n` : ``) +
                           `| 💤 **Idle** | sleeps after ~30 min idle (snapshot to S3, zero node cost) and wakes on your next visit in ~30s, behind a brief "waking up" screen |\n\n` +
                           `<sub>commit \`${(process.env.SHA || '').slice(0, 7)}\` &middot; box \`${process.env.BOX}\` &middot; ready in ${secs}s (push → usable) &middot; ` +
                           `<a href="${runUrl}">build log</a> &middot; rebuilds on every push, torn down on close</sub>`;
@@ -658,10 +684,21 @@ jobs:
                   audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
                   tags: tag:hogland-ci
             - name: Mint hogland OIDC token
+              # Same retry + empty-token guard as the deploy job: a mint that
+              # silently yields an empty token here would make the destroy fail
+              # with "no API token provided" and leak the box + pen.
               run: |
-                  token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
-                  echo "::add-mask::$token"; echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
+                  token=""
+                  for attempt in 1 2 3; do
+                    token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value') || token=""
+                    [ -n "$token" ] && [ "$token" != "null" ] && break
+                    echo "::warning::OIDC mint attempt ${attempt} failed; retrying"
+                    [ "$attempt" -lt 3 ] && sleep 5
+                  done
+                  [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed after 3 attempts"; exit 1; }
+                  echo "::add-mask::$token"
+                  echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
                   version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit

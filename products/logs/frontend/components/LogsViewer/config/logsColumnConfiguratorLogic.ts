@@ -4,7 +4,7 @@ import { uuid } from 'lib/utils/dom'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 
-import { LogsColumnConfig, normalizeColumns } from './columns'
+import { customColumnExpressionError, LogsColumnConfig, LogsColumnType, normalizeColumns } from './columns'
 import type { logsColumnConfiguratorLogicType } from './logsColumnConfiguratorLogicType'
 
 export interface LogsColumnConfiguratorLogicProps {
@@ -31,6 +31,13 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
         setDraft: (draft: LogsColumnConfig[]) => ({ draft }),
         updateDraftColumn: (id: string, patch: Partial<Omit<LogsColumnConfig, 'id'>>) => ({ id, patch }),
         addDraftColumn: (column: Omit<LogsColumnConfig, 'id'>) => ({ column }),
+
+        // The "Add a column" form (type + name + expression for custom)
+        setNewColumnType: (columnType: LogsColumnType) => ({ columnType }),
+        setNewColumnName: (name: string) => ({ name }),
+        setNewColumnExpression: (expression: string) => ({ expression }),
+        submitNewColumn: true,
+        resetNewColumn: true,
         setEditingColumnId: (id: string | null) => ({ id }),
         removeDraftColumn: (id: string) => ({ id }),
         moveDraftColumn: (fromIndex: number, toIndex: number) => ({ fromIndex, toIndex }),
@@ -55,6 +62,24 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
                 removeDraftColumn: () => null,
             },
         ],
+        newColumn: [
+            { type: 'custom', name: '', expression: '' } as {
+                type: LogsColumnType
+                name: string
+                expression: string
+            },
+            {
+                setNewColumnType: (state, { columnType }) => ({ ...state, type: columnType }),
+                setNewColumnName: (state, { name }) => ({ ...state, name }),
+                setNewColumnExpression: (state, { expression }) => ({ ...state, expression }),
+                // Reset only when the form itself is submitted, via a dedicated action the submit
+                // listener fires after it has read the form values. Resetting on addDraftColumn
+                // would also clear an in-progress form when a column is picked from the
+                // available-columns list, which dispatches the same action.
+                resetNewColumn: () => ({ type: 'custom' as const, name: '', expression: '' }),
+                openConfigurator: () => ({ type: 'custom' as const, name: '', expression: '' }),
+            },
+        ],
         draft: [
             [] as LogsColumnConfig[],
             {
@@ -77,16 +102,21 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
     }),
 
     selectors({
+        newColumnError: [
+            (s) => [s.newColumn],
+            (newColumn: { type: LogsColumnType; expression: string }): string | null =>
+                customColumnExpressionError(newColumn.type, newColumn.expression),
+        ],
         draftErrors: [
             (s) => [s.draft],
             (draft: LogsColumnConfig[]): string | null => {
                 if (draft.length === 0) {
                     return 'At least one column is required'
                 }
-                if (draft.some((column) => column.type === 'custom' && !column.expression?.trim())) {
-                    return 'Custom columns need an expression'
-                }
-                return null
+                return (
+                    draft.map((column) => customColumnExpressionError(column.type, column.expression)).find(Boolean) ??
+                    null
+                )
             },
         ],
     }),
@@ -94,6 +124,18 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
     listeners(({ actions, values }) => ({
         openConfigurator: () => {
             actions.setDraft(values.columns)
+        },
+        submitNewColumn: () => {
+            const { type, name, expression } = values.newColumn
+            if (values.newColumnError) {
+                return
+            }
+            actions.addDraftColumn({
+                type,
+                ...(name.trim() ? { name: name.trim() } : {}),
+                ...(type === 'custom' ? { expression: expression.trim() } : {}),
+            })
+            actions.resetNewColumn()
         },
         applyDraft: () => {
             if (!values.draftErrors) {

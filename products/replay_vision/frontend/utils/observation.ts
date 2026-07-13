@@ -10,6 +10,11 @@ export function readScore(obs: ReplayObservationApi): number | null {
     return typeof raw === 'number' ? raw : null
 }
 
+export function readConfidence(obs: ReplayObservationApi): number | null {
+    const raw = readModelOutput(obs)?.confidence
+    return typeof raw === 'number' ? raw : null
+}
+
 export type MonitorVerdict = 'yes' | 'no' | 'inconclusive'
 
 export function readVerdict(obs: ReplayObservationApi): MonitorVerdict | null {
