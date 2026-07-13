@@ -587,7 +587,6 @@ doesn't conflict with concurrent PRs.
 - hightouch
 - hoorayhr
 - hubplanner
-- hugging_face
 - humanitix
 - hyperspell
 - ikas
@@ -800,7 +799,6 @@ doesn't conflict with concurrent PRs.
 - telli
 - tempo
 - terra_api
-- testrail
 - thinkific_courses
 - thrive_learning
 - ticketmaster

@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { IconCornerDownRight, IconPlayFilled } from '@posthog/icons'
 
@@ -173,12 +173,22 @@ const Settings = ({
     const { runQuery } = useActions(dataLogic)
 
     const run = (): void => {
+        // Guard here (not just on the button) so Cmd+Enter can't fire a second run mid-flight —
+        // overlapping runs race the poller and can strand the spinner.
+        if (isRunning) {
+            return
+        }
         // The refs map sibling SQLV2 frames; the backend materializes only the ones the code reads.
         runQuery(attributes.code ?? '', collectSqlV2Refs(notebookLogic.values.content, nodeId), {
             nodeType: 'python',
             outputName: attributes.returnVariable,
         })
     }
+    // Monaco binds Cmd+Enter once at editor mount, so a plain `run` closure would capture the
+    // initial (empty) code and the guard would drop the run. Route through a ref that always
+    // points at the latest run so the keybinding sees the current code, output name, and run state.
+    const runRef = useRef(run)
+    runRef.current = run
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -192,11 +202,7 @@ const Settings = ({
                     size="small"
                     type="primary"
                     icon={<IconPlayFilled color="var(--success)" />}
-                    onClick={() => {
-                        if (!isRunning) {
-                            run()
-                        }
-                    }}
+                    onClick={() => run()}
                     loading={isRunning}
                     disabledReason={operationBlockReason ?? undefined}
                     tooltip="Run Python (⌘⏎)"
@@ -209,7 +215,7 @@ const Settings = ({
                     language="python"
                     value={typeof attributes.code === 'string' ? attributes.code : ''}
                     onChange={(value) => updateAttributes({ code: value ?? '' })}
-                    onPressCmdEnter={run}
+                    onPressCmdEnter={() => runRef.current()}
                     allowManualResize={false}
                     minHeight={160}
                     embedded
