@@ -42,31 +42,63 @@ event = create_notification(
 )
 ```
 
-Returns a `NotificationEvent` on success, or `None` if the feature flag is disabled, no recipients were resolved, or the team doesn't exist. Safe to call in any context.
+Returns a `NotificationEvent` on success, or `None` if the feature flag is disabled, no recipients were resolved, or the scope (team or organization) doesn't exist. Safe to call in any context.
+
+## Scope: team or organization
+
+Every notification needs a scope so the code can look up the organization and check the `real-time-notifications` feature flag. Pass **exactly one** of:
+
+- `team_id` — team scope. Enables per-team recipient access-control filtering (when `resource_type` is access-controlled) and honours each recipient's per-team mute preferences.
+- `organization_id` — organization scope, for organization-wide notifications with no single team context. Access-control filtering and per-team mute preferences are **not** applied (there is no team key to gate on).
+
+If both are omitted, `create_notification` logs `notifications.no_target_scope` and returns `None`. Prefer `team_id` whenever a team context exists; reach for `organization_id` only for genuinely org-wide notifications.
+
+Note that scope is distinct from `target_type`/`target_id`, which decide _who_ receives the notification — you can, for example, use a `team_id` scope with an `organization` target.
+
+An organization-scoped notification looks like:
+
+```python
+event = create_notification(
+    NotificationData(
+        organization_id=organization.id,
+        notification_type=NotificationType.PROJECT_CREATED,
+        title="New project created",
+        body="A teammate created a new project in your organization.",
+        target_type=TargetType.ORGANIZATION,
+        target_id=str(organization.id),
+    )
+)
+```
 
 ## NotificationData fields
 
 **Required:**
 
-| Field               | Type               | Description                                                                |
-| ------------------- | ------------------ | -------------------------------------------------------------------------- |
-| `team_id`           | `int`              | Team context — used to look up the organization and check the feature flag |
-| `notification_type` | `NotificationType` | Determines the icon in the UI                                              |
-| `title`             | `str`              | Notification headline (~100 chars recommended)                             |
-| `body`              | `str`              | Longer description shown on expand. Can be empty string                    |
-| `target_type`       | `TargetType`       | Who receives this: `user`, `team`, `organization`, or `role`               |
-| `target_id`         | `str`              | ID of the target (user ID, team ID, org UUID, or role UUID as string)      |
+| Field               | Type               | Description                                             |
+| ------------------- | ------------------ | ------------------------------------------------------- |
+| `notification_type` | `NotificationType` | Determines the icon in the UI                           |
+| `title`             | `str`              | Notification headline (~100 chars recommended)          |
+| `body`              | `str`              | Longer description shown on expand. Can be empty string |
+| `target_type`       | `TargetType`       | Who receives this: `user`, `team`, `organization`, or `role` |
+| `target_id`         | `str`              | ID of the target (user ID, team ID, org UUID, or role UUID as string) |
 
-**Optional:**
+Plus **exactly one** scope field — `team_id` or `organization_id` — see [Scope](#scope-team-or-organization) above.
 
-| Field           | Type                               | Default  | Description                                                                                                                                                                                   |
-| --------------- | ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `resource_type` | `NotificationResourceType \| None` | `None`   | Access-controlled types (e.g. `"dashboard"`) auto-filter recipients without viewer access                                                                                                     |
-| `resource_id`   | `str`                              | `""`     | ID of the resource for linking                                                                                                                                                                |
-| `source_url`    | `str`                              | `""`     | Relative URL path (e.g. `/dashboard/42`), shown as link icon in UI                                                                                                                            |
-| `priority`      | `Priority`                         | `NORMAL` | `normal` = popover only; `critical` = popover + persistent toast                                                                                                                              |
-| `archivable`    | `bool`                             | `False`  | Opt in to a per-recipient "archive" (dismiss) action that moves the notification to the recipient's Archived tab. When `False`, recipients can only mark it read/unread (the default pattern) |
-| `resolver`      | `RecipientsResolver \| None`       | `None`   | Custom recipient resolver. Default handles user/team/org/role targeting                                                                                                                       |
+**Optional** (this lists the commonly-used fields, not every field on `NotificationData`):
+
+| Field             | Type                               | Default  | Description                                                                                                                                                                                   |
+| ----------------- | ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team_id`         | `int \| None`                      | `None`   | Team scope — see [Scope](#scope-team-or-organization). Required unless `organization_id` is set                                                                                                |
+| `organization_id` | `UUID \| None`                     | `None`   | Organization scope — see [Scope](#scope-team-or-organization). Required unless `team_id` is set                                                                                                |
+| `resource_type`   | `NotificationResourceType \| None` | `None`   | Access-controlled types (e.g. `"dashboard"`) auto-filter recipients without viewer access (team scope only)                                                                                   |
+| `resource_id`     | `str`                              | `""`     | ID of the resource for linking                                                                                                                                                                |
+| `source_url`      | `str`                              | `""`     | Relative URL path (e.g. `/dashboard/42`), shown as link icon in UI                                                                                                                            |
+| `source_type`     | `SourceType \| None`               | `None`   | Originating product surface (e.g. `SourceType.DASHBOARD`), carried through to the delivered event                                                                                             |
+| `source_id`       | `str \| None`                      | `None`   | ID of the originating entity; combine with `source_type` for dedup via `has_been_dispatched`                                                                                                  |
+| `priority`        | `Priority`                         | `NORMAL` | `normal` = popover only; `critical` = popover + persistent toast                                                                                                                              |
+| `archivable`      | `bool`                             | `False`  | Opt in to a per-recipient "archive" (dismiss) action that moves the notification to the recipient's Archived tab. When `False`, recipients can only mark it read/unread (the default pattern) |
+| `metadata`        | `dict[str, Any] \| None`           | `None`   | Arbitrary structured data persisted on the event for custom rendering or downstream use                                                                                                       |
+| `resolver`        | `RecipientsResolver \| None`       | `None`   | Custom recipient resolver. Default handles user/team/org/role targeting                                                                                                                       |
 
 ## Choosing parameters
 
