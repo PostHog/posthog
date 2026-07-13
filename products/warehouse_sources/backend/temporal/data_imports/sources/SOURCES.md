@@ -696,7 +696,6 @@ doesn't conflict with concurrent PRs.
 - pennylane
 - perigon
 - perk
-- persona
 - pexels
 - phyllo
 - pinecone
