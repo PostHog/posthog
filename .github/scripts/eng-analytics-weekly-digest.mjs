@@ -54,21 +54,28 @@ async function api(action, params = {}) {
     if (SOURCE_ID) {
         url.searchParams.set('source_id', SOURCE_ID)
     }
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${API_KEY}` } })
+    // Bounds every attempt (the gateway answers within ~2min; this only catches a hung connection)
+    // so worst-case retries stay well inside the workflow's timeout-minutes.
+    const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${API_KEY}` },
+        signal: AbortSignal.timeout(150_000),
+    })
     const body = await res.text()
-    const fail = (detail) => {
-        throw Object.assign(new Error(`${action} -> ${res.status}: ${detail}`), { status: res.status })
+    const fail = (detail, retryable) => {
+        throw Object.assign(new Error(`${action} -> ${res.status}: ${detail}`), { retryable })
     }
     let parsed
     try {
         parsed = JSON.parse(body)
     } catch {
-        // A 200 with a non-JSON body (proxy interstitial, maintenance HTML) is still a failure.
-        fail(`non-JSON response (${body.slice(0, 120)})`)
+        // A non-JSON body (proxy interstitial, maintenance HTML) is still a failure whatever the
+        // status — the endpoint only speaks JSON — but it's infra noise, so always worth retrying.
+        fail(`non-JSON response (${body.slice(0, 120)})`, true)
     }
     if (!res.ok) {
-        // The endpoint 400s with a clear `detail` when no GitHub source is connected.
-        fail(parsed.detail || body)
+        // The endpoint 400s with a clear `detail` when no GitHub source is connected — a
+        // configuration error a retry can't fix; 5xx/429 are transients worth riding out.
+        fail(parsed.detail || body, res.status >= 500 || res.status === 429)
     }
     return parsed
 }
@@ -77,15 +84,14 @@ const RETRY_ATTEMPTS = 3
 const RETRY_DELAY_MS = 30_000
 
 // The warehouse queries share a ClickHouse cluster with everything else; a contended Monday
-// morning can push one attempt past the API gateway's timeout (a 5xx). Ride it out instead of
-// failing the week's digest on a transient. 4xx responses are configuration errors — no retry.
+// morning can push one attempt past the API gateway's timeout. Ride transients out instead of
+// failing the week's digest. Errors without a retryable flag (network failures, aborts) retry too.
 async function apiWithRetry(action, params) {
     for (let attempt = 1; ; attempt++) {
         try {
             return await api(action, params)
         } catch (err) {
-            const retryable = !err.status || err.status >= 500 || err.status === 429
-            if (!retryable || attempt >= RETRY_ATTEMPTS) {
+            if (err.retryable === false || attempt >= RETRY_ATTEMPTS) {
                 throw err
             }
             console.warn(`${err.message} — attempt ${attempt}/${RETRY_ATTEMPTS}, retrying in ${RETRY_DELAY_MS / 1000}s`)

@@ -20,6 +20,7 @@ warehouse source once it lands (see SPEC section 6/9).
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TypeGuard
 
 # Depot list price for one billed minute at the 2-vCPU base tier. Depot bills 2cpu
 # at 1x and doubles the multiplier per vCPU doubling, so billed = elapsed x multiplier
@@ -135,6 +136,12 @@ def runner_descriptor(labels: list[str]) -> tuple[str, str]:
     return "self_hosted", tier.os.value
 
 
+def _is_billable(tier: RunnerTier | None) -> TypeGuard[RunnerTier]:
+    """Whether a tier carries an honest Depot dollar figure: self-hosted Linux is the only
+    modeled price; github-hosted is free and non-Linux Depot tiers are excluded, not mis-costed."""
+    return tier is not None and tier.provider is RunnerProvider.DEPOT and tier.os is RunnerOS.LINUX
+
+
 def _tier_cost_usd(tier: RunnerTier, elapsed_seconds: float) -> float:
     """The Depot rate model in one place: billed minutes x list rate x tier multiplier."""
     return (elapsed_seconds / 60) * REFERENCE_RATE_USD_PER_MIN * billing_multiplier(tier)
@@ -152,7 +159,7 @@ def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> f
     job is never silently shown as ``$0.00``.
     """
     tier = classify_runner(labels)
-    if tier is None or tier.provider is not RunnerProvider.DEPOT or tier.os is not RunnerOS.LINUX:
+    if not _is_billable(tier):
         return None
     if elapsed_seconds is None:
         return None
@@ -202,7 +209,7 @@ def aggregate_job_groups(groups: Iterable[JobGroup]) -> PRCostAggregate:
     costed = unsettled = excluded = 0
     for labels, finished, elapsed_total, unfinished in groups:
         tier = classify_runner(labels)
-        if tier is None or tier.provider is not RunnerProvider.DEPOT or tier.os is not RunnerOS.LINUX:
+        if not _is_billable(tier):
             excluded += finished + unfinished
             continue
         unsettled += unfinished
