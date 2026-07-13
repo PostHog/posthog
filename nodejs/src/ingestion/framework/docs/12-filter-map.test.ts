@@ -92,7 +92,7 @@ describe('Filter Map', () => {
                         const warnings: PipelineWarning[] = []
                         if (item.event.name === 'deprecated_event') {
                             warnings.push({
-                                type: 'deprecated_event',
+                                type: 'event_dropped_by_transformation',
                                 details: { eventName: item.event.name },
                             })
                         }
@@ -172,6 +172,6 @@ describe('Filter Map', () => {
         expect(mockWarningOutputs.queueMessages).toHaveBeenCalledTimes(1)
         expect(mockWarningOutputs.queueMessages.mock.calls[0][0]).toBe(INGESTION_WARNINGS_OUTPUT)
         const warningValue = mockWarningOutputs.queueMessages.mock.calls[0][1][0].value!.toString()
-        expect(warningValue).toContain('"type":"deprecated_event"')
+        expect(warningValue).toContain('"type":"event_dropped_by_transformation"')
     })
 })

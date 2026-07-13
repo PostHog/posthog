@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronLeft, IconChevronRight, IconList, IconListTree } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { CompareMenuButton } from './components/Comparison/CompareMenuButton'
 import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingFiltersLogic, type TracingViewMode } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
@@ -20,9 +21,9 @@ import { tracingSceneLogic } from './tracingSceneLogic'
  *    hidden entirely on the Operations view where neither applies.
  */
 export function TracingDisplayBar(): JSX.Element {
-    const { activeTracingTab, totalMatchingFilters, filters } = useValues(tracingSceneLogic())
+    const { activeTracingTab, totalMatchingFilters, filters, compareActive } = useValues(tracingSceneLogic())
     const { setActiveTracingTab } = useActions(tracingSceneLogic())
-    const { setViewMode, setCompareMode } = useActions(tracingFiltersLogic())
+    const { setViewMode } = useActions(tracingFiltersLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
     const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
@@ -30,7 +31,7 @@ export function TracingDisplayBar(): JSX.Element {
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const inTracesView = !operationsViewEnabled || activeTracingTab !== 'operations'
-    const showCount = inTracesView && !filters.compareMode && totalMatchingFilters > 0
+    const showCount = inTracesView && !compareActive && totalMatchingFilters > 0
 
     return (
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -72,7 +73,7 @@ export function TracingDisplayBar(): JSX.Element {
             </div>
             {inTracesView && (
                 <div className="flex items-center gap-1.5 flex-wrap">
-                    {!filters.compareMode && (
+                    {!compareActive && (
                         <LemonSegmentedButton<TracingViewMode>
                             size="small"
                             value={filters.viewMode}
@@ -95,13 +96,7 @@ export function TracingDisplayBar(): JSX.Element {
                             ]}
                         />
                     )}
-                    <LemonSwitch
-                        label="Compare"
-                        checked={filters.compareMode}
-                        onChange={setCompareMode}
-                        bordered
-                        size="small"
-                    />
+                    <CompareMenuButton />
                 </div>
             )}
         </div>

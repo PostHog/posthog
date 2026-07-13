@@ -15,6 +15,7 @@ import {
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
@@ -38,7 +39,6 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'

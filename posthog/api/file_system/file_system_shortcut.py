@@ -10,13 +10,14 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 
 
-class FileSystemShortcutSerializer(serializers.ModelSerializer):
+class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     class Meta:
         model = FileSystemShortcut
         fields = [
@@ -27,10 +28,12 @@ class FileSystemShortcutSerializer(serializers.ModelSerializer):
             "href",
             "order",
             "created_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
             "created_at",
+            "user_access_level",
         ]
         extra_kwargs = {
             "path": {"help_text": "Display path of the shortcut in the sidebar."},

@@ -284,6 +284,23 @@ CREATE TABLE posthog.hog_invocation_results (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'hog_invocation_results_data');
+CREATE TABLE posthog.ingestion_warnings_v2_distributed (
+  team_id Int64,
+  source LowCardinality(String),
+  type LowCardinality(String),
+  details String,
+  timestamp DateTime64(6, 'UTC'),
+  category LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+  severity LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+  pipeline_step LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
+  event_uuid Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+  distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
+  group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
+  person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'ingestion_warnings_v2');
 CREATE TABLE posthog.kafka_events_json (
   uuid UUID,
   event String,
@@ -2702,7 +2719,7 @@ CREATE TABLE posthog.distributed_events_recent (
   historical_migration Bool,
   _timestamp DateTime,
   _offset UInt64,
-  inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64()
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = Distributed('posthog_primary_replica', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.distributed_posthog_document_embeddings (
   team_id Int64,
@@ -2837,7 +2854,7 @@ CREATE TABLE posthog.events_recent (
   historical_migration Bool,
   _timestamp DateTime,
   _offset UInt64,
-  inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64()
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = Distributed('posthog_primary_replica', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.experiment_exposures_preaggregated (
   team_id Int64,

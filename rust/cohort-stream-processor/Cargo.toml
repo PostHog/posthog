@@ -35,7 +35,6 @@ envconfig = { workspace = true }
 futures = { workspace = true }
 hogvm = { path = "../common/hogvm" }
 lifecycle = { path = "../common/lifecycle" }
-lru = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 # Streaming `BufWriter` and prefix-list (`list_with_delimiter`) S3 for multi-MB checkpoint files.

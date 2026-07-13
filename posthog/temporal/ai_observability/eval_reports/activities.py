@@ -1,6 +1,7 @@
 """Activities for evaluation reports workflow."""
 
 import datetime as dt
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import temporalio.activity
@@ -11,6 +12,8 @@ from posthog.hogql import ast
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.types import (
+    CheckCountTriggeredEvalReportInput,
+    CheckCountTriggeredEvalReportOutput,
     CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
     FetchDueEvalReportsOutput,
@@ -24,6 +27,9 @@ from posthog.temporal.ai_observability.eval_reports.types import (
     UpdateNextDeliveryDateInput,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+
+if TYPE_CHECKING:
+    from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
 logger = get_logger(__name__)
 
@@ -62,109 +68,124 @@ async def fetch_due_eval_reports_activity(
 
 
 @temporalio.activity.defn
-async def fetch_count_triggered_eval_reports_activity(
+async def fetch_count_triggered_eval_report_candidates_activity(
     inputs: CheckCountTriggeredReportsWorkflowInputs,
 ) -> FetchDueEvalReportsOutput:
-    """Check count-based reports and return those whose eval count exceeds the threshold."""
+    """Return count-triggered report IDs that need an independent count check."""
 
     @database_sync_to_async(thread_sensitive=False)
-    def check_reports() -> tuple[list[str], int, int, int]:
-        from posthog.hogql.parser import parse_select
-        from posthog.hogql.query import execute_hogql_query
+    def get_report_ids() -> list[str]:
+        return _fetch_count_triggered_eval_report_candidate_ids()
 
-        from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-        from posthog.models import Team
-
-        from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
-
-        now = dt.datetime.now(tz=dt.UTC)
-        due: list[str] = []
-        skipped_cooldown = 0
-        skipped_daily_cap = 0
-
-        reports = list(
-            EvaluationReport.objects.deliverable()
-            .filter(
-                frequency=EvaluationReport.Frequency.EVERY_N,
-                trigger_threshold__isnull=False,
-                evaluation__output_type="boolean",
-            )
-            .select_related("evaluation")
-        )
-        total_checked = len(reports)
-
-        for report in reports:
-            # Cooldown: skip if last delivery was too recent
-            if report.last_delivered_at:
-                cooldown_delta = dt.timedelta(minutes=report.cooldown_minutes)
-                if (now - report.last_delivered_at) < cooldown_delta:
-                    skipped_cooldown += 1
-                    continue
-
-            # Daily cap: skip if too many runs today
-            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            today_runs = EvaluationReportRun.objects.filter(
-                report=report,
-                created_at__gte=today_start,
-            ).count()
-            if today_runs >= report.daily_run_cap:
-                skipped_daily_cap += 1
-                continue
-
-            # Count evals since last delivery (or since report creation if first run).
-            # starts_at is nullable for count-triggered reports, so fall back to created_at.
-            # Pass the datetime directly to ast.Constant — HogQL's printer serializes it
-            # as toDateTime64(..., 6, <team_tz>) with correct TZ alignment. A bare string
-            # would be coerced in the team's timezone and silently shift the comparison
-            # by the team's offset.
-            since = report.last_delivered_at or report.starts_at or report.created_at
-
-            team = Team.objects.get(id=report.team_id)
-            query = parse_select(
-                """
-                SELECT count() as total
-                FROM events
-                WHERE event = '$ai_evaluation'
-                    AND properties.$ai_evaluation_id = {evaluation_id}
-                    AND timestamp >= {since}
-                """,
-                placeholders={
-                    "evaluation_id": ast.Constant(value=str(report.evaluation_id)),
-                    "since": ast.Constant(value=since),
-                },
-            )
-            with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-                result = execute_hogql_query(query=query, team=team)
-            rows = result.results or []
-            count = rows[0][0] if rows else 0
-
-            # The queryset filters trigger_threshold__isnull=False above, so this is
-            # always set on rows we iterate — assert for mypy.
-            assert report.trigger_threshold is not None
-            if count >= report.trigger_threshold:
-                due.append(str(report.id))
-
-        return due, total_checked, skipped_cooldown, skipped_daily_cap
-
-    # Heartbeat while the sync loop runs — prevents activity timeout as the
-    # number of count-triggered reports grows (each report = 1 HogQL query).
-    async with Heartbeater():
-        report_ids, total_checked, skipped_cooldown, skipped_daily_cap = await check_reports()
+    report_ids = await get_report_ids()
     await logger.ainfo(
-        "llma_eval_reports_coordinator_count_triggered_poll",
-        reports_found=len(report_ids),
-        total_checked=total_checked,
-        skipped_cooldown=skipped_cooldown,
-        skipped_daily_cap=skipped_daily_cap,
+        "llma_eval_reports_coordinator_count_triggered_candidates_poll",
+        total_checked=len(report_ids),
     )
-    from posthog.temporal.ai_observability.eval_reports.metrics import (
-        record_coordinator_check_count,
-        record_coordinator_reports_found,
-    )
+    from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_check_count
 
-    record_coordinator_check_count(total_checked, "count_triggered")
-    record_coordinator_reports_found(len(report_ids), "count_triggered")
+    record_coordinator_check_count(len(report_ids), "count_triggered")
     return FetchDueEvalReportsOutput(report_ids=report_ids)
+
+
+@temporalio.activity.defn
+async def check_count_triggered_eval_report_activity(
+    inputs: CheckCountTriggeredEvalReportInput,
+) -> CheckCountTriggeredEvalReportOutput:
+    """Check one count-triggered report against its threshold."""
+
+    @database_sync_to_async(thread_sensitive=False)
+    def check_report() -> CheckCountTriggeredEvalReportOutput:
+        return _check_count_triggered_eval_report_sync(inputs.report_id)
+
+    return await check_report()
+
+
+def _fetch_count_triggered_eval_report_candidate_ids() -> list[str]:
+    from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
+
+    return [
+        str(pk)
+        for pk in EvaluationReport.objects.deliverable()
+        .filter(
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold__isnull=False,
+            evaluation__output_type="boolean",
+        )
+        .values_list("id", flat=True)
+    ]
+
+
+def _check_count_triggered_eval_report_sync(
+    report_id: str,
+    now: dt.datetime | None = None,
+) -> CheckCountTriggeredEvalReportOutput:
+    from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
+
+    report = (
+        EvaluationReport.objects.deliverable()
+        .filter(
+            id=report_id,
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold__isnull=False,
+            evaluation__output_type="boolean",
+        )
+        .select_related("evaluation", "team")
+        .first()
+    )
+    if report is None:
+        return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False, skipped_reason="not_deliverable")
+
+    now = now or dt.datetime.now(tz=dt.UTC)
+    if report.last_delivered_at:
+        cooldown_delta = dt.timedelta(minutes=report.cooldown_minutes)
+        if (now - report.last_delivered_at) < cooldown_delta:
+            return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False, skipped_reason="cooldown")
+
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_runs = EvaluationReportRun.objects.filter(
+        report=report,
+        created_at__gte=today_start,
+    ).count()
+    if today_runs >= report.daily_run_cap:
+        return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False, skipped_reason="daily_cap")
+
+    since = report.last_delivered_at or report.starts_at or report.created_at
+    count = _count_eval_results_for_report(report, since)
+
+    assert report.trigger_threshold is not None
+    return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=count >= report.trigger_threshold)
+
+
+def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetime) -> int:
+    from posthog.hogql.parser import parse_select
+    from posthog.hogql.query import execute_hogql_query
+
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+
+    # Pass the datetime directly to ast.Constant. HogQL's printer serializes it
+    # as toDateTime64(..., 6, <team_tz>) with correct TZ alignment. A bare string
+    # would be coerced in the team's timezone and silently shift the comparison
+    # by the team's offset.
+    query = parse_select(
+        """
+        SELECT count() as total
+        FROM events
+        WHERE event = '$ai_evaluation'
+            AND properties.$ai_evaluation_id = {evaluation_id}
+            AND timestamp >= {since}
+        """,
+        placeholders={
+            "evaluation_id": ast.Constant(value=str(report.evaluation_id)),
+            "since": ast.Constant(value=since),
+        },
+    )
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=report.team_id):
+        result = execute_hogql_query(query=query, team=report.team)
+    rows = result.results or []
+    if not rows:
+        return 0
+    return int(rows[0][0] or 0)
 
 
 def _find_nth_eval_timestamp(

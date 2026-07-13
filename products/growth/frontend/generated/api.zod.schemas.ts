@@ -9,6 +9,26 @@
  */
 import { z as zod } from 'zod'
 
+export const ProductPushCampaignApi = zod.object({
+    id: zod.uuid().describe("Campaign id. Stable for the campaign's lifetime — key per-user dismissal state on it."),
+    product_key: zod.string().describe("ProductKey value of the product being pushed (e.g. 'session_replay')."),
+    product_path: zod
+        .string()
+        .nullable()
+        .describe(
+            'Sidebar path of the pushed product in the product catalog, for display resolution. Null when the key maps to no released catalog item.'
+        ),
+    reason_text: zod
+        .string()
+        .nullable()
+        .describe('Custom promo copy written by the TAM. Null means the client should use its default copy.'),
+    started_at: zod.iso.datetime({ offset: true }).describe('When this campaign started.'),
+    ends_at: zod.iso.datetime({ offset: true }).nullable().describe('When this campaign is planned to end.'),
+})
+
+export type ProductPushCampaignApi = zod.input<typeof ProductPushCampaignApi>
+export type ProductPushCampaignApiOutput = zod.output<typeof ProductPushCampaignApi>
+
 export const TierEnumApi = zod
     .enum(['high', 'medium', 'low'])
     .describe('\* `high` - high\n\* `medium` - medium\n\* `low` - low')

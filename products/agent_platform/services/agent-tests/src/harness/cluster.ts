@@ -485,6 +485,9 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (/memory/team/:t/agent/:a/...) read + write through this store and
         // the runner's `@posthog/memory-*` tools hit the same files.
         memoryStore,
+        // Reuse the same in-process sandbox pool the worker uses so dry-run
+        // e2e cases exercise the same dispatch path as production sessions.
+        sandboxes,
     })
 
     return {

@@ -24,8 +24,18 @@ def _make_context(product: str, *, ai_credits_exhausted: bool = False) -> Thrott
 class TestBillableCreditThrottle:
     @pytest.mark.asyncio
     async def test_allows_non_billable_product_even_when_exhausted(self) -> None:
-        # `posthog_code` is non-billable; exhaustion at the context level is
+        # `sherlockhog` is non-billable; exhaustion at the context level is
         # irrelevant — the throttle short-circuits before checking the flag.
+        throttle = BillableCreditThrottle()
+
+        result = await throttle.allow_request(_make_context(product="sherlockhog", ai_credits_exhausted=True))
+
+        assert result.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_allows_product_billing_outside_ai_credits_even_when_exhausted(self) -> None:
+        # `posthog_code` bills into the posthog_code_credits bucket, not the
+        # PostHog AI one, so the ai_credits quota must never block it.
         throttle = BillableCreditThrottle()
 
         result = await throttle.allow_request(_make_context(product="posthog_code", ai_credits_exhausted=True))

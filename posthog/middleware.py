@@ -56,7 +56,7 @@ from posthog.models.utils import generate_random_token
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
-from posthog.utils import _is_valid_ip_address, get_ip_address
+from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -122,55 +122,15 @@ cookie_api_paths_to_ignore = {"api", "flags", "scim"}
 
 
 class AllowIPMiddleware:
-    trusted_proxies: list[str] = []
-
     def __init__(self, get_response):
         if not settings.ALLOWED_IP_BLOCKS and not settings.BLOCKED_GEOIP_REGIONS:
             # this will make Django skip this middleware for all future requests
             raise MiddlewareNotUsed()
         self.ip_blocks = settings.ALLOWED_IP_BLOCKS
-
-        if settings.TRUSTED_PROXIES:
-            self.trusted_proxies = [item.strip() for item in settings.TRUSTED_PROXIES.split(",")]
         self.get_response = get_response
 
-    def get_forwarded_for(self, request: HttpRequest):
-        forwarded_for = request.headers.get("x-forwarded-for")
-        if forwarded_for is not None:
-            return [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
-        else:
-            return []
-
-    def _normalize_ip(self, ip: str) -> str | None:
-        """Strip port from IP and validate format."""
-        # IPv6 with port: [2001:db8::1]:8080 -> 2001:db8::1
-        if ip.startswith("["):
-            bracket_end = ip.find("]")
-            if bracket_end != -1:
-                ip = ip[1:bracket_end]
-        # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
-        elif ip.count(":") == 1:
-            ip = ip.split(":")[0]
-
-        if not _is_valid_ip_address(ip):
-            return None
-        return ip
-
     def extract_client_ip(self, request: HttpRequest) -> str | None:
-        client_ip = request.META["REMOTE_ADDR"]
-        if getattr(settings, "USE_X_FORWARDED_HOST", False):
-            forwarded_for = self.get_forwarded_for(request)
-            if forwarded_for:
-                closest_proxy = client_ip
-                client_ip = forwarded_for.pop(0)
-                if settings.TRUST_ALL_PROXIES:
-                    return self._normalize_ip(client_ip)
-                proxies = [closest_proxy, *forwarded_for]
-                for proxy in proxies:
-                    normalized = self._normalize_ip(proxy)
-                    if normalized is None or normalized not in self.trusted_proxies:
-                        return None
-        return self._normalize_ip(client_ip)
+        return get_trusted_client_ip(request)
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)

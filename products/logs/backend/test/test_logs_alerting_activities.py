@@ -273,6 +273,61 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
             _save_cohort_outcomes(dispatched, now)
 
 
+class TestResolveNotificationDeliveries(unittest.TestCase):
+    def _dispatched(self, produce_result, notification_failed=False):
+        return _DispatchedAlert(
+            evaluation=MagicMock(),
+            notification_failed=notification_failed,
+            produce_result=produce_result,
+        )
+
+    @parameterized.expand(
+        [
+            ("delivered", None, False),
+            ("delivery_error", Exception("delivery failed"), True),
+            ("still_pending_after_flush", TimeoutError("undelivered"), True),
+        ]
+    )
+    @patch("products.logs.backend.temporal.activities.flush_internal_events_producer", return_value=0)
+    def test_folds_delivery_outcome_into_notification_failed(self, _name, get_side_effect, expect_failed, mock_flush):
+        from products.logs.backend.temporal.activities import _resolve_notification_deliveries
+
+        result = MagicMock()
+        if get_side_effect is not None:
+            result.get.side_effect = get_side_effect
+
+        resolved = _resolve_notification_deliveries([self._dispatched(result)])
+
+        assert resolved[0].notification_failed is expect_failed
+        mock_flush.assert_called_once()
+
+    @patch("products.logs.backend.temporal.activities.flush_internal_events_producer")
+    def test_skips_flush_when_nothing_was_produced(self, mock_flush):
+        from products.logs.backend.temporal.activities import _resolve_notification_deliveries
+
+        dispatched = self._dispatched(None)
+
+        resolved = _resolve_notification_deliveries([dispatched])
+
+        assert resolved == [dispatched]
+        mock_flush.assert_not_called()
+
+    @patch("products.logs.backend.temporal.activities.capture_exception")
+    @patch(
+        "products.logs.backend.temporal.activities.flush_internal_events_producer",
+        side_effect=Exception("kafka down"),
+    )
+    def test_flush_failure_does_not_raise_and_marks_pending_failed(self, mock_flush, _mock_capture):
+        from products.logs.backend.temporal.activities import _resolve_notification_deliveries
+
+        result = MagicMock()
+        result.get.side_effect = TimeoutError("undelivered")
+
+        resolved = _resolve_notification_deliveries([self._dispatched(result)])
+
+        assert resolved[0].notification_failed is True
+
+
 class TestRunCohortQueryFallback(unittest.TestCase):
     @staticmethod
     def _make_cohort(n: int) -> _AlertCohort:
@@ -915,7 +970,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
                 "below_threshold",
                 3,
                 LogsAlertConfiguration.State.NOT_FIRING,
-                LogsAlertConfiguration.State.ERRORED,
+                LogsAlertConfiguration.State.NOT_FIRING,
                 4,
                 0,
             ),
@@ -1198,7 +1253,9 @@ class TestEvaluateSingleAlert(APIBaseTest):
             _evaluate_and_save_one(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
 
         alert.refresh_from_db()
-        assert alert.state == LogsAlertConfiguration.State.ERRORED
+        # Errors no longer move firing state; the notification and counter carry the signal.
+        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
+        assert alert.consecutive_failures == 1
         errored_calls = [
             c
             for c in mock_produce.call_args_list
@@ -1206,30 +1263,6 @@ class TestEvaluateSingleAlert(APIBaseTest):
         ]
         assert len(errored_calls) == 1
         assert errored_calls[0].kwargs["event"].properties["consecutive_failures"] == 1
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
-    @patch("products.logs.backend.temporal.activities.capture_exception")
-    def test_errored_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
-        mock_query_cls.return_value.execute_rolling_checks.side_effect = RuntimeError("CH down")
-        alert = self._make_alert()
-        now1 = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
-        now2 = datetime(2025, 1, 1, 0, 6, 0, tzinfo=UTC)
-
-        with patch("products.logs.backend.temporal.activities.produce_internal_event") as mock_produce:
-            mock_produce.side_effect = Exception("Kafka down")
-            _evaluate_and_save_one(alert, now1, _make_stats())
-
-            mock_produce.side_effect = None
-            mock_produce.reset_mock()
-            _evaluate_and_save_one(alert, now2, _make_stats())
-
-        errored_calls = [
-            c
-            for c in mock_produce.call_args_list
-            if c.kwargs.get("event") and c.kwargs["event"].event == "$logs_alert_errored"
-        ]
-        assert len(errored_calls) == 1
 
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
@@ -2029,3 +2062,61 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         # First cohort errored → counts as 1 errored. Second succeeded → 1 checked.
         assert result.alerts_errored == 1
         assert result.alerts_checked == 1
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.flush_internal_events_producer", return_value=0)
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    @patch("products.logs.backend.temporal.activities._run_cohort_query")
+    def test_undelivered_notification_rolls_back_state_before_save(
+        self, mock_run_cohort_query, mock_produce, _mock_flush
+    ):
+        from products.logs.backend.temporal.activities import (
+            CohortManifest,
+            EvaluateCohortBatchInput,
+            _CohortQueryResult,
+            _PrefetchedQuery,
+            evaluate_cohort_batch_activity,
+        )
+
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="a",
+            threshold_count=10,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["s"]},
+            enabled=True,
+            next_check_at=None,
+        )
+
+        def _mock_query(cohort):
+            return _CohortQueryResult(
+                per_alert={str(a.id): _PrefetchedQuery(buckets=_bucket_counts_for([50])) for a in cohort.alerts}
+            )
+
+        mock_run_cohort_query.side_effect = _mock_query
+        # Enqueue succeeds, but the broker never acks: delivery is still pending
+        # when the flush barrier gives up.
+        undelivered = MagicMock()
+        undelivered.get.side_effect = TimeoutError("undelivered")
+        mock_produce.return_value = undelivered
+
+        manifest = CohortManifest(
+            team_id=self.team.id,
+            projection_eligible=True,
+            date_to_iso="2025-01-01T00:01:00+00:00",
+            alert_ids=[str(alert.id)],
+        )
+
+        result = asyncio.run(evaluate_cohort_batch_activity(EvaluateCohortBatchInput(manifests=[manifest])))
+
+        # A FIRE was attempted — the rollback (not absence of a breach) is what's proven below.
+        mock_produce.assert_called_once()
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
+        assert alert.last_notified_at is None
+        assert result.alerts_fired == 0
+        assert result.notified == []
+        # The cycle still advances so the next cycle re-evaluates and retries the notification.
+        assert alert.next_check_at is not None
