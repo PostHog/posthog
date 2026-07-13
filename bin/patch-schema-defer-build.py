@@ -245,17 +245,14 @@ def main() -> None:
     # `import posthog.schema` raise ImportError everywhere. Failure is loud and CI-caught;
     # the embedded comment points a future bumper at this script and at the
     # subprocess-based tests in posthog/test/test_schema_defer_build.py to run on the bump.
-    mock_core_schema_pointer_comment = (
-        "# Private pydantic internal: see bin/patch-schema-defer-build.py for why, and\n"
-        "# run posthog/test/test_schema_defer_build.py on any pydantic version bump.\n"
-    )
     pydantic_import = (
         "import os\n"
         "import threading\n\n"
         f"from pydantic import {', '.join(sorted(names))}\n"
         "from pydantic import BaseModel as _PydanticBaseModel\n"
         "from pydantic import RootModel as _PydanticRootModel\n"
-        f"{mock_core_schema_pointer_comment}"
+        "# Private pydantic internal: see bin/patch-schema-defer-build.py for why, and\n"
+        "# run posthog/test/test_schema_defer_build.py on any pydantic version bump.\n"
         "from pydantic._internal._mock_val_ser import MockCoreSchema"
     )
     source = source[: match.start()] + pydantic_import + source[match.end() :]
@@ -270,20 +267,26 @@ def main() -> None:
     insert_at = source.index("\n)\n", enums_import_start) + len("\n)\n")
     generated_tail = source[insert_at:]
 
-    tail_lines = generated_tail.split("\n")
-    stripped_tail_lines = [line for line in tail_lines if not re.fullmatch(r"\w+\.model_rebuild\(\)", line)]
     # If a datamodel-code-generator upgrade changes the emitted rebuild-call form (trailing
-    # comment, argument, indentation), the narrower fullmatch above silently no-ops instead
+    # comment, argument, indentation), the narrower fullmatch below silently no-ops instead
     # of failing — leaving eager model_rebuild() calls in place that claw back most of the
     # deferred-build win. Scoped to the generated tail only: DEFERRED_BASE's own
     # model_rebuild() calls are part of the deferred-build machinery, not generated code.
-    surviving_rebuild_calls = [line for line in stripped_tail_lines if re.search(r"\.model_rebuild\(", line)]
+    kept_tail_lines = []
+    surviving_rebuild_calls = []
+    for line in generated_tail.split("\n"):
+        if re.fullmatch(r"\w+\.model_rebuild\(\)", line):
+            continue
+        if re.search(r"\.model_rebuild\(", line):
+            surviving_rebuild_calls.append(line)
+        else:
+            kept_tail_lines.append(line)
     if surviving_rebuild_calls:
         sys.exit(
             "patch-schema-defer-build: model_rebuild() calls survived the strip filter "
             f"(datamodel-code-generator output format may have changed): {surviving_rebuild_calls}"
         )
-    source = source[:insert_at] + "\n" + DEFERRED_BASE + "\n".join(stripped_tail_lines)
+    source = source[:insert_at] + "\n" + DEFERRED_BASE + "\n".join(kept_tail_lines)
     SCHEMA_PATH.write_text(source)
     print("patched posthog/schema.py: defer_build base classes injected, model_rebuild() calls dropped")
 
