@@ -35,6 +35,11 @@ const pushNotificationTokenPrunedCounter = new Counter({
 const APNS_JWT_CACHE_PREFIX = '@posthog/apns-provider-jwt/'
 const APNS_JWT_TTL_SECONDS = 45 * 60
 
+// A push action fans out to its selected channels within one invocation. Cap the count so a workflow
+// crafted with a huge channel list can't tie up a worker with an unbounded outbound-request loop; a real
+// push targets a handful of provider integrations, not thousands.
+const MAX_PUSH_CHANNELS = 10
+
 export type PushNotificationFetchUtils = {
     trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string }) => Promise<{
         fetchError: Error | null
@@ -79,10 +84,21 @@ export class PushNotificationService {
         // template — a hog function only runs one async call per invocation, so a per-channel loop in
         // hog would only ever deliver to the first channel. Each channel is isolated: one failing must
         // not abort the others.
+        // Dedupe so duplicate channel entries can't notify the same device twice, and cap the fan-out so a
+        // crafted workflow can't occupy the worker with an unbounded loop.
+        const uniqueIntegrationIds = [...new Set(params.integrationIds)]
+        const integrationIds = uniqueIntegrationIds.slice(0, MAX_PUSH_CHANNELS)
+        if (uniqueIntegrationIds.length > MAX_PUSH_CHANNELS) {
+            addLog(
+                'warn',
+                `Push notification has ${uniqueIntegrationIds.length} channels; only the first ${MAX_PUSH_CHANNELS} will be delivered.`
+            )
+        }
+
         let errorCount = 0
         let successCount = 0
         let firstError: string | undefined
-        for (const integrationId of params.integrationIds) {
+        for (const integrationId of integrationIds) {
             try {
                 const integration = await this.integrationManager.get(integrationId)
                 if (!integration || integration.team_id !== invocation.teamId) {

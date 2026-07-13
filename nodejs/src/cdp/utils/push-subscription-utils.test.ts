@@ -37,11 +37,11 @@ describe('getDevicePushSubscriptionToken', () => {
         expect(getDevicePushSubscriptionToken(properties, 'my-project', encryptedFields)).toBeNull()
     })
 
-    it('returns the raw value when decryption fails (ignoreDecryptionErrors)', () => {
+    it('returns null when the stored value fails to decrypt (a forged plaintext token is rejected)', () => {
         const properties = {
             [`$device_push_subscription_my-project`]: 'not-encrypted-value',
         }
 
-        expect(getDevicePushSubscriptionToken(properties, 'my-project', encryptedFields)).toBe('not-encrypted-value')
+        expect(getDevicePushSubscriptionToken(properties, 'my-project', encryptedFields)).toBeNull()
     })
 })

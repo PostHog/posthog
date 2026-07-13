@@ -279,6 +279,10 @@ function makeSecureDispatcher(): Dispatcher {
 }
 
 const sharedSecureAgent = makeSecureDispatcher()
+// Unlike `makeSecureDispatcher`, this agent deliberately skips the ProxyAgent branch: CDP workers don't
+// set the proxy env vars, and SSRF stays covered via `httpStaticLookup`. If CDP egress ever moves behind
+// the proxy (see #49170), swap this for a `ProxyAgent` — undici's `ProxyAgent` supports `allowH2` — so
+// H2 traffic (e.g. APNs) doesn't silently keep going direct.
 const sharedSecureH2Agent = new Agent({
     keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
     connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,

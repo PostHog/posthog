@@ -998,23 +998,38 @@ export class HogExecutorService {
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
         const values: string[] = []
 
+        const collectStringValues = (obj: any): void => {
+            if (obj && typeof obj === 'object') {
+                // Assume the values are the sensitive parts
+                Object.values(obj).forEach((val: any) => {
+                    if (typeof val === 'string') {
+                        values.push(val)
+                    }
+                })
+            }
+        }
+
         hogFunction.inputs_schema?.forEach((schema) => {
-            if (schema.secret || schema.type === 'integration' || schema.type === 'push_subscription') {
+            if (
+                schema.secret ||
+                schema.type === 'integration' ||
+                schema.type === 'integration_multi' ||
+                schema.type === 'push_subscription'
+            ) {
                 const value = inputs[schema.key]
                 if (typeof value === 'string') {
                     values.push(value)
+                } else if (schema.type === 'integration_multi' && Array.isArray(value)) {
+                    // integration_multi resolves to an array of integration objects, each carrying its own
+                    // sensitive_config (e.g. APNs signing_key, FCM access_token_raw) — mask every one.
+                    value.forEach(collectStringValues)
                 } else if (
                     (schema.type === 'dictionary' ||
                         schema.type === 'integration' ||
                         schema.type === 'push_subscription') &&
                     typeof value === 'object'
                 ) {
-                    // Assume the values are the sensitive parts
-                    Object.values(value).forEach((val: any) => {
-                        if (typeof val === 'string') {
-                            values.push(val)
-                        }
-                    })
+                    collectStringValues(value)
                 }
             }
         })

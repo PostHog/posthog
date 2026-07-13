@@ -597,6 +597,20 @@ describe('PushNotificationService', () => {
             expect(urls.some((u: string) => u.includes('push.apple.com'))).toBe(true)
         })
 
+        it('deduplicates repeated channel ids so a device is not notified twice', async () => {
+            ;(integrationManager.get as jest.Mock).mockResolvedValue(firebaseIntegration)
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+            })
+            invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 1, 1] } as any
+            mockTrackedFetch.mockResolvedValue(ok200)
+
+            await service.executeSendPushNotification(invocation)
+
+            // Three duplicate ids resolve to one unique channel — deliver once, not three times.
+            expect(mockTrackedFetch).toHaveBeenCalledTimes(1)
+        })
+
         it('keeps delivering to healthy channels when one channel errors', async () => {
             const brokenApns = { ...apnsIntegration, config: {}, sensitive_config: {} }
             ;(integrationManager.get as jest.Mock).mockImplementation((id: number) =>
