@@ -532,3 +532,23 @@ class TestStaleRevalidationEnqueue(BaseTest):
             delay.side_effect = Exception("broker down")
             handle_stale_served(runner=runner, family="web_overview")
         assert get_query_tag_value("precompute_stale") is True
+
+
+def test_lazy_ttl_bands_cover_max_range_with_distinct_neighbours():
+    from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+        LAZY_TTL_SECONDS,
+        MAX_PRECOMPUTE_DAYS,
+    )
+
+    day_keys = sorted(int(k[:-1]) for k in LAZY_TTL_SECONDS if k != "default")
+    # Every eligible range must fall inside explicit bands, or its tail merges into
+    # one default-band job whose scan width is unbounded.
+    assert day_keys[-1] >= MAX_PRECOMPUTE_DAYS
+    prev = None
+    for day in day_keys:
+        ttl = LAZY_TTL_SECONDS[f"{day}d"]
+        # split_ranges_by_ttl fuses consecutive same-TTL days into one job — equal
+        # neighbouring bands would silently recreate the oversized-scan OOM.
+        assert ttl != prev, f"band {day}d shares its TTL with the previous band"
+        prev = ttl
+    assert LAZY_TTL_SECONDS["default"] != prev

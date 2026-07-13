@@ -31,6 +31,7 @@ from posthog.models.team import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
+    MAX_PRECOMPUTE_DAYS,  # noqa: F401 — single source in common; re-exported for existing importers
     is_precompute_enabled_for_team,
     is_precompute_unrestricted_for_team,
 )
@@ -71,7 +72,6 @@ SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 
 # Upper bound on the precompute span. Above this, the framework would create
 # enough daily jobs that the first request burns INSERT slots for minutes.
-MAX_PRECOMPUTE_DAYS = 90
 
 # Forward pad on the per-job event-scan window. The lazy_computation framework
 # chunks the precompute span into daily UTC jobs; each job covers

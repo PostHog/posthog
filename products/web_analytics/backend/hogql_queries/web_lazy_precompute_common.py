@@ -250,6 +250,12 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
             schedule = parse_ttl_schedule(existing, team.timezone, settling_period_seconds=SESSION_SETTLING_SECONDS)
         if pinned:
             schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
+        elif schedule.max_window_days is None:
+            # Ranges past the last explicit band (183+ days back, reachable via the
+            # compare period of a long view) all share the default TTL, which would
+            # otherwise merge into one multi-month job — the oversized-scan OOM the
+            # weekly bands exist to prevent. Cap every web job at band width.
+            schedule = replace(schedule, max_window_days=7)
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
     if result.memory_exceeded:
@@ -308,7 +314,13 @@ LAZY_TTL_SECONDS: dict[str, int] = {
     "21d": 10 * 24 * 60 * 60,  # days 15–21 → one 7d job
     "28d": 12 * 24 * 60 * 60,  # days 22–28 → one 7d job
     "35d": 14 * 24 * 60 * 60,  # days 29–35 → one 7d job (covers the tail of a 31d warm)
-    "default": 21 * 24 * 60 * 60,  # days 36+
+    # Days 36–182: weekly bands so MAX_PRECOMPUTE_DAYS=180 ranges (and the compare
+    # period of a 90d view) split into ≤7d jobs instead of one giant default-band
+    # merge. TTLs increase one day per band — data this old is session-final, so
+    # recomputes buy nothing; the monotonic step only exists to keep consecutive
+    # bands distinct (equal-TTL neighbours would fuse into one oversized job).
+    **{f"{d}d": (15 + (d - 42) // 7) * 24 * 60 * 60 for d in range(42, 183, 7)},
+    "default": 40 * 24 * 60 * 60,  # days 183+ (e.g. the compare period of a 180d view)
 }
 
 # MVP user-filter allowlist: only an EventPropertyFilter on `$host` with
@@ -318,7 +330,7 @@ SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 
 # Upper bound on the precompute span. Above this, the framework would create
 # enough daily jobs that the first request burns INSERT slots for minutes.
-MAX_PRECOMPUTE_DAYS = 90
+MAX_PRECOMPUTE_DAYS = 180
 
 # Forward pad on the per-job event-scan window. Matches the JS SDK's
 # 24 h hard SESSION_LENGTH_LIMIT and covers ~100% of population sessions.
