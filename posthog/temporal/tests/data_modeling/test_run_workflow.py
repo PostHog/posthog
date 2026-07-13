@@ -151,6 +151,7 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
         ),
     ],
 )
+@pytest.mark.django_db
 async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
     activity_environment, ateam, dag, make_fail, posthog_table_names
 ):
