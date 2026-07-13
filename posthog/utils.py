@@ -1153,6 +1153,7 @@ def get_compare_period_dates(
     date_from_delta_mapping: Optional[dict[str, int]],
     date_to_delta_mapping: Optional[dict[str, int]],
     interval: str,
+    exclude_incomplete_periods: bool = False,
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -1178,6 +1179,9 @@ def get_compare_period_dates(
             and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
+            # With excludeIncompletePeriods the ongoing day is clipped out of the range, so -7d
+            # covers exactly 7 complete days and the extra day would misalign the previous period.
+            and not exclude_incomplete_periods
         ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges

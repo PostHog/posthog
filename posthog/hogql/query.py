@@ -43,6 +43,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.printer.access_control import build_access_control_warning
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
@@ -52,7 +53,7 @@ from posthog.hogql.visitor import clone_expr
 from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -74,6 +75,7 @@ class HogQLQueryExecutor:
     placeholders: Optional[dict[str, ast.Expr]] = None
     variables: Optional[dict[str, HogQLVariable]] = None
     workload: Workload = Workload.DEFAULT
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
     settings: Optional[HogQLGlobalSettings] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     limit_context: Optional[LimitContext] = LimitContext.QUERY
@@ -635,6 +637,7 @@ class HogQLQueryExecutor:
                     workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
+                    ch_user=self.ch_user,
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
             except Exception as e:
@@ -657,6 +660,7 @@ class HogQLQueryExecutor:
                     workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
+                    ch_user=self.ch_user,
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
                 self.explain = [str(r[0]) for r in explain_results[0]]
@@ -705,7 +709,12 @@ class HogQLQueryExecutor:
             if self.context and self.context.data_warehouse_sync_warnings:
                 record_warnings(self.context.data_warehouse_sync_warnings.values())
 
-        warnings = list(self.context.data_warehouse_sync_warnings.values()) if self.context else []
+        warnings: list = []
+        if self.context:
+            warnings = list(self.context.data_warehouse_sync_warnings.values())
+            access_control_warning = build_access_control_warning(self.context.access_control_restricted_resources)
+            if access_control_warning:
+                warnings.append(access_control_warning)
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,

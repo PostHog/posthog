@@ -85,6 +85,11 @@ class MetricQuality(StrEnum):
     PARTIAL = "partial"
 
 
+class WorkflowHealthRunScope(StrEnum):
+    ALL = "all"
+    PULL_REQUEST = "pull_request"
+
+
 class PRLifecycleEventKind(StrEnum):
     OPENED = "opened"
     CI_STARTED = "ci_started"
@@ -237,6 +242,8 @@ class WorkflowRunActivityPoint:
     head_branch: str
     # Attributed pull request number, or 0 when unattributed.
     pr_number: int
+    # Head commit SHA — lets a chart point link to the commit (e.g. the repo-health bar → GitHub commit).
+    head_sha: str
 
 
 @dataclass(frozen=True)
@@ -488,6 +495,23 @@ class CIStatusRollup:
 
 
 @dataclass(frozen=True)
+class PushCISample:
+    """One CI round (push) on a pull request, for the compact push-history sparkline:
+    when the round started, its wall-clock CI time, and its verdict.
+    """
+
+    head_sha: str
+    # Earliest run start on this push.
+    started_at: datetime
+    # First run start → last completed run end on this push; None while nothing has completed.
+    wall_seconds: int | None
+    # Any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.
+    failed: bool
+    # Any latest-per-workflow run on this push hasn't completed yet.
+    pending: bool
+
+
+@dataclass(frozen=True)
 class PullRequestListItem:
     """One row of the PR list: the PR plus its head-SHA CI rollup. No ``id`` or
     ``head_sha`` — this is a display/triage row, not the full ``PullRequest``.
@@ -515,6 +539,9 @@ class PullRequestListItem:
     estimated_cost_usd: float | None = None
     # Billable (self-hosted) minutes summed over this PR's jobs; None when the job source isn't synced.
     billable_minutes: float | None = None
+    # This PR's CI rounds oldest-first, capped to the most recent pushes (see the list query) — the
+    # push-history sparkline. ``pushes`` stays the uncapped count.
+    push_history: list[PushCISample] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -635,8 +662,10 @@ class QuarantineRequestResult:
 
 @dataclass(frozen=True)
 class WorkflowHealthItem:
-    """Per-workflow CI health over a window. Rates and percentiles are over
-    completed runs only, so they are ``None`` when the window has none.
+    """Per-workflow CI health over a window. ``success_rate`` is over completed runs;
+    ``p50_seconds``/``p95_seconds`` are over successful runs only (cancelled, skipped,
+    and failed runs end early and would bias a duration percentile low). Each is
+    ``None`` when the window has no qualifying runs.
     """
 
     repo: RepoRef
@@ -695,6 +724,50 @@ class CostPerMergeBucket:
 
 
 @dataclass(frozen=True)
+class TimeToGreenBucket:
+    """One time bucket of the repo's median time-to-green: the p50 wall-clock duration of *successful*
+    CI runs attributed to pull requests (default-branch runs excluded), started in this bucket. Cancelled
+    and failed runs end early and would bias the percentile low, so they are excluded — the same
+    success-only population the workflow-health percentiles use. ``p50_seconds`` is None for a bucket with
+    no successful PR run (a gap, not instant CI); the UI carries the last known value forward rather than
+    dipping the trend to zero.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. None when the
+    # bucket had no successful PR run.
+    p50_seconds: float | None
+
+
+@dataclass(frozen=True)
+class PassRateBucket:
+    """One time bucket of the repo's CI pass rate: the fraction of completed runs (all branches) started in
+    this bucket that succeeded. ``success_rate`` is None for a bucket with no completed run (a gap, not a
+    0% pass rate); the UI carries the last known value forward rather than dipping the trend to zero.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Fraction (0-1) of completed runs started in this bucket that succeeded. None when none completed.
+    success_rate: float | None
+
+
+@dataclass(frozen=True)
+class OpenToMergeBucket:
+    """One time bucket of the repo's median time-to-merge: the p50 of ``merged_at - created_at`` over PRs
+    merged in this bucket, bots and drafts excluded (the locked cycle-time recipe). Coarse by design (draft
+    and ready time fused). ``p50_seconds`` is None for a bucket where nothing merged (a gap, not instant
+    merges); the UI carries the last known value forward rather than dipping the trend to zero.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on merge time.
+    bucket_start: datetime
+    # Median merged_at - created_at seconds over PRs merged in this bucket. None when nothing merged.
+    p50_seconds: float | None
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
@@ -723,6 +796,21 @@ class RepoOverview:
     cost_series: list[CostPerMergeBucket]
     # Bucket width of `cost_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     cost_series_granularity: str
+    # Time-to-green trend: median CI duration of successful PR-attributed runs per bucket, oldest first,
+    # bucketed by `time_to_green_series_granularity`. Empty buckets carry None (no successful PR run).
+    time_to_green_series: list[TimeToGreenBucket]
+    # Bucket width of `time_to_green_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    time_to_green_series_granularity: str
+    # Pass-rate trend: fraction of completed runs (all branches) that succeeded per bucket, oldest first,
+    # bucketed by `success_rate_series_granularity`. Empty buckets carry None (no completed run).
+    success_rate_series: list[PassRateBucket]
+    # Bucket width of `success_rate_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    success_rate_series_granularity: str
+    # Time-to-merge trend: median open_to_merge_seconds over PRs merged per bucket (bots/drafts excluded),
+    # oldest first, bucketed by `open_to_merge_series_granularity`. Empty buckets carry None (nothing merged).
+    open_to_merge_series: list[OpenToMergeBucket]
+    # Bucket width of `open_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    open_to_merge_series_granularity: str
 
 
 @dataclass(frozen=True)
@@ -760,8 +848,9 @@ class RunFailureLogs:
 class WorkflowJobAggregate:
     """Per-job aggregates for one workflow over a window, one row per de-sharded job name
     (matrix ``(G/N)`` suffix stripped; unexpanded ``${{ matrix.* }}`` templates collapsed).
-    Rates and percentiles are over completed jobs; cost is None when every instance ran on
-    an unknown tier."""
+    ``failure_rate`` is over completed jobs; ``p50_seconds``/``p95_seconds`` are over
+    successful jobs only (cancelled and failed instances end early and would bias a
+    duration percentile low); cost is None when every instance ran on an unknown tier."""
 
     job_name: str
     # Job instances observed in the window (all shards, all attempts).

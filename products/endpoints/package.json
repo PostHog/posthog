@@ -10,6 +10,9 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:"
     },
+    "devDependencies": {
+        "@storybook/react": "catalog:"
+    },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@types/react": "*",

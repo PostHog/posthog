@@ -1730,11 +1730,6 @@ describe('Workflows E2E (email queue)', () => {
         hub = await createHub()
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
 
-        // Enforce mode for the whole block: existing tests prove deliverable recipients
-        // pass validation untouched; the skip test proves dead domains never reach the queue.
-        hub.CDP_EMAIL_MX_VALIDATION_ENABLED = true
-        hub.CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS = '*'
-
         // `.invalid` domains are NXDOMAIN, everything else resolves as deliverable.
         const nxdomain = () => Promise.reject(Object.assign(new Error('queryMx ENOTFOUND'), { code: 'ENOTFOUND' }))
         mockDnsResolveMx.mockImplementation((domain: string) =>

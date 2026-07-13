@@ -36,7 +36,7 @@ const meta: Meta<ComposerStoryArgs> = {
     render: ({ initialValue, placeholder, ...rootProps }) => {
         const [value, setValue] = useState(initialValue)
         return (
-            <div className="max-w-180 mx-auto p-4">
+            <div className="w-180 mx-auto p-4">
                 <Composer.Root value={value} onChange={setValue} onSubmit={() => setValue('')} {...rootProps}>
                     <Composer.Frame>
                         <Composer.Field>
@@ -94,7 +94,7 @@ export const WithFooter: Story = {
     render: ({ initialValue, placeholder, ...rootProps }) => {
         const [value, setValue] = useState(initialValue)
         return (
-            <div className="max-w-180 mx-auto p-4">
+            <div className="w-180 mx-auto p-4">
                 <Composer.Root value={value} onChange={setValue} onSubmit={() => setValue('')} {...rootProps}>
                     <Composer.Frame>
                         <Composer.Field>
@@ -125,7 +125,7 @@ export const WithUpNextQueue: Story = {
             { id: '2', content: 'And add a comparison to the previous period' },
         ])
         return (
-            <div className="max-w-180 mx-auto p-4">
+            <div className="w-180 mx-auto p-4">
                 <Composer.Root value={value} onChange={setValue} onSubmit={() => setValue('')} {...rootProps}>
                     <Composer.Banner>
                         <QueuedMessageList

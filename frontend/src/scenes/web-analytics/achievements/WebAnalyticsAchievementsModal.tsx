@@ -2,10 +2,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { type ComponentType, type ReactNode, useEffect } from 'react'
 
-import { HedgehogChartHog, HedgehogCoffeeRun, HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
+import * as coffeeRunPng from '@posthog/brand/hoggies/png/coffee-run'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconCheck, IconChevronDown, IconCrown, IconInfo, IconLock, IconPeople, IconPerson } from '@posthog/icons'
 import { LemonModal, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ExplorerHog, HeartHog, StarHog, WavingHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { dayjs } from 'lib/dayjs'
@@ -24,6 +27,10 @@ import { deriveTrackProgress } from './achievementProgress'
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
 import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
+
+const HedgehogChartHog = pngHoggie(chartHogPng)
+const HedgehogCoffeeRun = pngHoggie(coffeeRunPng)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 const RING_TRACK_COLOR = 'var(--border)'
 const TIER_COLORS = [

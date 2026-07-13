@@ -3,14 +3,15 @@ import './MarkdownNotebook.scss'
 import clsx from 'clsx'
 import {
     ClipboardEvent as ReactClipboardEvent,
+    Component,
     DragEvent as ReactDragEvent,
     FocusEvent as ReactFocusEvent,
     FormEvent,
     Fragment,
     KeyboardEvent,
     MouseEvent as ReactMouseEvent,
+    ReactNode,
     Suspense,
-    lazy,
     useCallback,
     useEffect,
     useId,
@@ -24,9 +25,13 @@ import { IconCode, IconComment, IconDrag } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { downloadFile } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 // Monaco is heavy, so the markdown source editor only loads when the source drawer opens.
-const LazyCodeEditor = lazy(() => import('lib/monaco/CodeEditor').then((module) => ({ default: module.CodeEditor })))
+const LazyCodeEditor = lazyWithRetry(() =>
+    import('lib/monaco/CodeEditor').then((module) => ({ default: module.CodeEditor }))
+)
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
@@ -57,6 +62,7 @@ import {
     getDiscussionCommentRefId,
     isBlankInsertMenuButtonRow,
     isDiscussionCommentNode,
+    isGroupedBlockquoteNode,
     isPromptComponentNode,
     isTextBlockNode,
     makeEmptyNotebookTitle,
@@ -74,9 +80,11 @@ import {
 } from './documentModel'
 import {
     findTextPosition,
+    getClosestEditableBlockElement,
     getCollapsedSelectionRange,
     getCollapsedSelectionRestoreRequest,
     getComponentNodeForSelection,
+    getElementForNode,
     getElementLineHeight,
     getFocusedComponentNode,
     getInlineEditableElementForSelection,
@@ -90,6 +98,7 @@ import {
     getSelectedTextRanges,
     getSelectionClientRect,
     getSelectionRange,
+    inputEventCrossesInlineEditableBoundary,
     isFormattingToolbarFocused,
     isNativeEditableElement,
     isSelectionInsideElement,
@@ -125,7 +134,12 @@ import {
     TextSelectionPointerStartEvent,
     TextSelectionPointerState,
 } from './editorTypes'
-import { FormattingToolbar, getFloatingToolbarLinkHref, getSelectedBlockStyle } from './FormattingToolbar'
+import {
+    FormattingToolbar,
+    getFloatingToolbarLinkHref,
+    getSelectedBlockStyle,
+    getSelectedBlocksQuoted,
+} from './FormattingToolbar'
 import { markNotebookNodeFreshlyInserted } from './freshlyInserted'
 import {
     InlineMarkSelection,
@@ -152,6 +166,7 @@ import {
     getNextInsertMenuSelectedIndex,
 } from './InsertMenu'
 import {
+    deleteListItemSelectionRange,
     getListItemIndex,
     getListItemParagraphReplacement,
     getListItemRefKey,
@@ -163,6 +178,7 @@ import {
     makeEmptyParagraph,
     makeListItemId,
     parseMarkdownNotebook,
+    sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
 } from './markdown'
 import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
@@ -303,6 +319,11 @@ type NotebookHistoryState = {
 }
 
 /** Consecutive single-block edits within this window fold into one undo step. */
+// The editable surfaces whose links are pointer-inert while editing (see MarkdownNotebook.scss);
+// only these get the modifier-click open behavior, everything else keeps native navigation
+const POINTER_INERT_LINK_CONTAINER_SELECTOR =
+    '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-block[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
+
 const UNDO_TYPING_GROUP_MS = 1000
 
 /** How many recent local serializations to remember for save-echo detection. Must comfortably
@@ -400,6 +421,31 @@ function componentNodeErrorsKey(node: NotebookComponentBlockNode): string {
     return node.errors?.join('\n') ?? ''
 }
 
+/** Input types whose browser default edits the DOM across the current selection/target range. */
+const NATIVE_RANGE_EDIT_INPUT_TYPES = new Set([
+    'insertText',
+    'insertParagraph',
+    'insertLineBreak',
+    'insertFromPaste',
+    'insertFromPasteAsQuotation',
+    'insertFromDrop',
+    'insertFromYank',
+    'insertReplacementText',
+    'insertTranspose',
+    'deleteContent',
+    'deleteContentBackward',
+    'deleteContentForward',
+    'deleteWordBackward',
+    'deleteWordForward',
+    'deleteSoftLineBackward',
+    'deleteSoftLineForward',
+    'deleteHardLineBackward',
+    'deleteHardLineForward',
+    'deleteEntireSoftLine',
+    'deleteByCut',
+    'deleteByDrag',
+])
+
 /** A debug recording session: JSONL entries downloaded as a .log file on stop. */
 type NotebookDebugLog = {
     startedAt: number
@@ -451,7 +497,57 @@ function getDebugSelectionSummary(): Record<string, unknown> {
     }
 }
 
-export function MarkdownNotebook({
+// Debug recordings currently in flight, so a crash anywhere in the editor can flush them
+// before the component (and its refs) unmounts.
+const activeDebugLogCrashFlushers = new Set<(error: unknown) => void>()
+
+function flushMarkdownNotebookDebugLogsOnCrash(error: unknown): void {
+    for (const flush of activeDebugLogCrashFlushers) {
+        flush(error)
+    }
+}
+
+type MarkdownNotebookCrashReporterState = { error: Error | null; reported: boolean }
+
+/**
+ * Downloads any in-flight debug recording before a render/commit crash unmounts the editor.
+ * The error is rethrown so the surrounding error boundary still renders its usual fallback —
+ * by then the log download has already been triggered.
+ */
+class MarkdownNotebookCrashReporter extends Component<{ children: ReactNode }, MarkdownNotebookCrashReporterState> {
+    override state: MarkdownNotebookCrashReporterState = { error: null, reported: false }
+
+    static getDerivedStateFromError(error: Error): Partial<MarkdownNotebookCrashReporterState> {
+        return { error }
+    }
+
+    override componentDidCatch(error: Error): void {
+        flushMarkdownNotebookDebugLogsOnCrash(error)
+        this.setState({ reported: true })
+    }
+
+    override render(): ReactNode {
+        if (this.state.error) {
+            if (this.state.reported) {
+                throw this.state.error
+            }
+            // One empty pass: componentDidCatch runs after it commits, flushes the log, and
+            // flips `reported` so the next render rethrows into the surrounding boundary.
+            return null
+        }
+        return this.props.children
+    }
+}
+
+export function MarkdownNotebook(props: MarkdownNotebookProps): JSX.Element {
+    return (
+        <MarkdownNotebookCrashReporter>
+            <MarkdownNotebookEditor {...props} />
+        </MarkdownNotebookCrashReporter>
+    )
+}
+
+function MarkdownNotebookEditor({
     value,
     onChange,
     onAskAI,
@@ -605,6 +701,18 @@ export function MarkdownNotebook({
         setIsDebugLogging(true)
     }
 
+    const downloadDebugLog = useCallback((log: NotebookDebugLog): void => {
+        // downloadFile appends the anchor to the DOM and defers the object-URL revoke, which
+        // Firefox needs for the download to actually start.
+        downloadFile(
+            new File(
+                [log.entries.join('\n') + '\n'],
+                `markdown-notebook-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.log`,
+                { type: 'text/plain' }
+            )
+        )
+    }, [])
+
     const stopDebugLoggingAndDownload = (): void => {
         const log = debugLogRef.current
         logDebugEntry('stop', { markdown: lastSerializedValueRef.current })
@@ -614,14 +722,58 @@ export function MarkdownNotebook({
             return
         }
 
-        const blob = new Blob([log.entries.join('\n') + '\n'], { type: 'text/plain' })
-        const url = URL.createObjectURL(blob)
-        const anchor = window.document.createElement('a')
-        anchor.href = url
-        anchor.download = `markdown-notebook-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.log`
-        anchor.click()
-        URL.revokeObjectURL(url)
+        downloadDebugLog(log)
     }
+
+    // A crash can unmount the editor or leave its DOM unusable, which would silently discard
+    // an in-flight recording — the moment the editor did something worth debugging. Download
+    // the log immediately instead of losing it.
+    const flushDebugLogOnCrash = useCallback(
+        (error: unknown): void => {
+            const log = debugLogRef.current
+            if (!log) {
+                return
+            }
+
+            logDebugEntry('crash', {
+                error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+                stack: error instanceof Error ? truncateForDebugLog(error.stack, 4000) : undefined,
+                markdown: lastSerializedValueRef.current,
+            })
+            debugLogRef.current = null
+            setIsDebugLogging(false)
+            downloadDebugLog(log)
+        },
+        [downloadDebugLog, logDebugEntry]
+    )
+
+    // While recording, an uncaught error anywhere flushes the log: crashes in event handlers
+    // and DOM listeners never reach the crash reporter boundary below. Unhandled rejections
+    // are recorded but don't end the session — they are usually background noise (a failed
+    // fetch), not an editor crash.
+    useEffect(() => {
+        if (!isDebugLogging) {
+            return
+        }
+
+        const handleWindowError = (event: ErrorEvent): void => {
+            flushDebugLogOnCrash(event.error ?? event.message)
+        }
+        const handleUnhandledRejection = (event: PromiseRejectionEvent): void => {
+            const reason: unknown = event.reason
+            logDebugEntry('unhandledrejection', {
+                error: reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason),
+            })
+        }
+        activeDebugLogCrashFlushers.add(flushDebugLogOnCrash)
+        window.addEventListener('error', handleWindowError)
+        window.addEventListener('unhandledrejection', handleUnhandledRejection)
+        return () => {
+            activeDebugLogCrashFlushers.delete(flushDebugLogOnCrash)
+            window.removeEventListener('error', handleWindowError)
+            window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+        }
+    }, [isDebugLogging, flushDebugLogOnCrash, logDebugEntry])
 
     // While recording, capture-phase listeners mirror every keyboard, mouse, input, and
     // clipboard event into the log, plus deduplicated selection snapshots — together with
@@ -1738,6 +1890,117 @@ export function MarkdownNotebook({
         [commitDocument]
     )
 
+    // A ranged selection that reaches a list item's edge (e.g. the whole item selected up to
+    // the next item's start) must be deleted through the model: the browser's native delete
+    // merges `<li>` elements in place, and React then crashes on its next commit because the
+    // list structure it manages no longer matches the DOM (removeChild NotFoundError).
+    const deleteListItemRangeAtCurrentSelection = useCallback(
+        (replacementText: string = '', claimSingleItemRange: boolean = false): boolean => {
+            const notebookElement = notebookRef.current
+            const selection = window.getSelection()
+            if (!notebookElement || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+                return false
+            }
+
+            const element = getSelectedInlineEditableElementOfType(
+                notebookElement,
+                'MarkdownNotebook__list-item-content'
+            )
+            const nodeId = element?.dataset.markdownNotebookNodeId
+            if (!element || !nodeId) {
+                return false
+            }
+
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const node = nodes.find((currentNode) => currentNode.id === nodeId)
+            if (!node || node.type !== 'list') {
+                return false
+            }
+
+            const range = selection.getRangeAt(0)
+            const listBlockElement = blockRefs.current[node.id]
+            if (
+                !listBlockElement ||
+                !listBlockElement.contains(range.startContainer) ||
+                !listBlockElement.contains(range.endContainer)
+            ) {
+                return false
+            }
+
+            // A range confined to a single item's content element is safe to leave to the
+            // browser: only that item's manually synced innerHTML changes. Cut still claims it,
+            // because cut prevents the browser default that would otherwise delete the text.
+            const startElement = getClosestEditableBlockElement(getElementForNode(range.startContainer))
+            const endElement = getClosestEditableBlockElement(getElementForNode(range.endContainer))
+            if (!claimSingleItemRange && startElement === element && endElement === element) {
+                return false
+            }
+
+            const itemRanges = node.items.flatMap((_, itemIndex) => {
+                const itemElement = listItemRefs.current[getListItemRefKey(node.id, itemIndex)]
+                const itemRange = itemElement ? getSelectionRange(itemElement, node.id) : null
+                if (!itemRange) {
+                    return []
+                }
+                return [
+                    {
+                        itemIndex,
+                        start: Math.min(itemRange.start, itemRange.end),
+                        end: Math.max(itemRange.start, itemRange.end),
+                    },
+                ]
+            })
+
+            // A zero-length range at the selection's edge is a boundary touch that selects
+            // nothing in that item.
+            while (itemRanges.length > 1 && itemRanges[0].start === itemRanges[0].end) {
+                itemRanges.shift()
+            }
+            while (
+                itemRanges.length > 1 &&
+                itemRanges[itemRanges.length - 1].start === itemRanges[itemRanges.length - 1].end
+            ) {
+                itemRanges.pop()
+            }
+            const firstRange = itemRanges[0]
+            const lastRange = itemRanges[itemRanges.length - 1]
+            if (!firstRange || !lastRange) {
+                return false
+            }
+
+            const deletion = deleteListItemSelectionRange(
+                node.items,
+                {
+                    firstItemIndex: firstRange.itemIndex,
+                    firstStart: firstRange.start,
+                    lastItemIndex: lastRange.itemIndex,
+                    lastEnd: lastRange.end,
+                },
+                replacementText
+            )
+            if (!deletion) {
+                return false
+            }
+
+            restoreSelectionRef.current = {
+                nodeId: node.id,
+                listItemIndex: deletion.caretItemIndex,
+                listItemId: deletion.caretItemId,
+                start: deletion.caretOffset,
+                end: deletion.caretOffset,
+            }
+            commitDocument({
+                ...currentDocument,
+                nodes: nodes.map((currentNode) =>
+                    currentNode.id === node.id ? { ...node, items: deletion.items } : currentNode
+                ),
+            })
+            return true
+        },
+        [commitDocument]
+    )
+
     const insertTableRowAtCurrentSelection = useCallback((): boolean => {
         const element = getSelectedInlineEditableElementOfType(
             notebookRef.current,
@@ -2089,7 +2352,13 @@ export function MarkdownNotebook({
                     ...currentDocument,
                     nodes: nodes.map((currentNode) =>
                         currentNode.id === node.id && isTextBlockNode(currentNode)
-                            ? { ...currentNode, type: 'paragraph', level: undefined }
+                            ? {
+                                  ...currentNode,
+                                  // A quoted heading downgrades to quote text, staying in the quote
+                                  type: currentNode.blockquote ? 'blockquote' : 'paragraph',
+                                  level: undefined,
+                                  blockquote: undefined,
+                              }
                             : currentNode
                     ),
                 })
@@ -2216,7 +2485,8 @@ export function MarkdownNotebook({
                 nativeEvent.inputType === 'insertText' &&
                 typeof nativeEvent.data === 'string' &&
                 nativeEvent.data.length > 0 &&
-                deleteSelectedNotebookBlocks(nativeEvent.data)
+                (deleteSelectedNotebookBlocks(nativeEvent.data) ||
+                    deleteListItemRangeAtCurrentSelection(nativeEvent.data))
             ) {
                 event.preventDefault()
                 event.stopPropagation()
@@ -2236,13 +2506,27 @@ export function MarkdownNotebook({
             if (
                 (nativeEvent.inputType === 'deleteContentBackward' ||
                     nativeEvent.inputType === 'deleteContentForward') &&
-                (deleteListItemAtCurrentSelection(
-                    nativeEvent.inputType === 'deleteContentBackward' ? 'backward' : 'forward'
-                ) ||
+                (deleteListItemRangeAtCurrentSelection() ||
+                    deleteListItemAtCurrentSelection(
+                        nativeEvent.inputType === 'deleteContentBackward' ? 'backward' : 'forward'
+                    ) ||
                     deleteTextAtCurrentSelection(
                         nativeEvent.inputType === 'deleteContentBackward' ? 'backward' : 'forward'
                     ))
             ) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
+
+            // A native edit whose range crosses inline-editable boundaries would restructure
+            // React-managed DOM and crash the next React commit. If no handler above claimed
+            // the edit, dropping it is the safe outcome.
+            if (
+                NATIVE_RANGE_EDIT_INPUT_TYPES.has(nativeEvent.inputType) &&
+                inputEventCrossesInlineEditableBoundary(nativeEvent, notebookElement)
+            ) {
+                logDebugEntry('blocked-cross-boundary-edit', { inputType: nativeEvent.inputType })
                 event.preventDefault()
                 event.stopPropagation()
                 return
@@ -2266,8 +2550,10 @@ export function MarkdownNotebook({
         return () => notebookElement.removeEventListener('beforeinput', handleBeforeInput, true)
     }, [
         deleteListItemAtCurrentSelection,
+        deleteListItemRangeAtCurrentSelection,
         deleteSelectedNotebookBlocks,
         deleteTextAtCurrentSelection,
+        logDebugEntry,
         insertNewlineInCodeBlockAtCurrentSelection,
         insertTableRowAtCurrentSelection,
         mode,
@@ -3072,7 +3358,7 @@ export function MarkdownNotebook({
             event.preventDefault()
             notebookClipboardMarkdownRef.current = markdown
             setClipboardMarkdown(event.clipboardData, markdown)
-            if (!deleteSelectedNotebookBlocks()) {
+            if (!deleteSelectedNotebookBlocks() && !deleteListItemRangeAtCurrentSelection('', true)) {
                 deleteTextAtCurrentSelection('forward')
             }
             return
@@ -3336,6 +3622,14 @@ export function MarkdownNotebook({
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
 
+        // The quote button toggles quote membership: unquote only when the whole selection is already quoted.
+        const selectedNodes = nodes.filter(
+            (node) =>
+                selectedTextNodeIds.has(node.id) || selectedCodeNodeIds.has(node.id) || selectedListNodeIds.has(node.id)
+        )
+        const shouldUnquote =
+            style === 'blockquote' && selectedNodes.length > 0 && selectedNodes.every(isGroupedBlockquoteNode)
+
         const inlineRangesByNodeId = new Map(
             [...(activeTextRanges ?? []), ...(activeCodeRanges ?? [])].map(({ range }) => [range.nodeId, range])
         )
@@ -3373,8 +3667,8 @@ export function MarkdownNotebook({
                 }
                 if (selectedListNodeIds.has(node.id) && node.type === 'list') {
                     // Lists only toggle blockquote membership; heading and code styles do not apply to them.
-                    if (style === 'blockquote' && !node.blockquote) {
-                        return { ...node, blockquote: true }
+                    if (style === 'blockquote') {
+                        return { ...node, blockquote: shouldUnquote ? undefined : true }
                     }
                     if (style === 'paragraph' && node.blockquote) {
                         return { ...node, blockquote: undefined }
@@ -3393,9 +3687,29 @@ export function MarkdownNotebook({
                     }
                 }
                 if (typeof style === 'number') {
-                    return { ...node, type: 'heading', level: style }
+                    // A heading applied inside a quote keeps its quote membership
+                    return {
+                        ...node,
+                        type: 'heading',
+                        level: style,
+                        blockquote: node.type === 'blockquote' || node.blockquote ? true : undefined,
+                    }
                 }
-                return { ...node, type: style, level: undefined }
+                if (style === 'blockquote') {
+                    if (node.type === 'heading') {
+                        // Quote membership toggles without touching the heading level
+                        return { ...node, blockquote: shouldUnquote ? undefined : true }
+                    }
+                    if (shouldUnquote) {
+                        return { ...node, type: 'paragraph', level: undefined, blockquote: undefined }
+                    }
+                    return { ...node, type: 'blockquote', level: undefined, blockquote: undefined }
+                }
+                if (style === 'paragraph' && node.type === 'heading' && node.blockquote) {
+                    // Removing the heading style inside a quote downgrades to quote text, not plain text
+                    return { ...node, type: 'blockquote', level: undefined, blockquote: undefined }
+                }
+                return { ...node, type: style, level: undefined, blockquote: undefined }
             }),
         })
     }
@@ -3627,9 +3941,53 @@ export function MarkdownNotebook({
         }, 0)
     }
 
+    // Links in editable blocks are pointer-inert so plain clicks place the caret; holding
+    // Cmd/Ctrl re-enables them (see MarkdownNotebook.scss) so they can be opened, matching
+    // the TipTap editor's link mark behavior.
+    useEffect(() => {
+        if (mode !== 'edit') {
+            return
+        }
+
+        const setLinkModifierHeld = (isHeld: boolean): void => {
+            notebookRef.current?.classList.toggle('MarkdownNotebook--link-modifier-held', isHeld)
+        }
+        const handleModifierKeyChange = (event: globalThis.KeyboardEvent): void =>
+            setLinkModifierHeld(event.metaKey || event.ctrlKey)
+        const resetLinkModifier = (): void => setLinkModifierHeld(false)
+
+        window.addEventListener('keydown', handleModifierKeyChange)
+        window.addEventListener('keyup', handleModifierKeyChange)
+        window.addEventListener('blur', resetLinkModifier)
+        return () => {
+            window.removeEventListener('keydown', handleModifierKeyChange)
+            window.removeEventListener('keyup', handleModifierKeyChange)
+            window.removeEventListener('blur', resetLinkModifier)
+            resetLinkModifier()
+        }
+    }, [mode])
+
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
-        const refElement = event.target instanceof Element ? event.target.closest('[data-notebook-ref]') : null
-        const refId = refElement?.getAttribute('data-notebook-ref')
+        if (!(event.target instanceof Element)) {
+            return
+        }
+
+        const linkElement = event.target.closest('a[href]')
+        if (linkElement && linkElement.closest(POINTER_INERT_LINK_CONTAINER_SELECTOR)) {
+            if (event.metaKey || event.ctrlKey) {
+                const href = sanitizeNotebookLinkHref(linkElement.getAttribute('href') ?? '')
+                if (href) {
+                    event.preventDefault()
+                    window.open(href, '_blank', 'noopener')
+                    return
+                }
+            } else {
+                // While editing, a plain click only places the caret, never navigates
+                event.preventDefault()
+            }
+        }
+
+        const refId = event.target.closest('[data-notebook-ref]')?.getAttribute('data-notebook-ref')
         if (refId) {
             focusDiscussionCommentForRef(refId)
         }
@@ -5143,7 +5501,8 @@ export function MarkdownNotebook({
             !event.altKey &&
             !event.metaKey &&
             !event.ctrlKey &&
-            (deleteListItemAtCurrentSelection(event.key === 'Backspace' ? 'backward' : 'forward') ||
+            (deleteListItemRangeAtCurrentSelection() ||
+                deleteListItemAtCurrentSelection(event.key === 'Backspace' ? 'backward' : 'forward') ||
                 deleteEmptyCodeBlockAtCurrentSelection())
         ) {
             event.preventDefault()
@@ -5676,6 +6035,11 @@ export function MarkdownNotebook({
                     {floatingToolbar && mode === 'edit' ? (
                         <FormattingToolbar
                             selectedBlockStyle={getSelectedBlockStyle(
+                                floatingToolbar.textRanges,
+                                floatingToolbar.codeRanges,
+                                floatingToolbar.listItemRanges
+                            )}
+                            selectedBlockQuoted={getSelectedBlocksQuoted(
                                 floatingToolbar.textRanges,
                                 floatingToolbar.codeRanges,
                                 floatingToolbar.listItemRanges

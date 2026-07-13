@@ -28,7 +28,7 @@ import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export type EditingKeyFormValues = Pick<
     PersonalAPIKeyType,
-    'label' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
+    'label' | 'description' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
 > & {
     preset?: string
     access_type?: 'all' | 'organizations' | 'teams'
@@ -54,6 +54,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         resetScopes: true,
         loadAllTeams: true,
+        showDescriptionField: true,
     }),
 
     reducers({
@@ -67,6 +68,14 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             '' as string,
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        // The description field is hidden behind an "Add description" button until used
+        isDescriptionFieldVisible: [
+            false,
+            {
+                showDescriptionField: () => true,
+                setEditingKeyId: () => false,
             },
         ],
     }),
@@ -110,6 +119,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         editingKey: {
             defaults: {
                 label: '',
+                description: '',
                 scopes: [],
                 scoped_organizations: [],
                 scoped_teams: [],
@@ -178,6 +188,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 // Hide agents scope unless the agent platform flag is enabled (hidden until GA)
                 if (!featureFlags[FEATURE_FLAGS.AGENT_PLATFORM]) {
                     scopes = scopes.filter((scope) => scope.key !== 'agents')
+                }
+
+                // Hide engineering analytics scope unless the product's rollout flag is enabled
+                if (!featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                    scopes = scopes.filter((scope) => scope.key !== 'engineering_analytics')
                 }
 
                 // Hide approvals scope unless the org has the APPROVALS feature
@@ -439,6 +454,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 const key = values.keys.find((key) => key.id === id)
                 const formValues: EditingKeyFormValues = {
                     label: key?.label ?? '',
+                    description: key?.description ?? '',
                     scopes: key?.scopes ?? [],
                     preset: key?.scopes.includes('*') ? 'all_access' : undefined,
                     scoped_organizations: key?.scoped_organizations ?? [],
@@ -453,6 +469,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 }
 
                 actions.resetEditingKey(formValues)
+                if (key?.description) {
+                    actions.showDescriptionField()
+                }
                 actions.setSearchTerm('')
             } else {
                 actions.setSearchTerm('')

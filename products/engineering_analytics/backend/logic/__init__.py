@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RunFailureLogs,
     WorkflowCost,
     WorkflowHealthItem,
+    WorkflowHealthRunScope,
     WorkflowJob,
     WorkflowJobAggregate,
     WorkflowRunActivity,
@@ -236,9 +237,16 @@ def build_workflow_health(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
 ) -> list[WorkflowHealthItem]:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
-    return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=branch)
+    return query_workflow_health(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+    )
 
 
 def build_flaky_tests(
@@ -274,6 +282,19 @@ def build_flaky_tests(
 
 def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
+
+
+def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
+    """Absent/blank selects 'all'; anything else must be an exact enum value (ValueError → 400)."""
+    normalized = value.strip() if value else ""
+    if not normalized:
+        return WorkflowHealthRunScope.ALL
+    try:
+        return WorkflowHealthRunScope(normalized)
+    except ValueError:
+        raise ValueError(
+            f"run_scope must be one of: {', '.join(scope.value for scope in WorkflowHealthRunScope)}"
+        ) from None
 
 
 def _parse_window(
