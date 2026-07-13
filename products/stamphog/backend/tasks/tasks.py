@@ -147,7 +147,22 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
     # Digest eligibility: opt-in per repo, and the digest reports what stamphog
     # approved, not everything that merged. Ineligible merges keep their facts but
     # stay out of the digest (blank audience_key).
-    approved = ReviewRun.objects.for_team(team_id).filter(pull_request=pr_obj, verdict=ReviewVerdict.APPROVED).exists()
+    #
+    # The approval must belong to the commit that actually got merged. pull_request.head.sha
+    # is that commit (merge_commit_sha is the synthetic merge commit GitHub creates, not the
+    # reviewed head, so it can't be used here). Without this check, a PR approved at an earlier
+    # head that's later pushed to and merged without re-review would still count as approved --
+    # normally `synchronize` supersedes and re-reviews, so this only closes that narrow gap.
+    pr_head_sha = ((pr.get("head") or {}).get("sha") or "").strip()
+    if not pr_head_sha:
+        logger.warning("stamphog_merged_pr_missing_head_sha", repo=repo, pr_number=pr_number)
+        approved = False
+    else:
+        approved = (
+            ReviewRun.objects.for_team(team_id)
+            .filter(pull_request=pr_obj, verdict=ReviewVerdict.APPROVED, head_sha=pr_head_sha)
+            .exists()
+        )
     if repo_config.digest_enabled and approved:
         pr_obj.audience_key = resolve_audience_key(repo_config, pr)
         update_fields.append("audience_key")

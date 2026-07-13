@@ -39,10 +39,14 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
         logger.info("stamphog_digest_channel_missing_or_disabled", digest_channel_id=digest_channel_id)
         return
 
-    since = timezone.now() - timedelta(days=DIGEST_LOOKBACK_DAYS)
+    # No merged_at floor here on purpose: audience_key + digest_run__isnull=True is the real
+    # eligibility signal (a PR only gets an audience_key once it's digest-eligible, and only stays
+    # unlinked until its digest actually posts). A recency filter would let a PR whose post keeps
+    # failing quietly age out of the window and never get retried. Once a PR is posted, digest_run
+    # is set and this query excludes it -- so already-digested PRs are never resurrected here.
     prs = list(
         PullRequest.objects.for_team(team_id)
-        .filter(audience_key=channel.audience_key, digest_run__isnull=True, merged_at__gte=since)
+        .filter(audience_key=channel.audience_key, digest_run__isnull=True)
         .select_related("repo_config")
         .order_by("merged_at")
     )

@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 
 from django.db import models
+from django.db.models import Q
 
 from posthog.models.scoping.product_mixin import ProductTeamModel
 
@@ -40,6 +41,14 @@ class StamphogRepoConfig(ProductTeamModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["team_id", "repository"], name="unique_stamphog_repo_per_team"),
+            # Cross-team: one (provider, installation, repository) triple belongs to a single team. The
+            # dedicated GitHub App can only be installed on a given repo once, so its installation_id
+            # identifies exactly one repo under one team — two teams can't legitimately share it. This
+            # backs the perform_create guard at the DB level (closes the check-then-act race) and its
+            # unique index doubles as the webhook-resolution index for (provider, installation_id, repository).
+            models.UniqueConstraint(
+                fields=["provider", "installation_id", "repository"], name="unique_stamphog_installation_repo"
+            ),
         ]
 
     def __str__(self) -> str:
@@ -85,6 +94,17 @@ class PullRequest(ProductTeamModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["team_id", "repo_config", "pr_number"], name="unique_stamphog_pull_request"
+            ),
+        ]
+        indexes = [
+            # Serves both digest hot paths, restricted to the small, draining set of digest-eligible
+            # rows (digest_run NULL). Per-team digest: (team_id, audience_key) equality prefix + merged_at
+            # range and sort. Cross-team discovery: the partial predicate confines the scan to unlinked
+            # rows and the leading columns cover the distinct (team_id, audience_key) it selects.
+            models.Index(
+                fields=["team_id", "audience_key", "merged_at"],
+                condition=Q(digest_run__isnull=True),
+                name="stamphog_pr_pending_digest",
             ),
         ]
 

@@ -5,6 +5,7 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
+from django.db import IntegrityError
 from django.db.models import QuerySet
 
 from drf_spectacular.types import OpenApiTypes
@@ -45,6 +46,9 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         provider = serializer.validated_data.get("provider", "github")
         installation_id = serializer.validated_data.get("installation_id", "")
         repository = serializer.validated_data.get("repository", "")
+        already_claimed_error = ValidationError(
+            {"repository": "This repository is already configured under this GitHub installation by another team."}
+        )
         already_claimed = (
             StamphogRepoConfig.objects.unscoped()
             .filter(provider=provider, installation_id=installation_id, repository=repository)
@@ -52,10 +56,13 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .exists()
         )
         if already_claimed:
-            raise ValidationError(
-                {"repository": "This repository is already configured under this GitHub installation by another team."}
-            )
-        serializer.save(team_id=self.team_id)
+            raise already_claimed_error
+        # unique_stamphog_installation_repo backs the check above at the DB level, so a race that slips
+        # past the read still fails closed here — surface it as the same 400, not a 500.
+        try:
+            serializer.save(team_id=self.team_id)
+        except IntegrityError:
+            raise already_claimed_error
 
 
 class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):

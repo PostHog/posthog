@@ -166,9 +166,11 @@ def _validate_verdict(result: dict) -> dict:
 
     # Path validator hook removed — the PreToolUse hook crashes the CLI
     # subprocess (Stream closed) on every invocation, wasting retries.
-    # Security impact is low: dontAsk + allowed_tools already restricts
-    # the agent to Read/Grep/Glob, and it can only read files the OS user
-    # can access anyway (ephemeral CI runner, no secrets on disk).
+    # This reviewer runs with LLM credentials in its environment (AI_GATEWAY_API_KEY /
+    # ANTHROPIC_API_KEY), and Read/Grep/Glob are NOT path-restricted, so the agent can
+    # in principle read those env values. What actually prevents key exfiltration to the
+    # PR / DB is the deterministic server-side output scrub in stamphog's activities.py
+    # (_scrub_credentials in run_review_in_sandbox and post_verdict), not this hook.
     # TODO: re-enable once the SDK hook bug is fixed.
 
 

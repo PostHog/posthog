@@ -59,6 +59,9 @@ def _author_team_audience_key(repo_config: StamphogRepoConfig, pr_payload: dict[
                 chosen=chosen,
                 other_teams=other_teams,
             )
+        # `chosen` (the raw team slug) becomes the audience_key unchanged, and channel_resolution
+        # later matches it against a real Slack channel name for auto-provisioning. This trusts
+        # GitHub org team-slug governance; only PUBLIC channels are matched (see channel_resolution).
         return chosen
     except Exception:
         logger.warning(

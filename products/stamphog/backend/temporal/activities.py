@@ -37,7 +37,7 @@ from products.stamphog.backend.logic.reviewer import (
     build_reviewer_invocation,
     parse_reviewer_output,
 )
-from products.stamphog.backend.models import ReviewRun
+from products.stamphog.backend.models import PullRequest, ReviewRun
 from products.stamphog.backend.temporal.constants import (
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
@@ -195,7 +195,13 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     finally:
         sandbox.destroy()
 
-    run.output = {**(run.output or {}), "reviewer_raw": result.stdout, "reviewer_exit_code": result.exit_code}
+    # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
+    # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
+    run.output = {
+        **(run.output or {}),
+        "reviewer_raw": _scrub_credentials(result.stdout, token),
+        "reviewer_exit_code": result.exit_code,
+    }
     run.save(update_fields=["output", "updated_at"])
 
     if result.exit_code != 0:
@@ -232,27 +238,23 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     if parsed.gate_blocked:
         # The deterministic gates denied auto-review — a terminal, non-approval
         # outcome. The engine still rendered a plain-language explanation; post it.
-        comment = client.upsert_sticky_comment(
-            repo, pull_request.pr_number, parsed.review_body or _verdict_comment(parsed)
-        )
-        pull_request.posted_comment_id = _comment_id(comment)
-        pull_request.save(update_fields=["posted_comment_id", "updated_at"])
+        _post_sticky(client, repo, pull_request, parsed.review_body or _verdict_comment(parsed))
         run.status = ReviewRunStatus.GATED
         run.verdict = ReviewVerdict.WAIT
     elif parsed.verdict == ReviewVerdict.APPROVED:
-        review = client.post_approve_review(
-            repo, pull_request.pr_number, parsed.review_body or _approve_comment(parsed), run.head_sha
-        )
-        run.posted_review_id = _comment_id(review)
+        # Idempotent under Temporal at-least-once retries: if a prior attempt already
+        # approved (posted_review_id persisted in the same save that flips status), skip
+        # re-approving. Residual window: GitHub approved but the save below crashed leaves
+        # the id unset, so a retry approves once more — accepted given at-least-once delivery.
+        if run.posted_review_id is None:
+            body = _scrub_credentials(parsed.review_body or _approve_comment(parsed))
+            review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
+            run.posted_review_id = _comment_id(review)
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = ReviewVerdict.APPROVED
         update_fields.append("posted_review_id")
     else:
-        comment = client.upsert_sticky_comment(
-            repo, pull_request.pr_number, parsed.review_body or _verdict_comment(parsed)
-        )
-        pull_request.posted_comment_id = _comment_id(comment)
-        pull_request.save(update_fields=["posted_comment_id", "updated_at"])
+        _post_sticky(client, repo, pull_request, parsed.review_body or _verdict_comment(parsed))
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
 
@@ -291,11 +293,29 @@ def _harden_reviewer_command(command: Sequence[str] | str) -> str:
     return shlex.join(parts)
 
 
+def _llm_env_secrets() -> list[str]:
+    """Non-empty LLM credential values in the worker env, gathered for output scrubbing.
+
+    These reach the sandbox via ``_reviewer_environment``; a confused or compromised
+    reviewer could echo them into stdout or the verdict. Redacting them server-side,
+    independent of model behavior, is what keeps a leaked key out of the PR and the DB.
+    """
+    return [
+        value for key in ("AI_GATEWAY_API_KEY", "ANTHROPIC_API_KEY", "AI_GATEWAY_URL") if (value := os.environ.get(key))
+    ]
+
+
 def _scrub_credentials(text: str, *secrets: str) -> str:
-    """Redact any credential material before it reaches ``ReviewRun.error`` or the logs."""
+    """Redact credential material before it reaches ``ReviewRun``, the logs, or GitHub.
+
+    Scrubs the passed GitHub token / basic-auth material plus any LLM credentials present
+    in the worker env — deterministic, so it does not depend on what the reviewer emits.
+    """
     for secret in secrets:
         if secret:
             text = text.replace(secret, "***")
+    for secret in _llm_env_secrets():
+        text = text.replace(secret, "[redacted]")
     return text
 
 
@@ -384,6 +404,17 @@ def _write_sandbox_file(sandbox: SandboxBase, path: str, content: str) -> None:
     parent = path.rsplit("/", 1)[0] if "/" in path else "."
     sandbox.execute(f"mkdir -p {shlex.quote(parent)}", timeout_seconds=30)
     sandbox.write_file(path, content.encode())
+
+
+def _post_sticky(client: StamphogGitHubClient, repo: str, pull_request: PullRequest, body: str) -> None:
+    """Upsert the sticky comment and persist its id on the PR. Body is scrubbed before posting.
+
+    Idempotent on retry: ``upsert_sticky_comment`` edits the existing comment (tracked via
+    ``posted_comment_id``) rather than adding a new one, so a re-run does not double-post.
+    """
+    comment = client.upsert_sticky_comment(repo, pull_request.pr_number, _scrub_credentials(body))
+    pull_request.posted_comment_id = _comment_id(comment)
+    pull_request.save(update_fields=["posted_comment_id", "updated_at"])
 
 
 def _comment_id(obj: dict) -> int | None:
