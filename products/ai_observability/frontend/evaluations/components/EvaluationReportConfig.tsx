@@ -1,6 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTag,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -302,7 +310,13 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                 />
             </div>
 
-            {activeReport ? (
+            {reportsLoading && !activeReport ? (
+                <div className="space-y-3 mt-4">
+                    <LemonSkeleton className="h-9 w-full" />
+                    <LemonSkeleton className="h-9 w-full" />
+                    <LemonSkeleton className="h-20 w-full" />
+                </div>
+            ) : activeReport ? (
                 <>
                     <ReportFormFields evaluationId={evaluationId} />
                     {configDraft.frequency === 'every_n'

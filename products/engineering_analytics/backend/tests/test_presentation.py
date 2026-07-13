@@ -212,6 +212,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
                     duration_seconds=180,
                     head_branch="main",
                     pr_number=0,
+                    head_sha="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
                 )
             ],
             truncated=False,
