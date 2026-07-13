@@ -411,43 +411,39 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 className="text-sm text-secondary my-0 max-w-prose"
                                                 data-attr="cohort-type"
                                             >
-                                                This is a{' '}
-                                                <strong>{cohort.is_static ? 'static' : 'dynamic'}</strong> cohort
-                                                ({cohort.is_static ? 'updated manually' : 'updates automatically'}).
-                                                Create a new cohort to use a different type of cohort.
+                                                This cohort is{' '}
+                                                <strong>{cohort.is_static ? 'static' : 'dynamic'}</strong>. Create a new
+                                                cohort to use a different type of cohort.
                                             </p>
                                         )}
 
                                         {cohort.is_static && (
                                             <div className="flex flex-col gap-y-2">
                                                 <h2 className="text-base mb-0">Populate from</h2>
-                                                <p className="text-sm text-secondary my-0 max-w-prose">
-                                                    {staticCohortMode === 'criteria'
-                                                        ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
-                                                        : 'Manually add people via CSV upload or by selecting them individually.'}
-                                                </p>
                                                 {isNewCohort ? (
-                                                    <LemonSelect
-                                                        options={POPULATE_FROM_OPTIONS}
-                                                        value={staticCohortMode}
-                                                        onChange={(value) => setStaticCohortMode(value)}
-                                                        fullWidth
-                                                        data-attr="static-cohort-mode"
-                                                    />
+                                                    <>
+                                                        <p className="text-sm text-secondary my-0 max-w-prose">
+                                                            {staticCohortMode === 'criteria'
+                                                                ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
+                                                                : 'Manually add people via CSV upload or by selecting them individually.'}
+                                                        </p>
+                                                        <LemonSelect
+                                                            options={POPULATE_FROM_OPTIONS}
+                                                            value={staticCohortMode}
+                                                            onChange={(value) => setStaticCohortMode(value)}
+                                                            fullWidth
+                                                            data-attr="static-cohort-mode"
+                                                        />
+                                                    </>
                                                 ) : (
                                                     <p
                                                         className="text-sm text-secondary my-0 max-w-prose"
                                                         data-attr="static-cohort-mode"
                                                     >
-                                                        This cohort was populated via{' '}
-                                                        <strong>
-                                                            {
-                                                                POPULATE_FROM_OPTIONS.find(
-                                                                    (option) => option.value === staticCohortMode
-                                                                )?.label
-                                                            }
-                                                        </strong>
-                                                        . Create a new cohort to change how a static cohort is
+                                                        {staticCohortMode === 'criteria'
+                                                            ? 'This cohort was snapshotted from criteria at creation time and will not update as people change.'
+                                                            : 'This cohort was populated by uploading a CSV or selecting people individually.'}{' '}
+                                                        Create a new cohort to change how a static cohort is
                                                         populated.
                                                     </p>
                                                 )}

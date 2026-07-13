@@ -519,13 +519,11 @@ describe('cohortEditLogic', () => {
             // The value and the reason it's locked are always visible in one sentence
             // (previously only surfaced in a disabled-dropdown hover tooltip)
             expect(
-                await screen.findByText(
-                    'This is a static cohort (updated manually). Create a new cohort to use a different type of cohort.'
-                )
+                await screen.findByText('This cohort is static. Create a new cohort to use a different type of cohort.')
             ).toBeInTheDocument()
             expect(
                 screen.getByText(
-                    'This cohort was populated via Criteria · One-time snapshot. Create a new cohort to change how a static cohort is populated.'
+                    'This cohort was snapshotted from criteria at creation time and will not update as people change. Create a new cohort to change how a static cohort is populated.'
                 )
             ).toBeInTheDocument()
 
