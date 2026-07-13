@@ -232,6 +232,24 @@ describe('logsPatternsLogic', () => {
         )
     })
 
+    it('openPatternsComparison before mount arms compare so mounting loads the diff', async () => {
+        // The "explain changes" button lives in the Logs view and fires before this logic
+        // exists: it arms compare state on the config logic, then the view switch mounts
+        // Patterns. If afterMount ignored that state and ran the plain mine, the button
+        // would silently answer the wrong question.
+        mockDiffCreate.mockResolvedValue(DIFF_RESPONSE)
+        const configLogic = logsViewerConfigLogic({ id: ID })
+        configLogic.mount()
+
+        configLogic.actions.openPatternsComparison('preceding')
+        expect(configLogic.values.viewMode).toBe('patterns')
+
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDiff', 'loadDiffSuccess'])
+        expect(mockCreate).not.toHaveBeenCalled()
+        expect(logic.values.baselineMode).toBe('preceding')
+    })
+
     it('surfaces a load failure as patternsError and clears it on the next success', async () => {
         silenceKeaLoadersErrors()
         // A failed mine (e.g. sampling query over budget) must not render as "no patterns".
@@ -244,6 +262,24 @@ describe('logsPatternsLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.loadPatterns()
         }).toDispatchActions(['loadPatternsSuccess'])
+        expect(logic.values.patternsError).toBeNull()
+    })
+
+    it('a diff failure does not surface as an error once compare is toggled off', async () => {
+        silenceKeaLoadersErrors()
+        // The two loaders run independently: toggling compare off fires a plain mine without
+        // cancelling an in-flight diff. If that stale diff fails afterwards, its error must not
+        // clobber the successful plain-mine table's "no patterns" empty state.
+        mockDiffCreate.mockRejectedValueOnce(new Error('estimated query execution time is too long'))
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        logic.actions.setCompareEnabled(true)
+        await expectLogic(logic).toDispatchActions(['loadDiff', 'loadDiffFailure'])
+        expect(logic.values.patternsError).toBeTruthy()
+
+        logic.actions.setCompareEnabled(false)
+        await expectLogic(logic).toDispatchActions(['loadPatterns', 'loadPatternsSuccess'])
         expect(logic.values.patternsError).toBeNull()
     })
 

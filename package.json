@@ -69,7 +69,7 @@
         "cssnano": "^7.0.6",
         "markdownlint-cli2": "^0.18.1",
         "oxfmt": "catalog:",
-        "oxlint": "^1.8.0",
+        "oxlint": "^1.72.0",
         "playwright": "1.60.0",
         "postcss": "^8.5.15",
         "postcss-preset-env": "^10.1.4",
