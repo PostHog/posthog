@@ -1,9 +1,16 @@
-import { Component, type ReactNode } from 'react'
+import { Component, createContext, type ReactNode } from 'react'
 
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 
 const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
 const RELOAD_GUARD_WINDOW_MS = 20_000
+
+/**
+ * True wherever a ChunkLoadErrorBoundary is mounted above, i.e. a rethrown chunk-load error
+ * gets recovered with a one-time reload instead of escaping to the React root. Nested error
+ * boundaries (layout/ErrorBoundary) check this before rethrowing chunk-load errors upward.
+ */
+export const ChunkLoadRecoveryContext = createContext(false)
 
 interface State {
     error: unknown
@@ -67,6 +74,6 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         if (error && isChunkLoadError(error)) {
             return null
         }
-        return this.props.children
+        return <ChunkLoadRecoveryContext.Provider value={true}>{this.props.children}</ChunkLoadRecoveryContext.Provider>
     }
 }

@@ -5,6 +5,8 @@ import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
 import { BeforeSendFn, CapturedNetworkRequest } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
+
 import { Exporter } from '~/exporter/Exporter'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { initKea } from '~/initKea'
@@ -81,7 +83,12 @@ function renderApp(): void {
     if (root) {
         createRoot(root).render(
             <ErrorBoundary>
-                <Exporter {...exportedData} />
+                {/* Inside ErrorBoundary: chunk-load failures reload once (embeds outlive many deploys,
+                    so stale chunk references are routine); if the reload guard trips, the error surfaces
+                    to the ErrorBoundary above instead of escaping to the React root. */}
+                <ChunkLoadErrorBoundary>
+                    <Exporter {...exportedData} />
+                </ChunkLoadErrorBoundary>
             </ErrorBoundary>
         )
     } else {
