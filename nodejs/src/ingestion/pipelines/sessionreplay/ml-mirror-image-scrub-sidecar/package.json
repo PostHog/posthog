@@ -2,7 +2,7 @@
     "name": "@posthog/ml-mirror-image-scrub-sidecar",
     "version": "0.0.0",
     "private": true,
-    "description": "replay_vision image-scrub sidecar: an HTTP service that turns raw session-replay image bytes into scrubbed bytes using the native ML scrub (NSFW gate + solid-fill of detected faces, text, and QR/barcodes). The plugin-server consumer owns Kafka + S3 and calls this over loopback. Standalone package (not in pnpm-workspace.yaml) so its heavy ML deps never reach the root lockfile or the plugin-server image.",
+    "description": "replay_vision image-scrub sidecar: an HTTP service that turns raw session-replay image bytes into scrubbed bytes using the native ML scrub (NSFW gate + solid-fill of detected faces, text, and QR/barcodes). The plugin-server consumer owns Kafka + S3 and calls this over loopback. Standalone package (not in pnpm-workspace.yaml) so its ML deps (onnxruntime + models) never reach the root lockfile or the plugin-server image.",
     "type": "module",
     "scripts": {
         "start": "tsx src/main.ts",
@@ -20,11 +20,7 @@
         "smoke": "tsx src/smoke.ts"
     },
     "dependencies": {
-        "@tensorflow/tfjs": "^4.22.0",
-        "@tensorflow/tfjs-backend-wasm": "^4.22.0",
-        "@tensorflow/tfjs-node": "^4.22.0",
         "express": "^4.21.1",
-        "nsfwjs": "^4.2.1",
         "onnxruntime-node": "^1.27.0",
         "prom-client": "^15.1.3",
         "sharp": "^0.34.5",
@@ -47,11 +43,7 @@
     },
     "packageManager": "pnpm@10.29.3",
     "pnpm": {
-        "overrides": {
-            "tar": ">=7.5.7 <8"
-        },
         "onlyBuiltDependencies": [
-            "@tensorflow/tfjs-node",
             "esbuild",
             "onnxruntime-node",
             "sharp"

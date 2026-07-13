@@ -9,11 +9,12 @@
  */
 import * as ort from 'onnxruntime-node'
 
+import { numFromEnv } from './env.ts'
 import { type Box, roundTo32 } from './geometry.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 export interface DetectOpts {
-    detLimit?: number // long side fed to the model (mult of 32). Bigger = catches smaller text, slower.
+    detLimit?: number // detection budget SIDE: the model input is capped at detLimit^2 px (aspect preserved). Bigger = catches smaller text, slower.
     probThreshold?: number // per-pixel text probability cutoff
     boxScoreMin?: number // mean probability over a component's core pixels to keep it
     minAreaPx?: number // min component size in model-resolution px
@@ -23,13 +24,13 @@ export interface DetectOpts {
 }
 
 const DEFAULTS: Required<DetectOpts> = {
-    detLimit: Number(process.env.DET_LIMIT ?? 640),
-    probThreshold: Number(process.env.PROB_T ?? 0.3),
-    boxScoreMin: Number(process.env.BOX_SCORE ?? 0.5),
-    minAreaPx: Number(process.env.MIN_AREA ?? 16),
-    dilateX: Number(process.env.DILATE_X ?? 6),
-    padX: Number(process.env.PAD_X ?? 0.25),
-    padY: Number(process.env.PAD_Y ?? 0.3),
+    detLimit: numFromEnv('DET_LIMIT', 640, 256, 4096),
+    probThreshold: numFromEnv('PROB_T', 0.3, 0.05, 0.9),
+    boxScoreMin: numFromEnv('BOX_SCORE', 0.5, 0.05, 0.95),
+    minAreaPx: numFromEnv('MIN_AREA', 16, 1, 1024),
+    dilateX: numFromEnv('DILATE_X', 6, 0, 64),
+    padX: numFromEnv('PAD_X', 0.25, 0, 2),
+    padY: numFromEnv('PAD_Y', 0.3, 0, 2),
 }
 
 const MEAN = [0.485, 0.456, 0.406]
@@ -41,12 +42,13 @@ export interface DbnetModel {
     outputName: string
 }
 
+// 1 intra-op thread by default so we scale by running many images in parallel (one core each).
+const ORT_THREADS = numFromEnv('ORT_THREADS', 1, 1, 32)
+
 export async function loadDbnet(modelPath: string): Promise<DbnetModel> {
-    // 1 intra-op thread by default so we scale by running many images in parallel (one core each).
-    const intraOpNumThreads = Number(process.env.ORT_THREADS ?? 1)
     const session = await ort.InferenceSession.create(modelPath, {
         graphOptimizationLevel: 'all',
-        intraOpNumThreads,
+        intraOpNumThreads: ORT_THREADS,
         interOpNumThreads: 1,
         executionMode: 'sequential',
     })
@@ -59,8 +61,9 @@ async function preprocess(
     H: number,
     detLimit: number
 ): Promise<{ data: Float32Array; rw: number; rh: number; sx: number; sy: number }> {
-    const long = Math.max(W, H)
-    const ratio = long > detLimit ? detLimit / long : 1
+    // Area budget (detLimit^2), aspect preserved: same tensor-size bound as a detLimit-square, but a
+    // tall page keeps its native text size instead of being squashed below detectability.
+    const ratio = Math.min(1, Math.sqrt((detLimit * detLimit) / (W * H)))
     const rw = roundTo32(W * ratio)
     const rh = roundTo32(H * ratio)
     const { data } = await srcSharp(src).resize(rw, rh, { fit: 'fill' }).raw().toBuffer({ resolveWithObject: true })

@@ -8,12 +8,10 @@
  *
  * Usage: tsx src/bench.ts [--reps N]
  */
-// must precede anything that loads tfjs-node
 import { readFile, readdir } from 'node:fs/promises'
 import { availableParallelism } from 'node:os'
 import sharp from 'sharp'
 
-import '../src/polyfill.ts'
 import {
     type Models,
     type StageTimings,
@@ -129,7 +127,7 @@ async function main(): Promise<void> {
     reportAdvanced('ADVANCED + DBNET text (native ONNX detection), single image at a time', db, 0, n)
 
     // --- concurrency sweep: how much overlaps when we process images in parallel? ---
-    // sharp + ORT(dbnet) run async on libuv; tfjs-node (nsfw/face) runs SYNC and blocks the JS
+    // sharp + the three ORT sessions run async on libuv worker threads
     // thread, so it can't overlap in-process. This sweep shows the ceiling of in-process async.
     console.log(`=== CONCURRENCY SWEEP (in-process async, ${cores} cores available) ===`)
     let best = db.throughput
@@ -143,7 +141,7 @@ async function main(): Promise<void> {
 
     // --- headline ---
     const dbScrub = db.mean - avgOf(db, 'decodeMs') - avgOf(db, 'encodeMs')
-    console.log('\n=== HEADLINE (native: tfjs-node + onnxruntime-node) ===')
+    console.log('\n=== HEADLINE (native: onnxruntime-node) ===')
     console.log(`  blur baseline:    ${fmt(blurMean)}ms/img   ${fmt(blurThroughput)} img/s/core`)
     console.log(
         `  advanced (dbnet): ${fmt(db.mean)}ms/img   ${fmt(db.throughput)} img/s/core   ${fmt(db.mean / blurMean)}x blur`
@@ -152,7 +150,7 @@ async function main(): Promise<void> {
         `  dbnet job: scrub ${fmt((dbScrub / db.mean) * 100)}%  |  decode+encode ${fmt(((avgOf(db, 'decodeMs') + avgOf(db, 'encodeMs')) / db.mean) * 100)}%`
     )
     console.log(`  best in-process throughput: ${fmt(best)} img/s (async overlap of sharp+ORT)`)
-    console.log(`  tfjs-node nsfw/face are SYNC -> for full machine scaling use worker_threads/processes,`)
+    console.log(`  for full machine scaling use worker_threads/processes,`)
     console.log(`  ~${fmt(db.throughput)} img/s/core x ${cores} cores ≈ ${fmt(db.throughput * cores)} img/s/box.`)
 }
 

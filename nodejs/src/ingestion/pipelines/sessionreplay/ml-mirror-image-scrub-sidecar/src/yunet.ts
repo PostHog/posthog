@@ -1,20 +1,22 @@
 /**
  * YuNet face detection via onnxruntime-node (native, async). Single multi-scale pass (strides
- * 8/16/32) detects small and large faces at once — no tiling — and runs on ORT's background thread
- * so it overlaps the synchronous tfjs NSFW classify. Replaces blazeface + grid tiling.
+ * 8/16/32) detects small and large faces at once — no tiling — and runs on ORT's background thread.
+ * Replaces blazeface + grid tiling.
  *
  * Decode follows OpenCV's FaceDetectorYN: score = sqrt(cls*obj), grid-anchor bbox, then greedy NMS.
  */
 import * as ort from 'onnxruntime-node'
 
-import { type Box, roundTo32 } from './geometry.ts'
+import { numFromEnv } from './env.ts'
+import { type Box } from './geometry.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
-const YUNET_LONG = Number(process.env.YUNET_LONG ?? 640) // detection long side (mult of 32)
-const SCORE_MIN = Number(process.env.YUNET_SCORE ?? 0.7)
+const YUNET_SIDE = 640 // this YuNet build has a FIXED 640x640 input (dynamic dims are rejected)
+const SCORE_MIN = numFromEnv('YUNET_SCORE', 0.7, 0.05, 0.95)
 const NMS_IOU = 0.3
 const STRIDES = [8, 16, 32]
 const PAD = 0.25 // expand each detected face box so hairline/chin/ears are covered
+const ORT_THREADS = numFromEnv('ORT_THREADS', 1, 1, 32)
 
 export interface YunetModel {
     session: ort.InferenceSession
@@ -22,10 +24,9 @@ export interface YunetModel {
 }
 
 export async function loadYunet(modelPath: string): Promise<YunetModel> {
-    const intraOpNumThreads = Number(process.env.ORT_THREADS ?? 1)
     const session = await ort.InferenceSession.create(modelPath, {
         graphOptimizationLevel: 'all',
-        intraOpNumThreads,
+        intraOpNumThreads: ORT_THREADS,
         interOpNumThreads: 1,
         executionMode: 'sequential',
     })
@@ -53,22 +54,31 @@ export async function detectFacesYunet(
     opts: FaceOpts = {}
 ): Promise<Box[]> {
     const scoreMin = opts.scoreMin ?? SCORE_MIN
-    // This YuNet build has a fixed square input; feed YUNET_LONG x YUNET_LONG and scale boxes back
-    // independently per axis (the aspect distortion doesn't hurt detection).
-    const dw = roundTo32(YUNET_LONG)
-    const dh = dw
-    const { data } = await srcSharp(src).resize(dw, dh, { fit: 'fill' }).raw().toBuffer({ resolveWithObject: true })
+    // The model input is a fixed square, so LETTERBOX: uniform downscale (aspect preserved) into the
+    // top-left of a black 640x640 canvas. A fit-to-square squash would smear faces on tall/wide
+    // frames past detectability (a 13:1 page compresses faces 13x on one axis); letterboxing keeps
+    // them undistorted, merely smaller.
+    const scale = YUNET_SIDE / Math.max(W, H)
+    const dw = Math.max(1, Math.round(W * scale))
+    const dh = Math.max(1, Math.round(H * scale))
+    const { data } = await srcSharp(src)
+        .resize(dw, dh, { fit: 'fill' })
+        .extend({ top: 0, left: 0, right: YUNET_SIDE - dw, bottom: YUNET_SIDE - dh, background: '#000' })
+        .raw()
+        .toBuffer({ resolveWithObject: true })
 
     // RGB(HWC, 0-255) -> BGR(CHW, float32, no normalization), as OpenCV's YuNet expects.
-    const chw = new Float32Array(3 * dw * dh)
-    const plane = dw * dh
+    const side = YUNET_SIDE
+    const chw = new Float32Array(3 * side * side)
+    const plane = side * side
     for (let i = 0, p = 0; i < data.length; i += 3, p++) {
         chw[p] = data[i + 2] // B
         chw[plane + p] = data[i + 1] // G
         chw[2 * plane + p] = data[i] // R
     }
-    const out = await model.session.run({ [model.inputName]: new ort.Tensor('float32', chw, [1, 3, dh, dw]) })
+    const out = await model.session.run({ [model.inputName]: new ort.Tensor('float32', chw, [1, 3, side, side]) })
 
+    // Uniform inverse scale; boxes decoded in the padding scale past W/H and get clamped away.
     const sx = W / dw
     const sy = H / dh
     const cand: { b: Box; s: number }[] = []
@@ -76,8 +86,8 @@ export async function detectFacesYunet(
         const cls = out[`cls_${s}`].data as Float32Array
         const obj = out[`obj_${s}`].data as Float32Array
         const bbox = out[`bbox_${s}`].data as Float32Array
-        const fw = Math.floor(dw / s)
-        const fh = Math.floor(dh / s)
+        const fw = Math.floor(side / s)
+        const fh = Math.floor(side / s)
         for (let r = 0; r < fh; r++) {
             for (let c = 0; c < fw; c++) {
                 const i = r * fw + c

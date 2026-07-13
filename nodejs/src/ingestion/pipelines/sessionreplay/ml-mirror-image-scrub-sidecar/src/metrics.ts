@@ -1,4 +1,4 @@
-import { Counter, Gauge, Histogram, Registry } from 'prom-client'
+import { Counter, Histogram, Registry } from 'prom-client'
 
 import { type StageTimings } from './scrub.ts'
 
@@ -69,12 +69,6 @@ const codesRedacted = new Counter({
     help: 'QR/barcode regions solid-filled',
     registers: [register],
 })
-const tfjsBackend = new Gauge({
-    name: 'ml_mirror_image_scrub_tfjs_backend',
-    help: 'Set to 1 for the active tfjs backend (alert on backend != "tensorflow": the wasm fallback is ~10x slower)',
-    labelNames: ['backend'],
-    registers: [register],
-})
 
 export const ScrubMetrics = {
     incScrubbed: () => scrubbed.inc(),
@@ -93,5 +87,4 @@ export const ScrubMetrics = {
         textBoxesRedacted.inc(t.textBoxes)
         codesRedacted.inc(t.codes)
     },
-    setTfjsBackend: (backend: string) => tfjsBackend.labels(backend).set(1),
 }

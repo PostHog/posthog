@@ -16,9 +16,11 @@ It runs a simple http server, receives an image and replies with the scrubbed im
 
 Given an image, `advancedScrub` (`src/scrub.ts`):
 
-1. **Downscale**: every frame is capped at `SCRUB_MAX_LONG_SIDE` (default 1600 px) inside the decode.
-   This bounds the per-image memory working set, and — since detection also runs at ≤1600 px — the stored output never carries resolution the detectors didn't certify as clean.
-2. **NSFW/gore gate**: if the image is explicit, it collapses to a 1x1 blank.
+1. **Downscale**: every frame is capped at the `SCRUB_MAX_PIXELS` area budget (default 1600², aspect preserved) inside the decode.
+   This bounds the per-image memory working set, and — since text detection runs under the same area budget — the stored output never carries resolution the detectors didn't certify as clean.
+   An area budget rather than a long-side cap, so tall pages keep legible native resolution instead of being squashed.
+   Faces are detected on a letterboxed (never squashed) 640×640 input, so extreme aspect ratios shrink faces but don't smear them.
+2. **NSFW/gore gate**: if the image is explicit or gory (NSFL + NSFW probability over `NSFW_THRESHOLD`), it collapses to a 1x1 blank.
 3. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
 4. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).
    We detect _where_ text is and never read it.
@@ -36,16 +38,17 @@ The fill's edges are feathered by blurring the fill's _colour_ only, never the m
 All model inference and image processing run in optimized native libraries.
 The TypeScript is orchestration plus lightweight output decoding (over small downscaled maps, not full images):
 
-| Stage                              | Library                              | Native engine        |
-| ---------------------------------- | ------------------------------------ | -------------------- |
-| NSFW classify                      | `nsfwjs` via `@tensorflow/tfjs-node` | libtensorflow (C++)  |
-| Face detection (YuNet)             | `onnxruntime-node`                   | ONNX Runtime (C++)   |
-| Text detection (DBNet / PP-OCRv3)  | `onnxruntime-node`                   | ONNX Runtime (C++)   |
-| QR/barcode detection               | `zxing-wasm`                         | zxing-cpp (C++/wasm) |
-| resize / blur / composite / encode | `sharp`                              | libvips (C++)        |
+| Stage                              | Library            | Native engine        |
+| ---------------------------------- | ------------------ | -------------------- |
+| NSFW/gore classify (SwiftFormer)   | `onnxruntime-node` | ONNX Runtime (C++)   |
+| Face detection (YuNet)             | `onnxruntime-node` | ONNX Runtime (C++)   |
+| Text detection (DBNet / PP-OCRv3)  | `onnxruntime-node` | ONNX Runtime (C++)   |
+| QR/barcode detection               | `zxing-wasm`       | zxing-cpp (C++/wasm) |
+| resize / blur / composite / encode | `sharp`            | libvips (C++)        |
 
 We do not train anything and run no neural nets in JS.
 The only hand-written JS is model-output decoding (DBNet threshold + dilation + connected components, YuNet anchor decode + NMS, tensor packing, mask fill), which runs over the small detection maps and is not the bottleneck.
+Everything model-shaped runs on ONE runtime (onnxruntime-node) on purpose: a second ML runtime means a second native-binary compatibility surface and a second failure mode (the previous tfjs-node gate needed a Node 23 polyfill and could silently fall back to a ~10x-slower wasm backend).
 
 ## Layout
 
@@ -62,10 +65,11 @@ src/  (production — ships)
   yunet.ts        YuNet face detector (ONNX)
   dbnet.ts        DBNet text-region detector (ONNX)
   qr.ts           QR/barcode detector (zxing-wasm, loaded from node_modules — no egress)
-  src-image.ts    decode the source once to raw RGB (capped long side), shared across stages
+  src-image.ts    decode the source once to raw RGB (area-capped), shared across stages
   geometry.ts     shared Box type + grid rounding
+  safety.ts       NSFW/gore gate (SwiftFormer image-safety classifier, ONNX)
   smoke.ts        image-build-time smoke test: models load + one scrub, with networking disabled
-  polyfill.ts     Node 23+ util shims so tfjs-node loads
+  env.ts          validated numeric env knobs — invalid values refuse to start (never fail open)
   metrics.ts      Prometheus registry: HTTP outcomes + scrub outcome signals
 
 dev/  (non-production)
@@ -115,8 +119,8 @@ Raise `DET_FACTOR` (env, default 0.75 of the long side) toward 1.0 to spend more
 
 ## Models are baked into the image
 
-The two ONNX detector models are `ADD`ed in `Dockerfile.ml-mirror-image-scrub` (repo root) from commit-pinned upstream URLs with BuildKit `--checksum` verification (same pins + sha256 checks as `dev/setup.ts` — keep them in sync).
-The NSFW model ships inside the nsfwjs npm package, and zxing's wasm loads from `node_modules`.
+The three ONNX models (safety gate, YuNet, DBNet) are `ADD`ed in `Dockerfile.ml-mirror-image-scrub` (repo root) from commit-pinned upstream URLs with BuildKit `--checksum` verification (same pins + sha256 checks as `dev/setup.ts` — keep them in sync).
+zxing's wasm loads from `node_modules`.
 A build-time smoke test (`src/smoke.ts`) then loads the models and runs one scrub with networking disabled, so a broken model, a native-binary mismatch, or an accidental runtime network dependency fails the image build instead of crash-looping the deploy.
 The sidecar makes no network fetches at startup.
 
@@ -126,4 +130,3 @@ Beyond the HTTP outcome counters (scrubbed/failed/undecodable/rejected/too-large
 
 - `..._blanked_total` — NSFW-gate blanks are destructive and irreversible; alert on rate spikes.
 - `..._faces_redacted_total`, `..._text_boxes_redacted_total`, `..._codes_redacted_total` — a sustained zero rate under traffic means a detector outage (un-redacted output), not a clean stream.
-- `..._tfjs_backend{backend=...}` — alert on anything but `tensorflow`; the wasm fallback is ~10x slower.

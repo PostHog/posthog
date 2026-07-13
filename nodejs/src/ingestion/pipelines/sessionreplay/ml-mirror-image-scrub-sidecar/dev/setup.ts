@@ -30,6 +30,11 @@ const MODELS: { url: string; file: string; sha256: string }[] = [
         file: 'models/yunet.onnx',
         sha256: '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4',
     },
+    {
+        url: 'https://huggingface.co/OwenElliott/image-safety-classifier-xs/resolve/54f4560bd9c5ee92d45dc30418a8f8680e80de6d/onnx/image-safety-classifier-xs.onnx',
+        file: 'models/safety.onnx',
+        sha256: '8c28c49d9075f3ad15ebdc2961f02d5b3f99be944815b848b49c9f0e6f3fb689',
+    },
 ]
 
 // HuggingFace datasets to sample (verified reachable via datasets-server). Faces: real faces. Text:

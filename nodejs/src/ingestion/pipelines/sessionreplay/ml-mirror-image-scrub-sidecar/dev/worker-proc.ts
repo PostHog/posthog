@@ -11,7 +11,6 @@
 import { readFile, readdir } from 'node:fs/promises'
 import sharp from 'sharp'
 
-import '../src/polyfill.ts'
 import { advancedScrub, blurOnly, loadModels } from '../src/scrub.ts'
 
 sharp.concurrency(1)

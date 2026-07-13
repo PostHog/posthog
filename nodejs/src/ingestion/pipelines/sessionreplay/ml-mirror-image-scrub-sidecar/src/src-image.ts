@@ -3,16 +3,16 @@
 import sharp from 'sharp'
 
 import { LIMIT_INPUT_PIXELS } from './blur.ts'
+import { numFromEnv } from './env.ts'
 
-// Every frame is downscaled to this long side inside the decode pipeline, unconditionally. Two
-// reasons: (1) memory — compose holds a few full-frame buffers, so the cap bounds the per-image
-// working set (~6 MB/frame at 1600 vs ~150 MB at the 50 MP decode limit); (2) fidelity honesty —
-// detection runs at <= DET_CAP (1600), so storing pixels above that resolution would preserve
-// exactly the detail the detectors never certified as clean.
-export const MAX_LONG_SIDE = Number(process.env.SCRUB_MAX_LONG_SIDE ?? 1600)
-if (!Number.isFinite(MAX_LONG_SIDE) || MAX_LONG_SIDE < 32) {
-    throw new Error(`SCRUB_MAX_LONG_SIDE must be a number >= 32, got ${process.env.SCRUB_MAX_LONG_SIDE}`)
-}
+// Every frame is downscaled (aspect preserved) to this pixel-AREA budget inside the decode,
+// unconditionally. Two reasons: (1) memory — compose holds a few full-frame buffers, and bytes are
+// proportional to area, so the budget bounds the per-image working set (~8 MB/frame at 1600^2 vs
+// ~150 MB at the 50 MP decode limit); (2) fidelity honesty — text detection runs under the same
+// area budget (DET_CAP^2), so storing pixels above it would preserve exactly the detail the
+// detectors never certified as clean. An area budget rather than a long-side cap so tall pages
+// (skyscraper screenshots, infographics) keep legible native resolution instead of being squashed.
+export const SCRUB_MAX_PIXELS = numFromEnv('SCRUB_MAX_PIXELS', 1600 * 1600, 96 * 96, LIMIT_INPUT_PIXELS)
 
 export interface Src {
     data: Buffer
@@ -21,8 +21,15 @@ export interface Src {
 }
 
 export async function decodeSrc(input: Buffer): Promise<Src> {
+    const meta = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS }).metadata()
+    if (!meta.width || !meta.height) {
+        throw new Error('image has invalid dimensions')
+    }
+    const scale = Math.min(1, Math.sqrt(SCRUB_MAX_PIXELS / (meta.width * meta.height)))
+    const targetW = Math.max(1, Math.round(meta.width * scale))
+    const targetH = Math.max(1, Math.round(meta.height * scale))
     const { data, info } = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS })
-        .resize(MAX_LONG_SIDE, MAX_LONG_SIDE, { fit: 'inside', withoutEnlargement: true })
+        .resize(targetW, targetH, { fit: 'fill' })
         .removeAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true })

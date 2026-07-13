@@ -4,10 +4,9 @@
 #
 # An HTTP service that turns raw image bytes into scrubbed bytes (NSFW gate + solid-fill of detected
 # faces, text, and QR/barcodes). The plugin-server consumer owns Kafka + S3 and calls this over
-# loopback; it runs as a sidecar container. The ML runtime ships in the image: libtensorflow
-# (tfjs-node) + ONNX Runtime (onnxruntime-node) native binaries land via their install scripts,
-# zxing is wasm, and the detector models are baked in below — the sidecar makes no network fetches
-# at startup.
+# loopback; it runs as a sidecar container. The ML runtime ships in the image: the ONNX Runtime
+# (onnxruntime-node) native binary lands via its install script, zxing is wasm, and the three ONNX
+# models are baked in below — the sidecar makes no network fetches at startup.
 #
 # Deliberately NOT the plugin-server workspace build: standalone so the heavy ML deps stay out of the
 # main image. sharp ships prebuilt libvips.
@@ -35,16 +34,18 @@ COPY nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/
 # Tests co-locate in src/ but must not ship in the runtime image.
 RUN rm -f src/*.test.ts
 
-# Detector models, pinned to immutable upstream refs and checksum-verified by BuildKit; loadModels()
-# reads them from WORKDIR-relative models/. Keep URLs + digests in sync with dev/setup.ts (the dev-
-# machine download path). The NSFW model needs no baking — nsfwjs bundles its MobileNetV2 weights
-# inside the npm package.
+# The ONNX models (safety gate, face, text), pinned to immutable upstream refs and checksum-verified
+# by BuildKit; loadModels() reads them from WORKDIR-relative models/. Keep URLs + digests in sync
+# with dev/setup.ts (the dev-machine download path).
 ADD --checksum=sha256:f139598bc2af4e4b6fe98dec11574e30edfdd91fc94ac1425c18ace3bd5a866b \
     https://huggingface.co/SWHL/RapidOCR/resolve/1cfba2e90fc938db55889873735088de210cc173/PP-OCRv4/en_PP-OCRv3_det_infer.onnx \
     models/dbnet_det.onnx
 ADD --checksum=sha256:8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4 \
     https://github.com/opencv/opencv_zoo/raw/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/face_detection_yunet_2023mar.onnx \
     models/yunet.onnx
+ADD --checksum=sha256:8c28c49d9075f3ad15ebdc2961f02d5b3f99be944815b848b49c9f0e6f3fb689 \
+    https://huggingface.co/OwenElliott/image-safety-classifier-xs/resolve/54f4560bd9c5ee92d45dc30418a8f8680e80de6d/onnx/image-safety-classifier-xs.onnx \
+    models/safety.onnx
 
 RUN groupadd -g 10001 posthog && \
     useradd -u 10001 -g posthog -m -d /home/posthog posthog && \
@@ -53,7 +54,7 @@ RUN groupadd -g 10001 posthog && \
 # One thread per native pool: the sidecar bounds parallelism by its request-concurrency ceiling
 # (IMAGE_SCRUB_CONCURRENCY), so per-op pools sized to host cores would oversubscribe a CPU-limited
 # pod. sharp is pinned in code (sharp.concurrency(1)); ORT is pinned per-session (ORT_THREADS).
-ENV TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 OMP_NUM_THREADS=1
+ENV OMP_NUM_THREADS=1
 
 # Prove at build time that the models parse, the native/wasm runtimes load, and a scrub runs end to
 # end — a broken model download or prebuilt-binary mismatch fails the image build, not the deploy.

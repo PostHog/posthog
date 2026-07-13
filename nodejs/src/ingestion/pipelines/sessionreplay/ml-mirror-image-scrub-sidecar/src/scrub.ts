@@ -4,19 +4,19 @@
  *               rust/replay-anonymizer-node/src/blur.rs so the comparison is apples-to-apples.
  *  - advancedScrub: NSFW/gore gate -> faces, text regions, and QR/barcodes solid-filled.
  *
- * NSFW runs on tfjs (native libtensorflow via tfjs-node, else wasm). Face (YuNet) and text (DBNet)
- * run on native onnxruntime-node; QR/barcode detection runs on zxing-wasm. The source is decoded
- * once to raw RGB (downscaled to MAX_LONG_SIDE) and shared across stages.
- * import './polyfill.ts' BEFORE this module so tfjs-node loads on Node 23+.
+ * All three models (safety gate, YuNet faces, DBNet text) run on native onnxruntime-node —
+ * deliberately one runtime, so there is no tfjs dependency, no Node-version polyfill, and no
+ * silent slow-backend fallback. QR/barcode detection runs on zxing-wasm. The source is decoded
+ * once to raw RGB (area-capped at SCRUB_MAX_PIXELS) and shared across stages.
  */
-import * as tf from '@tensorflow/tfjs'
-import * as nsfw from 'nsfwjs'
 import sharp from 'sharp'
 
 import { BLANK_PNG, LIMIT_INPUT_PIXELS, UndecodableImageError, blurOnly } from './blur.ts'
 import { type DbnetModel, detectTextDbnet, loadDbnet } from './dbnet.ts'
+import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
 import { detectCodes } from './qr.ts'
+import { type SafetyModel, classifySafety, loadSafety } from './safety.ts'
 import { type Src, decodeSrc, srcSharp } from './src-image.ts'
 import { type YunetModel, detectFacesYunet, loadYunet } from './yunet.ts'
 
@@ -28,46 +28,26 @@ export { BLANK_PNG, blurOnly }
 
 // --- models -------------------------------------------------------------------------------------
 export interface Models {
-    nsfw: nsfw.NSFWJS
+    safety: SafetyModel
     dbnet: DbnetModel
     yunet: YunetModel
 }
 
 export async function loadModels(
     dbnetPath = 'models/dbnet_det.onnx',
-    yunetPath = 'models/yunet.onnx'
+    yunetPath = 'models/yunet.onnx',
+    safetyPath = 'models/safety.onnx'
 ): Promise<Models> {
-    // Prefer native libtensorflow (tfjs-node) for NSFW; fall back to wasm if it can't load.
-    try {
-        await import('@tensorflow/tfjs-node') // side effect: registers the 'tensorflow' backend
-        await tf.setBackend('tensorflow')
-        await tf.ready()
-    } catch (e) {
-        console.warn('tfjs-node (native) failed, falling back to wasm:', String(e))
-        const { setWasmPaths } = await import('@tensorflow/tfjs-backend-wasm')
-        setWasmPaths('node_modules/@tensorflow/tfjs-backend-wasm/dist/')
-        await tf.setBackend('wasm')
-        await tf.ready()
-    }
-    console.log(`  tfjs backend: ${tf.getBackend()}`)
-
-    const [nsfwModel, dbnet, yunet] = await Promise.all([
-        nsfw.load(), // default MobileNetV2 224 model; the weights ship inside the nsfwjs npm package (no network fetch)
+    const [safety, dbnet, yunet] = await Promise.all([
+        loadSafety(safetyPath),
         loadDbnet(dbnetPath),
         loadYunet(yunetPath),
     ])
-    return { nsfw: nsfwModel, dbnet, yunet }
-}
-
-/** The tfjs backend loadModels ended up on ('tensorflow' native, or 'wasm' fallback) — exported so
- *  the consumer can surface it as a metric; the wasm fallback is an order of magnitude slower. */
-export function tfjsBackend(): string {
-    return tf.getBackend()
+    return { safety, dbnet, yunet }
 }
 
 export async function disposeModels(m: Models): Promise<void> {
-    m.nsfw.model.dispose()
-    await Promise.all([m.dbnet.session.release(), m.yunet.session.release()])
+    await Promise.all([m.safety.session.release(), m.dbnet.session.release(), m.yunet.session.release()])
 }
 
 // --- advanced pipeline --------------------------------------------------------------------------
@@ -86,17 +66,17 @@ export interface StageTimings {
     codes: number
 }
 
-const NSFW_THRESHOLD = 0.6 // Porn/Hentai/Sexy combined; deliberately loose, this is a safety net
-const PNG_LEVEL = Number(process.env.PNG_LEVEL ?? 3) // sharp png compressionLevel; lower = faster, bigger
+const NSFW_THRESHOLD = numFromEnv('NSFW_THRESHOLD', 0.6, 0.05, 0.95) // NSFL+NSFW combined; deliberately loose, this is a safety net
+const PNG_LEVEL = numFromEnv('PNG_LEVEL', 3, 0, 9) // sharp png compressionLevel; lower = faster, bigger
 // Every redaction (faces, text, codes) is a SOLID mean-colour fill (irreversible) rather than a
 // blur/mosaic (low-pass filters that leave coarse structure an LLM or a re-run detector can still
 // recover). Text margin scales with box height — our horizontal-only dilation makes each box one
 // line, so its height is a font-size proxy — so big titles get a big margin. Edges are feathered so
 // the fill isn't a jarring hard rectangle.
-const TEXT_MARGIN_FRAC = Number(process.env.TEXT_MARGIN_FRAC ?? 0.25) // top/side margin as a fraction of box height
-const TEXT_MARGIN_BOTTOM_FRAC = Number(process.env.TEXT_MARGIN_BOTTOM_FRAC ?? 0.45) // extra below for descenders
-const TEXT_MARGIN_MIN = Number(process.env.TEXT_MARGIN_MIN ?? 4) // floor in px for tiny text
-const EDGE_BLUR = Number(process.env.EDGE_BLUR ?? 4) // sigma to feather redaction-region edges
+const TEXT_MARGIN_FRAC = numFromEnv('TEXT_MARGIN_FRAC', 0.25, 0, 2) // top/side margin as a fraction of box height
+const TEXT_MARGIN_BOTTOM_FRAC = numFromEnv('TEXT_MARGIN_BOTTOM_FRAC', 0.45, 0, 2) // extra below for descenders
+const TEXT_MARGIN_MIN = numFromEnv('TEXT_MARGIN_MIN', 4, 0, 64) // floor in px for tiny text
+const EDGE_BLUR = numFromEnv('EDGE_BLUR', 4, 0, 32) // sigma to feather redaction-region edges (0 = hard edges; never reveals)
 
 function clampBox(b: Box, W: number, H: number): Box | null {
     const left = Math.max(0, Math.min(W - 1, Math.round(b.left)))
@@ -110,31 +90,21 @@ function clampBox(b: Box, W: number, H: number): Box | null {
 }
 
 // --- input preparation --------------------------------------------------------------------------
-const NSFW_SIZE = 224 // nsfwjs resizes to this internally; feed it pre-shrunk so the resize is cheap
-
-/** Adaptive DBNet input resolution: big enough to resolve small text on retina shots, capped for cost. */
-// Detection input resolution as a fraction of the image's long side. 0.75 clears all crisp rendered
-// UI (session replay's actual domain) cheaply; raise toward 1.0 for faint/small scanned-document
-// print (more CPU), lower for more throughput. Faint low-contrast text is contrast- not size-limited,
-// so resolution alone won't catch every faded fax line.
-const DET_FACTOR = Number(process.env.DET_FACTOR ?? 0.75)
-const DET_CAP = Number(process.env.DET_CAP ?? 1600) // cap so retina screenshots don't explode
+/** Adaptive DBNet detection budget: big enough to resolve small text on retina shots, capped for cost.
+ *  The returned value is the budget SIDE — dbnet caps its input at detLimit^2 px, aspect preserved. */
+// Detection budget as a fraction of the image's own scale (sqrt of its area). 0.75 clears all crisp
+// rendered UI (session replay's actual domain) cheaply; raise toward 1.0 for faint/small
+// scanned-document print (more CPU), lower for more throughput. Faint low-contrast text is
+// contrast- not size-limited, so resolution alone won't catch every faded fax line.
+const DET_FACTOR = numFromEnv('DET_FACTOR', 0.75, 0.1, 1)
+const DET_CAP = numFromEnv('DET_CAP', 1600, 256, 4096) // cap so retina screenshots don't explode
 function adaptiveDetLimit(W: number, H: number): number {
-    const target = Math.round((Math.max(W, H) * DET_FACTOR) / 32) * 32
+    const target = Math.round((Math.sqrt(W * H) * DET_FACTOR) / 32) * 32
     return Math.max(736, Math.min(DET_CAP, target))
 }
 
-async function nsfwTensor(src: Src): Promise<tf.Tensor3D> {
-    const { data } = await srcSharp(src)
-        .resize(NSFW_SIZE, NSFW_SIZE, { fit: 'fill' })
-        .raw()
-        .toBuffer({ resolveWithObject: true })
-    return tf.tensor3d(new Uint8Array(data), [NSFW_SIZE, NSFW_SIZE, 3], 'int32')
-}
-
-/** Whole worker job for one image, advanced path. Detection is parallelized: DBNet runs on
- *  onnxruntime's background thread (async) while NSFW + face run on tfjs (synchronous), so the
- *  text-detection latency is hidden behind the tfjs compute. */
+/** Whole worker job for one image, advanced path. Detection is parallelized when PARALLEL_DETECT=1:
+ *  the three ORT sessions run on onnxruntime's background threads. */
 export async function advancedScrub(
     input: Buffer,
     m: Models,
@@ -172,16 +142,8 @@ export async function advancedScrub(
     //    scaling — the throughput-bound case. Set PARALLEL_DETECT=1 to overlap instead (lower latency
     //    per image, but each worker uses more cores).
     const tN = performance.now()
-    const nt = await nsfwTensor(src)
-    let bad = 0
-    try {
-        const preds = await m.nsfw.classify(nt as unknown as tf.Tensor3D)
-        bad = preds
-            .filter((p) => p.className === 'Porn' || p.className === 'Hentai' || p.className === 'Sexy')
-            .reduce((s, p) => s + p.probability, 0)
-    } finally {
-        nt.dispose()
-    }
+    const scores = await classifySafety(m.safety, src)
+    const bad = scores.nsfl + scores.nsfw
     timings.nsfwMs = performance.now() - tN
     if (bad >= NSFW_THRESHOLD) {
         timings.blanked = true

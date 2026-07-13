@@ -18,7 +18,6 @@ import { basename } from 'node:path'
 import sharp from 'sharp'
 import { type Worker, createWorker } from 'tesseract.js'
 
-import '../src/polyfill.ts'
 import { advancedScrub, loadModels } from '../src/scrub.ts'
 
 const OCR_CONF = 60 // min tesseract word confidence to count as "readable"

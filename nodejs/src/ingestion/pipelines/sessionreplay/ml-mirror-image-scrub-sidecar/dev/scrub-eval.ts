@@ -20,7 +20,6 @@ import { basename, join } from 'node:path'
 import sharp from 'sharp'
 import { type Worker, createWorker } from 'tesseract.js'
 
-import '../src/polyfill.ts'
 import { type Models, advancedScrub, loadModels } from '../src/scrub.ts'
 import { decodeSrc } from '../src/src-image.ts'
 import { detectFacesYunet } from '../src/yunet.ts'
