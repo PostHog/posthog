@@ -295,7 +295,7 @@ In cli mode, the `posthog` tool keeps the guidance needed for routine calls in i
 The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
 Optional, task-specific guidance is served through the same tool:
 
-- `learn` lists the available built-in guides and the PostHog/project skill discovery syntax.
+- `learn` lists the available built-in guides and, when enabled, the PostHog/project skill discovery syntax.
 - `learn analytics` loads detailed analytics guidance and examples.
 - `learn visualizations` loads rendering guidance when visualizations are available.
 - `learn feedback` loads feedback guidance when feedback is available.
@@ -305,6 +305,8 @@ Optional, task-specific guidance is served through the same tool:
 - `learn <source>:<skill> <path> -s <query>` searches within one Markdown file.
 - `learn <source>:<skill> <path> --lines <start>:<end>` reads an inclusive line range.
 
+Built-in guides are specific to Claude web and desktop. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
+
 The skill bundle is cached in Redis with stale-while-revalidate behavior and a seven-day hard expiry.
 By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
 Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
@@ -313,7 +315,7 @@ Only latest, active, uncategorized skills are exposed through `learn`; category-
 Project full-text search is bounded to 10 skills, two short snippets per skill, and a five-second database timeout.
 Individual `learn` responses stay below 44,000 characters; large references return a heading outline for follow-up search or line reads.
 The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
-`consumer=plugin` omits `learn` because the plugin already supplies its own skill context.
+`consumer=plugin` omits `learn` because the plugin already supplies its own skill context, regardless of the feature flag.
 
 Other clients keep the full inline command reference.
 

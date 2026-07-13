@@ -34,15 +34,19 @@ interface QualifiedSkill {
     identifier: string
 }
 
+interface ExecLearnSkillSources {
+    posthog: SkillCatalog | undefined
+    project?: ProjectSkillCatalog
+    projectUnavailableReason?: string
+}
+
 /** Combines small bundled guides with PostHog and current-project skills. */
 export class ExecLearnCatalog {
     private readonly guidesById: Map<string, ExecLearnGuide>
 
     constructor(
         guides: readonly ExecLearnGuide[],
-        private readonly posthogSkills: SkillCatalog | undefined,
-        private readonly projectSkills?: ProjectSkillCatalog,
-        private readonly projectUnavailableReason?: string
+        private readonly skillSources?: ExecLearnSkillSources
     ) {
         this.guidesById = new Map()
         for (const guide of guides) {
@@ -59,17 +63,28 @@ export class ExecLearnCatalog {
     async execute(input: string): Promise<string> {
         const rest = input.trim()
         if (!rest) {
-            return JSON.stringify({
+            const result: Record<string, unknown> = {
                 guides: this.listGuides(),
-                skills: {
-                    posthogAvailable: this.posthogSkills !== undefined,
-                    projectAvailable: this.projectSkills !== undefined,
+            }
+            if (this.skillSources) {
+                result.skills = {
+                    posthogAvailable: this.skillSources.posthog !== undefined,
+                    projectAvailable: this.skillSources.project !== undefined,
                     commands: SKILL_COMMANDS,
-                },
-            })
+                }
+            }
+            return JSON.stringify(result)
         }
 
         const tokens = tokenizeLearnInput(rest)
+        const isSkillRequest = tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0]!.includes(':')
+        if (!this.skillSources && isSkillRequest) {
+            return JSON.stringify({
+                available: false,
+                reason: 'Skill discovery is not enabled for this connection.',
+            })
+        }
+
         if (tokens.length === 1 && tokens[0] === 'skills') {
             return await this.listSkills()
         }
@@ -112,17 +127,17 @@ export class ExecLearnCatalog {
     }
 
     private async listSkills(): Promise<string> {
-        const allPosthogNames = this.posthogSkills?.listNames() ?? []
+        const allPosthogNames = this.skillSources?.posthog?.listNames() ?? []
         const posthogNames = allPosthogNames.slice(0, POSTHOG_SKILL_LIST_LIMIT).map((name) => `posthog:${name}`)
         let project:
             | { available: true; count: number; listed: number; truncated: boolean; skills: string[] }
             | { available: false; reason: string }
 
-        if (!this.projectSkills) {
+        if (!this.skillSources?.project) {
             project = { available: false, reason: this.requireProjectUnavailableReason() }
         } else {
             try {
-                const result = await this.projectSkills.listNames()
+                const result = await this.skillSources.project.listNames()
                 project = {
                     available: true,
                     count: result.count,
@@ -138,7 +153,7 @@ export class ExecLearnCatalog {
         return fitLearnOutput(
             JSON.stringify({
                 posthog: {
-                    available: this.posthogSkills !== undefined,
+                    available: this.skillSources?.posthog !== undefined,
                     count: allPosthogNames.length,
                     listed: posthogNames.length,
                     truncated: posthogNames.length < allPosthogNames.length,
@@ -150,17 +165,17 @@ export class ExecLearnCatalog {
     }
 
     private async searchSkills(query: string): Promise<string> {
-        const results: LearnSearchResult[] = this.posthogSkills?.searchResults(query, 'posthog:') ?? []
+        const results: LearnSearchResult[] = this.skillSources?.posthog?.searchResults(query, 'posthog:') ?? []
         const warnings: string[] = []
-        if (!this.posthogSkills) {
+        if (!this.skillSources?.posthog) {
             warnings.push('PostHog skills are temporarily unavailable.')
         }
 
-        if (!this.projectSkills) {
+        if (!this.skillSources?.project) {
             warnings.push(`Project skills unavailable: ${this.requireProjectUnavailableReason()}`)
         } else {
             try {
-                results.push(...(await this.projectSkills.searchResults(query)))
+                results.push(...(await this.skillSources.project.searchResults(query)))
             } catch (error) {
                 warnings.push(`Project skills unavailable: ${formatProjectError(error)}`)
             }
@@ -228,21 +243,21 @@ export class ExecLearnCatalog {
     }
 
     private requirePostHogSkills(): SkillCatalog {
-        if (!this.posthogSkills) {
+        if (!this.skillSources?.posthog) {
             throw new Error('PostHog skills are temporarily unavailable. Core exec commands are still available.')
         }
-        return this.posthogSkills
+        return this.skillSources.posthog
     }
 
     private requireProjectSkills(): ProjectSkillCatalog {
-        if (!this.projectSkills) {
+        if (!this.skillSources?.project) {
             throw new Error(this.requireProjectUnavailableReason())
         }
-        return this.projectSkills
+        return this.skillSources.project
     }
 
     private requireProjectUnavailableReason(): string {
-        return this.projectUnavailableReason ?? 'Project skills are temporarily unavailable.'
+        return this.skillSources?.projectUnavailableReason ?? 'Project skills are temporarily unavailable.'
     }
 }
 
