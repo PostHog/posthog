@@ -167,8 +167,11 @@ is reachable as data rather than through the named endpoints.
   shown as `$0.00`.
   Jobs whose run row is missing (the LEFT JOIN to `workflow_runs`) keep NULL attribution
   (`repo_owner` / `repo_name` / `pr_number`) rather than being dropped.
-- **Non-materialized:** computed at query time, so a rate change in `cost.py` propagates immediately
-  — there is no stored table to rebuild.
+- **Non-materialized:** results are computed at query time — there is no stored table to rebuild.
+  The rendered SQL itself is persisted per team, so a cost-model change in `cost.py` reaches a
+  team's view on its next re-render (the post-load hook re-syncs on every GitHub runs/jobs load,
+  bounding staleness to one sync cycle for active teams); a fleet-wide resync is a one-line loop
+  over the `engineering_analytics` viewsets.
 - **Single source of truth:** the cost columns are generated from `logic/cost.py`'s constants (the
   same rate ladder + label→tier parser the Python model uses), rendered as HogQL. A ClickHouse-backed
   parity test asserts the view's output equals the Python model's across the classification matrix,
