@@ -150,6 +150,13 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
         setFilters: () => {
             actions.syncUrl()
+            // Bulk restores (URL params, back/forward) route through the data logic's setFilters
+            // listener → runQuery, which fires a windowed fetchAggregation when a comparison is
+            // active. Mirror handleFilterChange so the Operations tab keeps its full-range aggregate
+            // instead of the narrow compare sub-window (same mount-order guarantee applies).
+            if (values.activeTracingTab === 'operations') {
+                actions.fetchAggregation({ fullRange: true })
+            }
         },
         setActiveTracingTab: ({ tab }) => {
             if (tab === 'operations') {
