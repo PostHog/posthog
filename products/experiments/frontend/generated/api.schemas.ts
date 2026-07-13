@@ -1860,11 +1860,6 @@ export interface ExperimentMetricsRecalculationApi {
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
     readonly results: readonly MetricRecalculationResultApi[]
     /**
-     * Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)
-     * @nullable
-     */
-    running_metrics?: number | null
-    /**
      * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
      * @nullable
      */
@@ -1874,16 +1869,6 @@ export interface ExperimentMetricsRecalculationApi {
      * @nullable
      */
     estimated_rows_total?: number | null
-    /**
-     * Bytes read by the run's metric queries so far, both finished and currently running
-     * @nullable
-     */
-    bytes_read?: number | null
-    /**
-     * Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and currently running
-     * @nullable
-     */
-    active_cpu_time?: number | null
 }
 
 export interface ShipVariantApi {
@@ -2066,6 +2051,49 @@ export interface CreateFromPromptInputApi {
     description?: string
 }
 
+/**
+ * One experiment whose feature flag a session recording saw.
+ */
+export interface ExperimentSessionContextItemApi {
+    /** ID of the experiment whose feature flag the session saw. */
+    experiment_id: number
+    /** Name of the experiment. */
+    experiment_name: string
+    /** Key of the experiment's feature flag. */
+    flag_key: string
+    /** Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one exists, otherwise from the $feature/<key> property stamped on the session's events. */
+    variant: string
+    /** All distinct variant values observed for this flag during the session, sorted alphabetically. Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. More than one value means the session saw multiple variants — a signal of multi-exposure bias. */
+    variants_seen: string[]
+    /** True when the session saw more than one variant of this flag. */
+    multiple_variants: boolean
+    /**
+     * Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> properties (e.g. the assignment carried over from an earlier session). For experiments with custom exposure criteria this is not the experiment's exposure moment.
+     * @nullable
+     */
+    first_flag_evaluation_timestamp: string | null
+    /**
+     * When the experiment was launched.
+     * @nullable
+     */
+    experiment_start_date: string | null
+    /**
+     * When the experiment ended. Null while the experiment is still running.
+     * @nullable
+     */
+    experiment_end_date: string | null
+}
+
+/**
+ * Experiment/variant context for a session recording.
+ */
+export interface ExperimentSessionContextResponseApi {
+    /** ID of the session recording the context was resolved for. */
+    session_id: string
+    /** Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched experiment's run window overlaps the recording or no flag data was observed in the session. */
+    results: ExperimentSessionContextItemApi[]
+}
+
 export type ExperimentHoldoutsListParams = {
     /**
      * Number of results to return per page.
@@ -2166,4 +2194,11 @@ export type ExperimentsPromptTemplatesRetrieve200Item = {
     key: string
     label: string
     description: string
+}
+
+export type ExperimentsSessionContextRetrieveParams = {
+    /**
+     * ID of the session recording to resolve experiment context for.
+     */
+    session_id: string
 }

@@ -139,6 +139,9 @@ Final verdict → GitHub review (approve) or sticky comment (everything else)
 
 The bot never posts request-changes.
 Approvals are posted as real PR reviews (they must count toward branch protection).
+An approval is posted twice on purpose: the Stamphog app (`stamphog[bot]`) posts the review body as an approval, and `github-actions[bot]` posts a second, bodyless approval.
+We keep both while confirming which identity's approval actually satisfies branch protection — GitHub App bot approvals have shown `author_association: NONE`.
+If the `github-actions[bot]` one proves redundant, it can be dropped.
 Every other verdict (REFUSED, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it) — repeated refusals don't stack up as separate review comments on the PR.
 
 ## Tiers

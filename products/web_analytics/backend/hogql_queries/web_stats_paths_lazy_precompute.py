@@ -28,7 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -41,7 +41,9 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     ceil_utc_day,
     check_common_eligibility,
     floor_utc_day,
+    handle_stale_served,
     host_filter_expr,
+    is_background_warming_request,
     log_eligibility_outcome,
     test_account_filter_expr,
     web_ensure_precomputed,
@@ -51,6 +53,8 @@ if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 
 logger = structlog.get_logger(__name__)
+
+_FAMILY = "web_stats_paths"
 
 
 # Allowlist of exception class names we expect on the lazy path. Anything
@@ -84,11 +88,6 @@ WEB_STATS_PATHS_LAZY_FAILED = Counter(
 WEB_STATS_PATHS_LAZY_EMPTY = Counter(
     "web_stats_paths_lazy_precompute_empty_total",
     "Lazy precompute reads that returned zero rows (potential silent ingestion drop or fresh team).",
-)
-
-WEB_STATS_PATHS_LAZY_STALE_SERVED = Counter(
-    "web_stats_paths_lazy_precompute_stale_served_total",
-    "Reads served from expired-within-grace jobs instead of recomputing inline (serve-stale path).",
 )
 
 WEB_STATS_PATHS_LAZY_ROWS = Histogram(
@@ -405,11 +404,6 @@ def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
     )
 
 
-# Warming triggers whose ensure calls keep the framework's full wait budget: they run in
-# background Dagster jobs where long synchronous rebuilds are the whole point (rotation
-# recovery depends on a single warmer tick being able to rebuild many windows).
-_BACKGROUND_WARMING_TRIGGERS = frozenset({"webAnalyticsEagerBaselineWarming", "webAnalyticsQueryWarming"})
-
 # Wall-clock budget for a *user-facing* request's whole ensure phase (current period plus
 # the compare period, which shares whatever remains). The executor checks the budget before
 # starting each inline INSERT, so completed windows always persist as READY jobs and later
@@ -419,15 +413,6 @@ _BACKGROUND_WARMING_TRIGGERS = frozenset({"webAnalyticsEagerBaselineWarming", "w
 # case still completes inline; what it bounds is the pile-up case (many stale windows after
 # a hash rotation), which previously held requests for 30s+.
 PATHS_USER_ENSURE_WAIT_SECONDS = 10
-
-# Serve-stale grace for *user-facing* requests: windows that expired within this grace are
-# served from their existing (complete-but-stale) rows instantly instead of recomputing
-# inline. Refresh comes from the hourly eager warmer, which covers every enrolled team, so
-# observed staleness is normally bounded by the warmer cadence — the grace is the ceiling
-# for unwarmed query shapes and warmer outages. Must stay well under the framework's 48h
-# ClickHouse expiry buffer (rows must still exist). Background warmers never get the grace:
-# they are the refresh mechanism and would otherwise serve stale to themselves forever.
-PATHS_USER_STALE_GRACE_SECONDS = 6 * 60 * 60
 
 
 def ensure_web_stats_paths_precomputed(
@@ -459,8 +444,7 @@ def ensure_web_stats_paths_precomputed(
 
     # Warmers keep the framework default; user-facing calls get the 10s budget, or the
     # caller-provided remainder of it when this is the second (compare-period) ensure.
-    is_background = get_query_tag_value("trigger") in _BACKGROUND_WARMING_TRIGGERS
-    if is_background:
+    if is_background_warming_request():
         wait_timeout: float | None = None
     elif wait_budget_seconds is not None:
         wait_timeout = wait_budget_seconds
@@ -477,7 +461,6 @@ def ensure_web_stats_paths_precomputed(
         query_type="web_stats_paths_lazy_insert",
         spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
         wait_timeout_seconds=wait_timeout,
-        serve_stale_grace_seconds=None if is_background else PATHS_USER_STALE_GRACE_SECONDS,
     )
 
 
@@ -747,10 +730,7 @@ def execute_lazy_precomputed_read(
             stale=result.stale,
         )
         if result.stale:
-            WEB_STATS_PATHS_LAZY_STALE_SERVED.inc()
-            # Tag the upcoming read query so query_log can split stale-served vs fresh
-            # reads (the Prometheus counter above can't be joined against query latency).
-            tag_queries(precompute_stale=True)
+            handle_stale_served(runner=runner, family=_FAMILY)
 
         if not result.job_ids:
             return None
@@ -782,7 +762,7 @@ def execute_lazy_precomputed_read(
                     # 2x the intended time. Warmers keep the framework's 180s per call
                     # (their gate is the wider ENSURE_BUDGET_MS); user-facing requests
                     # share the single PATHS_USER_ENSURE_WAIT_SECONDS across both calls.
-                    is_background = get_query_tag_value("trigger") in _BACKGROUND_WARMING_TRIGGERS
+                    is_background = is_background_warming_request()
                     if ensure_duration_ms >= ENSURE_BUDGET_MS:
                         logger.info(
                             "web_stats_paths_lazy_precompute_compare_budget_exceeded",
@@ -810,6 +790,11 @@ def execute_lazy_precomputed_read(
                         wait_budget_seconds=remaining_budget,
                     )
                     ensure_duration_ms += int((time.perf_counter() - prev_ensure_started) * 1000)
+
+                    if prev_result.stale:
+                        # handle_stale_served enqueues at most once per request; one
+                        # revalidation re-runs the whole query, covering both periods.
+                        handle_stale_served(runner=runner, family=_FAMILY)
 
                     if not prev_result.ready:
                         logger.info(

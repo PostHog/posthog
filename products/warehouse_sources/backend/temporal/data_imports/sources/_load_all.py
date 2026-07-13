@@ -299,6 +299,7 @@ from .hellobaton.source import HellobatonSource
 from .helpscout.source import HelpScoutSource
 from .heroku.source import HerokuSource
 from .hetzner.source import HetznerSource
+from .hex.source import HexSource
 from .heygen.source import HeyGenSource
 from .hibob.source import HiBobSource
 from .high_level.source import HighLevelSource
