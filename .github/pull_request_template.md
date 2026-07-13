@@ -8,6 +8,8 @@
 ## Changes
 
 <!-- If there are frontend changes, please include screenshots. -->
+<!-- PostHog employees: `hogli pr:upload-image <file>` uploads to the public PostHog/pr-assets repo and prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
+
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
 
 ## How did you test this code?

@@ -221,12 +221,11 @@ export async function persistReportDraft(
     activeReport: EvaluationReport | null
 ): Promise<boolean> {
     const targets = buildDeliveryTargets(draft)
-    const report = activeReport ?? (await loadReportsForEvaluation(teamId, evaluationId))[0] ?? null
-    if (report) {
+    if (activeReport) {
         await llmAnalyticsEvaluationReportsPartialUpdate(
             teamId.toString(),
-            report.id,
-            buildReportUpdatePayload(draft, report, targets) as EvaluationReportPatchBody
+            activeReport.id,
+            buildReportUpdatePayload(draft, activeReport, targets) as EvaluationReportPatchBody
         )
         return true
     }

@@ -470,49 +470,53 @@ export function getTextBlockShortcutReplacement(
         }
     }
 
-    if (isTitleBlock || node.type !== 'paragraph') {
+    if (isTitleBlock || (node.type !== 'paragraph' && node.type !== 'blockquote')) {
         return null
     }
 
-    if (getBlockquoteShortcut(text)) {
-        return {
-            nodes: [
-                {
-                    id: node.id,
-                    type: 'blockquote',
-                    children: [],
-                },
-            ],
-            restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+    // Only the list shortcut applies inside a quote: code blocks and dividers have no quoted
+    // form, and a quote marker typed in a quote stays literal text.
+    if (node.type === 'paragraph') {
+        if (getBlockquoteShortcut(text)) {
+            return {
+                nodes: [
+                    {
+                        id: node.id,
+                        type: 'blockquote',
+                        children: [],
+                    },
+                ],
+                restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+            }
         }
-    }
 
-    if (getCodeBlockShortcut(text)) {
-        return {
-            nodes: [
-                {
-                    id: node.id,
-                    type: 'code',
-                    text: '',
-                },
-            ],
-            restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+        if (getCodeBlockShortcut(text)) {
+            return {
+                nodes: [
+                    {
+                        id: node.id,
+                        type: 'code',
+                        text: '',
+                    },
+                ],
+                restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+            }
         }
-    }
 
-    if (getDividerShortcut(text)) {
-        const trailingParagraph = makeEmptyParagraph(`divider-${node.id}`)
-        return {
-            nodes: [
-                {
-                    id: node.id,
-                    type: 'component',
-                    tagName: DIVIDER_COMPONENT_TAG,
-                    props: {},
-                },
-                trailingParagraph,
-            ],
-            restoreSelection: { nodeId: trailingParagraph.id, start: 0, end: 0 },
+        if (getDividerShortcut(text)) {
+            const trailingParagraph = makeEmptyParagraph(`divider-${node.id}`)
+            return {
+                nodes: [
+                    {
+                        id: node.id,
+                        type: 'component',
+                        tagName: DIVIDER_COMPONENT_TAG,
+                        props: {},
+                    },
+                    trailingParagraph,
+                ],
+                restoreSelection: { nodeId: trailingParagraph.id, start: 0, end: 0 },
+            }
         }
     }
 
@@ -526,6 +530,8 @@ export function getTextBlockShortcutReplacement(
                     type: 'list',
                     ordered: listShortcut.ordered,
                     start: listShortcut.start,
+                    // A list typed inside a quote stays part of the quote
+                    blockquote: node.type === 'blockquote' ? true : undefined,
                     items: [
                         {
                             id: listItemId,

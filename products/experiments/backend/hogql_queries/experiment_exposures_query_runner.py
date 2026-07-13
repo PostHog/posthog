@@ -125,6 +125,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            spill_to_disk=True,
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:

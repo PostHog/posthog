@@ -88,9 +88,15 @@ export class InstructionsFormatter {
      *
      *  `keepEnvContext` is the escape hatch for clients that report
      *  `supportsInstructions` but don't actually surface the `instructions`
-     *  payload to the model (Claude web/desktop): it retains the full env-context
-     *  (tool-domain index, project metadata, group types) here even though
-     *  `stripEnvContext` is set, so it still reaches the agent. */
+     *  payload to the model (Claude web/desktop): it retains the env-context
+     *  (project metadata, group types) here even though `stripEnvContext` is
+     *  set, so it still reaches the agent.
+     *
+     *  SIZE BUDGET: the serialized exec tool entry must stay under 32,600 chars —
+     *  clients (e.g. Claude web/desktop) silently drop tools past ~32,768, which
+     *  breaks the entire MCP for them. Enforced by the budget test in
+     *  `tests/unit/instructions-formatter-snapshot.test.ts`; when adding prose
+     *  here or to the section templates, shrink elsewhere to stay under. */
     buildExecCommandReference(
         ctx: InstructionsContext,
         opts: { stripEnvContext: boolean; keepEnvContext?: boolean }
@@ -116,11 +122,13 @@ export class InstructionsFormatter {
                   guidelines: ctx.guidelines,
                   queryTools: ctx.queryTools,
                   featureFlags: ctx.featureFlags,
-                  ...(opts.keepEnvContext
-                      ? { tools: ctx.tools, metadata: ctx.metadata, groupTypes: ctx.groupTypes }
-                      : {}),
+                  ...(opts.keepEnvContext ? { metadata: ctx.metadata, groupTypes: ctx.groupTypes } : {}),
               }
-            : ctx
+            : { ...ctx, tools: undefined }
+        // Tool domains are temporarily omitted from the command reference while we
+        // probe claude.ai's per-tool size cap (it silently drops oversized entries);
+        // agents still discover domains at runtime via the `search` command, and
+        // `instructions`-honoring clients keep the compact domain index there.
         return this.compose(sections, renderCtx, { compact: false })
     }
 

@@ -30,14 +30,13 @@ const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 // Each product is atomic for packing, but unlike Django the test pool isn't
 // fungible across products — bin-pack products into target-sized shards, and
 // multi-shard split any single product that overflows on its own.
+// The target is a per-shard test-WORK budget, not a wall-clock promise: the fixed
+// per-shard setup (docker stack + temporal boot, deps, collection, ~3-4 min) is paid
+// identically by every shard, so it can't skew the split and deliberately stays out
+// of the shard-count math — folding it in only inflates counts (see #54280). Walls
+// land at target + setup, evenly across shards. JUnit de-taxing in
+// optimize_test_durations.py keeps that setup cost out of the timings themselves.
 const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
-// Per-product per-shard wall-clock target override. A product that runs a large temporal suite in
-// its own job (warehouse_sources) is split more aggressively so the long integration tests fan out
-// across more shards. Kept modest — every extra shard pays the full docker-stack + temporal-server
-// startup, so over-splitting trades runner cost for little wall-clock once startup dominates.
-const PRODUCT_TARGET_WALL_OVERRIDE = {
-    'warehouse-sources': 6 * 60,
-}
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
@@ -440,7 +439,6 @@ function buildMatrix(products, durations) {
     for (const product of products) {
         const staleness = checkProductStaleness(product, durations)
         let raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
-        const targetWall = PRODUCT_TARGET_WALL_OVERRIDE[product] ?? PRODUCT_TARGET_WALL_SECONDS
 
         // Staleness guard: if .test_durations has poor coverage for this product,
         // use a file-count-based fallback to avoid under-sharding.
@@ -459,15 +457,20 @@ function buildMatrix(products, durations) {
             }
         }
 
-        if (raw > targetWall) {
-            const shards = Math.ceil(raw / targetWall)
+        if (raw > PRODUCT_TARGET_WALL_SECONDS) {
+            const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
             console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
+            // optimal_chunks (PostHog pytest-split fork) makes the same contiguous,
+            // order-preserving cuts as duration_based_chunks but balances them
+            // optimally. The greedy rule in duration_based_chunks lets every shard
+            // overrun the per-shard average, which on skewed suites starves trailing
+            // shards down to zero tests (pytest exit 5, "no tests collected").
             for (let i = 1; i <= shards; i++) {
                 matrix.push({
                     group: `${product} (${i}/${shards})`,
                     filters,
-                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm duration_based_chunks`,
+                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks`,
                 })
             }
         } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {

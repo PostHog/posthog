@@ -18,6 +18,12 @@ export interface BeforeBatchInput<TInput, CInput, CBatch = Record<never, object>
     batchContext: { batchId: number } & CBatch
 }
 
+/**
+ * What a beforeBatch pipeline produces. Hooks may enrich elements (values or
+ * contexts) and the batch context, but must return exactly as many elements as
+ * they received — batch completion tracking counts messages, so a changed
+ * element count is a broken framework invariant and feed() throws.
+ */
 export interface BeforeBatchOutput<TInput, CInput, CBatch> {
     elements: OkResultWithContext<TInput, CInput>[]
     batchContext: CBatch & { batchId: number }
@@ -79,8 +85,11 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never> {
  * the collector matches them to their batch and fires hooks.
  *
  * Lifecycle:
- * - feed() runs beforeBatch which returns mapped elements and side effects.
- *   Elements are tagged with messageId, then fed to the sub-pipeline.
+ * - feed() with zero elements is a no-op that returns ok — no batch is
+ *   registered and no hooks run (a zero-message batch could never complete).
+ * - feed() runs beforeBatch which returns enriched elements (same count as
+ *   fed — count changes throw) and side effects. Elements are tagged with
+ *   messageId, then fed to the sub-pipeline.
  * - next() collects results. When all messages in a batch complete, calls
  *   afterBatch with the batchContext and ordered results, then returns a
  *   BatchResult with concatenated side effects.
@@ -163,6 +172,16 @@ export class BatchingPipeline<
     }
 
     private async feedSerialized(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
+        // An empty feed has no messages that could ever complete a batch:
+        // completion is only detected in pump()'s result loop, so registering a
+        // zero-message batch would occupy a concurrentBatches slot forever and
+        // trip the "null with N in-flight batches" corruption guard on the next
+        // pull. Skip it entirely — no batchId consumed, no hooks run, nothing
+        // registered — so there are no side effects to surface either.
+        if (elements.length === 0) {
+            return { ok: true }
+        }
+
         if (this.batches.size >= this.options.concurrentBatches) {
             return {
                 ok: false,
@@ -186,6 +205,19 @@ export class BatchingPipeline<
 
         const { elements: mappedElements, batchContext } = beforeResult.result.value
         const beforeSideEffects = beforeResult.context.sideEffects
+
+        // beforeBatch may enrich elements and batch context but must not change
+        // the element count: a shrunken batch (worst case zero elements) could
+        // never complete and would leak its concurrentBatches slot forever.
+        // That's a broken framework invariant, not an outcome a driver may
+        // handle, so throw instead of returning a FeedResult — mirroring
+        // BaseBatchPipeline's count-mismatch throw for batch steps. Nothing has
+        // been registered yet, so the throw leaves no phantom batch behind.
+        if (mappedElements.length !== elements.length) {
+            throw new Error(
+                `batching_pipeline beforeBatch changed element count (${elements.length} -> ${mappedElements.length}) for batch ${batchId}`
+            )
+        }
 
         const messageIds: number[] = []
         const inflight = new Set<number>()

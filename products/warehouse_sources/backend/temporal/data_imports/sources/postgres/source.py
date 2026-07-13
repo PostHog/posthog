@@ -85,6 +85,29 @@ PostgresErrors = {
         "database project is paused or deleted, or the pooler username/host is wrong. Check that "
         "your database is active and the connection details are correct."
     ),
+    # Supabase/Supavisor's shared regional pooler (aws-0-<region>.pooler.supabase.com) can't
+    # identify the project from SNI, so the pooler username must embed the project ref (for example
+    # "postgres.<project-ref>"). A plain "postgres" username leaves it nothing to route on and it
+    # rejects the connection with "FATAL: (ENOIDENTIFIER) no tenant identifier provided".
+    # `get_non_retryable_errors` already handles this on the streaming path; map it here too so
+    # validation returns an actionable message instead of the generic fallback.
+    "no tenant identifier provided": (
+        'Your connection pooler couldn\'t identify your project ("no tenant identifier provided"). '
+        "On the shared pooler host the username must include your project ref (for example "
+        '"postgres.<project-ref>"). Update the username to the pooler username shown in your '
+        "Supabase dashboard and try again."
+    ),
+    # Some poolers (for example Supabase's transaction pooler on port 6543) reject bad credentials
+    # during the SASL/SCRAM exchange with "FATAL: SASL authentication failed" instead of libpq's
+    # "password authentication failed for user", so none of the password keys above substring-match
+    # it. `get_non_retryable_errors` already handles this on the streaming path; map it here too so
+    # validation returns an actionable message instead of the generic fallback.
+    "SASL authentication failed": (
+        'Your database rejected the credentials during authentication ("SASL authentication '
+        'failed"). This usually means the username or password is wrong. Some connection poolers '
+        "(for example Supabase's transaction pooler) also require a pooler-specific username such "
+        "as postgres.<project-ref>. Check your credentials and try again."
+    ),
     "could not translate host name": "Could not connect to the host",
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
@@ -171,7 +194,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         return SourceConfig(
             name=SchemaExternalDataSourceType.POSTGRES,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["postgresql"],
+            keywords=["postgresql", "sql"],
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
             iconPath="/static/services/postgres.png",
             docsUrl="https://posthog.com/docs/cdp/sources/postgres",
@@ -326,7 +349,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "and password configured for this source match what the proxy expects, then "
                 "re-enable the sync."
             ),
-            "No primary key defined for table": None,
+            "No primary key defined for table": (
+                "This table needs a primary key to sync incrementally, but none is set. Choose a primary "
+                "key for the table in its sync settings, or switch it to full table replication, then "
+                "re-enable the sync."
+            ),
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
             # It denotes an established SSL connection being dropped on connect or mid-stream (idle

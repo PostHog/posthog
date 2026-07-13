@@ -19,9 +19,11 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { formatCredits } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
+import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerQualityTab } from './components/ScannerQualityTab'
@@ -112,6 +114,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Observations',
                         content: (
                             <div className="flex flex-col gap-6">
+                                {actionsTabEnabled && (
+                                    <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
+                                )}
                                 <ScannerOverview scannerId={scannerId} />
                                 <div className="flex flex-col gap-2">
                                     <SummarizerMaxChat scannerId={scannerId} />
@@ -120,11 +125,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                                 </div>
                             </div>
                         ),
-                    },
-                    qualityTabEnabled && {
-                        key: ReplayScannerTab.Quality,
-                        label: 'Quality',
-                        content: <ScannerQualityTab scannerId={scannerId} />,
                     },
                     {
                         key: ReplayScannerTab.OnDemand,
@@ -135,6 +135,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: ReplayScannerTab.Configuration,
                         label: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
+                    },
+                    qualityTabEnabled && {
+                        key: ReplayScannerTab.Quality,
+                        label: 'Quality',
+                        content: <ScannerQualityTab scannerId={scannerId} />,
                     },
                     actionsTabEnabled && {
                         key: ReplayScannerTab.Actions,
@@ -157,8 +162,8 @@ function QuotaBanner(): JSX.Element | null {
     return (
         <LemonBanner type="warning">
             {state.kind === 'exhausted'
-                ? `Monthly observation quota reached (${state.quota.usage_this_month.toLocaleString()} / ${state.quota.monthly_quota.toLocaleString()}). New observations are paused until ${state.resetsOn}.`
-                : `${state.quota.usage_this_month.toLocaleString()} of ${state.quota.monthly_quota.toLocaleString()} monthly observations used. New observations will pause once you hit the cap. Resets ${state.resetsOn}.`}
+                ? `Monthly spend limit reached (${formatCredits(state.quota.credits_used)} of ${formatCredits(state.quota.credit_limit ?? 0)}). New observations are paused until ${state.resetsOn}.`
+                : `${formatCredits(state.quota.credits_used)} of your ${formatCredits(state.quota.credit_limit ?? 0)} monthly spend limit used. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
         </LemonBanner>
     )
 }

@@ -7,9 +7,15 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.metrics import observe_wizard_run_unbound
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
+
+# TaskRun.state marker for runs completed by the inactivity timeout; kept out of
+# error_message so a normal completion never reads as a failure.
+TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 
 
 @dataclass
@@ -17,6 +23,10 @@ class UpdateTaskRunStatusInput:
     run_id: str
     status: str
     error_message: Optional[str] = None
+    timed_out_inactivity: bool = False
+    # Optional with a default so payloads from in-flight workflows started
+    # before this field existed still deserialize.
+    error_type: Optional[str] = None
 
 
 @activity.defn
@@ -43,11 +53,16 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     if input.error_message:
         task_run.error_message = input.error_message
 
+    if input.timed_out_inactivity:
+        # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
+        task_run.state = TaskRun.update_state_atomic(task_run.id, updates={TIMED_OUT_INACTIVITY_STATE_KEY: True})
+
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
         task_run.completed_at = timezone.now()
 
     task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
     task_run.publish_stream_state_event()
+    observe_wizard_run_unbound(task_run)
 
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and old_status != input.status:
         _capture_terminal_analytics(task_run, input)
@@ -62,10 +77,10 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
     """Emit the terminal analytics event and token-expenditure metrics.
 
-    The workflow is the terminal authority for cloud runs, but this activity used to
-    flip the status without emitting the terminal analytics events, so
-    ``task_run_completed`` effectively never fired for cloud runs. Guarded on the
-    actual transition so activity retries and repeat updates don't double-count.
+    This activity performs the DB status transition, so it is the single canonical
+    emitter of the terminal analytics events for workflow-driven runs — the workflow
+    itself only records metrics and logs for failures. Guarded on the actual
+    transition so activity retries and repeat updates don't double-count.
     """
     try:
         if input.status == TaskRun.Status.COMPLETED:
@@ -74,7 +89,8 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
             task_run.capture_event(
                 "task_run_failed",
                 {
-                    "error_message": (input.error_message or task_run.error_message or "")[:500],
+                    "error_message": truncate_error_message(input.error_message or task_run.error_message),
+                    "error_type": input.error_type or "unspecified",
                     "duration_seconds": task_run._duration_seconds(),
                 },
             )
@@ -87,6 +103,7 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 origin_product=task_run.task.origin_product,
                 run_environment=task_run.environment,
                 rtk_enabled=task_run.effective_rtk(),
+                status=input.status,
             )
     except Exception:
         activity.logger.warning(f"Failed to capture terminal analytics for run {task_run.id}", exc_info=True)

@@ -139,6 +139,7 @@ def record_run_token_usage(
     origin_product: str | None,
     run_environment: str | None,
     rtk_enabled: bool | None,
+    status: str | None,
 ) -> None:
     """Record a terminal run's token expenditure (from ``TaskRun.state.token_usage``).
 
@@ -149,6 +150,7 @@ def record_run_token_usage(
             "origin_product": origin_product or "unknown",
             "run_environment": run_environment or "unknown",
             "rtk_enabled": _bool_label(rtk_enabled),
+            "status": status or "unknown",
         }
         for kind, key in _RUN_TOKEN_KINDS.items():
             value = usage.get(key)

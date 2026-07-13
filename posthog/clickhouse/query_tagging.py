@@ -212,6 +212,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
+        case NodeKind.METRICS_QUERY:
+            return {"product": Product.METRICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
         case (
@@ -424,6 +426,9 @@ class QueryTags(BaseModel):
     # Generic across products (experiments, marketing, web analytics) since they share the executor.
     precompute_window_start: Optional[str] = None
     precompute_window_end: Optional[str] = None
+    # True on precompute READ queries served from expired-within-grace jobs (serve-stale path),
+    # so query_log can compare stale-served vs fresh reads without joining Prometheus.
+    precompute_stale: Optional[bool] = None
     entity_math: Optional[list[str]] = None
 
     # replays

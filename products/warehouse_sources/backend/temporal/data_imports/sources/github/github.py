@@ -60,6 +60,16 @@ class GithubEmptyRepositoryError(Exception):
     pass
 
 
+class GithubOrgNotFoundError(Exception):
+    """GitHub returns 404 on the org-scoped endpoints (``/orgs/{org}/teams`` and the members
+    fan-out) when the repository owner is a personal account rather than an organization, or the
+    token has no org access. There is nothing to sync in that case, so ``_fetch_page`` raises this on
+    org-scoped endpoints and the caller syncs zero rows — a benign skip, not a "repository not found"
+    that should fail the schema."""
+
+    pass
+
+
 @dataclasses.dataclass
 class GithubResumeConfig:
     next_url: str
@@ -460,6 +470,7 @@ def _fetch_page(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     egress_identity: GithubEgressIdentity | None = None,
+    skip_on_not_found: bool = False,
 ) -> requests.Response:
     # One gated + recorded GET through the shared egress client. The App path bills the shared
     # per-installation budget at BATCH (deferrable bulk); the PAT path (installation_id None) skips the
@@ -493,6 +504,12 @@ def _fetch_page(
     if _is_empty_repository_response(response):
         raise GithubEmptyRepositoryError()
 
+    # An org-scoped endpoint 404s when the repo owner is a user (no org) or the token lacks org
+    # access. Signal it so the caller syncs zero rows rather than failing the schema — a benign skip
+    # like an empty repository, not a real "repository not found".
+    if skip_on_not_found and response.status_code == 404:
+        raise GithubOrgNotFoundError()
+
     if not response.ok:
         logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")
         response.raise_for_status()
@@ -508,6 +525,7 @@ def _iter_pages(
     max_pages: int | None = None,
     page_cap_context: dict[str, Any] | None = None,
     egress_identity: GithubEgressIdentity | None = None,
+    skip_on_not_found: bool = False,
 ) -> Iterator[tuple[list[dict[str, Any]], str]]:
     """Yield (items, page_url) for each page of a paginated GitHub list,
     unwrapping the envelope and following the Link header. Stops at ``max_pages``,
@@ -515,7 +533,11 @@ def _iter_pages(
     envelope body simply ends iteration — there is nothing to truncate."""
     page_count = 0
     while True:
-        response = _fetch_page(url, headers, logger, egress_identity)
+        try:
+            response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=skip_on_not_found)
+        except GithubOrgNotFoundError:
+            logger.debug(f"Github: org-scoped endpoint not found, syncing zero rows: url={url}")
+            return
         data = response.json()
         if response_data_path and isinstance(data, dict):
             data = data.get(response_data_path) or []
@@ -594,6 +616,10 @@ def _fan_out_get_rows(
     child_config = GITHUB_ENDPOINTS[endpoint]
     assert child_config.fan_out_parent is not None  # guarded by the get_rows dispatch
     parent_config = GITHUB_ENDPOINTS[child_config.fan_out_parent]
+    # team_members fans out from the org-scoped teams parent, which 404s for a user-owned repo (no
+    # org). Skip only that parent walk — a 404 on a specific team's members is not this benign case
+    # and should still surface.
+    parent_org_scoped = child_config.fan_out_parent in ORG_SCOPED_ENDPOINTS
     headers = _get_headers(personal_access_token, endpoint)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
@@ -625,7 +651,12 @@ def _fan_out_get_rows(
         parent_url = _build_initial_url(parent_config, repository, {"per_page": parent_config.page_size})
 
     for parents, page_url in _iter_pages(
-        parent_url, headers, parent_config.response_data_path, logger, egress_identity=egress_identity
+        parent_url,
+        headers,
+        parent_config.response_data_path,
+        logger,
+        egress_identity=egress_identity,
+        skip_on_not_found=parent_org_scoped,
     ):
         stop_after_this_page = _should_stop_desc(parents, "desc", parent_cursor_field, parent_cutoff)
 
@@ -711,11 +742,15 @@ def get_rows(
     else:
         url = _build_initial_url(config, repository, initial_params)
 
+    org_scoped = endpoint in ORG_SCOPED_ENDPOINTS
     while True:
         try:
-            response = _fetch_page(url, headers, logger, egress_identity)
+            response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=org_scoped)
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
+            break
+        except GithubOrgNotFoundError:
+            logger.debug(f"Github: no accessible org teams for {endpoint}, syncing zero rows: url={url}")
             break
 
         data = response.json()
