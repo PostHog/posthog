@@ -631,7 +631,10 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                     value={actionForm.mode}
                                     onChange={(value) => setActionFormValue('mode', value)}
                                     options={[
-                                        { value: VisionActionModeEnumApi.GroupSummary, label: 'Scheduled summary' },
+                                        {
+                                            value: VisionActionModeEnumApi.GroupSummary,
+                                            label: 'Scheduled group summary',
+                                        },
                                         { value: VisionActionModeEnumApi.Alert, label: 'Alert' },
                                     ]}
                                     data-attr="vision-action-mode"
