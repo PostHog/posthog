@@ -798,6 +798,11 @@ class ExternalDataSourceType(models.TextChoices):
     WINDMILL = "Windmill", "Windmill"
     ZEP = "Zep", "Zep"
     HEX = "Hex", "Hex"
+    SUMSUB = "Sumsub", "Sumsub"
+    GOOGLECHAT = "GoogleChat", "GoogleChat"
+    KICKSCALE = "Kickscale", "Kickscale"
+    ZELLIFY = "Zellify", "Zellify"
+    RUDDERSTACK = "RudderStack", "RudderStack"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
@@ -813,3 +818,4 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):
     REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
+    ENGINEERING_ANALYTICS = "engineering_analytics", "Engineering Analytics"

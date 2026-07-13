@@ -1965,6 +1965,11 @@ export interface CredentialApi {
  * * `Windmill` - Windmill
  * * `Zep` - Zep
  * * `Hex` - Hex
+ * * `Sumsub` - Sumsub
+ * * `GoogleChat` - GoogleChat
+ * * `Kickscale` - Kickscale
+ * * `Zellify` - Zellify
+ * * `RudderStack` - RudderStack
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2726,6 +2731,11 @@ export const ExternalDataSourceTypeEnumApi = {
     Windmill: 'Windmill',
     Zep: 'Zep',
     Hex: 'Hex',
+    Sumsub: 'Sumsub',
+    GoogleChat: 'GoogleChat',
+    Kickscale: 'Kickscale',
+    Zellify: 'Zellify',
+    RudderStack: 'RudderStack',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

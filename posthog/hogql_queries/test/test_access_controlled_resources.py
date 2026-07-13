@@ -60,6 +60,13 @@ class TestQueriedAccessControlledResources(BaseTest):
     def test_unparseable_hogql_fails_closed(self):
         assert queried_access_controlled_resources(HogQLQuery(query="select from from"), self.team) is None
 
+    def test_connection_query_partitions_on_source_and_warehouse_scopes(self):
+        # A connection query reads virtual tables named by ExternalDataSchema.name, which the
+        # warehouse-table name lookup can't match — without these scopes a user denied the source
+        # (or its backing table) would replay an allowed user's cached upstream rows.
+        query = HogQLQuery(query="select * from public.users", connectionId="00000000-0000-0000-0000-000000000001")
+        assert queried_access_controlled_resources(query, self.team) == {"external_data_source", "warehouse_table"}
+
     def test_structured_query_reads_no_system_table(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
         assert queried_access_controlled_resources(query, self.team) == set()

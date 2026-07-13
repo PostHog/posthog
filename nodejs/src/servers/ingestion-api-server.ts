@@ -35,6 +35,7 @@ import {
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
@@ -371,7 +372,7 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
-                PERSON_MERGE_EVENTS_ENABLED: this.config.PERSON_MERGE_EVENTS_ENABLED,
+                PERSON_MERGE_EVENTS_ENABLED: effectivePersonMergeEventsEnabled(this.config),
                 PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
                 PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,

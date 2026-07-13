@@ -2708,6 +2708,10 @@ snapshots:
         hash: v1.k794b7964.41fb69aabc8a918c58f693db54ee71abf53115782820dd01a1a26f6929dbe714.ACZOSkxt8vlxz5dr0DPoe7koXbe7aUxWeHcU4zMhv84
     insights-insightstable--compare-previous--light:
         hash: v1.k794b7964.28fa002817466cdc38906e70bc568a02c9d4080d4e696ec4013a2a538907b56d.yFhGtvxHTdLkBaBTudbBvH9CQbI3uANS3b2ycEIeKRY
+    insights-insightstable--compare-previous-detailed-results--dark:
+        hash: v1.k794b7964.a64b2e50f805705bbc9b8d2ebd207cebcd1202dc578004ab1e9dc477f02ff9aa.E8oFRn7xnK_56vtfgxYZuC1XNdTAUAc-aRld_poFGNk
+    insights-insightstable--compare-previous-detailed-results--light:
+        hash: v1.k794b7964.95d186cac16aa659249c098d76264c71a4f75af27fe8ddc458fb452371f4c584.gcfzOx0i14MOBQ7nvtxNXdOhyrG3zuxGFX1MY8SnYCY
     insights-insightstable--default--dark:
         hash: v1.k794b7964.585aa3b95a71f83db72c958f68b5b9b28c05047625904238a18d840fd4abe38b.kbYrG-uIZ1A_25STyJcDiz6Ph7-N7rkj2HWE6g6eoy8
     insights-insightstable--default--light:
@@ -5631,9 +5635,9 @@ snapshots:
     scenes-app-engineering-analytics-repo-overview--repo-overview--light:
         hash: v1.k794b7964.10713695bfff7d1fe091a19db8a951832946f61cc5711f41edf479cdc443e071.j1YL510Wvt_XUK4isWUN7pSluY0kL7yvzokjkR1P1es
     scenes-app-engineering-analytics-test-health--flaky-test-leaderboard--dark:
-        hash: v1.k794b7964.b80842e3c1fcc9321fbd781d1c7aa06bdd243479eff1b407ad94466b48625e7f.vSCnKb5GwJzPTNMCRmvYw6f3fYfPbJcDlNia1tEc22E
+        hash: v1.k794b7964.8e887d3516448ca8544b66f54ec2b15c348c795f5eeb38121d8822614ab6895a.FSJv5vBtsNGzICpMzsq58FRQDj-CMLwqFPl9IVKY4A4
     scenes-app-engineering-analytics-test-health--flaky-test-leaderboard--light:
-        hash: v1.k794b7964.fcab5b35c3e2147beaf8445febe839a6a30952a8bcba3fa634d7a3d073d561a3.-OVkVjtyzLUrkMi_4lDd7F39UmQPWKEvPhnf47_BxoA
+        hash: v1.k794b7964.10a6793cc79056bee67f5785d2bf58cc936de9db6ccc526f85b44f051d658f94.EgZzEPDMHkx6x4Jw2IlGMf1wP1CBqkfy0jWdAsdSqAI
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.30ace8f015100159e1dedbed07ff9f0b0b770535870d5c98ea764b10ff1f7621.dTVw9qLa7D_e7ZNme4tVuPZov-0Gg1o84aiDl5zihF0
     scenes-app-error-project-unavailable--access-revoked--light:
