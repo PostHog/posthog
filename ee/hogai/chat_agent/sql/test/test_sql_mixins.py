@@ -267,6 +267,20 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         await mixin._quality_check_output(valid_output)
 
+    async def test_quality_check_nested_date_range_placeholder_is_recoverable(self):
+        # A date-range filter placeholder nested inside a function (rather than the bare
+        # right-hand side of a comparison) used to raise an uncaught IndexError and crash
+        # the agent turn. It must now resolve without crashing — either validating or
+        # raising a recoverable PydanticOutputParserException fed back to the model.
+        mixin = self._node
+
+        output = self._sql_output("SELECT toStartOfDay({filters.dateRange.from}) FROM events")
+
+        try:
+            await mixin._quality_check_output(output)
+        except PydanticOutputParserException:
+            pass
+
     async def test_quality_check_output_with_unsupported_filter_placeholder(self):
         mixin = self._node
 
