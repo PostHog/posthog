@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from celery import shared_task
 
-from products.stamphog.backend.facade.enums import ReviewRunStatus
+from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.audiences import resolve_audience_key
 from products.stamphog.backend.models import MergedPullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
@@ -88,10 +88,10 @@ def _supersede_prior_runs(repo_config: StamphogRepoConfig, pr_number: int) -> No
 def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> None:
     """Capture a merged PR for the daily digest. No workflow, no review — just a durable row.
 
-    Resolves the repo config exactly like the review path and requires both `enabled` and
-    `digest_enabled` (digests are opt-in and independent of review). Redeliveries dedupe on the
-    unique delivery_id; a repeat that predates delivery_id tracking dedupes on the (team, repo,
-    pr_number) constraint instead.
+    Resolves the repo config exactly like the review path, requires both `enabled` and
+    `digest_enabled` (digests are opt-in and independent of review), and only captures PRs
+    stamphog itself approved. Redeliveries dedupe on the unique delivery_id; a repeat that
+    predates delivery_id tracking dedupes on the (team, repo, pr_number) constraint instead.
     """
     installation_id = str((payload.get("installation") or {}).get("id", ""))
     repo = (payload.get("repository") or {}).get("full_name", "")
@@ -110,6 +110,16 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
         return
 
     team_id = repo_config.team_id
+    # The digest reports what stamphog approved, not everything that merged.
+    approved = (
+        ReviewRun.objects.for_team(team_id)
+        .filter(repo_config=repo_config, pr_number=pr_number, verdict=ReviewVerdict.APPROVED)
+        .exists()
+    )
+    if not approved:
+        logger.info("stamphog_merged_pr_not_stamphog_approved", repo=repo, pr_number=pr_number)
+        return
+
     merged_at = parse_datetime(pr.get("merged_at") or "") or timezone.now()
     head = pr.get("head") or {}
     try:

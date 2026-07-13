@@ -37,5 +37,7 @@ class ChannelResolutionSource(StrEnum):
     # How a DigestChannel row came to exist.
     MANUAL = "manual"
     SLACK_NAME_MATCH = "slack_name_match"
+    # Repo declared its digest channel under digest: in .stamphog/policy.yml (logic/digest_config.py).
+    STAMPHOG_CONFIG = "stamphog_config"
     # Reserved for the future owners.yaml contact.slack step (PR #68872) — not implemented yet.
     OWNERS_CONTACT = "owners_contact"

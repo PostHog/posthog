@@ -2,8 +2,11 @@
 
 Channel destination is auto-resolved, never pre-created by a human: if the team's connected Slack
 workspace has a channel named exactly like an audience_key (a GitHub team slug), stamphog creates
-an enabled DigestChannel row for it. Humans only ever correct or disable rows afterward — see
-models.DigestChannel and logic/audiences.py for how the audience_key itself is produced.
+an enabled DigestChannel row for it. A "repo:" audience_key resolves differently — it matches the
+channel its repo declared under `digest:` in `.stamphog/policy.yml` instead (see
+logic/digest_config.py). Humans
+only ever correct or disable rows afterward — see models.DigestChannel and logic/audiences.py for
+how the audience_key itself is produced.
 """
 
 from __future__ import annotations
@@ -17,9 +20,12 @@ import structlog
 from posthog.models.integration import Integration, SlackIntegration
 
 from ..facade.enums import ChannelResolutionSource
-from ..models import DigestChannel
+from ..models import DigestChannel, StamphogRepoConfig
+from .digest_config import load_repo_digest_config
 
 logger = structlog.get_logger(__name__)
+
+_REPO_AUDIENCE_PREFIX = "repo:"
 
 
 def _fetch_channel_map(integration: Integration) -> dict[str, dict[str, str]]:
@@ -35,14 +41,44 @@ def _fetch_channel_map(integration: Integration) -> dict[str, dict[str, str]]:
     return {channel["name"]: {"id": channel["id"], "name": channel["name"]} for channel in channels}
 
 
-def resolve_slack_destination(team_id: int, audience_key: str) -> tuple[int, dict[str, str]] | None:
-    """Find a Slack channel named exactly like ``audience_key`` in the team's workspace.
-
-    Returns (slack_integration_id, {"id": ..., "name": ...}) on a match, None otherwise. Fallback
-    "repo:" audience keys never match — they're skipped before the (slow) channel list is fetched.
+def _declared_repo_channel_name(team_id: int, audience_key: str) -> str | None:
+    """For a "repo:" audience_key, the Slack channel name its repo declared under ``digest:`` in
+    ``.stamphog/policy.yml`` — checked before any Slack API call, so an undeclared repo costs one
+    GitHub file fetch, not a Slack channel list. None if the repo isn't configured, isn't
+    digest-enabled, or hasn't declared a channel.
     """
-    if audience_key.startswith("repo:"):
+    repository = audience_key[len(_REPO_AUDIENCE_PREFIX) :]
+    repo_config = (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .filter(repository=repository, enabled=True, digest_enabled=True)
+        .first()
+    )
+    if repo_config is None:
         return None
+    digest_config = load_repo_digest_config(repo_config)
+    if digest_config is None or not digest_config.channel:
+        return None
+    return digest_config.channel
+
+
+def resolve_slack_destination(
+    team_id: int, audience_key: str
+) -> tuple[int, dict[str, str], ChannelResolutionSource] | None:
+    """Find the Slack channel destination for ``audience_key`` in the team's workspace.
+
+    A "repo:" key resolves against the repo's declared digest channel (STAMPHOG_CONFIG); every
+    other key resolves against a Slack channel named exactly like the audience_key itself
+    (SLACK_NAME_MATCH). Returns (slack_integration_id, {"id": ..., "name": ...}, source) on a
+    match, None otherwise.
+    """
+    if audience_key.startswith(_REPO_AUDIENCE_PREFIX):
+        channel_name = _declared_repo_channel_name(team_id, audience_key)
+        if channel_name is None:
+            return None
+        resolution_source = ChannelResolutionSource.STAMPHOG_CONFIG
+    else:
+        channel_name = audience_key
+        resolution_source = ChannelResolutionSource.SLACK_NAME_MATCH
 
     integration = Integration.objects.filter(team_id=team_id, kind="slack").first()
     if integration is None:
@@ -56,10 +92,17 @@ def resolve_slack_destination(team_id: int, audience_key: str) -> tuple[int, dic
         logger.warning("stamphog_channel_resolution_list_channels_failed", team_id=team_id, exc_info=True)
         return None
 
-    channel = channel_map.get(audience_key)
+    channel = channel_map.get(channel_name)
     if channel is None:
+        if audience_key.startswith(_REPO_AUDIENCE_PREFIX):
+            logger.info(
+                "stamphog_channel_resolution_declared_channel_not_found",
+                team_id=team_id,
+                audience_key=audience_key,
+                channel_name=channel_name,
+            )
         return None
-    return integration.id, channel
+    return integration.id, channel, resolution_source
 
 
 def auto_provision_channel(team_id: int, audience_key: str) -> DigestChannel | None:
@@ -77,7 +120,7 @@ def auto_provision_channel(team_id: int, audience_key: str) -> DigestChannel | N
     if destination is None:
         logger.info("stamphog_channel_resolution_no_match", team_id=team_id, audience_key=audience_key)
         return None
-    slack_integration_id, channel = destination
+    slack_integration_id, channel, resolution_source = destination
 
     try:
         row = DigestChannel.objects.for_team(team_id).create(
@@ -87,7 +130,7 @@ def auto_provision_channel(team_id: int, audience_key: str) -> DigestChannel | N
             slack_channel_id=channel["id"],
             slack_channel_name=channel["name"],
             enabled=True,
-            resolution_source=ChannelResolutionSource.SLACK_NAME_MATCH,
+            resolution_source=resolution_source,
         )
     except IntegrityError:
         # Lost a create race — another concurrent provisioning attempt, or a human row landed

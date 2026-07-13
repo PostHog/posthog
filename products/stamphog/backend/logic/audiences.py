@@ -1,8 +1,8 @@
 """Resolve a merged PR to a digest ``audience_key``.
 
-One global best-effort cascade, no per-repo configuration: PR author -> GitHub team slug ->
-"repo:{repository}" fallback. Digest grouping and channel routing key off that opaque string
-alone (see models.DigestChannel).
+Global best-effort cascade: repo-declared digest channel (see logic/digest_config.py) ->
+PR author -> GitHub team slug -> "repo:{repository}" fallback. Digest grouping and channel
+routing key off that opaque string alone (see models.DigestChannel).
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from .digest_config import load_repo_digest_config
 from .github_client import StamphogGitHubClient
 
 if TYPE_CHECKING:
@@ -68,4 +69,9 @@ def _author_team_audience_key(repo_config: StamphogRepoConfig, pr_payload: dict[
 
 def resolve_audience_key(repo_config: StamphogRepoConfig, pr_payload: dict[str, Any]) -> str:
     """Map a merged PR to its digest audience_key via the single global cascade."""
+    digest_config = load_repo_digest_config(repo_config)
+    if digest_config is not None and digest_config.channel:
+        # Repo declared a single digest channel for all its PRs, so they group per-repo
+        # instead of cascading through the author -> team lookup.
+        return _repository_audience_key(repo_config)
     return _author_team_audience_key(repo_config, pr_payload)

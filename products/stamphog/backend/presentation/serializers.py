@@ -118,8 +118,10 @@ class DigestChannelSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text=(
             "How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned "
-            "because the workspace has a channel named exactly like the audience_key), or "
-            "'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet)."
+            "because the workspace has a channel named exactly like the audience_key), "
+            "'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in "
+            ".stamphog/policy.yml), "
+            "or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet)."
         ),
     )
 

@@ -114,10 +114,11 @@ def send_daily_digests() -> None:
     since = timezone.now() - timedelta(days=DIGEST_LOOKBACK_DAYS)
     # unscoped(): cross-team beat fan-out discovers every team's unprovisioned audiences in one
     # pass; provision_and_send_digest re-scopes to (team_id, audience_key) via for_team internally.
+    # "repo:" audiences are included too now — a repo with a declared digest channel (policy.yml) resolves
+    # them via logic/channel_resolution.py instead of a plain Slack name match.
     candidate_audiences = (
         MergedPullRequest.objects.unscoped()
         .filter(digest_run__isnull=True, merged_at__gte=since)
-        .exclude(audience_key__startswith="repo:")
         .values_list("team_id", "audience_key")
         .distinct()
     )
