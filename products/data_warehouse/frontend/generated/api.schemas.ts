@@ -1711,6 +1711,105 @@ export interface CredentialApi {
  * * `PeecAI` - PeecAI
  * * `Healthchecks` - Healthchecks
  * * `Impact` - Impact
+ * * `AikidoSecurity` - AikidoSecurity
+ * * `Alguna` - Alguna
+ * * `Anthropic` - Anthropic
+ * * `Appwrite` - Appwrite
+ * * `BlandAI` - BlandAI
+ * * `BrowseAI` - BrowseAI
+ * * `BrowserUse` - BrowserUse
+ * * `ChartHop` - ChartHop
+ * * `Cody` - Cody
+ * * `Cursor` - Cursor
+ * * `Decagon` - Decagon
+ * * `Deepgram` - Deepgram
+ * * `ElevenLabs` - ElevenLabs
+ * * `Harvey` - Harvey
+ * * `Hyperspell` - Hyperspell
+ * * `Langfuse` - Langfuse
+ * * `LingoDev` - LingoDev
+ * * `M3ter` - M3ter
+ * * `Maxio` - Maxio
+ * * `Metorial` - Metorial
+ * * `OpenRouter` - OpenRouter
+ * * `TogetherAI` - TogetherAI
+ * * `Vapi` - Vapi
+ * * `Vespa` - Vespa
+ * * `Writesonic` - Writesonic
+ * * `Aiven` - Aiven
+ * * `Aviator` - Aviator
+ * * `Backblaze` - Backblaze
+ * * `Baseten` - Baseten
+ * * `Browserbase` - Browserbase
+ * * `Cohere` - Cohere
+ * * `DenoDeploy` - DenoDeploy
+ * * `DigitalOcean` - DigitalOcean
+ * * `E2B` - E2B
+ * * `Fintoc` - Fintoc
+ * * `Firecrawl` - Firecrawl
+ * * `FireworksAI` - FireworksAI
+ * * `FlyIo` - FlyIo
+ * * `Groq` - Groq
+ * * `GrowthBook` - GrowthBook
+ * * `Gumloop` - Gumloop
+ * * `Hatchet` - Hatchet
+ * * `Helicone` - Helicone
+ * * `Heroku` - Heroku
+ * * `Hetzner` - Hetzner
+ * * `HeyGen` - HeyGen
+ * * `Infisical` - Infisical
+ * * `Inngest` - Inngest
+ * * `KapaAI` - KapaAI
+ * * `Kernel` - Kernel
+ * * `Koyeb` - Koyeb
+ * * `LambdaLabs` - LambdaLabs
+ * * `LangSmith` - LangSmith
+ * * `Linode` - Linode
+ * * `LlamaCloud` - LlamaCloud
+ * * `Mem0` - Mem0
+ * * `Metriport` - Metriport
+ * * `Mintlify` - Mintlify
+ * * `MistralAI` - MistralAI
+ * * `Mono` - Mono
+ * * `Netlify` - Netlify
+ * * `Northflank` - Northflank
+ * * `OpenAI` - OpenAI
+ * * `Pinecone` - Pinecone
+ * * `PlatformSh` - PlatformSh
+ * * `PromptingCompany` - PromptingCompany
+ * * `Qdrant` - Qdrant
+ * * `Render` - Render
+ * * `Replicate` - Replicate
+ * * `RetellAI` - RetellAI
+ * * `Roark` - Roark
+ * * `RunPod` - RunPod
+ * * `ScaleAI` - ScaleAI
+ * * `Scaleway` - Scaleway
+ * * `SigNoz` - SigNoz
+ * * `Sim` - Sim
+ * * `Skyvern` - Skyvern
+ * * `Slash` - Slash
+ * * `Synthesia` - Synthesia
+ * * `Telli` - Telli
+ * * `TerraApi` - TerraApi
+ * * `TriggerDev` - TriggerDev
+ * * `Turso` - Turso
+ * * `Singular` - Singular
+ * * `Swonkie` - Swonkie
+ * * `TwelveLabs` - TwelveLabs
+ * * `Twenty` - Twenty
+ * * `Unstructured` - Unstructured
+ * * `Upstash` - Upstash
+ * * `Vellum` - Vellum
+ * * `Vultr` - Vultr
+ * * `Windmill` - Windmill
+ * * `Zep` - Zep
+ * * `Hex` - Hex
+ * * `Sumsub` - Sumsub
+ * * `GoogleChat` - GoogleChat
+ * * `Kickscale` - Kickscale
+ * * `Zellify` - Zellify
+ * * `RudderStack` - RudderStack
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2378,6 +2477,105 @@ export const ExternalDataSourceTypeEnumApi = {
     PeecAI: 'PeecAI',
     Healthchecks: 'Healthchecks',
     Impact: 'Impact',
+    AikidoSecurity: 'AikidoSecurity',
+    Alguna: 'Alguna',
+    Anthropic: 'Anthropic',
+    Appwrite: 'Appwrite',
+    BlandAI: 'BlandAI',
+    BrowseAI: 'BrowseAI',
+    BrowserUse: 'BrowserUse',
+    ChartHop: 'ChartHop',
+    Cody: 'Cody',
+    Cursor: 'Cursor',
+    Decagon: 'Decagon',
+    Deepgram: 'Deepgram',
+    ElevenLabs: 'ElevenLabs',
+    Harvey: 'Harvey',
+    Hyperspell: 'Hyperspell',
+    Langfuse: 'Langfuse',
+    LingoDev: 'LingoDev',
+    M3ter: 'M3ter',
+    Maxio: 'Maxio',
+    Metorial: 'Metorial',
+    OpenRouter: 'OpenRouter',
+    TogetherAI: 'TogetherAI',
+    Vapi: 'Vapi',
+    Vespa: 'Vespa',
+    Writesonic: 'Writesonic',
+    Aiven: 'Aiven',
+    Aviator: 'Aviator',
+    Backblaze: 'Backblaze',
+    Baseten: 'Baseten',
+    Browserbase: 'Browserbase',
+    Cohere: 'Cohere',
+    DenoDeploy: 'DenoDeploy',
+    DigitalOcean: 'DigitalOcean',
+    E2b: 'E2B',
+    Fintoc: 'Fintoc',
+    Firecrawl: 'Firecrawl',
+    FireworksAI: 'FireworksAI',
+    FlyIo: 'FlyIo',
+    Groq: 'Groq',
+    GrowthBook: 'GrowthBook',
+    Gumloop: 'Gumloop',
+    Hatchet: 'Hatchet',
+    Helicone: 'Helicone',
+    Heroku: 'Heroku',
+    Hetzner: 'Hetzner',
+    HeyGen: 'HeyGen',
+    Infisical: 'Infisical',
+    Inngest: 'Inngest',
+    KapaAI: 'KapaAI',
+    Kernel: 'Kernel',
+    Koyeb: 'Koyeb',
+    LambdaLabs: 'LambdaLabs',
+    LangSmith: 'LangSmith',
+    Linode: 'Linode',
+    LlamaCloud: 'LlamaCloud',
+    Mem0: 'Mem0',
+    Metriport: 'Metriport',
+    Mintlify: 'Mintlify',
+    MistralAI: 'MistralAI',
+    Mono: 'Mono',
+    Netlify: 'Netlify',
+    Northflank: 'Northflank',
+    OpenAI: 'OpenAI',
+    Pinecone: 'Pinecone',
+    PlatformSh: 'PlatformSh',
+    PromptingCompany: 'PromptingCompany',
+    Qdrant: 'Qdrant',
+    Render: 'Render',
+    Replicate: 'Replicate',
+    RetellAI: 'RetellAI',
+    Roark: 'Roark',
+    RunPod: 'RunPod',
+    ScaleAI: 'ScaleAI',
+    Scaleway: 'Scaleway',
+    SigNoz: 'SigNoz',
+    Sim: 'Sim',
+    Skyvern: 'Skyvern',
+    Slash: 'Slash',
+    Synthesia: 'Synthesia',
+    Telli: 'Telli',
+    TerraApi: 'TerraApi',
+    TriggerDev: 'TriggerDev',
+    Turso: 'Turso',
+    Singular: 'Singular',
+    Swonkie: 'Swonkie',
+    TwelveLabs: 'TwelveLabs',
+    Twenty: 'Twenty',
+    Unstructured: 'Unstructured',
+    Upstash: 'Upstash',
+    Vellum: 'Vellum',
+    Vultr: 'Vultr',
+    Windmill: 'Windmill',
+    Zep: 'Zep',
+    Hex: 'Hex',
+    Sumsub: 'Sumsub',
+    GoogleChat: 'GoogleChat',
+    Kickscale: 'Kickscale',
+    Zellify: 'Zellify',
+    RudderStack: 'RudderStack',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

@@ -137,6 +137,8 @@ export type {
     ReferenceLineStyle,
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
+export { HighlightedRange } from './overlays/HighlightedRange'
+export type { HighlightedRangeProps } from './overlays/HighlightedRange'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'

@@ -1608,8 +1608,9 @@ class HedgeboxMatrix(Matrix):
     def _set_up_file_engagement_experiment(self, team: "Team", user: "User", flag: FeatureFlag) -> None:
         """Create the "File engagement boost" experiment, its shared metrics, and its timeseries data.
 
-        Dates derive from the flag rather than matrix state, so this can be re-run standalone against an
-        already-seeded team (delete the experiment, then call this with the existing flag).
+        Experiment dates derive from the flag rather than matrix state, so this can be re-run standalone
+        against an already-seeded team (delete the experiment, then call this with the existing flag).
+        The timeseries backfill is bounded by the matrix clock, which is where the simulated data ends.
         """
         # The flag is created 2h before the experiment starts — see create_experiment_flag call sites.
         start_date = flag.created_at + dt.timedelta(hours=2)
@@ -1789,7 +1790,11 @@ class HedgeboxMatrix(Matrix):
             status=ExperimentTimeseriesRecalculation.Status.PENDING,
         )
         try:
-            backfill_experiment_timeseries(str(recalculation.id))
+            # Simulated data ends at the matrix clock. The experiment is running (no end_date),
+            # so without this bound the backfill runs one ClickHouse query per day between the
+            # simulated clock and the real today — empty results, and slow enough to hang demo
+            # generation when the clock is pinned to the past.
+            backfill_experiment_timeseries(str(recalculation.id), backfill_until=self.now.date())
         except Exception as e:
             # Timeseries are nice-to-have; never fail demo generation over them
             capture_exception(e)

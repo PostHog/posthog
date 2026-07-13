@@ -55,8 +55,11 @@ MAX_OBSERVATIONS = 100
 # cap guards against) samples across its newest SAMPLE_SCAN_LIMIT observations rather than every row,
 # so this activity can't materialize an unbounded id list.
 SAMPLE_SCAN_LIMIT = 10_000
-# Stay comfortably under Slack's ~40k message-text limit; truncate the tail if a report runs long.
-SLACK_TEXT_MAX = 38_000
+# Keep the whole report inside ONE Slack message. Slack's hard API limit is ~40k characters, but
+# anything over ~4,000 gets auto-split into multiple messages at arbitrary positions — which cuts
+# `<url|[N]>` citation tokens in half and renders both halves as garbage. The full report is always
+# available in-app, so truncate with a pointer instead of risking the split.
+SLACK_TEXT_MAX = 3_900
 
 _SYSTEM_PROMPT = (
     "You are summarizing automated observations of user session recordings into one concise group summary "
@@ -82,13 +85,14 @@ _SYSTEM_PROMPT = (
 
 _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s*(.+?)\s*#*$", re.MULTILINE)
 _MARKDOWN_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
-# `[obs N]` citation markers the model emits (see `_fetch_observations`); the in-app view resolves them to
-# observation links, Slack drops them.
-_OBS_CITATION_RE = re.compile(r"\s*\[obs \d+\]")
+# `[obs N]` citation markers the model emits (see `_fetch_observations`); the in-app view and the Slack pass
+# both resolve them to observation links. The captured group is the 1-based observation number.
+_OBS_CITATION_RE = re.compile(r"\[obs (\d+)\]")
 # Cap adjacent citations on the stored report so an over-cited theme renders a representative handful, not a
-# wall of links. Cross-section variety stays the prompt's job.
+# wall of links. Cross-section variety stays the prompt's job. Markers count as one run across any mix of
+# whitespace/comma/semicolon separators — the model writes `[obs 1], [obs 4]` as often as `[obs 1] [obs 4]`.
 _MAX_CITATIONS_PER_RUN = 6
-_CITATION_RUN_RE = re.compile(r"\[obs \d+\](?:\s*\[obs \d+\])+")
+_CITATION_RUN_RE = re.compile(r"\[obs \d+\](?:[\s,;]*\[obs \d+\])+")
 
 
 def _cap_citation_runs(markdown: str) -> str:
@@ -158,7 +162,7 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
     markdown = strip_external_links_markdown(
         _summary_header(action, batch.window_start, len(batch.lines), batch.window_total) + markdown
     )
-    slack_text = _markdown_to_slack(markdown)
+    slack_text = _markdown_to_slack(markdown, team_id=team.id, observation_ids=batch.observation_ids)
 
     run.synthesized_markdown = markdown
     run.output = {"slack": slack_text}
@@ -445,15 +449,41 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
     return (response.choices[0].message.content or "").strip()
 
 
-def _markdown_to_slack(markdown: str) -> str:
-    """Light Markdown→Slack-mrkdwn pass: headings and **bold** become *bold*. Truncates long reports."""
-    # Drop `[obs N]` markers — Slack can't resolve them to links yet; `synthesized_markdown` keeps them for in-app.
-    text = _OBS_CITATION_RE.sub("", markdown)
+def _observation_url(team_id: int, observation_id: str) -> str:
+    return f"{settings.SITE_URL}/project/{team_id}/replay-vision/observations/{observation_id}"
+
+
+def _citations_to_slack_links(markdown: str, team_id: int, observation_ids: list[str]) -> str:
+    """Resolve each `[obs N]` citation into a Slack `<url|[N]>` link to that observation; drop any that don't
+    resolve (an out-of-range or hallucinated reference) so no bare label lingers. These links are added after
+    `strip_external_links_markdown` has already run, so the observation URLs aren't defanged."""
+
+    def _link(match: "re.Match[str]") -> str:
+        n = int(match.group(1))
+        if 1 <= n <= len(observation_ids):
+            return f"<{_observation_url(team_id, observation_ids[n - 1])}|[{n}]>"
+        return ""
+
+    return _OBS_CITATION_RE.sub(_link, markdown)
+
+
+def _markdown_to_slack(markdown: str, *, team_id: int, observation_ids: list[str]) -> str:
+    """Light Markdown→Slack-mrkdwn pass: headings and **bold** become *bold*, and `[obs N]` citations become
+    `[N]` links to each observation. Truncates long reports."""
+    text = _citations_to_slack_links(markdown, team_id, observation_ids)
     text = _MARKDOWN_HEADING_RE.sub(lambda m: f"*{m.group(1)}*", text)
     text = _MARKDOWN_BOLD_RE.sub(lambda m: f"*{m.group(1)}*", text)
     if len(text) > SLACK_TEXT_MAX:
-        text = text[:SLACK_TEXT_MAX].rstrip() + "\n\n…_(truncated — see the full group summary in PostHog)_"
-        # Re-run link sanitization: truncation may have split a defanged `` `url` `` code span,
-        # dropping the closing backtick and re-exposing the bare URL to Slack's auto-unfurler.
+        cut = text[:SLACK_TEXT_MAX]
+        # Back up to the last line break so the cut can't land inside a `<url|[N]>` link or a
+        # defanged `` `url` `` code span — neither contains a newline. Only if the slice is one
+        # giant line, fall back to cutting just before an unterminated `<...` token.
+        newline = cut.rfind("\n")
+        if newline > 0:
+            cut = cut[:newline]
+        elif cut.rfind("<") > cut.rfind(">"):
+            cut = cut[: cut.rfind("<")]
+        text = cut.rstrip() + "\n\n…_(truncated — see the full group summary in PostHog)_"
+        # Re-run link sanitization as a belt-and-braces guard against any re-exposed bare URL.
         text = strip_external_links_markdown(text)
     return text

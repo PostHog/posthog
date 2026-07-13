@@ -19,7 +19,7 @@ from django.utils.text import slugify
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -29,10 +29,10 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
@@ -59,6 +59,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
+    ExperimentSessionContextResponseSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -81,6 +82,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance,
     calculate_variance_from_stats,
 )
+from products.experiments.backend.session_context import get_session_experiment_context
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
@@ -90,8 +92,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 from products.tasks.backend.facade.access import has_tasks_access
-
-from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 
 tracer = trace.get_tracer(__name__)
 
@@ -213,12 +213,13 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
                 name="status",
                 location=OpenApiParameter.QUERY,
                 type=str,
-                enum=["draft", "running", "paused", "stopped", "complete", "all"],
+                enum=["draft", "running", "paused", "exposure_frozen", "stopped", "complete", "all"],
                 description=(
-                    'Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns '
-                    'launched experiments with an active feature flag, "paused" returns launched experiments whose '
-                    'feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status '
-                    "filtering."
+                    'Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: '
+                    '"running" returns launched experiments with an active feature flag, "paused" returns launched '
+                    'experiments whose feature flag is deactivated, and "exposure_frozen" returns launched '
+                    "experiments whose exposure was frozen to the already-enrolled cohort while metrics keep "
+                    'flowing. "complete" is an alias for "stopped". "all" disables status filtering.'
                 ),
                 required=False,
             ),
@@ -402,21 +403,6 @@ class EnterpriseExperimentsViewSet(
         else:
             return True
         return "*" in scopes or "feature_flag:write" in scopes
-
-    # ******************************************
-    # /projects/:id/experiments/requires_flag_implementation
-    #
-    # Returns current results of an experiment, and graphs
-    # 1. Probability of success
-    # 2. Funnel breakdown graph to display
-    # ******************************************
-    @action(methods=["GET"], detail=False, required_scopes=["experiment:read"])
-    def requires_flag_implementation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        filter = Filter(request=request, team=self.team).shallow_clone({"date_from": "-7d", "date_to": ""})
-
-        warning = requires_flag_warning(filter, self.team)
-
-        return Response({"result": warning})
 
     @extend_schema(
         request=None,
@@ -625,6 +611,51 @@ class EnterpriseExperimentsViewSet(
         responses=ExperimentSerializer,
     )
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def freeze_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Freeze exposure on a running experiment while metrics keep flowing.
+
+        Snapshots the already-exposed users into a static cohort and narrows the
+        linked feature flag so only those users keep matching — new users can no
+        longer enter the experiment. ``end_date`` is left null so long-term metrics
+        (revenue/LTV/renewals/retention) keep accumulating. Enrolled users keep
+        their assigned variant. The serialized status becomes 'exposure_frozen'.
+
+        Returns 400 if the experiment is not running, exposure is already frozen,
+        the experiment is group-aggregated (group flags cannot be frozen with a
+        person cohort), or the exposed set is too large to snapshot synchronously.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        frozen_experiment = service.freeze_exposure(experiment, request=request)
+        return Response(ExperimentSerializer(frozen_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def unfreeze_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Reopen enrollment on an exposure-frozen experiment.
+
+        Removes the snapshot-cohort condition and freeze markers from every release
+        group, restoring the flag's original targeting: new users can enroll again
+        and already-enrolled users keep their assigned variant. The snapshot cohort
+        is soft-deleted. The serialized status returns to 'running'.
+
+        Returns 400 if the experiment is not running or its exposure is not frozen.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        unfrozen_experiment = service.unfreeze_exposure(experiment, request=request)
+        return Response(ExperimentSerializer(unfrozen_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def reset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Reset an experiment back to draft state.
@@ -723,13 +754,17 @@ class EnterpriseExperimentsViewSet(
             feature_flag_key=feature_flag_key,
             description=data.get("description", ""),
             parameters={
-                "feature_flag_variants": variants,
-                "feature_flag_payloads": feature_flag_payloads,
-                "rollout_percentage": 100,
                 "prompt_metadata": {
                     "name": prompt_name,
                     "templates": templates,
                     "versions": versions,
+                },
+            },
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {"variants": variants},
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": feature_flag_payloads,
                 },
             },
             metrics=metrics,
@@ -1135,6 +1170,50 @@ class EnterpriseExperimentsViewSet(
                 "recommended_running_time_days": calculate_running_time_days(recommended_sample_size, exposure_rate),
             }
         )
+
+    @extend_schema(
+        description=(
+            "Resolve which experiments (and variants) a session recording saw. Variants come from the session's "
+            "$feature_flag_called events and stamped $feature/<key> event properties — flag evaluation, which may "
+            "differ from an experiment's exposure criteria."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="session_id",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                required=True,
+                description="ID of the session recording to resolve experiment context for.",
+            ),
+        ],
+        responses={200: OpenApiResponse(response=ExperimentSessionContextResponseSerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="session_context",
+        required_scopes=["experiment:read", "session_recording:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def session_context(self, request: Request, **kwargs: Any) -> Response:
+        session_id = (request.query_params.get("session_id") or "").strip()
+        if not session_id:
+            raise ValidationError({"session_id": ["This field is required."]})
+
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading session experiment context requires session replay access.")
+
+        # detail=False actions skip the automatic list-action ACL filtering, so filter here —
+        # private experiments must not leak into another user's session context.
+        experiments = self.user_access_control.filter_queryset_by_access_level(
+            Experiment.objects.filter(team_id=self.team.pk)
+        )
+        items = get_session_experiment_context(team=self.team, session_id=session_id, experiments=experiments)
+        if items is None:
+            raise NotFound("Recording not found")
+
+        serializer = ExperimentSessionContextResponseSerializer({"session_id": session_id, "results": items})
+        return Response(serializer.data)
 
 
 def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:

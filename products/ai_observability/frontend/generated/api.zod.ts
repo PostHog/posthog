@@ -234,23 +234,27 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                             'azure_openai',
                             'together_ai',
                             'minimax',
+                            'zeabur',
                         ])
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                         ),
                     model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
                         .uuid()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullable(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -386,23 +390,27 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                             'azure_openai',
                             'together_ai',
                             'minimax',
+                            'zeabur',
                         ])
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                         ),
                     model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
                         .uuid()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullable(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -540,23 +548,27 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             'azure_openai',
                             'together_ai',
                             'minimax',
+                            'zeabur',
                         ])
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                         ),
                     model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
                         .uuid()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullable(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -1104,9 +1116,19 @@ export const llmAnalyticsProviderKeysCreateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai', 'minimax'])
+        .enum([
+            'openai',
+            'anthropic',
+            'gemini',
+            'openrouter',
+            'fireworks',
+            'azure_openai',
+            'together_ai',
+            'minimax',
+            'zeabur',
+        ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1127,9 +1149,19 @@ export const llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai', 'minimax'])
+        .enum([
+            'openai',
+            'anthropic',
+            'gemini',
+            'openrouter',
+            'fireworks',
+            'azure_openai',
+            'together_ai',
+            'minimax',
+            'zeabur',
+        ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1150,10 +1182,20 @@ export const llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai', 'minimax'])
+        .enum([
+            'openai',
+            'anthropic',
+            'gemini',
+            'openrouter',
+            'fireworks',
+            'azure_openai',
+            'together_ai',
+            'minimax',
+            'zeabur',
+        ])
         .optional()
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
@@ -1177,9 +1219,19 @@ export const llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysAssignCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai', 'minimax'])
+        .enum([
+            'openai',
+            'anthropic',
+            'gemini',
+            'openrouter',
+            'fireworks',
+            'azure_openai',
+            'together_ai',
+            'minimax',
+            'zeabur',
+        ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysAssignCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1200,9 +1252,19 @@ export const llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault = fals
 
 export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai', 'minimax'])
+        .enum([
+            'openai',
+            'anthropic',
+            'gemini',
+            'openrouter',
+            'fireworks',
+            'azure_openai',
+            'together_ai',
+            'minimax',
+            'zeabur',
+        ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1883,12 +1945,13 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
                         'azure_openai',
                         'together_ai',
                         'minimax',
+                        'zeabur',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     ),
                 model: zod
                     .string()
@@ -2021,12 +2084,13 @@ export const TaggersUpdateBody = /* @__PURE__ */ zod.object({
                         'azure_openai',
                         'together_ai',
                         'minimax',
+                        'zeabur',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     ),
                 model: zod
                     .string()
@@ -2161,12 +2225,13 @@ export const TaggersPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'azure_openai',
                         'together_ai',
                         'minimax',
+                        'zeabur',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     ),
                 model: zod
                     .string()

@@ -1,4 +1,4 @@
-//! Media detection + placeholder/blur dispatch. Mirrors `anonymize/assets.ts`.
+//! Media detection + placeholder/blur dispatch.
 //! Blur runs inline (native), so there is no deferred-job/blank-first dance — the attribute lands on
 //! its final blurred (or placeholder) value directly.
 

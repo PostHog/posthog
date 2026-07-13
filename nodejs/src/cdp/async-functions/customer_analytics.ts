@@ -1,8 +1,30 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { captureException } from '~/common/utils/posthog'
+import { Team } from '~/types'
 
-import { registerAsyncFunction } from '../async-function-registry'
+import { AsyncFunctionContext, registerAsyncFunction } from '../async-function-registry'
+
+async function getTeamWithSecretToken(context: AsyncFunctionContext, functionName: string): Promise<Team> {
+    const team = await context.teamManager.getTeam(context.invocation.teamId)
+    if (!team) {
+        throw new Error(`Team ${context.invocation.teamId} not found`)
+    }
+    if (!team.secret_api_token) {
+        const error = new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
+        captureException(error, {
+            tags: {
+                team_id: context.invocation.teamId,
+                function: functionName,
+                template_id: context.invocation.hogFunction.template_id ?? null,
+            },
+        })
+        throw error
+    }
+    return team
+}
 
 registerAsyncFunction('postHogGetAccount', {
     execute: async (args, context, result) => {
@@ -13,19 +35,11 @@ registerAsyncFunction('postHogGetAccount', {
             throw new Error("[HogFunction] - postHogGetAccount call missing 'external_id' property")
         }
 
-        const team = await context.teamManager.getTeam(context.invocation.teamId)
-        if (!team) {
-            throw new Error(`Team ${context.invocation.teamId} not found`)
-        }
-        if (!team.secret_api_token) {
-            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
-        }
+        const team = await getTeamWithSecretToken(context, 'postHogGetAccount')
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
-            url: `${context.siteUrl}/api/customer_analytics/external/account?external_id=${encodeURIComponent(
-                externalId
-            )}`,
+            url: `${context.siteUrl}/api/customer_analytics/external/account?external_id=${encodeURIComponent(externalId)}`,
             method: 'GET',
             headers: { Authorization: `Bearer ${team.secret_api_token}` },
         })
@@ -62,6 +76,10 @@ registerAsyncFunction('postHogGetAccount', {
                     CSM: [{ user_id: 1, email: 'csm@example.com' }],
                     'Account executive': [{ user_id: 2, email: 'ae@example.com' }],
                 },
+                custom_properties: {
+                    Plan: 'enterprise',
+                    'MRR (net)': 1234,
+                },
             },
         }
     },
@@ -77,12 +95,16 @@ registerAsyncFunction('postHogUpdateAccount', {
             throw new Error("[HogFunction] - postHogUpdateAccount call missing 'external_id' property")
         }
 
-        const team = await context.teamManager.getTeam(context.invocation.teamId)
-        if (!team) {
-            throw new Error(`Team ${context.invocation.teamId} not found`)
+        const team = await getTeamWithSecretToken(context, 'postHogUpdateAccount')
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${team.secret_api_token}`,
         }
-        if (!team.secret_api_token) {
-            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
+
+        const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
+        if (hogFlow?.id) {
+            headers['X-PostHog-Hog-Flow-Id'] = hogFlow.id
         }
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
@@ -90,10 +112,7 @@ registerAsyncFunction('postHogUpdateAccount', {
             url: `${context.siteUrl}/api/customer_analytics/external/account`,
             method: 'PATCH',
             body: JSON.stringify({ external_id: externalId, ...updates }),
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${team.secret_api_token}`,
-            },
+            headers,
         })
     },
 
@@ -126,13 +145,7 @@ registerAsyncFunction('postHogSetAccountProperties', {
             throw new Error("[HogFunction] - postHogSetAccountProperties call missing 'external_id' property")
         }
 
-        const team = await context.teamManager.getTeam(context.invocation.teamId)
-        if (!team) {
-            throw new Error(`Team ${context.invocation.teamId} not found`)
-        }
-        if (!team.secret_api_token) {
-            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
-        }
+        const team = await getTeamWithSecretToken(context, 'postHogSetAccountProperties')
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',

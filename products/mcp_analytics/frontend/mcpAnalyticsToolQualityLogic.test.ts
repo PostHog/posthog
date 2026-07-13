@@ -84,7 +84,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
         }
 
-        it('reloads the tool rows and daily stats with the new date range when the date filter changes', async () => {
+        it('reloads the tool rows, daily stats and category counts with the new date range when the date filter changes', async () => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -95,8 +95,10 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             }).toFinishAllListeners()
 
             const newCalls = queryCallsSince(callsBefore)
-            expect(newCalls.length).toBe(2) // tool rows + daily stats
+            expect(newCalls.length).toBe(3) // tool rows + daily stats + category counts
+            // The scope-share headline must track the same window as the rest of the tab.
             expect(newCalls.map((call) => call.filters.dateRange)).toEqual([
+                { date_from: '-30d', date_to: null },
                 { date_from: '-30d', date_to: null },
                 { date_from: '-30d', date_to: null },
             ])

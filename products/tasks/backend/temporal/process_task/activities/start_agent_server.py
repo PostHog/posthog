@@ -20,12 +20,13 @@ from products.tasks.backend.logic.services.connection_token import create_sandbo
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, record_agent_server_session_init_ms, record_boot_total_ms
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     format_allowed_domains_for_log,
     get_sandbox_ph_mcp_configs,
+    get_task_run_credential_user,
     get_user_mcp_server_configs,
     mark_mcp_token_issued,
 )
@@ -175,10 +176,21 @@ def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
     return None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
 
 
+def _include_personal_mcp_for_task(task: Task) -> bool:
+    """Whether a run may pull the task creator's *personal* MCP installations.
+
+    Internal/autonomous runs (support reply, signals) must never pull a
+    resolved member's personal creds — they get shared team connections only.
+    User-initiated Code runs get shared + the creator's personal installs.
+    """
+    return not task.internal
+
+
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
     try:
-        task = Task.objects.select_related("created_by").get(id=ctx.task_id)
-        access_token = create_oauth_access_token(task, scopes=scopes)
+        task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
     except OAuthTokenError:
         raise
     except Exception as e:
@@ -212,15 +224,16 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         interaction_origin=ctx.interaction_origin,
         task_id=str(ctx.task_id),
     )
-    if task.created_by_id:
-        user_mcp_configs = get_user_mcp_server_configs(
-            token=access_token,
-            team_id=ctx.team_id,
-            user_id=task.created_by_id,
-            interaction_origin=ctx.interaction_origin,
-        )
-        if user_mcp_configs:
-            mcp_configs = mcp_configs + user_mcp_configs
+    include_personal = _include_personal_mcp_for_task(task)
+    user_mcp_configs = get_user_mcp_server_configs(
+        token=access_token,
+        team_id=ctx.team_id,
+        user_id=actor_user.id if actor_user else None,
+        include_personal=include_personal,
+        interaction_origin=ctx.interaction_origin,
+    )
+    if user_mcp_configs:
+        mcp_configs = mcp_configs + user_mcp_configs
 
     if mcp_configs:
         emit_agent_log(
@@ -292,6 +305,7 @@ def _invoke_start_agent_server(
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            initial_permission_mode=ctx.initial_permission_mode,
             mcp_configs=params.mcp_configs or None,
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
@@ -299,12 +313,21 @@ def _invoke_start_agent_server(
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
+            rtk_enabled=ctx.rtk_enabled,
         )
 
         # Mark startup-time token issuance so follow-ups within the next
         # 30m window skip the redundant refresh.
         if params.mcp_configs:
             mark_mcp_token_issued(ctx.run_id)
+
+        # Persist the effective rtk posture the agent launched with, so terminal
+        # analytics can cohort runs by it (the state override alone misses the
+        # kill-switch flag). Best-effort: never fail the launch over it.
+        try:
+            TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
+        except Exception:
+            logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)

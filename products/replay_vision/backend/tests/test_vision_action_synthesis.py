@@ -1,9 +1,11 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -130,11 +132,10 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertIn("[obs 2] (", prompts[0])
         self.assertNotIn("[obs 3]", prompts[0])
 
-    def test_slack_drops_citations_that_markdown_keeps(self) -> None:
-        # The canonical report keeps the `[obs N]` citation markers for the in-app renderer to resolve into
-        # links; the Slack payload drops them (Slack has no observation deep-link to resolve them to yet), so
-        # the prose stays clean rather than carrying bare labels.
-        self._observation("Users churned at checkout", title="Checkout")
+    def test_slack_renders_citations_as_observation_links(self) -> None:
+        # The canonical report keeps the raw `[obs N]` markers for the in-app renderer; the Slack payload
+        # resolves them to `<url|[N]>` links so a Slack reader can open the recording behind a cited theme.
+        obs = self._observation("Users churned at checkout", title="Checkout")
         action = self._action()
         run = self._run_for(action)
 
@@ -142,19 +143,40 @@ class TestVisionActionSynthesis(BaseTest):
 
         run.refresh_from_db()
         self.assertIn("[obs 1]", run.synthesized_markdown)
+        expected_link = f"<{settings.SITE_URL}/project/{self.team.id}/replay-vision/observations/{obs.id}|[1]>"
+        self.assertIn(expected_link, run.output["slack"])
         self.assertNotIn("[obs 1]", run.output["slack"])
-        self.assertIn("Users hit friction at checkout.", run.output["slack"])
 
-    def test_caps_runaway_citation_lists(self) -> None:
+    def test_slack_drops_unresolvable_citation(self) -> None:
+        # A citation the model invents past the observation count can't resolve to a link, so it's dropped
+        # rather than emitted as a dead label or a link to the wrong recording.
+        self._observation("Users churned at checkout", title="Checkout")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="Friction everywhere [obs 9].")
+
+        run.refresh_from_db()
+        self.assertNotIn("[9]", run.output["slack"])
+        self.assertNotIn("[obs 9]", run.output["slack"])
+
+    @parameterized.expand(
+        [
+            ("space_separated", " "),
+            ("comma_separated", ", "),
+        ]
+    )
+    def test_caps_runaway_citation_lists(self, _label: str, separator: str) -> None:
         # A theme the model backs with many recordings must not render a wall of citations: an adjacent run
         # is trimmed to a representative handful, keeping the first few. Guards both the in-app markdown and
-        # (once it renders links) the Slack payload, since the cap runs on the stored report.
+        # (once it renders links) the Slack payload, since the cap runs on the stored report. The model
+        # separates citations with commas as often as spaces — both shapes must count as one run.
         for i in range(10):
             self._observation(f"obs {i}", session_id=f"s{i}")
         action = self._action()
         run = self._run_for(action)
 
-        citations = " ".join(f"[obs {i}]" for i in range(1, 10))  # 9 adjacent citations
+        citations = separator.join(f"[obs {i}]" for i in range(1, 10))  # 9 adjacent citations
         self._synthesize(action, run, llm_content=f"Users hit friction across this flow {citations}.")
 
         run.refresh_from_db()
@@ -596,15 +618,29 @@ class TestMarkdownToSlack(BaseTest):
         ]
     )
     def test_markdown_converted_to_slack_mrkdwn(self, _label: str, markdown: str, expected: str) -> None:
-        out = _markdown_to_slack(markdown)
+        out = _markdown_to_slack(markdown, team_id=self.team.id, observation_ids=[])
         self.assertIn(expected, out)
         self.assertNotIn("#", out)
         self.assertNotIn("**", out)
 
     def test_truncates_long_text(self) -> None:
-        out = _markdown_to_slack("x" * 50_000)
-        self.assertLessEqual(len(out), 39_000)
+        # Slack auto-splits messages over ~4k characters, so the payload must always fit one message.
+        out = _markdown_to_slack("x" * 50_000, team_id=self.team.id, observation_ids=[])
+        self.assertLessEqual(len(out), 4_000)
         self.assertIn("truncated", out)
+
+    def test_truncation_does_not_split_a_citation_link(self) -> None:
+        # A citation link straddling the cut point must be dropped whole, not cut in half — a dangling
+        # `<https://…` renders as garbage in Slack. The cut backs up to the previous line break.
+        from products.replay_vision.backend.temporal.vision_actions.synthesis import SLACK_TEXT_MAX
+
+        obs_id = str(uuid4())
+        text = "a" * (SLACK_TEXT_MAX - 50) + "\n" + "More friction at checkout [obs 1] and beyond. " * 5
+        out = _markdown_to_slack(text, team_id=self.team.id, observation_ids=[obs_id])
+        self.assertLessEqual(len(out), 4_000)
+        self.assertIn("truncated", out)
+        self.assertEqual(out.count("<"), out.count(">"))
+        self.assertNotIn(obs_id[:8], out)  # the straddling link is gone entirely, not half-emitted
 
     def test_truncation_does_not_re_expose_defanged_url(self) -> None:
         # A non-PostHog URL straddling SLACK_TEXT_MAX must stay defanged after truncation.
@@ -613,7 +649,7 @@ class TestMarkdownToSlack(BaseTest):
 
         padding = "a" * (SLACK_TEXT_MAX - 5)
         evil = "https://evil.example.com/exfil"
-        out = _markdown_to_slack(padding + evil)
+        out = _markdown_to_slack(padding + evil, team_id=self.team.id, observation_ids=[])
         # The host must not appear as a live (unquoted) URL in the output.
         sanitized = out.replace("`https://evil.example.com/exfil`", "")
         self.assertNotIn("https://evil.example.com/exfil", sanitized)

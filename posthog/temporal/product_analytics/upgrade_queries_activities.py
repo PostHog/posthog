@@ -7,7 +7,8 @@ from django.db import connection
 from structlog import get_logger
 from temporalio import activity
 
-from posthog.schema_migrations import LATEST_VERSIONS
+from posthog.exceptions_capture import capture_exception
+from posthog.schema_migrations import LATEST_VERSIONS, _discover_migrations
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.product_analytics.backend.models.insight import Insight
@@ -42,7 +43,13 @@ class GetInsightsToMigrateActivityResult:
 
 @activity.defn
 def get_insights_to_migrate(inputs: GetInsightsToMigrateActivityInputs) -> GetInsightsToMigrateActivityResult:
+    _discover_migrations()  # Populate LATEST_VERSIONS; this is the first activity in the workflow
+
     clauses = [_clause(k, v) for k, v in sorted(LATEST_VERSIONS.items())]
+    if not clauses:
+        # No migrations registered — guard against emitting `WHERE ()`, which Postgres rejects
+        return GetInsightsToMigrateActivityResult(insight_ids=[], last_id=inputs.after_id)
+
     after_clause = "" if inputs.after_id is None else f"\nAND id > {inputs.after_id}"
     where_body = ("\n   OR  ").join(clauses)
     sql = f"""
@@ -79,9 +86,12 @@ def migrate_insights_batch(inputs: MigrateInsightsBatchActivityInputs) -> list[i
     for insight in insights:
         try:
             insight.query = upgrade(cast(dict[Any, Any], insight.query))
-            insight.save()
+            # Narrow write: a full save would clobber concurrent user edits to other fields with
+            # the stale values read above. Insight.save() appends query_metadata when regenerated.
+            insight.save(update_fields=["query"])
         except Exception as e:
             logger.exception(f"Error migrating insight {insight.id}: {str(e)}")
+            capture_exception(e, {"insight_id": insight.id, "team_id": insight.team_id})
             failed.append(insight.id)
 
     return failed

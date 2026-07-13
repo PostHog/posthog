@@ -437,6 +437,7 @@ export const EvaluationTargetEnumApi = {
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
+ * * `zeabur` - Zeabur AI Hub
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -449,6 +450,7 @@ export const LLMProviderEnumApi = {
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
+    Zeabur: 'zeabur',
 } as const
 
 /**
@@ -459,7 +461,7 @@ export interface ModelConfigurationApi {
     /** @maxLength 100 */
     model: string
     /**
-     * Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.
+     * Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.
      * @nullable
      */
     provider_key_id?: string | null
@@ -552,6 +554,7 @@ export interface EvaluationApi {
     target?: EvaluationTargetEnumApi
     /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
     target_config?: EvaluationApiTargetConfig
+    /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
@@ -654,6 +657,7 @@ export interface PatchedEvaluationApi {
     target?: EvaluationTargetEnumApi
     /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
     target_config?: PatchedEvaluationApiTargetConfig
+    /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
     readonly created_at?: string
     readonly updated_at?: string
@@ -2221,7 +2225,8 @@ export interface TaggerModelConfigurationApi {
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
-     * * `minimax` - MiniMax */
+     * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2274,7 +2279,8 @@ export interface TaggerModelConfigurationWriteApi {
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
-     * * `minimax` - MiniMax */
+     * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2583,6 +2589,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openai: 'openai',
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',
+    Zeabur: 'zeabur',
 } as const
 
 export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }

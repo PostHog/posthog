@@ -18,6 +18,7 @@ import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import {
@@ -174,9 +175,17 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
     const goalLines = retentionFilter?.goalLines ?? EMPTY_GOAL_LINES
 
     const lineConfig = useChartConfig(
-        () =>
-            buildRetentionLineChartConfig({ isPercentage, goalLines, showTrendLines, series, tooltip: TOOLTIP_CONFIG }),
-        [isPercentage, goalLines, showTrendLines, series, TOOLTIP_CONFIG]
+        () => ({
+            ...buildRetentionLineChartConfig({
+                isPercentage,
+                goalLines,
+                showTrendLines,
+                series,
+                tooltip: TOOLTIP_CONFIG,
+            }),
+            curve: chartStyleCurve(retentionFilter?.chartStyle),
+        }),
+        [isPercentage, goalLines, showTrendLines, series, TOOLTIP_CONFIG, retentionFilter?.chartStyle]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

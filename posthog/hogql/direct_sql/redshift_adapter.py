@@ -1,0 +1,174 @@
+from typing import TYPE_CHECKING, cast
+
+import psycopg
+import sqlparse
+from opentelemetry import trace
+from sqlparse import tokens as sqlparse_tokens
+
+from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.capability import is_direct_capable
+from posthog.hogql.direct_sql.postgres_adapter import postgres_error_to_message, postgres_oid_to_clickhouse_type
+from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.escape_sql import escape_postgres_identifier
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+    from products.warehouse_sources.backend.facade.models import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+        RedshiftImplementation,
+    )
+
+DIRECT_REDSHIFT_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
+# Hard backstop against loading an unbounded result set into memory — guards a raw passthrough
+# `SELECT * FROM huge_table` with no LIMIT. HogQL-authored queries already carry a LIMIT from
+# the printer.
+DIRECT_REDSHIFT_MAX_ROWS = 1_000_000
+DIRECT_REDSHIFT_ROW_CAP_ERROR = (
+    f"Redshift query returned more than {DIRECT_REDSHIFT_MAX_ROWS:,} rows. Add a LIMIT clause."
+)
+RAW_REDSHIFT_READ_ONLY_ERROR = "Raw Redshift queries must be read-only SELECT statements."
+RAW_REDSHIFT_BLOCKED_FUNCTION_ERROR = "This Redshift function is not allowed in direct queries."
+
+# Redshift's system-administration functions run from a plain SELECT, so the read-only statement
+# gate alone doesn't stop a viewer cancelling other queries, changing priorities, or rebooting
+# the cluster when the configured credential has the privilege.
+_RAW_REDSHIFT_BLOCKED_FUNCTIONS = frozenset(
+    {
+        "CHANGE_QUERY_PRIORITY",
+        "CHANGE_SESSION_PRIORITY",
+        "CHANGE_USER_PRIORITY",
+        "PG_CANCEL_BACKEND",
+        "PG_TERMINATE_BACKEND",
+        "REBOOT_CLUSTER",
+        "SET_CONFIG",
+    }
+)
+
+
+def _fetch_capped_redshift_rows(cursor: psycopg.Cursor) -> list:
+    """Fetch up to the row cap, raising if the result would exceed it.
+
+    Reads one row past the cap so the limit can be enforced without materializing the entire
+    result set first.
+    """
+    rows = cursor.fetchmany(DIRECT_REDSHIFT_MAX_ROWS + 1)
+    if len(rows) > DIRECT_REDSHIFT_MAX_ROWS:
+        DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="redshift").inc()
+        raise ExposedHogQLError(DIRECT_REDSHIFT_ROW_CAP_ERROR)
+    return list(rows)
+
+
+def ensure_read_only_raw_redshift_statement(sql: str) -> str:
+    """Enforce read-only for raw Redshift SQL.
+
+    Redshift, unlike Postgres, exposes no read-only transaction switch — its settable server
+    parameters don't include ``default_transaction_read_only``. So read-only is enforced our side
+    (as with Snowflake): a raw statement must be a single ``SELECT``, and any DDL — or any DML
+    keyword other than ``SELECT`` anywhere in the statement (e.g. a write smuggled into a
+    subquery) — is rejected. ``INTO`` is rejected too: Redshift supports ``SELECT ... INTO``,
+    which creates and populates a table while still tokenizing as a plain SELECT. Redshift's
+    system-administration functions (``PG_CANCEL_BACKEND`` etc.) are rejected by name, as in the
+    Snowflake adapter, since they're callable from a plain SELECT. HogQL-authored queries only
+    ever emit SELECT. String values and quoted identifiers aren't tagged DML/DDL/keyword/name,
+    so a literal or alias like ``'DELETE'`` or a quoted column ``"pg_cancel_backend"`` is
+    unaffected.
+    """
+    sql = ensure_single_direct_statement(sql)
+    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    if len(statements) != 1 or statements[0].get_type() != "SELECT":
+        raise ExposedHogQLError(RAW_REDSHIFT_READ_ONLY_ERROR)
+    for token in statements[0].flatten():
+        if token.ttype in sqlparse_tokens.DDL:
+            raise ExposedHogQLError(RAW_REDSHIFT_READ_ONLY_ERROR)
+        if token.ttype in sqlparse_tokens.DML and token.value.upper() != "SELECT":
+            raise ExposedHogQLError(RAW_REDSHIFT_READ_ONLY_ERROR)
+        if token.ttype in sqlparse_tokens.Keyword and token.value.upper() == "INTO":
+            raise ExposedHogQLError(RAW_REDSHIFT_READ_ONLY_ERROR)
+        if token.ttype in sqlparse_tokens.Name and token.value.upper() in _RAW_REDSHIFT_BLOCKED_FUNCTIONS:
+            raise ExposedHogQLError(RAW_REDSHIFT_BLOCKED_FUNCTION_ERROR)
+    return sql
+
+
+class RedshiftAdapter:
+    engine = "redshift"
+    dialect: HogQLDialect | None = "redshift"
+
+    def validate_source_config(
+        self, source: "ExternalDataSource", team: "Team"
+    ) -> tuple["RedshiftImplementation", "RedshiftSourceConfig"]:
+        from products.warehouse_sources.backend.facade.source_management import RedshiftSource, SourceRegistry
+        from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+        # Capability, not access_method: a synced source with the direct-query toggle on is valid too.
+        if not (is_direct_capable(source) and source.direct_engine == self.engine):
+            raise ExposedHogQLError("Invalid direct Redshift connection.")
+
+        redshift_source = cast(RedshiftSource, SourceRegistry.get_source(ExternalDataSourceType.REDSHIFT))
+        config = redshift_source.parse_config(source.job_inputs or {})
+
+        is_ssh_valid, ssh_valid_errors = redshift_source.ssh_tunnel_is_valid(config, team.pk)
+        if not is_ssh_valid:
+            raise ExposedHogQLError(ssh_valid_errors or "Invalid SSH tunnel configuration.")
+
+        valid_host, host_errors = redshift_source.is_database_host_valid(
+            config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+        )
+        if not valid_host:
+            raise ExposedHogQLError(host_errors or "Invalid Redshift host.")
+
+        return redshift_source.get_implementation, config
+
+    def prepare_raw_sql(self, sql: str) -> str:
+        return ensure_read_only_raw_redshift_statement(sql)
+
+    def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
+        source = request.source
+        redshift_implementation, source_config = self.validate_source_config(source, request.team)
+        source_schema = source_config.schema
+        settings = request.settings
+        statement_timeout_ms = (
+            max(settings.max_execution_time or DIRECT_REDSHIFT_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
+        )
+
+        span = trace.get_current_span()
+        span.set_attribute("team_id", request.team.pk)
+        span.set_attribute("query_type", request.query_type)
+        span.set_attribute("source_id", str(source.id))
+
+        try:
+            with request.timings.measure("redshift_execute"), observe_direct_query("redshift"):
+                # `connect` opens the SSH tunnel (if any) and applies the shared Redshift SSL
+                # conventions in one place.
+                with redshift_implementation.connect(source_config) as connection:
+                    # One round trip for the session setup: statement_timeout is a validated int
+                    # (milliseconds) so inlining it is injection-safe, and the search_path
+                    # identifier is escaped. Multi-statement execute is fine with no parameters.
+                    session_setup = f"SET statement_timeout TO {statement_timeout_ms}"
+                    if isinstance(source_schema, str) and source_schema.strip():
+                        session_setup += f"; SET search_path TO {escape_postgres_identifier(source_schema.strip())}"
+                    connection.execute(session_setup)
+                    with connection.cursor() as cursor:
+                        cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
+                            request.sql, request.values or None
+                        )
+                        # Utility statements (SET, etc.) leave cursor.description as None; treat them
+                        # as an empty result instead of raising on fetch, mirroring Postgres.
+                        description = cursor.description or []
+                        results = _fetch_capped_redshift_rows(cursor) if description else []
+        except (psycopg.Error, ExposedHogQLError) as error:
+            span.set_attribute("error_type", error.__class__.__name__)
+            if request.debug:
+                return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))
+            raise ExposedHogQLError(postgres_error_to_message(error)) from error
+
+        span.set_attribute("row_count", len(results))
+        types: list[tuple[str, str]] = [
+            (column.name, postgres_oid_to_clickhouse_type(getattr(column, "type_code", None))) for column in description
+        ]
+        print_columns = [column.name for column in description]
+        return DirectQueryResult(results=results, types=types, print_columns=print_columns)

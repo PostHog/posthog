@@ -150,6 +150,7 @@ export interface PatchedSignalReportContentUpdateApi {
  * * `llm_analytics` - llm_analytics
  * * `github` - github
  * * `linear` - linear
+ * * `jira` - jira
  * * `zendesk` - zendesk
  * * `conversations` - conversations
  * * `error_tracking` - error_tracking
@@ -167,6 +168,7 @@ export const SignalSourceProductApi = {
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
     Linear: 'linear',
+    Jira: 'jira',
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
@@ -298,6 +300,17 @@ export interface LinearIssueSignalExtraApi {
     team_name: string | null
     created_at: string
     updated_at: string
+}
+
+export interface JiraIssueSignalExtraApi {
+    key: string
+    url: string | null
+    status: string | null
+    priority: string | null
+    assignee: string | null
+    labels: string[]
+    created: string | null
+    updated: string | null
 }
 
 export interface ConversationsTicketSignalExtraApi {
@@ -461,6 +474,7 @@ export type SignalExtraApi =
     | ZendeskTicketSignalExtraApi
     | GithubIssueSignalExtraApi
     | LinearIssueSignalExtraApi
+    | JiraIssueSignalExtraApi
     | ConversationsTicketSignalExtraApi
     | ErrorTrackingSignalExtraApi
     | PgAnalyzeIssueSignalExtraApi
@@ -513,6 +527,7 @@ export interface SignalNodeApi {
      * * `llm_analytics` - llm_analytics
      * * `github` - github
      * * `linear` - linear
+     * * `jira` - jira
      * * `zendesk` - zendesk
      * * `conversations` - conversations
      * * `error_tracking` - error_tracking
@@ -1538,7 +1553,7 @@ export interface ProjectProfileInventoryApi {
     emit_eligibility: EmitEligibilityApi
     /** Counts of reports already in the inbox, grouped by status. */
     existing_inbox_reports: ExistingInboxReportsApi
-    /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
+    /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`. */
     recent_activity: RecentActivityApi
     /** Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys. */
     recent_reviewer_corrections: RecentReviewerCorrectionsApi
@@ -2180,6 +2195,7 @@ export interface ForgetResponseApi {
  * * `llm_analytics` - LLM analytics
  * * `github` - GitHub
  * * `linear` - Linear
+ * * `jira` - Jira
  * * `zendesk` - Zendesk
  * * `conversations` - Conversations
  * * `error_tracking` - Error tracking
@@ -2198,6 +2214,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
     Linear: 'linear',
+    Jira: 'jira',
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',

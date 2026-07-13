@@ -1,6 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-
 import type { EvaluationConfig, EvaluationOutputType, EvaluationType, LLMJudgeEvaluation } from './types'
 
 export function isBooleanEvaluationOutput(outputType: EvaluationOutputType | null | undefined): boolean {
@@ -54,15 +51,4 @@ export function evaluationTypeDefaultsToBooleanOutput(evaluationType: Evaluation
 
 export function evaluationTypeHasEditableCriteria(evaluationType: EvaluationType | null | undefined): boolean {
     return evaluationTypeDefaultsToBooleanOutput(evaluationType)
-}
-
-export function evaluationTypeSupportsSignalEmission(evaluationType: EvaluationType | null | undefined): boolean {
-    return evaluationType === 'llm_judge'
-}
-
-export function evaluationTypeCanBeCreated(
-    evaluationType: EvaluationType,
-    featureFlags: FeatureFlagsSet | null | undefined
-): boolean {
-    return evaluationType !== 'sentiment' || !!featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]
 }

@@ -1,10 +1,17 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.http import QueryDict
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
-from products.feature_flags.backend.api.staff_cache import MAX_TEAMS_PER_MUTATION, READABLE_CACHE_CHOICES
+from products.feature_flags.backend.api.staff_cache import (
+    MAX_TEAMS_PER_MUTATION,
+    READABLE_CACHE_CHOICES,
+    StaffCacheStatusQuerySerializer,
+)
 from products.feature_flags.backend.flags_cache import flags_hypercache
 from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -179,3 +186,21 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         missing_id = self.team.id + 9999
         response = self.client.get(ENTRY_URL, {"team_id": str(missing_id), "cache": "evaluation"})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TestTeamIdsFieldQueryParamFormats(SimpleTestCase):
+    # Our generated TS client (and plain URLSearchParams) serializes a number[] query param as one
+    # comma-joined value rather than repeated keys. If `_team_ids_field` ever reverts to a plain
+    # `serializers.ListField`, the comma-separated case starts failing validation while the
+    # repeated-keys case keeps passing, silently breaking every caller that uses the generated
+    # client against a team_ids-backed query endpoint.
+    @parameterized.expand(
+        [
+            ("repeated_keys", "team_ids=1&team_ids=2"),
+            ("comma_separated", "team_ids=1,2"),
+        ]
+    )
+    def test_accepts_both_repeated_and_comma_separated_team_ids(self, _name, query_string):
+        serializer = StaffCacheStatusQuerySerializer(data=QueryDict(query_string))
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["team_ids"], [1, 2])

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEye } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { truncate } from 'lib/utils/strings'
@@ -50,8 +50,11 @@ export function StaffCacheToolsTab(): JSX.Element {
         cacheStatusLoading,
         rebuildResultLoading,
         clearResultLoading,
+        teamConfigByTeamId,
+        pendingTeamConfigTeamIds,
     } = useValues(featureFlagsStaffToolsLogic)
-    const { rebuildCache, clearCache, loadCacheStatus, viewCacheEntry } = useActions(featureFlagsStaffToolsLogic)
+    const { rebuildCache, clearCache, loadCacheStatus, viewCacheEntry, setMinimalFlagCalledEvents } =
+        useActions(featureFlagsStaffToolsLogic)
 
     const hasSelection = selectedTeamIds.length > 0
     const mutating = rebuildResultLoading || clearResultLoading
@@ -85,6 +88,23 @@ export function StaffCacheToolsTab(): JSX.Element {
                     {truncate(String(token), 16)}
                 </CopyToClipboardInline>
             ),
+        },
+        {
+            title: 'Minimal flag_called events',
+            key: 'minimal_flag_called_events',
+            render: (_, team) => {
+                const config = teamConfigByTeamId[team.id]
+                const pending = pendingTeamConfigTeamIds.includes(team.id)
+                return (
+                    <LemonSwitch
+                        checked={config?.minimal_flag_called_events ?? false}
+                        onChange={(checked) => setMinimalFlagCalledEvents(team.id, checked)}
+                        loading={pending}
+                        disabledReason={pending ? 'Update in progress' : !config ? 'Loading current value…' : undefined}
+                        data-attr="ff-staff-team-config-minimal-flag-called-events"
+                    />
+                )
+            },
         },
         ...READABLE_CACHE_KINDS.map((cacheKind) => ({
             title: CACHE_LABELS[cacheKind],

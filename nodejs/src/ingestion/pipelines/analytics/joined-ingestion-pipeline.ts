@@ -244,7 +244,7 @@ export function createJoinedIngestionPipeline<
                         // Cookieless events (headers.distinct_id === sentinel) pass through and are
                         // handled by the matching only-cookieless step in post-team, which keys on
                         // the hashed distinct_id assigned by the cookieless step.
-                        .pipeBatch(
+                        .pipeChunk(
                             createSkipCookielessRateLimitToOverflowStep(
                                 preservePartitionLocality,
                                 overflowRedirectService
@@ -263,11 +263,10 @@ export function createJoinedIngestionPipeline<
                             b
                                 .teamAware((b) =>
                                     createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
-                                        // Group by token:distinctId and process each group concurrently
-                                        // Events within each group are processed sequentially
-                                        .groupBy(getTokenAndDistinctId)
-                                        .concurrently((eventsForDistinctId) =>
-                                            eventsForDistinctId.sequentially((event) =>
+                                        // Group by token:distinctId and process each group concurrently.
+                                        // Events within each group are processed sequentially.
+                                        .concurrentlyPerGroup(getTokenAndDistinctId, (group) =>
+                                            group.sequentially((event) =>
                                                 createPerDistinctIdPipeline(event, perEventConfig)
                                             )
                                         )

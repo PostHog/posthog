@@ -1,8 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -140,9 +137,6 @@ describe('llmEvaluationsLogic', () => {
 
     describe('unhealthyProviderKeysUsedByEvaluations', () => {
         it('allows Hog and sentiment evaluations when trial limit is reached', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT], {
-                [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]: true,
-            })
             keysLogic.actions.loadEvaluationConfigSuccess({
                 trial_eval_limit: 100,
                 trial_evals_used: 100,
