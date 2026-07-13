@@ -19,6 +19,10 @@ from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exist
 CHECKPOINT_COMPACTION_SCHEDULE_ID = "checkpoint-compaction-sweep-schedule"
 
 
+def should_register_checkpoint_compaction_schedule() -> bool:
+    return settings.CLOUD_DEPLOYMENT == settings.COMPACT_IN_REGION
+
+
 async def create_checkpoint_compaction_schedule(client: Client) -> None:
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
