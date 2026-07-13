@@ -31,8 +31,8 @@ from posthog.utils import convert_property_value, flatten
 from products.batch_exports.backend.facade.models import BatchExportRun
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_warehouse.backend.facade.api import get_managed_warehouse_data_status
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
-from products.data_warehouse.backend.logic.managed_warehouse_data_status import get_managed_warehouse_data_status
 from products.data_warehouse.backend.presentation.managed_warehouse_data_status import (
     ManagedWarehouseDataStatusResponseSerializer,
 )
