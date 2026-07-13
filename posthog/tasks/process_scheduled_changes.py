@@ -82,20 +82,6 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     return isinstance(exception, unrecoverable_types)
 
 
-def is_expected_orphaned_target_error(exception: Exception) -> bool:
-    """
-    Determine if an exception means the scheduled change's target record was deleted after the
-    change was scheduled — expected drift, not a code or data defect.
-
-    This is narrower than is_unrecoverable_error on purpose: most unrecoverable errors (invalid
-    payload, unsupported operation, mismatched variant data) mean a broken payload was persisted
-    at creation time and will keep failing forever, which is worth surfacing to error tracking.
-    An orphaned target is the one case where the payload was valid when scheduled and only
-    failed because the world changed underneath it.
-    """
-    return isinstance(exception, ObjectDoesNotExist)
-
-
 def compute_next_run(current: datetime, interval: str) -> datetime:
     """
     Compute the next scheduled run time based on recurrence interval.
@@ -208,10 +194,15 @@ def process_scheduled_changes() -> None:
                     scheduled_change.save()
                     continue
 
+                orphaned_target = False
                 try:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]
-                    instance = model.objects.get(id=scheduled_change.record_id, team_id=scheduled_change.team_id)
+                    try:
+                        instance = model.objects.get(id=scheduled_change.record_id, team_id=scheduled_change.team_id)
+                    except ObjectDoesNotExist:
+                        orphaned_target = True
+                        raise
 
                     # Approval-aware dispatch: a scheduled change whose payload flips a policy-gated
                     # field carries a bound ChangeRequest created at scheduling time. We only apply
@@ -387,18 +378,18 @@ def process_scheduled_changes() -> None:
 
                     scheduled_change.save()
 
-                    # An orphaned target (e.g. the feature flag was deleted after the change was
+                    # An orphaned target (the target record was deleted after the change was
                     # scheduled) is expected drift, already handled via the row's failure_reason
                     # above, so reporting it to error tracking is pure noise. Other unrecoverable
-                    # errors (invalid payload, unsupported operation, mismatched variant data) mean
-                    # a broken payload reached execution and should stay visible in error tracking.
-                    if is_expected_orphaned_target_error(e):
+                    # errors — invalid payload, unsupported operation, mismatched variant data, or
+                    # a missing bound ChangeRequest — indicate either a broken payload or a data
+                    # integrity issue, and should stay visible in error tracking.
+                    if orphaned_target:
                         logger.info(
                             "Scheduled change skipped: target record no longer exists",
                             scheduled_change_id=scheduled_change.id,
                             error=str(e),
                             error_type=e.__class__.__name__,
-                            exc_info=True,
                         )
                     else:
                         capture_exception(e)

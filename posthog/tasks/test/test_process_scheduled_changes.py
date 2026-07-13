@@ -499,16 +499,22 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             feature_flag.delete()
 
         # Process the scheduled change - should fail and set executed_at
-        with patch("posthog.tasks.process_scheduled_changes.capture_exception") as mock_capture:
+        with (
+            patch("posthog.tasks.process_scheduled_changes.capture_exception") as mock_capture,
+            patch("posthog.tasks.process_scheduled_changes.logger") as mock_logger,
+        ):
             process_scheduled_changes()
 
             if should_capture:
                 # A broken payload is a defect worth surfacing, not expected drift.
                 mock_capture.assert_called_once()
+                mock_logger.info.assert_not_called()
             else:
                 # An orphaned target is expected and already handled, so it must not be
-                # reported to error tracking (it only adds noise).
+                # reported to error tracking (it only adds noise), but it must still leave
+                # a log trail so the skip isn't silent.
                 mock_capture.assert_not_called()
+                mock_logger.info.assert_called_once()
 
         # Refresh the scheduled change from database
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
