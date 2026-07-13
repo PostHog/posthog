@@ -56,12 +56,15 @@ def _batched_get_persons_by_uuids(
     team_id: int,
     uuids: list[str],
     operation: str,
+    read_options: ReadOptions | None = None,
 ) -> list[person_pb2.Person]:
     client = _get_client()
     valid_persons: list[person_pb2.Person] = []
     for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE):
         batch = uuids[i : i + PERSONHOG_BATCH_SIZE]
-        resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=batch))
+        resp = client.get_persons_by_uuids(
+            GetPersonsByUuidsRequest(team_id=team_id, uuids=batch, read_options=read_options)
+        )
 
         present_persons = [p for p in resp.persons if p.id]
         batch_valid = [p for p in present_persons if p.team_id == team_id]
@@ -466,10 +469,17 @@ def get_person_by_pk_or_uuid(team_id: int, key: str, *, distinct_id_limit: int |
             return None
 
 
+_UUID_ONLY_READ_OPTIONS = ReadOptions(field_mask=["uuid", "id", "team_id"])
+
+
 def _validate_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[str]:
     # _batched_get_persons_by_uuids also filters out persons with id == 0 (server "not found" sentinel),
     # which the previous single-RPC implementation did not do. This is intentionally more correct.
-    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "validate_person_uuids_exist")
+    # Existence only needs uuid/id/team_id — the field mask keeps (potentially huge) person
+    # properties out of the RPC payloads.
+    valid_persons = _batched_get_persons_by_uuids(
+        team_id, uuids, "validate_person_uuids_exist", read_options=_UUID_ONLY_READ_OPTIONS
+    )
     return [p.uuid for p in valid_persons]
 
 
@@ -480,7 +490,26 @@ def validate_person_uuids_exist(team_id: int, uuids: list[str]) -> list[str]:
     )
 
 
-_UUID_ONLY_READ_OPTIONS = ReadOptions(field_mask=["uuid", "id", "team_id"])
+def get_person_ids_and_uuids_by_uuids(team_id: int, uuids: list[str]) -> list[tuple[int, str]]:
+    """Return (person_id, person_uuid) pairs for the given person UUIDs; unknown UUIDs are omitted.
+
+    Lightweight variant of ``get_persons_by_uuids`` — uses field masking to skip fetching
+    properties and other heavy fields, and never fetches distinct IDs. For callers that only
+    need to resolve UUIDs to person IDs (e.g. cohort membership writes).
+    """
+    if not uuids:
+        return []
+
+    def personhog_fn() -> list[tuple[int, str]]:
+        persons = _batched_get_persons_by_uuids(
+            team_id, uuids, "get_person_ids_and_uuids_by_uuids", read_options=_UUID_ONLY_READ_OPTIONS
+        )
+        return [(p.id, p.uuid) for p in persons]
+
+    return personhog_call(
+        "get_person_ids_and_uuids_by_uuids",
+        personhog_fn,
+    )
 
 
 def get_person_uuids_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[str]:

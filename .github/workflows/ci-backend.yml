@@ -772,6 +772,10 @@ jobs:
                       posthog-test-durations-
 
             - name: Run product tests
+              id: run-product-tests
+              # continue-on-error so the quarantine gate below is the verdict — it passes when
+              # every failure is an already-quarantined flake, fails otherwise.
+              continue-on-error: true
               # --force: discover already decided this product needs testing, skip turbo cache
               # --log-order=stream: stream pytest output live instead of buffering until completion
               # pytest_args: optional pytest-split flags for sharded products (e.g. "-- --splits 3 --group 1")
@@ -789,6 +793,12 @@ jobs:
                       --junitxml=junit-product.xml
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
+                      ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
+                  # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
+                  # scopes coverage to that product and writes products/<name>/coverage.xml — works for
+                  # bin-packed buckets (each product writes its own file) and split products (unioned later).
+                  # sysmon: Python 3.12+'s low-overhead coverage backend, ~a few % vs ~20% for the C tracer.
+                  COVERAGE_CORE: sysmon
               run: |
                   set +e
                   pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
@@ -801,17 +811,29 @@ jobs:
                       exit $exit_code
                   fi
 
-            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
-            - name: Upload test results to Trunk
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+            # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
+            # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
+            # secret); cli-version pinned, not 'latest' (skips the release redirect).
+            - name: Quarantine gate
+              id: quarantine_gate
               continue-on-error: true
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: products/*/junit-product.xml
                   org-slug: posthog-inc
+                  cli-version: '0.13.7'
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-product-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
+
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot. Sits before the timing-data upload so
+            # a real failure still skips it, as it did before the test step got continue-on-error.
+            - name: Fail on test failure
+              if: ${{ !cancelled() && steps.run-product-tests.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              shell: bash
+              run: exit 1
 
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -821,6 +843,30 @@ jobs:
                   path: .test_durations
                   include-hidden-files: true
                   retention-days: 2
+
+            - name: Stage product coverage
+              # Rename each products/<name>/coverage.xml to <name>.xml so the product name
+              # survives upload-artifact's least-common-ancestor path collapse.
+              if: ${{ always() && github.event_name == 'pull_request' }}
+              shell: bash
+              run: |
+                  mkdir -p cov-staging
+                  for f in products/*/coverage.xml; do
+                      [ -f "$f" ] || continue
+                      product=$(basename "$(dirname "$f")")
+                      cp "$f" "cov-staging/${product}.xml"
+                  done
+
+            - name: Upload product coverage
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              # always(): a failing test shard still has partial coverage worth reporting.
+              if: ${{ always() && github.event_name == 'pull_request' }}
+              with:
+                  name: coverage-xml-${{ strategy.job-index }}
+                  path: cov-staging/*.xml
+                  if-no-files-found: ignore
+                  retention-days: 2
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
 
             - name: Verify new snapshots for flakiness
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
@@ -2430,6 +2476,9 @@ jobs:
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   POE_FILES: ${{ needs.select-tests.outputs.poe_files }}
+                  # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
+                  COVERAGE_CORE: sysmon
+                  COV_ARGS: ${{ github.event_name == 'pull_request' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=xml:coverage-core.xml' || '' }}
               # Wrap bash with signal-fanout so the runner's cancel signal is
               # propagated to the entire process tree (incl. pytest). Without
               # this, GHA only signals the top-level bash and pytest survives
@@ -2438,6 +2487,11 @@ jobs:
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
                   set +e
+                  # Unrebased branches predate .github/coverage-core.cfg; an explicit --cov-config
+                  # pointing at a missing file is a hard error, so drop coverage rather than fail.
+                  if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
+                      COV_ARGS=""
+                  fi
                   # Pick the split algorithm and granularity at runtime: optimal_chunks +
                   # file granularity only when the installed pytest-split offers them, else
                   # duration_based_chunks / item. A workflow edit runs merged with master, so
@@ -2463,8 +2517,8 @@ jobs:
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # No --splits/--group (no sharding), no --store-durations (don't pollute timing
                       # data with a partial run), and no --reruns (fail loud on the narrow subset).
-                      # The full run below keeps a reduced --reruns 1 as a cold-start net while Trunk's
-                      # quarantine list matures; drop it back to 0 once quarantine reliably catches flakes.
+                      # The full run below also runs without --reruns: retries mask the raw flake
+                      # signal Trunk needs, and the quarantine gate is the flake net instead.
                       if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
@@ -2474,6 +2528,7 @@ jobs:
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           -r fEsxX \
                           --junitxml=junit-core.xml \
+                          $COV_ARGS \
                           $PYTEST_ARGS
                   else
                     pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
@@ -2495,9 +2550,9 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
-                        --reruns 1 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
+                        $COV_ARGS \
                         $PYTEST_ARGS
                   fi
                   exit_code=$?
@@ -2508,6 +2563,16 @@ jobs:
                   else
                       exit $exit_code
                   fi
+
+            - name: Upload core coverage
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ always() && github.event_name == 'pull_request' && matrix.segment == 'Core' }}
+              with:
+                  name: coverage-core-${{ strategy.job-index }}
+                  path: coverage-core.xml
+                  if-no-files-found: ignore
+                  retention-days: 2
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
 
             # Uncomment this code to create an ssh-able console so you can debug issues with github actions
             # (Consider changing the timeout in ci-backend.yml to have more time)
@@ -2574,7 +2639,7 @@ jobs:
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --store-durations (don't pollute
                       # timing data with a partial run), no --reruns. See the core selected branch;
-                      # the full run keeps a reduced --reruns 1 cold-start net until quarantine matures.
+                      # the full run also skips --reruns so raw flake signal reaches Trunk.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           -r fEsxX \
@@ -2593,7 +2658,6 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
-                          --reruns 1 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
@@ -3121,3 +3185,97 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
+
+    backend-coverage-report:
+        name: Backend coverage report
+        needs: [turbo-tests, django_tests]
+        runs-on: ubuntu-latest
+        continue-on-error: true # report-only, never block a PR
+        timeout-minutes: 10
+        # Pinned job-level: this job runs PR-head-controlled scripts with github.token, so its
+        # grants must never silently widen if the workflow-level permissions block ever does.
+        permissions:
+            contents: read
+            pull-requests: write # sticky CI report comment
+        # In-repo PRs only — fork PRs get a read-only token that can't comment. Runs when either
+        # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
+        # gets a comment; both skip on drafts, leaving nothing to report.
+        # drafts run a partial test selection — patch coverage would report false gaps
+        # Security invariant: this job runs PR-head-controlled scripts (coverage_report.py,
+        # post-coverage-section.mjs) — never add secrets beyond github.token to this job
+        # (report-test-timings checks out the base ref for exactly this reason).
+        if: >-
+            always() &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.draft == false &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
+            (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Default pull_request checkout = the synthetic merge ref — the same tree the
+                  # coverage runs measured, so diff line numbers match. Full history for diff-cover;
+                  # blob:none keeps it light (commit graph only, blobs fetched on demand).
+                  fetch-depth: 0
+                  filter: blob:none
+            - name: Check for coverage reporter
+              id: reporter
+              shell: bash
+              run: |
+                  if [[ -f .github/scripts/coverage_report.py ]]; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "available=false" >> "$GITHUB_OUTPUT"
+                      echo "Coverage reporter not present on this ref; skipping (branch may predate the check)."
+                  fi
+            - name: Download coverage artifacts
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true # a run where no shard emitted coverage.xml is not a failure
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./cov-artifacts
+                  pattern: coverage-xml-*
+            - name: Download core coverage artifacts
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true # core coverage only present once the Core segment ran with --cov
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./core-artifacts
+                  pattern: coverage-core-*
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              if: steps.reporter.outputs.available == 'true'
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+            - name: Build coverage report
+              # diff-cover is declared inline (PEP 723) in coverage_report.py; uv provisions it.
+              if: steps.reporter.outputs.available == 'true'
+              run: |
+                  mkdir -p cov-artifacts core-artifacts
+                  git fetch --no-tags --filter=blob:none --quiet origin master
+                  uv run --script .github/scripts/coverage_report.py \
+                      --artifacts cov-artifacts \
+                      --core-artifacts core-artifacts \
+                      --combined-out combined-coverage.xml \
+                      --compare-branch origin/master \
+                      --patch-json-out patch-coverage.json \
+                      --out coverage-comment.md
+            - name: Post to CI report comment
+              if: steps.reporter.outputs.available == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-coverage-section.mjs ]; then
+                      node .github/scripts/post-coverage-section.mjs coverage-comment.md patch-coverage.json
+                  fi
+            - name: Upload patch coverage payload
+              if: ${{ always() && steps.reporter.outputs.available == 'true' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: patch-coverage
+                  path: |
+                      patch-coverage.json
+                      combined-coverage.xml
+                      coverage-comment.md
+                  if-no-files-found: ignore
+                  retention-days: 2
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise

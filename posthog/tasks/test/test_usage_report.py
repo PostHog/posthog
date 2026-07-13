@@ -23,6 +23,7 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, Mock, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import TestCase
 from django.utils.timezone import now
 
@@ -59,6 +60,7 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
+    capture_report,
     get_all_event_metrics_in_period,
     get_instance_metadata,
     get_teams_with_query_metric,
@@ -94,6 +96,14 @@ from ee.models.license import License
 ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 logger = structlog.get_logger(__name__)
+
+
+def test_usage_report_parent_task_acks_early_while_capture_task_acks_late() -> None:
+    assert send_all_org_usage_reports.acks_late is False
+    assert send_all_org_usage_reports.reject_on_worker_lost is False
+
+    assert capture_report.acks_late is True
+    assert capture_report.reject_on_worker_lost is True
 
 
 def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:
@@ -5113,12 +5123,18 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         Team.objects.all().delete()
         Organization.objects.all().delete()
 
-        # Create a fresh team for testing
-        self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
-
-        # Create analytics team for AI credits tests (team 2 for US region)
+        # Create analytics team for AI credits tests (team 2 for US region). The explicit
+        # pk doesn't advance the id sequence, so bump it past the max to keep the auto-pk
+        # team below from being handed id 2 and colliding.
         analytics_org = Organization.objects.create(name="PostHog Analytics")
         self.analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT setval(pg_get_serial_sequence('posthog_team', 'id'), (SELECT MAX(id) FROM posthog_team))"
+            )
+
+        # Create a fresh team for testing
+        self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
 
         # Create test events across a time period
         self.begin = datetime(2023, 1, 1, 0, 0)
