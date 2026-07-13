@@ -84,6 +84,7 @@ services/agent-tests
 !tailwind.config.js
 !tools/hogli
 !tools/openapi-codegen
+!tools/owners
 !tsconfig.json
 !unit.json.tpl
 common/*/*/node_modules
