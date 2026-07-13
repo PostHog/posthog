@@ -237,6 +237,7 @@ the row lists both.
 | lingo_dev               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | linkedin_ads            | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | linkrunner              | HTTP                        | requests                                                        | ✅                          |
+| linode                  | HTTP                        | requests                                                        | ✅                          |
 | lob                     | HTTP                        | requests                                                        | ✅                          |
 | luma                    | HTTP                        | requests                                                        | ✅                          |
 | mailchimp               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -633,7 +634,6 @@ doesn't conflict with concurrent PRs.
 - lingo_dev
 - linkedin_pages
 - linnworks
-- linode
 - llama_cloud
 - lokalise
 - looker
