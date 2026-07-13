@@ -78,7 +78,8 @@ Instead, strip the suffix deterministically with [`scripts/strip_deleted_suffix.
 
 ```bash
 echo '[{"id": 687432, "key": "high_frequency_alerts:deleted:687432"}]' | python3 scripts/strip_deleted_suffix.py
-# -> [{"id": 687432, "key": "high_frequency_alerts:deleted:687432", "original_key": "high_frequency_alerts"}]
+# prints the same array back (pretty-printed), each object gaining an "original_key" field:
+# "original_key": "high_frequency_alerts"
 ```
 
 Filter the collected deletion events to those whose `created_at` falls inside the requested window. Present as a table, using each row's recovered original key (not the raw tombstoned form) for the "Key" column:

@@ -1,11 +1,13 @@
 """Strip the soft-delete tombstone suffix from feature flag keys.
 
 FeatureFlag.tombstoned_key() renames a flag's key to "<original>:deleted:<id>" when
-soft-deleting a flag that's still referenced elsewhere (e.g. a stopped experiment) --
-this mirrors FeatureFlag.key_without_tombstone() in
-products/feature_flags/backend/models/feature_flag.py so activity-log and SQL results
-outside Django can recover the original key the same deterministic way. See step 5 of
-the skill's SKILL.md for why this beats reading the activity log's detail fields.
+soft-deleting a flag that's still referenced elsewhere (e.g. a stopped experiment).
+This script strips that suffix the same way FeatureFlag.key_without_tombstone() does
+in products/feature_flags/backend/models/feature_flag.py, so activity-log and SQL
+results outside Django can recover the original key deterministically. Unlike that
+method, it doesn't check the flag's `deleted` state -- callers are expected to pass
+only already-deleted candidates (e.g. step 2's SQL results). See step 5 of the
+skill's SKILL.md for why this beats reading the activity log's detail fields.
 
 Usage: pass a JSON array of {"id": ..., "key": ...} objects (e.g. the step 2 SQL
 results for every candidate at once) as a file argument or on stdin. Prints the same
@@ -25,8 +27,11 @@ def strip_suffix(flag_id, key):
 
 
 def main():
-    raw = open(sys.argv[1]).read() if len(sys.argv) > 1 else sys.stdin.read()
-    candidates = json.loads(raw)
+    if len(sys.argv) > 1:
+        with open(sys.argv[1]) as f:
+            candidates = json.load(f)
+    else:
+        candidates = json.load(sys.stdin)
     for candidate in candidates:
         candidate["original_key"] = strip_suffix(candidate["id"], candidate["key"])
     print(json.dumps(candidates, indent=2))
