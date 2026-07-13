@@ -391,6 +391,15 @@ export class SessionBatchRecorder {
             SessionBatchMetrics.incrementSessionsFlushed(totalSessions)
             SessionBatchMetrics.incrementEventsFlushed(totalEvents)
             SessionBatchMetrics.incrementBytesWritten(totalBytes)
+            const flushedAtMillis = Date.now()
+            for (const block of blockMetadata) {
+                const endMillis = block.endDateTime.toMillis()
+                // endDateTime falls back to epoch 0 when a block somehow has no timestamped
+                // events; skip those rather than record a nonsense multi-year lag.
+                if (endMillis > 0) {
+                    SessionBatchMetrics.observeE2eLag((flushedAtMillis - endMillis) / 1000)
+                }
+            }
 
             // Clear sessions, partition sizes, total size, and rate limiter state after successful flush
             this.sessions = new SessionMap()
