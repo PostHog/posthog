@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.http import HttpRequest
 from django.test import RequestFactory
 
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -12,6 +13,13 @@ from products.product_analytics.backend.admin import InsightAdmin
 from products.product_analytics.backend.models.insight import Insight
 
 
+def _attach_messages(request) -> None:
+    # The request param is deliberately untyped: session and _messages are set by
+    # middleware at runtime, so assigning them on a typed request fails type checking.
+    request.session = {}
+    request._messages = FallbackStorage(request)
+
+
 class TestInsightAdminRestore(BaseTest):
     def setUp(self):
         super().setUp()
@@ -20,11 +28,10 @@ class TestInsightAdminRestore(BaseTest):
         self.admin = InsightAdmin(Insight, AdminSite())
         self.factory = RequestFactory()
 
-    def _post_request(self):
+    def _post_request(self) -> HttpRequest:
         request = self.factory.post("/")
         request.user = self.user
-        request.session = {}
-        request._messages = FallbackStorage(request)
+        _attach_messages(request)
         return request
 
     def test_restore_selected_reactivates_tiles_on_live_dashboards_only_and_logs_activity(self):

@@ -2,12 +2,20 @@ from posthog.test.base import BaseTest
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.http import HttpRequest
 from django.test import RequestFactory
 
 from products.dashboards.backend.admin.dashboard_admin import DashboardAdmin
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.models.insight import Insight
+
+
+def _attach_messages(request) -> None:
+    # The request param is deliberately untyped: session and _messages are set by
+    # middleware at runtime, so assigning them on a typed request fails type checking.
+    request.session = {}
+    request._messages = FallbackStorage(request)
 
 
 class TestDashboardAdminRestore(BaseTest):
@@ -18,11 +26,10 @@ class TestDashboardAdminRestore(BaseTest):
         self.admin = DashboardAdmin(Dashboard, AdminSite())
         self.factory = RequestFactory()
 
-    def _post_request(self):
+    def _post_request(self) -> HttpRequest:
         request = self.factory.post("/")
         request.user = self.user
-        request.session = {}
-        request._messages = FallbackStorage(request)
+        _attach_messages(request)
         return request
 
     def test_restore_selected_restores_tiles_and_co_deleted_insights_but_skips_live_dashboards(self):
