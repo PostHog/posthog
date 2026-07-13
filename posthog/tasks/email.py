@@ -1949,7 +1949,7 @@ def send_error_tracking_weekly_digest() -> None:
     logger.info("Completed Error Tracking weekly digest fan-out")
 
 
-@shared_task(**EMAIL_TASK_KWARGS, rate_limit="10/s")
+@shared_task(**{**EMAIL_TASK_KWARGS, "max_retries": 5}, rate_limit="10/s")
 @skip_team_scope_audit
 def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
     """Send one combined weekly error tracking digest per user in an org via the delivery workflow"""
@@ -1965,65 +1965,84 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
     if not all_org_teams:
         return
 
-    # Use unfiltered counts only to determine which teams have any exceptions at all
+    # Unfiltered per-team counts: which teams have any exceptions, and how busy each is (for busiest-project
+    # auto-select). This is one ClickHouse query for the whole org.
     unfiltered_counts = error_tracking_api.get_exception_counts(list(all_org_teams.keys()))
-    team_ids_with_exceptions = {row[0] for row in unfiltered_counts}
+    counts_by_team = {row[0]: row[1] for row in unfiltered_counts}
+    team_ids_with_exceptions = {tid for tid in counts_by_team if tid in all_org_teams}
     if not team_ids_with_exceptions:
         return
-
-    # Pre-compute per-team digest data only for teams that have exceptions
-    team_digest_data: dict[int, dict] = {}
-    for team_id in team_ids_with_exceptions:
-        team = all_org_teams.get(team_id)
-        if not team:
-            continue
-
-        data = error_tracking_api.build_team_digest_data(team)
-        if data:
-            team_digest_data[team_id] = data
-
-    excluded_project_count = len(all_org_teams) - len(team_digest_data)
-
-    all_memberships = OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id)
 
     allowed_emails = settings.ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS
     if not allowed_emails:
         logger.info(f"No allowed emails configured, skipping org {org_id}")
         return
+
+    all_memberships = OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id)
     memberships: list[OrganizationMembership] = (
         [m for m in all_memberships if m.user.email in allowed_emails]
         if "*" not in allowed_emails
         else list(all_memberships)
     )
 
-    date_suffix = timezone.now().strftime("%Y-%W")
-    sent_count = 0
-    failed_count = 0
+    # First-time users are auto-enrolled onto their busiest project; keying that off the unfiltered counts
+    # means we don't need a per-team build just to decide who is subscribed to what.
+    autoselect_counts = {tid: {"exception_count": counts_by_team.get(tid, 0)} for tid in team_ids_with_exceptions}
 
+    # Pass 1 — resolve each recipient's enabled teams from notification settings + project access only (no
+    # ClickHouse). This yields the set of teams at least one recipient will actually receive, so Pass 2 builds
+    # heavy digest data for those alone instead of for every team in the org that happens to have exceptions.
+    recipients: list[tuple[OrganizationMembership, list[int], list[str]]] = []
+    needed_team_ids: set[int] = set()
     for membership in memberships:
         user = membership.user
 
         if not should_send_notification(user, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value):
             continue
 
-        # Auto-select busiest project for first-time users
-        if error_tracking_api.auto_select_project_for_user(user, org.id, team_digest_data):
+        if error_tracking_api.auto_select_project_for_user(user, org.id, autoselect_counts):
             user.refresh_from_db(fields=["partial_notification_settings"])
 
-        # Build per-user list of enabled teams
-        user_team_sections = []
-        disabled_team_names = []
-        for team_id, data in team_digest_data.items():
-            team = data["team"]
+        enabled_team_ids: list[int] = []
+        disabled_team_names: list[str] = []
+        for team_id in team_ids_with_exceptions:
+            team = all_org_teams[team_id]
             user_permissions = UserPermissions(user).team(team)
             if user_permissions.effective_membership_level_for_parent_membership(org, membership) is None:
                 continue
 
             if should_send_notification(user, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value, team_id):
-                user_team_sections.append(data)
+                enabled_team_ids.append(team_id)
             else:
                 disabled_team_names.append(team.name)
 
+        if enabled_team_ids:
+            recipients.append((membership, enabled_team_ids, disabled_team_names))
+            needed_team_ids.update(enabled_team_ids)
+
+    date_suffix = timezone.now().strftime("%Y-%W")
+
+    if not needed_team_ids:
+        logger.info(f"Sent Error Tracking weekly digest to 0 members for org {org_id} (no subscribed recipients)")
+        return
+
+    # Pass 2 — build digest data only for teams a recipient has enabled.
+    team_digest_data: dict[int, dict] = {}
+    for team_id in needed_team_ids:
+        data = error_tracking_api.build_team_digest_data(all_org_teams[team_id])
+        if data:
+            team_digest_data[team_id] = data
+
+    # Org projects not represented as a section this week (no exceptions, or no data after test-account filtering).
+    excluded_project_count = len(all_org_teams) - len(team_digest_data)
+
+    sent_count = 0
+    failed_count = 0
+
+    for membership, enabled_team_ids, disabled_team_names in recipients:
+        user = membership.user
+
+        user_team_sections = [team_digest_data[team_id] for team_id in enabled_team_ids if team_id in team_digest_data]
         if not user_team_sections:
             continue
 
@@ -2062,7 +2081,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
 
     logger.info(
         f"Sent Error Tracking weekly digest to {sent_count} members for org {org_id} "
-        f"({len(team_digest_data)} teams with exceptions, {failed_count} failures)"
+        f"({len(team_digest_data)} teams built, {failed_count} failures)"
     )
 
     if failed_count:
