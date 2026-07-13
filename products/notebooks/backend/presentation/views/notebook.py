@@ -50,7 +50,12 @@ from posthog.utils import relative_date_parse
 
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
-from products.notebooks.backend.analytics import NotebookCreationSource, capture_notebook_created, notebook_node_count
+from products.notebooks.backend.analytics import (
+    NotebookCreationSource,
+    capture_notebook_created,
+    capture_notebook_read,
+    notebook_node_count,
+)
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
@@ -702,6 +707,22 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if str(request.headers.get("If-None-Match")) == str(instance.version):
             return Response(None, 304)
 
+        read_source, source_props = classify_request_source(request)
+        if read_source != NotebookCreationSource.UI:
+            # Browser opens are the client-side `notebook opened` event; only count programmatic
+            # (MCP / API) reads here so agent traffic doesn't inflate the human revisit numbers.
+            capture_notebook_read(
+                request=request,
+                user=request.user,
+                short_id=instance.short_id,
+                read_source=read_source,
+                is_creator=instance.created_by_id == getattr(request.user, "id", None),
+                user_access_level=serializer.data.get("user_access_level"),
+                mcp_consumer=source_props.get("mcp_consumer"),
+                mcp_oauth_client=source_props.get("mcp_oauth_client"),
+                api_key_type=source_props.get("api_key_type"),
+            )
+
         return Response(serializer.data)
 
     @action(methods=["POST"], url_path="kernel/start", detail=True)
@@ -967,35 +988,42 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # query — they live in the kernel namespace.
         ref_specs: dict[str, dict] = serializer.validated_data.get("refs") or {}
         hogql_node_ids = {spec["node_id"] for spec in ref_specs.values() if spec["kind"] == "hogql"}
-        # One DISTINCT ON query fetches the latest DONE run for every referenced node at once.
+        # One DISTINCT ON query fetches the latest DONE run (id + code) for every referenced node.
         latest_runs = (
             NotebookNodeRun.objects.for_team(self.team_id)
             .filter(notebook=notebook, node_id__in=hogql_node_ids, status=NotebookNodeRun.Status.DONE)
             .order_by("node_id", "-created_at")
             .distinct("node_id")
-            .values_list("node_id", "code", "node_type")
+            .values_list("node_id", "id", "code", "node_type")
         )
         # A SQL node's runs can alternate between hogql and duckdb (Journey 5 rerouting), so a
         # kind=hogql ref is only trustworthy when the node's LATEST result really is hogql —
         # a duckdb run's code is raw, non-self-contained SQL naming kernel frames, and inlining
         # it as a CTE would ship it to ClickHouse. Treat that node as not-run instead.
-        code_by_node_id: dict[str, str] = {
-            node_id: code for node_id, code, run_type in latest_runs if run_type == NotebookNodeRun.NodeType.HOGQL
+        latest_by_node: dict[str, tuple[str, str]] = {
+            node_id: (str(run_id), code)
+            for node_id, run_id, code, run_type in latest_runs
+            if run_type == NotebookNodeRun.NodeType.HOGQL
         }
-        refs: dict[str, SQLV2Ref] = {
-            name: (
-                SQLV2Ref(kind="local")
-                if spec["kind"] == "local"
-                else SQLV2Ref(kind="hogql", last_run_code=code_by_node_id.get(spec["node_id"]))
-            )
-            for name, spec in ref_specs.items()
-        }
+        refs: dict[str, SQLV2Ref] = {}
+        for name, spec in ref_specs.items():
+            if spec["kind"] == "local":
+                refs[name] = SQLV2Ref(kind="local")
+            else:
+                latest = latest_by_node.get(spec["node_id"])
+                refs[name] = SQLV2Ref(
+                    kind="hogql",
+                    node_id=spec["node_id"],
+                    run_id=latest[0] if latest else None,
+                    last_run_code=latest[1] if latest else None,
+                )
         node_type = serializer.validated_data["node_type"]
         code = serializer.validated_data["code"]
         output_name = serializer.validated_data["output_name"]
         try:
             if node_type == "python":
-                # A python node stores its code as-is; referenced frames become kernel inputs.
+                # A python node stores its code as-is; referenced frames become kernel inputs,
+                # keyed by the upstream run_id so a re-run yields a fresh (not stale) frame.
                 run_code, inputs = code, resolve_python_node_inputs(code, refs)
             else:
                 # A SQL node pushes to ClickHouse — unless it references a local frame, which

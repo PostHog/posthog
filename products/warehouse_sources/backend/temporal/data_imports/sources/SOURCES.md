@@ -53,6 +53,7 @@ the row lists both.
 | alpha_vantage           | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads              | HTTP                        | requests                                                        | ✅                          |
 | amplitude               | HTTP                        | requests                                                        | ✅                          |
+| anthropic               | HTTP                        | requests                                                        | ✅                          |
 | apify_dataset           | HTTP                        | requests                                                        | ✅                          |
 | apollo                  | HTTP                        | requests                                                        | ✅                          |
 | appfigures              | HTTP                        | requests                                                        | ✅                          |
@@ -454,7 +455,6 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
-- anthropic
 - appcues
 - apple_search_ads
 - appstack
@@ -587,7 +587,6 @@ doesn't conflict with concurrent PRs.
 - hightouch
 - hoorayhr
 - hubplanner
-- hugging_face
 - humanitix
 - hyperspell
 - ikas
@@ -695,7 +694,6 @@ doesn't conflict with concurrent PRs.
 - pennylane
 - perigon
 - perk
-- persona
 - pexels
 - phyllo
 - pinecone
@@ -774,6 +772,7 @@ doesn't conflict with concurrent PRs.
 - simfin
 - simplecast
 - simplesat
+- singular
 - skyvern
 - slash
 - smaily
@@ -792,6 +791,7 @@ doesn't conflict with concurrent PRs.
 - surveymonkey
 - survicate
 - svix
+- swonkie
 - synthesia
 - systeme
 - tawk_to

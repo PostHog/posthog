@@ -9,6 +9,7 @@ from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -444,6 +445,21 @@ class TestDataDeletionRequestAdminSaveModel(BaseTest):
         obj.refresh_from_db()
         self.assertEqual(obj.properties, ["$ip"])
         self.assertEqual(obj.person_properties, ["email"])
+
+    def test_criteria_change_clears_property_removal_marker(self):
+        obj = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=["$ip"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.PENDING,
+            property_removal_marker=timezone.now(),
+        )
+        self._call_save(obj, changed_data=["properties"])
+        obj.refresh_from_db()
+        self.assertIsNone(obj.property_removal_marker)
 
 
 @freeze_time("2025-01-15 12:00:00")
