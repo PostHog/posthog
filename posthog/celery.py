@@ -14,6 +14,7 @@ from celery.signals import (
     task_prerun,
     task_retry,
     task_success,
+    worker_init,
     worker_process_init,
     worker_process_shutdown,
 )
@@ -179,6 +180,22 @@ def _tag_celery_span_with_team_id(task_kwargs: dict | None) -> None:
 
 def _celery_team_id_prerun_receiver(task_id=None, task=None, args=None, kwargs=None, **_) -> None:
     _tag_celery_span_with_team_id(kwargs)
+
+
+@worker_init.connect
+def build_schema_models_pre_fork(**kwargs) -> None:
+    # The generated schema models defer core-schema building to first use (see
+    # bin/patch-schema-defer-build.py). Build them all here, in the worker parent before
+    # the prefork pool forks, so children share the built schemas copy-on-write and no
+    # task pays a build at runtime. This module is imported by every Django process (via
+    # posthog/__init__.py), so the build must hang off this worker-only signal — an
+    # import-time build would re-eagerize everything, and importing posthog.schema at
+    # module level would put it back on the bare django.setup() path.
+    from posthog.schema_build import (
+        build_all_schema_models,  # noqa: PLC0415 — keep posthog.schema off the celery import path; only workers build
+    )
+
+    build_all_schema_models()
 
 
 @worker_process_init.connect

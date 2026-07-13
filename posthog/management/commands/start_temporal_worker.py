@@ -20,6 +20,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.schema_build import build_all_schema_models
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
@@ -600,6 +601,12 @@ class Command(BaseCommand):
         # import the vendor SDKs, so they keep their fast startup.
         if workflows_include_data_import_syncs(workflows):
             load_all_sources()
+
+        # The generated schema models defer core-schema building to first use (see
+        # bin/patch-schema-defer-build.py). Build them all at worker boot so no
+        # workflow/activity pays a build at runtime — production processes stay eager;
+        # only tests and short-lived CLI invocations keep the lazy import win.
+        build_all_schema_models()
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
