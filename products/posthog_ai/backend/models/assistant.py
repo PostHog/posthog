@@ -29,6 +29,9 @@ class Conversation(UUIDTModel, DeletedMetaFields):
     class Meta:
         indexes = [
             models.Index(fields=["updated_at"]),
+            # Serves the conversation-history list query, which filters on team + user
+            # and sorts by most recently updated.
+            models.Index(fields=["team", "user", "-updated_at"], name="conversation_team_user_updated"),
         ]
         constraints = [
             models.UniqueConstraint(
