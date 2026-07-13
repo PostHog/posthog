@@ -2681,6 +2681,15 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotIn("*", granted)
         self.assertNotIn("@default", granted)
 
+    def test_authorize_wildcard_never_grants_star_listed_in_ceiling(self):
+        # A ceiling that literally lists `*` must not grant `*` back on a `*` request:
+        # `*` is never grantable under an explicit ceiling. Only the real scopes remain.
+        app = self._create_first_party_app_with_ceiling("experiment:read", "*")
+        grant = self._first_party_authorize_grant(app, "*")
+        granted = set(grant.scope.split())
+        self.assertNotIn("*", granted)
+        self.assertEqual(granted, {"experiment:read"})
+
     def test_authorize_wildcard_narrowing_captures_event(self):
         self._set_ceiling("experiment:read")
         with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")):

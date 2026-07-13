@@ -456,7 +456,9 @@ class OAuthValidator(OAuth2Validator):
             return True
         ceiling = resolve_ceiling(app_scopes)
         if ceiling is not None and "*" in requested:
-            request.scopes = sorted(ceiling | (requested & ALWAYS_ALLOWED_SCOPES))
+            # `*` is never grantable under an explicit ceiling, even if the ceiling itself
+            # lists it — mirrors the guard in `scopes_within_ceiling`/`scopes_outside_ceiling`.
+            request.scopes = sorted((ceiling - {"*"}) | (requested & ALWAYS_ALLOWED_SCOPES))
             return True
         return scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
 
