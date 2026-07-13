@@ -1108,8 +1108,8 @@ impl FeatureFlagMatcher {
     /// Builds merged group properties (DB + overrides) keyed by group type index for
     /// every group type the flag's conditions reference. Used by detailed condition
     /// analysis so group-typed filters resolve against the group's properties (and the
-    /// `$group_key` injected into overrides) rather than the person's. Group types
-    /// whose properties can't be resolved are simply omitted.
+    /// `$group_key` injected into overrides) rather than the person's. Every referenced
+    /// group type index is included, backed by an empty map if no properties were found.
     fn merged_group_properties_for_flag(
         &self,
         flag: &FeatureFlag,
