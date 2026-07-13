@@ -8,7 +8,11 @@ from loginas.utils import is_impersonated_session
 from loginas.views import user_login as loginas_user_login
 
 from posthog.helpers.impersonation import get_original_user_from_session
-from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY, is_read_only_impersonation
+from posthog.middleware import (
+    IMPERSONATION_READ_ONLY_SESSION_KEY,
+    IMPERSONATION_REASON_SESSION_KEY,
+    is_read_only_impersonation,
+)
 from posthog.models import User
 
 
@@ -20,6 +24,10 @@ def loginas_user(request, user_id):
         is_read_only = request.POST.get("read_only") != "false"
         if is_read_only:
             request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
+
+        # Persist the reason server-side so it survives both Django-admin and in-app starts,
+        # and can be surfaced to the frontend (autofill).
+        request.session[IMPERSONATION_REASON_SESSION_KEY] = request.POST.get("reason", "")
 
         target_user = User.objects.filter(id=user_id).first()
         posthoganalytics.capture(

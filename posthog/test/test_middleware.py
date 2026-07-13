@@ -1469,6 +1469,10 @@ class TestUpgradeImpersonation(APIBaseTest):
         user_response = self.client.get("/api/users/@me/")
         assert user_response.json()["is_impersonated_read_only"] is False
 
+    def test_start_exposes_reason_on_user_api(self):
+        self.login_as_read_only()
+        assert self.client.get("/api/users/@me/").json()["is_impersonated_reason"] == "Initial read-only impersonation"
+
     def test_upgrade_returns_404_when_not_impersonated(self):
         response = self.client.post(
             reverse("impersonation-upgrade"),

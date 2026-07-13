@@ -3558,6 +3558,11 @@ export interface UserApi {
     readonly is_impersonated_until: string | null
     /** @nullable */
     readonly is_impersonated_read_only: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
     readonly team: TeamBasicApi
@@ -3660,6 +3665,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_until?: string | null
     /** @nullable */
     readonly is_impersonated_read_only?: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
     readonly team?: TeamBasicApi
