@@ -176,8 +176,6 @@ class TestMetricLifecycleAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("without_approval_scope", ["data_catalog:read", "data_catalog:write"], status.HTTP_403_FORBIDDEN),
-            # Approval alone must not grant catalog access: the action's required_scopes list
-            # replaces the viewset default, so it has to compose the catalog scope back in.
             ("approval_scope_only", ["data_catalog_approval:write"], status.HTTP_403_FORBIDDEN),
             (
                 "with_approval_scope",
@@ -203,8 +201,6 @@ class TestMetricLifecycleAPI(APIBaseTest):
         ]
     )
     def test_create_from_insight_needs_insight_read_scope(self, _name: str, scopes: list[str], expected: int) -> None:
-        # Creating from an insight copies its query into the metric response, so a catalog-write
-        # token must also hold insight read access to do it.
         insight = self._insight()
         self.client.logout()
         response = self.client.post(
@@ -231,8 +227,6 @@ class TestMetricLifecycleAPI(APIBaseTest):
         assert response.status_code == expected, response.json()
 
     def test_plain_create_does_not_need_insight_scope(self) -> None:
-        # The insight:read requirement is dynamic — a create without a source insight must still
-        # work with catalog write alone.
         self.client.logout()
         response = self.client.post(
             self.url, {"name": "mrr", "description": "d"}, format="json", **self._bearer(["data_catalog:write"])

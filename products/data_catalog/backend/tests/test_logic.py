@@ -237,8 +237,6 @@ class TestApproveMetric(BaseTest):
             approve_metric(metric, self.user)
 
     def test_reapprove_of_drifted_approved_metric_raises(self) -> None:
-        # The idempotent already-approved return must not short-circuit the drift check: re-approving
-        # after the source insight changed has to surface the 409, not silently reconfirm.
         insight = self._insight()
         metric = upsert_metric(
             team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
@@ -249,9 +247,6 @@ class TestApproveMetric(BaseTest):
             approve_metric(metric, self.user)
 
     def test_approve_checks_drift_on_the_current_row_not_the_loaded_instance(self) -> None:
-        # An approve racing a relink must drift-check the row as it is at approval time. The stale
-        # instance still holds the original link; the fresh row was relinked to a different insight
-        # whose query has since changed, so approval must be blocked.
         metric = upsert_metric(
             team=self.team,
             user=self.user,
@@ -337,9 +332,6 @@ class TestUpdateResetsApproval(BaseTest):
         assert refined.status == MetricStatus.APPROVED
 
     def test_stale_update_after_approve_still_resets_approval(self) -> None:
-        # A PATCH racing an approve: the update's instance was loaded while the metric was still
-        # proposed, so without reloading the row it would skip the approval reset and leave its
-        # unreviewed definition approved.
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
         stale = Metric.objects.for_team(self.team.id).get(pk=metric.pk)
         approve_metric(metric, self.user)
@@ -378,8 +370,6 @@ class TestUpdateInsightLink(BaseTest):
 
     @parameterized.expand(["update", "refine"])
     def test_definition_edit_unlinks_source_insight(self, path: str) -> None:
-        # A directly-edited definition no longer derives from the insight; keeping the link would
-        # let drift compare the old snapshot hash against a definition it doesn't describe.
         metric = upsert_metric(
             team=self.team,
             user=self.user,
