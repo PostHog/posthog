@@ -7,14 +7,17 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import Team
-from posthog.models.utils import uuid7
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
+from ee.models.rbac.access_control import AccessControl
 
 RECORDING_START = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
 RECORDING_END = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
@@ -39,6 +42,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         team: Optional[Team] = None,
         start_date: datetime = datetime(2025, 12, 1, tzinfo=UTC),
         end_date: Optional[datetime] = None,
+        created_by: Optional[User] = None,
     ) -> Experiment:
         team = team or self.team
         flag = FeatureFlag.objects.create(
@@ -59,10 +63,17 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             team=team,
             name=name,
             feature_flag=flag,
-            created_by=self.user,
+            created_by=created_by or self.user,
             start_date=start_date,
             end_date=end_date,
         )
+
+    def _enable_access_controls(self) -> None:
+        features = self.organization.available_product_features or []
+        if not any(feature["key"] == AvailableFeature.ACCESS_CONTROL for feature in features):
+            features.append({"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL})
+            self.organization.available_product_features = features
+            self.organization.save()
 
     def _create_session_event(
         self,
@@ -174,10 +185,15 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         self._create_session_event(
             properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
         )
+        self._create_session_event(
+            event="$pageview",
+            properties={"$feature/checkout-cta": "control"},
+        )
         flush_persons_and_events()
 
         # With the cap at 1, the newest-first slice keeps only "newer-exp" — the exposure
-        # event for "checkout-cta" must still bring its experiment back into the results.
+        # event for "checkout-cta" must still bring its experiment back into the results,
+        # and the stamped-property query must cover the rescued flag's variants too.
         with patch("products.experiments.backend.session_context.MAX_CANDIDATE_EXPERIMENTS", 1):
             response = self._get_session_context()
 
@@ -185,6 +201,8 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         results = response.json()["results"]
         assert [result["flag_key"] for result in results] == ["checkout-cta"]
         assert results[0]["variant"] == "test"
+        assert results[0]["variants_seen"] == ["control", "test"]
+        assert results[0]["multiple_variants"] is True
 
     def test_ignores_non_enrolled_flag_responses(self) -> None:
         self._create_recording()
@@ -214,6 +232,62 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         response = self._get_session_context()
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
+
+    def test_excludes_private_experiments(self) -> None:
+        self._enable_access_controls()
+        other_user = self._create_user("other-experimenter@posthog.com")
+        self._create_recording()
+        self._create_experiment()
+        private_experiment = self._create_experiment(
+            key="private-exp", name="Private experiment", created_by=other_user
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(private_experiment.pk), access_level="none"
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "private-exp", "$feature_flag_response": "control"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
+
+    def test_403_without_session_recording_resource_access(self) -> None:
+        self._enable_access_controls()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        self._create_recording()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_requires_session_recording_read_scope(self) -> None:
+        self._create_recording()
+        self.client.logout()
+
+        def _personal_api_key(scopes: list[str]) -> str:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(user=self.user, label="t", secure_value=hash_key_value(token), scopes=scopes)
+            return token
+
+        token = _personal_api_key(["experiment:read"])
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiments/session_context/",
+            {"session_id": SESSION_ID},
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        token = _personal_api_key(["experiment:read", "session_recording:read"])
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiments/session_context/",
+            {"session_id": SESSION_ID},
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
 
     def test_team_isolation(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")

@@ -32,6 +32,7 @@ from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthent
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
@@ -1187,13 +1188,27 @@ class EnterpriseExperimentsViewSet(
         ],
         responses={200: OpenApiResponse(response=ExperimentSessionContextResponseSerializer)},
     )
-    @action(methods=["GET"], detail=False, url_path="session_context", required_scopes=["experiment:read"])
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="session_context",
+        required_scopes=["experiment:read", "session_recording:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def session_context(self, request: Request, **kwargs: Any) -> Response:
         session_id = (request.query_params.get("session_id") or "").strip()
         if not session_id:
             raise ValidationError({"session_id": ["This field is required."]})
 
-        items = get_session_experiment_context(team=self.team, session_id=session_id)
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading session experiment context requires session replay access.")
+
+        # detail=False actions skip the automatic list-action ACL filtering, so filter here —
+        # private experiments must not leak into another user's session context.
+        experiments = self.user_access_control.filter_queryset_by_access_level(
+            Experiment.objects.filter(team_id=self.team.pk)
+        )
+        items = get_session_experiment_context(team=self.team, session_id=session_id, experiments=experiments)
         if items is None:
             raise NotFound("Recording not found")
 

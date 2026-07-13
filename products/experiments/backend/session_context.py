@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -46,8 +46,14 @@ class ExperimentSessionContextItem:
     experiment_end_date: Optional[datetime]
 
 
-def get_session_experiment_context(team: Team, session_id: str) -> Optional[list[ExperimentSessionContextItem]]:
-    """Returns the experiments the session saw, or None when the recording doesn't exist for this team."""
+def get_session_experiment_context(
+    team: Team, session_id: str, experiments: QuerySet[Experiment]
+) -> Optional[list[ExperimentSessionContextItem]]:
+    """Returns the experiments the session saw, or None when the recording doesn't exist for this team.
+
+    `experiments` is the caller's base queryset — the view passes it through object-level
+    access control so private experiments never surface in another user's session context.
+    """
     metadata = SessionReplayEvents().get_metadata(session_id, team)
     if metadata is None:
         return None
@@ -58,7 +64,7 @@ def get_session_experiment_context(team: Team, session_id: str) -> Optional[list
     # Launched experiments whose run window overlaps the recording. Archived experiments are
     # kept on purpose: the session really saw their variant while they ran.
     overlapping = (
-        Experiment.objects.filter(team_id=team.pk)
+        experiments.filter(team_id=team.pk)
         .exclude(deleted=True)
         .filter(start_date__isnull=False, start_date__lte=recording_end)
         .filter(Q(end_date__isnull=True) | Q(end_date__gte=recording_start))
@@ -77,11 +83,13 @@ def get_session_experiment_context(team: Team, session_id: str) -> Optional[list
 
     # The exposure query returns every flag the session called, so a flag with verifiable
     # in-session evidence rescues its experiment even when it fell outside the cap above.
-    # Only the stamped-property (carried-over assignment) path stays capped.
+    # Rescued keys join the stamped-property query too — it stays bounded, since rescues
+    # are limited to real overlapping experiments the session demonstrably called.
     candidate_keys = {experiment.feature_flag.key for experiment in candidates}
     rescued_keys = set(exposures) - candidate_keys
     if rescued_keys:
         candidates += list(overlapping.filter(feature_flag__key__in=sorted(rescued_keys)))
+        candidate_keys = {experiment.feature_flag.key for experiment in candidates}
 
     stamped = _query_stamped_flag_properties(team, session_id, candidate_keys, window_start, window_end)
 
