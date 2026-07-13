@@ -207,7 +207,8 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         allowed_models=None,  # any model — the one-shot chunking/dedup calls pin theirs in review_hog constants
         allow_api_keys=True,
-        billable=False,
+        # Deliberately unbilled while ReviewHog is an internal alpha.
+        credit_bucket=None,
     ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,
