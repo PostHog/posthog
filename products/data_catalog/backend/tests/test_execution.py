@@ -16,7 +16,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.data_catalog.backend.logic.execution import run_metric
+from products.data_catalog.backend.logic.execution import prepare_execution_query, run_metric
 from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.models import Metric
 
@@ -158,6 +158,19 @@ class TestMetricRunPreparation(APIBaseTest):
                 run_metric(team=self.team, metric=metric, user=self.user)
         metric.refresh_from_db()
         assert metric.last_run_at is None
+
+    @parameterized.expand(
+        [
+            ("date_from", {"date_from": "-7d"}, "date_from"),
+            ("date_to", {"date_to": "-1d"}, "date_to"),
+            ("interval", {"interval": "week"}, "interval"),
+        ]
+    )
+    def test_hogql_date_override_names_the_provided_field(self, _name: str, params: dict, expected_field: str) -> None:
+        # The rejection must point at whichever date param the caller actually sent, not always date_from.
+        with self.assertRaises(ValidationError) as ctx:
+            prepare_execution_query(_HOGQL, **params)
+        assert str(ctx.exception.detail["field"][0]) == expected_field
 
 
 class TestMetricRunAttribution(APIBaseTest):

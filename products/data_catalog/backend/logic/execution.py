@@ -143,9 +143,10 @@ def _apply_date_params(query: dict, date_from: Optional[str], date_to: Optional[
     if date_from is None and date_to is None and interval is None:
         return
     if query.get("kind") == HOGQL_DEFINITION_KIND:
+        field = "date_from" if date_from is not None else ("date_to" if date_to is not None else "interval")
         raise ValidationError(
             {
-                "field": "date_from",
+                "field": field,
                 "error": "This metric's dates are fixed in its SQL and cannot be overridden at run time.",
                 "hint": "Report the definition's own window, or ask for a parameterized metric.",
             }
