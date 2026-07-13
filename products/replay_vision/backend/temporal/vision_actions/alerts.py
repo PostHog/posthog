@@ -134,13 +134,16 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
         # "over the last 7 days" means the same thing on every check.
         window_start = window_end - timedelta(days=window_days)
 
+    # Windows bound on completed_at, not created_at: an observation takes minutes to process, and a
+    # row created in one tick's window but succeeding during the next would never land in either if
+    # windows tiled on creation time. completed_at is only set on success, so it can't move backward.
     observations_qs = apply_observation_predicate(
         ReplayObservation.objects.filter(
             team_id=team.id,
             scanner_id__in=scanner_ids,
             status=ObservationStatus.SUCCEEDED,
-            created_at__gte=window_start,
-            created_at__lt=window_end,
+            completed_at__gte=window_start,
+            completed_at__lt=window_end,
         ),
         selection,
     )

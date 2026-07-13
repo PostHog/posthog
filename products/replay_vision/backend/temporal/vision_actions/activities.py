@@ -1,6 +1,6 @@
 """Supporting activities for the vision-action engine: per-scanner eligibility/claim, run lifecycle, and emit."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -13,8 +13,10 @@ from temporalio import activity
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.vision_action import (
     ActionMode,
+    AlertFrequency,
     TriggerType,
     VisionAction,
     VisionActionRun,
@@ -34,6 +36,26 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
 logger = structlog.get_logger(__name__)
 
 _EVENT_NAME = "$replay_vision_action_ready"
+
+# How far behind last_run_at the new-observation probe looks. Covers commit lag (an observation
+# committing just after a tick's probe ran) at the cost of an occasional no-op evaluation.
+_NEW_OBSERVATION_OVERLAP = timedelta(minutes=10)
+
+
+def _has_new_observations(action: VisionAction, now: datetime) -> bool:
+    """Whether the scanner completed any observation since this action's last check (with overlap)."""
+    since = (action.last_run_at or action.created_at or now) - _NEW_OBSERVATION_OVERLAP
+    return ReplayObservation.objects.filter(
+        team_id=action.team_id,
+        scanner_id=action.scanner_id,
+        status=ObservationStatus.SUCCEEDED,
+        completed_at__gte=since,
+    ).exists()
+
+
+def _is_every_match_alert(action: VisionAction) -> bool:
+    alert_config = action.alert_config if isinstance(action.alert_config, dict) else {}
+    return action.mode == ActionMode.ALERT and alert_config.get("frequency") == AlertFrequency.EVERY_MATCH
 
 
 @activity.defn
@@ -62,15 +84,27 @@ def _evaluate_due(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionActio
                 enabled=True,
                 trigger_type=TriggerType.SCHEDULE,
             )
-            # Alerts check on every sweep, so their stored rrule cursor never gates them — a fresh
-            # match should notify within minutes, not wait for an hourly tick. Summaries fire only
-            # when their schedule cursor comes due.
-            .filter(Q(mode=ActionMode.ALERT) | Q(next_run_at__isnull=False, next_run_at__lte=now))
+            # Every-match alerts check on every sweep, so their stored rrule cursor never gates
+            # them — a fresh match should notify within minutes. Threshold (on_breach) alerts read
+            # rolling windows of days, where hourly resolution loses nothing, so they keep the
+            # cursor gate — bounding how much window-scanning one tenant's alerts can add per sweep.
+            .filter(
+                Q(mode=ActionMode.ALERT, alert_config__frequency=AlertFrequency.EVERY_MATCH)
+                | Q(next_run_at__isnull=False, next_run_at__lte=now)
+            )
         )
         for action in actions:
-            # A summary's tick is its schedule cursor; an alert's tick is simply this sweep. The
-            # tick anchors the evaluation windows, and an alert's cursor can sit in the future.
-            scheduled_at = now if action.mode == ActionMode.ALERT else action.next_run_at
+            every_match_alert = _is_every_match_alert(action)
+            if every_match_alert and not _has_new_observations(action, now):
+                # Quiet tick: stamp the check time (feeds "Last checked") but skip the claim — no
+                # child workflow, no run row, no window query. One indexed EXISTS is the whole cost.
+                VisionAction.objects.for_team(inputs.team_id).filter(pk=action.id).update(
+                    last_run_at=now, updated_at=now
+                )
+                continue
+            # A summary's or threshold alert's tick is its schedule cursor; an every-match alert's
+            # tick is simply this sweep (its cursor can sit in the future and is ignored).
+            scheduled_at = now if every_match_alert else action.next_run_at
             # Claim via a direct .update() rather than save(): VisionAction.save() re-derives
             # next_run_at when the schedule key changed, and we've already advanced it here — going
             # through .update() bypasses that override so the claim can't double-recompute the cursor.

@@ -10,6 +10,11 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.replay_vision.backend.models import ReplayScanner, VisionAction, VisionActionRun
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationTrigger,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionActionRunStatus
 from products.replay_vision.backend.temporal.vision_actions import activities as act
@@ -28,6 +33,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
     ValidateVisionActionInputs,
 )
 from products.replay_vision.backend.temporal.vision_actions.workflows import ProcessVisionActionWorkflow
+from products.replay_vision.backend.tests.helpers import snapshot_for
 
 DAILY = "FREQ=DAILY;BYHOUR=9"
 
@@ -62,6 +68,21 @@ def _make_due(action) -> None:
     VisionAction.all_teams.filter(pk=action.pk).update(next_run_at=timezone.now() - timedelta(hours=1))
 
 
+EVERY_MATCH = {"frequency": "every_match", "metric": "count"}
+
+
+def _completed_observation(scanner) -> ReplayObservation:
+    return ReplayObservation.objects.create(
+        scanner=scanner,
+        session_id="s1",
+        scanner_snapshot=snapshot_for(scanner),
+        triggered_by=ObservationTrigger.SCHEDULE,
+        status=ObservationStatus.SUCCEEDED,
+        completed_at=timezone.now(),
+        scanner_result={"model_output": {"scanner_type": scanner.scanner_type, "summary": "s"}},
+    )
+
+
 class TestEvaluateDue(BaseTest):
     def _inputs(self, scanner) -> EvaluateDueVisionActionsInputs:
         return EvaluateDueVisionActionsInputs(scanner_id=scanner.id, team_id=self.team.id)
@@ -88,16 +109,19 @@ class TestEvaluateDue(BaseTest):
         self.assertEqual([d.vision_action_id for d in result], [due.id])
         self.assertEqual(result[0].team_id, self.team.id)
 
-    def test_alerts_are_due_on_every_sweep(self) -> None:
-        # Alerts ignore their rrule cursor: a fresh match should notify within minutes, not wait for
-        # an hourly tick — so an alert whose cursor sits in the future is still claimed, with this
-        # sweep's time (not the future cursor) as the window-anchoring tick. Disabled alerts stay out.
+    def test_every_match_alerts_are_due_on_every_sweep_when_observations_exist(self) -> None:
+        # every_match alerts ignore their rrule cursor: a fresh match should notify within minutes,
+        # not wait for an hourly tick — so one whose cursor sits in the future is still claimed, with
+        # this sweep's time (not the future cursor) as the window-anchoring tick. Disabled stay out.
         scanner = _scanner(self.team)
-        alert = _action(self.team, name="alert", scanner=scanner, mode=ActionMode.ALERT)
+        _completed_observation(scanner)
+        alert = _action(self.team, name="alert", scanner=scanner, mode=ActionMode.ALERT, alert_config=EVERY_MATCH)
         VisionAction.all_teams.filter(pk=alert.pk).update(next_run_at=timezone.now() + timedelta(hours=1))
 
-        disabled_alert = _action(self.team, name="off", scanner=scanner, mode=ActionMode.ALERT, enabled=False)
-        VisionAction.all_teams.filter(pk=disabled_alert.pk).update(next_run_at=timezone.now() + timedelta(hours=1))
+        disabled = _action(
+            self.team, name="off", scanner=scanner, mode=ActionMode.ALERT, alert_config=EVERY_MATCH, enabled=False
+        )
+        VisionAction.all_teams.filter(pk=disabled.pk).update(next_run_at=timezone.now() + timedelta(hours=1))
 
         result = act._evaluate_due(self._inputs(scanner))
 
@@ -107,6 +131,39 @@ class TestEvaluateDue(BaseTest):
 
         # And the next sweep claims it again — no hourly gate between checks.
         self.assertEqual([d.vision_action_id for d in act._evaluate_due(self._inputs(scanner))], [alert.id])
+
+    def test_every_match_alert_skips_quiet_ticks_but_stamps_last_checked(self) -> None:
+        # With no new observations there's nothing an every_match alert could report, so the sweep
+        # must not spawn its child workflow — but "Last checked" still has to move.
+        scanner = _scanner(self.team)
+        alert = _action(self.team, name="alert", scanner=scanner, mode=ActionMode.ALERT, alert_config=EVERY_MATCH)
+
+        self.assertEqual(act._evaluate_due(self._inputs(scanner)), [])
+        alert.refresh_from_db()
+        self.assertIsNotNone(alert.last_run_at)
+
+    def test_on_breach_alerts_keep_the_schedule_cursor_gate(self) -> None:
+        # Threshold alerts read rolling windows of days; hourly resolution loses nothing, and the
+        # cursor gate bounds how much window-scanning alert fan-out can add to every sweep.
+        scanner = _scanner(self.team)
+        _completed_observation(scanner)
+        on_breach = _action(
+            self.team,
+            name="threshold-alert",
+            scanner=scanner,
+            mode=ActionMode.ALERT,
+            alert_config={"frequency": "on_breach", "metric": "count", "operator": "gte", "threshold": 1},
+        )
+        VisionAction.all_teams.filter(pk=on_breach.pk).update(next_run_at=timezone.now() + timedelta(hours=1))
+
+        self.assertEqual(act._evaluate_due(self._inputs(scanner)), [])
+
+        _make_due(on_breach)
+        on_breach.refresh_from_db()
+        result = act._evaluate_due(self._inputs(scanner))
+        self.assertEqual([d.vision_action_id for d in result], [on_breach.id])
+        # The tick is the schedule cursor (like summaries), not the sweep time.
+        self.assertEqual(result[0].scheduled_at, on_breach.next_run_at)
 
     def test_claims_by_advancing_next_run_at(self) -> None:
         scanner = _scanner(self.team)

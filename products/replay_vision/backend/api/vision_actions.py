@@ -184,6 +184,11 @@ class DeliveryTargetSerializer(serializers.Serializer):
     )
 
 
+# Alerts ride the scanner's sweep, so each enabled alert adds evaluation work to every sweep tick —
+# cap the fan-out one scanner can accumulate.
+MAX_ENABLED_ALERTS_PER_SCANNER = 10
+
+
 class VisionActionSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         max_length=255,
@@ -334,6 +339,23 @@ class VisionActionSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"alert_config": "The avg_score metric only applies to scorer scanners."}
                 )
+        self._validate_alert_cap(attrs)
+
+    def _validate_alert_cap(self, attrs: dict[str, Any]) -> None:
+        # Alerts evaluate on the scanner's sweep, so unbounded alert fan-out multiplies sweep work.
+        # Cap enabled alerts per scanner; disabled ones don't cost anything and don't count.
+        enabled = attrs.get("enabled", getattr(self.instance, "enabled", True))
+        scanner = attrs.get("scanner", getattr(self.instance, "scanner", None))
+        if not enabled or scanner is None:
+            return
+        team = self.context["get_team"]()
+        others = VisionAction.objects.for_team(team.id).filter(scanner=scanner, mode=ActionMode.ALERT, enabled=True)
+        if self.instance is not None:
+            others = others.exclude(pk=self.instance.pk)
+        if others.count() >= MAX_ENABLED_ALERTS_PER_SCANNER:
+            raise serializers.ValidationError(
+                {"mode": f"A scanner can have at most {MAX_ENABLED_ALERTS_PER_SCANNER} enabled alerts."}
+            )
 
     def _validate_schedule(self, attrs: dict[str, Any]) -> None:
         trigger_type = attrs.get("trigger_type", getattr(self.instance, "trigger_type", TriggerType.SCHEDULE))

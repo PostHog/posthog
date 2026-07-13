@@ -10,6 +10,7 @@ from posthog.cdp.templates.slack.template_slack import template as template_slac
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
+from products.replay_vision.backend.api.vision_actions import MAX_ENABLED_ALERTS_PER_SCANNER
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
@@ -96,6 +97,34 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(action.team_id, self.team.id)
         self.assertEqual(action.delivery_config[0]["integration_id"], self.integration.id)
         self.assertIsNotNone(action.next_run_at)
+
+    def test_enabled_alert_cap_per_scanner(self) -> None:
+        # Alerts evaluate on every scanner sweep, so unbounded fan-out multiplies sweep work — the
+        # cap must reject the N+1th enabled alert while still allowing a disabled one.
+        for i in range(MAX_ENABLED_ALERTS_PER_SCANNER):
+            VisionAction.all_teams.create(
+                team=self.team,
+                scanner=self.scanner,
+                name=f"alert-{i}",
+                mode="alert",
+                alert_config={"frequency": "every_match", "metric": "count"},
+                trigger_config={"rrule": "FREQ=HOURLY", "timezone": "UTC"},
+            )
+        payload = self._create_payload(
+            name="one-too-many",
+            mode="alert",
+            alert_config={"frequency": "every_match", "metric": "count"},
+            selection={},
+        )
+        resp = self.client.post(self.actions_url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("at most", resp.json()["detail"])
+
+        resp = self.client.post(self.actions_url, data={**payload, "enabled": False}, format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        # Re-enabling it later must hit the same cap.
+        resp = self.client.patch(f"{self.actions_url}{resp.json()['id']}/", data={"enabled": True}, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
 
     def test_second_digest_for_scanner_rejected(self) -> None:
         first = self.client.post(

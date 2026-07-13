@@ -48,8 +48,9 @@ class TestVisionActionAlerts(BaseTest):
             scanner_result={"model_output": {"scanner_type": scanner.scanner_type, **output}},
         )
         if age_days:
-            # created_at is auto_now_add; backdate via update() for window tests.
-            ReplayObservation.objects.filter(pk=obs.pk).update(created_at=timezone.now() - timedelta(days=age_days))
+            # Windows bound on completed_at; backdate created_at too so display ordering matches.
+            aged = timezone.now() - timedelta(days=age_days)
+            ReplayObservation.objects.filter(pk=obs.pk).update(created_at=aged, completed_at=aged)
         return obs
 
     def _alert(self, scanner: ReplayScanner, alert_config: dict, selection: dict | None = None) -> VisionAction:
