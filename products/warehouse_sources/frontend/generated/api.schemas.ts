@@ -3740,7 +3740,12 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Vultr` - Vultr
      * * `Windmill` - Windmill
      * * `Zep` - Zep
-     * * `Hex` - Hex */
+     * * `Hex` - Hex
+     * * `Sumsub` - Sumsub
+     * * `GoogleChat` - GoogleChat
+     * * `Kickscale` - Kickscale
+     * * `Zellify` - Zellify
+     * * `RudderStack` - RudderStack */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
