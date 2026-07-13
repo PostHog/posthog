@@ -416,10 +416,8 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
 async def test_update_external_job_activity_resolves_job_by_workflow_run_id_when_job_id_missing(
     activity_environment, team, **kwargs
 ):
-    # Zero-batch runs (e.g. quiet Slack channels) finalize in the workflow's finally block with
-    # job_id=None. Finalization must resolve *this run's* job by workflow_run_id, not the newest
-    # RUNNING job for the schema: a schema routinely carries several stranded RUNNING rows, so the
-    # positional heuristic completes the wrong job and strands this run in RUNNING forever.
+    # A schema can carry several stranded RUNNING rows, so finalizing a zero-batch run (job_id=None)
+    # must resolve this run's job by workflow_run_id, not the newest RUNNING job for the schema.
     new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),

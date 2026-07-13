@@ -121,10 +121,8 @@ class UpdateExternalDataJobStatusInputs:
     status: str
     internal_error: str | None
     latest_error: str | None
-    # Temporal run id of the workflow that owns this job. The create-job activity stamps the
-    # same value on the ExternalDataJob row, so finalization can resolve *this* run's job even
-    # when job_id never made it back to the workflow (create-activity result lost to a restart).
-    # Optional so mixed-version workers during a rollout stay compatible.
+    # Run id stamped on the job row by the create-job activity, so finalization can resolve this
+    # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
 
     @property
@@ -155,11 +153,8 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     if inputs.job_id is None:
 
         def _resolve_job() -> ExternalDataJob | None:
-            # Prefer the deterministic run id. The create-job activity stamps workflow_run_id on the
-            # row, so this resolves this run's own job even when the create-activity result was lost
-            # (worker restart) and job_id never made it back to the workflow. This is what strands
-            # zero-batch runs (e.g. quiet Slack channels) in RUNNING: with no batch the loader never
-            # finalizes the job, so the finally-block update is the only finalizer.
+            # Resolve this run's own job by run id; the finally-block update is the only finalizer for
+            # zero-batch runs (e.g. quiet Slack channels) that never send a batch to complete the job.
             if inputs.workflow_run_id is not None:
                 job = (
                     ExternalDataJob.objects.filter(team_id=inputs.team_id, workflow_run_id=inputs.workflow_run_id)
@@ -168,8 +163,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 )
                 if job is not None:
                     return job
-            # Legacy fallback for runs started before workflow_run_id was threaded through. Racy when a
-            # schema has concurrent runs, but preserved so in-flight jobs mid-rollout still finalize.
+            # Legacy fallback for runs started before workflow_run_id existed; racy under concurrent runs.
             return (
                 ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
                 .order_by("-created_at")
@@ -178,9 +172,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
         job: ExternalDataJob | None = await database_sync_to_async_pool(_resolve_job)()
         if job is None:
-            # A job row almost always exists (create-job commits it before extraction); reaching here
-            # means we could not resolve it and it would be stranded in RUNNING. Surface it loudly
-            # instead of the previous silent info log.
+            # Unresolvable job would be stranded in RUNNING — surface it loudly, not a silent info log.
             logger.warning("No job to update status on", workflow_run_id=inputs.workflow_run_id)
             capture_exception(Exception("V3 job finalization could not resolve a job to update"))
             return
@@ -326,8 +318,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             schema_id=str(inputs.external_data_schema_id),
             source_id=str(inputs.external_data_source_id),
-            # Deterministic and available immediately; lets the finalizer resolve this run's job
-            # even if the create-job activity's result is lost and job_id never gets set below.
+            # Deterministic and available immediately, so the finalizer can resolve this run's job.
             workflow_run_id=workflow.info().run_id,
         )
 
