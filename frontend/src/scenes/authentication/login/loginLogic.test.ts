@@ -153,6 +153,26 @@ describe('loginLogic', () => {
             expect(beginHandler).toHaveBeenCalledTimes(1)
         })
 
+        it('auto-triggers at most once per email, but re-triggers for a different email', async () => {
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(passkeyLogic)
+                .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthenticationSuccess'])
+                .toFinishAllListeners()
+
+            // The email field's onBlur re-runs precheck on every "Log in" click. A repeat precheck for
+            // the same resolved email must not re-summon a passkey prompt the user has already dealt with.
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+            expect(beginHandler).toHaveBeenCalledTimes(1)
+
+            // A genuinely different account should still get its prompt.
+            logic.actions.precheck({ email: 'other@example.com' })
+            await expectLogic(passkeyLogic)
+                .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthenticationSuccess'])
+                .toFinishAllListeners()
+            expect(beginHandler).toHaveBeenCalledTimes(2)
+        })
+
         it('does not auto-trigger the passkey modal on WebKit (Safari)', async () => {
             setVendor(WEBKIT_VENDOR)
             logic.actions.precheck({ email: 'user@example.com' })

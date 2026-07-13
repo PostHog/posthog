@@ -28,7 +28,14 @@ export interface BeginPasskeyLoginParams {
     next?: string
     email?: string
     reauth?: 'true' | 'false'
+    // Set when the prompt is auto-triggered after precheck (not an explicit passkey button click).
+    // Used to show a password-fallback message when an auto-triggered prompt fails.
+    auto?: boolean
 }
+
+// Shown when a passkey prompt we opened on the user's behalf (auto-triggered after precheck)
+// fails, so the user knows they can simply fall back to their password.
+export const AUTO_PASSKEY_FALLBACK_MESSAGE = "Passkey sign-in didn't work. Enter your password below to log in instead."
 
 export const passkeyLogic = kea<passkeyLogicType>([
     path(['scenes', 'authentication', 'shared', 'passkeyLogic']),
@@ -89,6 +96,13 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 passkeyAuthenticationCancelled: () => true,
             },
         ],
+        wasAutoTriggered: [
+            false,
+            {
+                beginPasskeyLogin: (_, { params }) => params?.auto === true,
+                reset: () => false,
+            },
+        ],
     }),
     loaders(({ values, actions }) => ({
         loginWithPasskey: [
@@ -126,7 +140,12 @@ export const passkeyLogic = kea<passkeyLogicType>([
                             actions.passkeyAuthenticationCancelled()
                             return null
                         }
-                        actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                        // When we opened the prompt on the user's behalf, point them at the password
+                        // field rather than a raw passkey error they didn't ask to see.
+                        actions.setGeneralError(
+                            'passkey_error',
+                            values.wasAutoTriggered ? AUTO_PASSKEY_FALLBACK_MESSAGE : getPasskeyErrorMessage(e)
+                        )
                         throw e
                     }
                 },

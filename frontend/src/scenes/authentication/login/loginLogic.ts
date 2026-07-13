@@ -92,6 +92,9 @@ export const loginLogic = kea<loginLogicType>([
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
+        // Records the email we've already auto-fired the passkey prompt for, so repeated
+        // prechecks don't re-summon a passkey prompt the user has already dealt with.
+        markAutoPasskeyTriggered: (email: string) => ({ email }),
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -100,6 +103,12 @@ export const loginLogic = kea<loginLogicType>([
             {
                 setGeneralError: (_, error) => error,
                 clearGeneralError: () => null,
+            },
+        ],
+        autoPasskeyTriggeredForEmail: [
+            null as string | null,
+            {
+                markAutoPasskeyTriggered: (_, { email }) => email,
             },
         ],
     }),
@@ -213,7 +222,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
     })),
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
@@ -229,11 +238,21 @@ export const loginLogic = kea<loginLogicType>([
                 !precheckResponse.sso_enforcement &&
                 !isWebKitBrowser()
             ) {
+                // Only auto-trigger once per email. The email field's onBlur re-runs precheck on
+                // every "Log in" click (and autofill fires it too), which would otherwise re-summon
+                // a passkey prompt the user has already dismissed or that's failing — trapping them
+                // on the login screen instead of letting them fall back to their password.
+                if (precheckResponse.email && precheckResponse.email === values.autoPasskeyTriggeredForEmail) {
+                    return
+                }
                 breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
-                passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
+                if (precheckResponse.email) {
+                    actions.markAutoPasskeyTriggered(precheckResponse.email)
+                }
+                passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials, { auto: true })
             }
         },
     })),
