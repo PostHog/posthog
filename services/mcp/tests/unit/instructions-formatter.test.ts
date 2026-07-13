@@ -302,6 +302,16 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('- visualizations:')
             expect(result).toContain('- feedback:')
         })
+
+        it('keeps built-in topics but omits skill commands when skills are disabled', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildClaudeExecCommandReference(fullCtx, { skillsEnabled: false })
+
+            expect(result).toContain('- analytics:')
+            expect(result).toContain('learn <topic...> - load one or more learning topics')
+            expect(result).not.toContain('learn skills')
+            expect(result).not.toContain('learn posthog:<skill>')
+        })
     })
 
     // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP

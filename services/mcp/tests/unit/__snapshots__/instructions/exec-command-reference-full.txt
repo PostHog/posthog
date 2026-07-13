@@ -10,7 +10,7 @@ call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON inp
 
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
 
-learn [skills|-s <query>|<guide>|(posthog|project):<skill> [path] [-s <query>|--lines <start>:<end>]] — discover and load optional guides or skills
+learn [skills|-s <query>|(posthog|project):<skill> [path] [-s <query>|--lines <start>:<end>]] — discover and load skills
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 

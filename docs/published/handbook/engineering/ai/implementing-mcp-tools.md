@@ -86,8 +86,9 @@ Keep guidance needed for routine tool calls inline.
 This includes the compact tool-domain index, which must remain in the `command` schema for tool discovery.
 Put optional or task-specific global guidance in the Claude exec learn catalog, available through `learn` and `learn <guide>`.
 The built-in guides are listed in the `command` description so the model can load the relevant guide before starting a task.
-PostHog and project skills are discovered at runtime through `learn skills` or `learn -s <query>`.
+PostHog and project skills are enabled independently of the client through the `mcp-exec-skills` feature flag and discovered at runtime through `learn skills` or `learn -s <query>`.
 Read bundled PostHog skills with `learn posthog:<skill> [path]` and current-project Skills store entries with `learn project:<skill> [path]`.
+Claude web and desktop keep their built-in learning topics when the flag is off. Other cli-mode clients receive only skill commands when the flag is on, without the Claude-specific learning topics.
 Keep skill names, descriptions, bodies, and references out of the tool schema.
 The fixed learn grammar and compact tool-domain index must remain inline so Claude can discover both capabilities.
 

@@ -36,7 +36,7 @@ function makeCatalog(): SkillCatalog {
 describe('SkillCatalog and exec learn', () => {
     it('lists qualified names without descriptions and ranks full-text matches deterministically', async () => {
         const catalog = makeCatalog()
-        const learn = new ExecLearnCatalog([], catalog)
+        const learn = new ExecLearnCatalog([], { posthog: catalog })
 
         expect(JSON.parse(await learn.execute('skills'))).toEqual({
             posthog: {
@@ -72,7 +72,7 @@ describe('SkillCatalog and exec learn', () => {
 
     it('returns the rendered skill with a manifest and supports scoped reads', async () => {
         const catalog = makeCatalog()
-        const learn = new ExecLearnCatalog([], catalog)
+        const learn = new ExecLearnCatalog([], { posthog: catalog })
         const result = catalog.read('retention-analysis')
 
         expect(result).toContain('## Files')
@@ -106,7 +106,7 @@ describe('SkillCatalog and exec learn', () => {
             searchFile: vi.fn(async () => 'project file match'),
             readLines: vi.fn(async () => 'project lines'),
         } as unknown as ProjectSkillCatalog
-        const learn = new ExecLearnCatalog([], makeCatalog(), projectSkills)
+        const learn = new ExecLearnCatalog([], { posthog: makeCatalog(), project: projectSkills })
 
         const listed = JSON.parse(await learn.execute('skills'))
         const result = await learn.execute('-s retention')

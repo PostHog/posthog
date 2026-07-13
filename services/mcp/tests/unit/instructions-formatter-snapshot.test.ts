@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
 import type { GroupType } from '@/api/client'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
@@ -98,10 +99,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
-            toolFeatureFlags: {},
+            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
             renderUiEnabled: STATIC_CTX.renderUiEnabled,
             metadata: STATIC_CTX.metadata,
             groupTypes: STATIC_CTX.groupTypes,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
         } as unknown as ResolvedState
         const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
 
@@ -160,7 +163,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            toolFeatureFlags: {},
+            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
             groupTypes: worstCaseGroupTypes,

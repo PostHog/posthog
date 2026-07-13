@@ -1,5 +1,7 @@
 import type { Env } from '@/tools/types'
 
+export const MCP_EXEC_SKILLS_FEATURE_FLAG = 'mcp-exec-skills'
+
 export {
     USER_AGENT,
     type GetUserAgentOptions,

@@ -76,7 +76,7 @@ describe('exec tool', () => {
                     content: '### Retrieving data\n\nUse the analytics tools.',
                 },
             ],
-            undefined
+            { posthog: undefined }
         )
 
         it('lists guide metadata and skill discovery commands without loading content', async () => {
@@ -126,7 +126,6 @@ describe('exec tool', () => {
             )
             await expect(exec.handler(mockContext, { command: 'tools' })).resolves.toContain('mock-tool')
         })
-
     })
 
     describe('call command', () => {

@@ -120,12 +120,21 @@ export class InstructionsFormatter {
      * guidance inline and move only task-specific sections behind `learn <topic...>`.
      * Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
      */
-    buildClaudeExecCommandReference(ctx: InstructionsContext, opts: { learnEnabled?: boolean } = {}): string {
+    buildClaudeExecCommandReference(
+        ctx: InstructionsContext,
+        opts: { learnEnabled?: boolean; skillsEnabled?: boolean } = {}
+    ): string {
         const learnEnabled = opts.learnEnabled ?? true
+        const skillsEnabled = opts.skillsEnabled ?? true
         const learnGuides = this.buildClaudeExecLearnGuides(ctx)
         const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
         const learnSection = learnEnabled
-            ? formatPrompt(EXEC_LEARN, { help_topics: learnGuideList })
+            ? formatPrompt(EXEC_LEARN, {
+                  help_topics: learnGuideList,
+                  skills_help: skillsEnabled
+                      ? 'Skills: `learn skills`; `learn -s <query>`; `learn posthog:<skill> [path]` or `learn project:<skill> [path]`; with a path: `-s <query>` or `--lines <start>:<end>`.'
+                      : '',
+              })
             : undefined
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
@@ -151,7 +160,7 @@ export class InstructionsFormatter {
             {
                 compact: false,
                 compactToolDomains: true,
-                extraCommands: 'learn <topic...> - load one or more learning topics\n',
+                extraCommands: learnEnabled ? 'learn <topic...> - load one or more learning topics\n' : undefined,
             }
         )
     }

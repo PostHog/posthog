@@ -15,6 +15,7 @@ import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
@@ -105,7 +106,7 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const allFlagKeys = [...new Set(getRequiredFeatureFlags())]
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), MCP_EXEC_SKILLS_FEATURE_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined

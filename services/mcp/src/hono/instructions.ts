@@ -20,6 +20,7 @@ import {
 } from '@/tools/render-ui'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
@@ -113,32 +114,38 @@ export class InstructionsBuilder {
         // `supportsInstructions: false`, already gets the full env-context via the
         // un-stripped path.)
         const keepEnvContext = state.clientProfile.isClaudeChatHost()
-        const learnEnabled = this.isExecLearnEnabled(state)
+        const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
         const ctx = this.buildContext(state)
         if (keepEnvContext) {
-            return this.formatter.buildClaudeExecCommandReference(ctx, { learnEnabled })
+            return this.formatter.buildClaudeExecCommandReference(ctx, {
+                learnEnabled: guidesEnabled || skillsEnabled,
+                skillsEnabled,
+            })
         }
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
-            learnEnabled,
+            learnEnabled: skillsEnabled,
         })
     }
 
     buildExecLearnCatalog(state: ResolvedState, skills: SkillCatalog | undefined): ExecLearnCatalog | undefined {
-        if (!this.isExecLearnEnabled(state)) {
+        const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
+        if (!guidesEnabled && !skillsEnabled) {
             return undefined
         }
-        const guides = state.clientProfile.isClaudeChatHost()
-            ? this.formatter.buildClaudeExecLearnGuides(this.buildContext(state))
-            : []
-        const canReadProjectSkills = hasScope(state.apiKeyScopes, 'llm_skill:read')
+        const guides = guidesEnabled ? this.formatter.buildClaudeExecLearnGuides(this.buildContext(state)) : []
+        const canReadProjectSkills = skillsEnabled && hasScope(state.apiKeyScopes, 'llm_skill:read')
         return new ExecLearnCatalog(
             guides,
-            skills,
-            canReadProjectSkills ? new ProjectSkillCatalog(state.context) : undefined,
-            canReadProjectSkills
-                ? undefined
-                : 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.'
+            skillsEnabled
+                ? {
+                      posthog: skills,
+                      project: canReadProjectSkills ? new ProjectSkillCatalog(state.context) : undefined,
+                      projectUnavailableReason: canReadProjectSkills
+                          ? undefined
+                          : 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.',
+                  }
+                : undefined
         )
     }
 
@@ -157,8 +164,14 @@ export class InstructionsBuilder {
         })
     }
 
-    private isExecLearnEnabled(state: ResolvedState): boolean {
+    private getExecLearnCapabilities(state: ResolvedState): { guidesEnabled: boolean; skillsEnabled: boolean } {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
-        return clientContext?.mcpConsumer !== 'plugin'
+        if (clientContext.mcpConsumer === 'plugin') {
+            return { guidesEnabled: false, skillsEnabled: false }
+        }
+        return {
+            guidesEnabled: state.clientProfile.isClaudeChatHost(),
+            skillsEnabled: state.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG] === true,
+        }
     }
 }

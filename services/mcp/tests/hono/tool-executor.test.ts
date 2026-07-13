@@ -11,6 +11,7 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -187,6 +188,129 @@ describe('ToolExecutor', () => {
             expect(result.tools[0]!.name).toBe('exec')
         })
 
+        it.each([
+            {
+                label: 'Claude web/desktop with flag off',
+                isClaudeChatHost: true,
+                skillsEnabled: false,
+                pluginConsumer: false,
+                expectGuides: true,
+                expectSkills: false,
+            },
+            {
+                label: 'Claude web/desktop with flag on',
+                isClaudeChatHost: true,
+                skillsEnabled: true,
+                pluginConsumer: false,
+                expectGuides: true,
+                expectSkills: true,
+            },
+            {
+                label: 'Claude Code with flag off',
+                isClaudeChatHost: false,
+                skillsEnabled: false,
+                pluginConsumer: false,
+                expectGuides: false,
+                expectSkills: false,
+            },
+            {
+                label: 'Claude Code with flag on',
+                isClaudeChatHost: false,
+                skillsEnabled: true,
+                pluginConsumer: false,
+                expectGuides: false,
+                expectSkills: true,
+            },
+            {
+                label: 'plugin consumer with flag on',
+                isClaudeChatHost: true,
+                skillsEnabled: true,
+                pluginConsumer: true,
+                expectGuides: false,
+                expectSkills: false,
+            },
+        ])(
+            'advertises and serves the expected learn capabilities for $label',
+            async ({ isClaudeChatHost, skillsEnabled, pluginConsumer, expectGuides, expectSkills }) => {
+                const skills = new SkillCatalog([
+                    {
+                        name: 'sample-skill',
+                        description: 'A sample skill.',
+                        files: [
+                            {
+                                path: 'SKILL.md',
+                                content: '# Sample skill',
+                                lineCount: 1,
+                                charCount: 14,
+                                kind: 'markdown',
+                            },
+                        ],
+                    },
+                ])
+                const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
+                    getCatalog: () => skills,
+                } as any)
+                const state = makeState([], {
+                    useSingleExec: true,
+                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                    clientProfile: {
+                        capabilities: { supportsInstructions: true },
+                        isCliModeEnabled: vi.fn(() => true),
+                        isClaudeUiHost: vi.fn(() => isClaudeChatHost),
+                        isInlineExecUiHost: vi.fn(() => false),
+                        isClaudeChatHost: vi.fn(() => isClaudeChatHost),
+                    } as any,
+                    ...(pluginConsumer
+                        ? {
+                              sessionContext: {
+                                  mcpClientName: 'claude-ai',
+                                  mcpClientVersion: '1.0',
+                                  mcpProtocolVersion: '2025-03-26',
+                                  mcpConsumer: 'plugin',
+                                  mcpVendorClient: undefined,
+                              },
+                          }
+                        : {}),
+                })
+
+                const listed = await skillExecutor.handleToolsList(state)
+                const commandDescription = (listed.tools[0]!.inputSchema.properties as any).command
+                    .description as string
+                const advertisesSkills =
+                    commandDescription.includes('learn posthog:<skill>') ||
+                    commandDescription.includes('(posthog|project):<skill>')
+                expect(commandDescription.includes('- analytics:')).toBe(expectGuides)
+                expect(advertisesSkills).toBe(expectSkills)
+                expect(commandDescription.includes('learn <topic...>')).toBe(expectGuides)
+
+                const result = (await skillExecutor.handleToolCall(
+                    { name: 'exec', arguments: { command: 'learn' } },
+                    state
+                )) as { content: { text: string }[]; isError?: boolean }
+                if (!expectGuides && !expectSkills) {
+                    expect(result.isError).toBe(true)
+                    expect(result.content[0]!.text).toContain('learn command is not available')
+                    return
+                }
+
+                const catalogResult = JSON.parse(result.content[0]!.text)
+                expect(catalogResult.guides.length > 0).toBe(expectGuides)
+                expect('skills' in catalogResult).toBe(expectSkills)
+
+                if (!expectSkills) {
+                    const skillResult = (await skillExecutor.handleToolCall(
+                        { name: 'exec', arguments: { command: 'learn skills' } },
+                        state
+                    )) as { content: { text: string }[]; isError?: boolean }
+                    expect(skillResult.isError).toBeFalsy()
+                    expect(JSON.parse(skillResult.content[0]!.text)).toEqual({
+                        available: false,
+                        reason: 'Skill discovery is not enabled for this connection.',
+                    })
+                }
+            }
+        )
+
         // Env-context (active project metadata + tool-domain index) must reach the model
         // on the exec `command` for clients that don't otherwise receive the `instructions`
         // payload: Codex reports `supportsInstructions: false` so never gets it, and Claude
@@ -302,6 +426,7 @@ describe('ToolExecutor', () => {
                 getCatalog: () => skills,
             } as any)
             const state = makeState([], { useSingleExec: true })
+            state.toolFeatureFlags = { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true }
 
             const result = (await skillExecutor.handleToolCall(
                 { name: 'exec', arguments: { command: 'learn skills' } },
@@ -336,6 +461,7 @@ describe('ToolExecutor', () => {
             })
             const state = makeState([], {
                 useSingleExec: true,
+                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
                 apiKeyScopes: ['llm_skill:read'],
                 context: {
                     api: { request: apiRequest },
@@ -375,6 +501,7 @@ describe('ToolExecutor', () => {
                     .map(({ name }) => ({ name })),
                 {
                     useSingleExec: true,
+                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
                     sessionContext: {
                         mcpClientName: 'claude-ai',
                         mcpClientVersion: '1.0',
