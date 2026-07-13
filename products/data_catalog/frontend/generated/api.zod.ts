@@ -19,6 +19,8 @@ export const dataCatalogMetricsCreateBodyDisplayNameMax = 255
 
 export const dataCatalogMetricsCreateBodyUnitMax = 64
 
+export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
+
 export const dataCatalogMetricsCreateBodyAiModelMax = 128
 
 export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
@@ -42,6 +44,13 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .nullish()
         .describe('Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.'),
+    source_insight_short_id: zod
+        .string()
+        .max(dataCatalogMetricsCreateBodySourceInsightShortIdMax)
+        .nullish()
+        .describe(
+            "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition."
+        ),
     created_source: zod
         .enum(['user', 'ai_generated'])
         .describe('\* `user` - user\n\* `ai_generated` - ai_generated')
@@ -68,6 +77,8 @@ export const dataCatalogMetricsUpdateBodyDisplayNameMax = 255
 
 export const dataCatalogMetricsUpdateBodyUnitMax = 64
 
+export const dataCatalogMetricsUpdateBodySourceInsightShortIdMax = 12
+
 export const dataCatalogMetricsUpdateBodyAiModelMax = 128
 
 export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
@@ -91,6 +102,13 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .nullish()
         .describe('Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.'),
+    source_insight_short_id: zod
+        .string()
+        .max(dataCatalogMetricsUpdateBodySourceInsightShortIdMax)
+        .nullish()
+        .describe(
+            "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition."
+        ),
     created_source: zod
         .enum(['user', 'ai_generated'])
         .describe('\* `user` - user\n\* `ai_generated` - ai_generated')
@@ -117,6 +135,8 @@ export const dataCatalogMetricsPartialUpdateBodyDisplayNameMax = 255
 
 export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 
+export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
+
 export const dataCatalogMetricsPartialUpdateBodyAiModelMax = 128
 
 export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -141,6 +161,13 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .nullish()
         .describe('Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.'),
+    source_insight_short_id: zod
+        .string()
+        .max(dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax)
+        .nullish()
+        .describe(
+            "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition."
+        ),
     created_source: zod
         .enum(['user', 'ai_generated'])
         .describe('\* `user` - user\n\* `ai_generated` - ai_generated')
