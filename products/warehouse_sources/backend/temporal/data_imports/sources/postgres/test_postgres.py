@@ -6522,7 +6522,6 @@ class TestRlsActiveFromConnErrorHandling:
         assert result == {}
         capture_mock.assert_not_called()
 
-
     def test_feature_not_supported_after_timeout_guard_is_still_captured(self):
         # The statement_timeout tolerance is scoped to the SET guard only. A FeatureNotSupported from
         # a catalog query after it is a genuinely unexpected shape and must still surface, not be
