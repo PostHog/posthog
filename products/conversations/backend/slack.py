@@ -815,7 +815,7 @@ def _is_nudge_classifier_flag_enabled(team: Team) -> bool:
                     "project": {"id": str(team.id), "uuid": str(team.uuid)},
                 },
                 only_evaluate_locally=False,
-                send_feature_flag_events=False,
+                send_feature_flag_events=True,
             )
         )
     except Exception as e:
