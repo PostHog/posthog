@@ -19,7 +19,7 @@ from django.utils.text import slugify
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -32,6 +32,7 @@ from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthent
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
@@ -58,6 +59,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
+    ExperimentSessionContextResponseSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -80,6 +82,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance,
     calculate_variance_from_stats,
 )
+from products.experiments.backend.session_context import get_session_experiment_context
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
@@ -1166,6 +1169,50 @@ class EnterpriseExperimentsViewSet(
                 "recommended_running_time_days": calculate_running_time_days(recommended_sample_size, exposure_rate),
             }
         )
+
+    @extend_schema(
+        description=(
+            "Resolve which experiments (and variants) a session recording saw. Variants come from the session's "
+            "$feature_flag_called events and stamped $feature/<key> event properties — flag evaluation, which may "
+            "differ from an experiment's exposure criteria."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="session_id",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                required=True,
+                description="ID of the session recording to resolve experiment context for.",
+            ),
+        ],
+        responses={200: OpenApiResponse(response=ExperimentSessionContextResponseSerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="session_context",
+        required_scopes=["experiment:read", "session_recording:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def session_context(self, request: Request, **kwargs: Any) -> Response:
+        session_id = (request.query_params.get("session_id") or "").strip()
+        if not session_id:
+            raise ValidationError({"session_id": ["This field is required."]})
+
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading session experiment context requires session replay access.")
+
+        # detail=False actions skip the automatic list-action ACL filtering, so filter here —
+        # private experiments must not leak into another user's session context.
+        experiments = self.user_access_control.filter_queryset_by_access_level(
+            Experiment.objects.filter(team_id=self.team.pk)
+        )
+        items = get_session_experiment_context(team=self.team, session_id=session_id, experiments=experiments)
+        if items is None:
+            raise NotFound("Recording not found")
+
+        serializer = ExperimentSessionContextResponseSerializer({"session_id": session_id, "results": items})
+        return Response(serializer.data)
 
 
 def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:
