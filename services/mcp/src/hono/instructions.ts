@@ -169,6 +169,6 @@ export class InstructionsBuilder {
 
     private isExecLearnEnabled(state: ResolvedState): boolean {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
-        return clientContext.mcpConsumer !== 'plugin'
+        return clientContext?.mcpConsumer !== 'plugin'
     }
 }

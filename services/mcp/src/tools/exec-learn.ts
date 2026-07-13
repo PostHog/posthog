@@ -80,15 +80,11 @@ export class ExecLearnCatalog {
             return await this.searchSkills(query)
         }
 
-        const [identifier, ...args] = tokens
-        const guide = this.guidesById.get(identifier!)
-        if (guide) {
-            if (args.length > 0) {
-                throw new Error(`Guide "${identifier}" does not accept a path or flags.`)
-            }
-            return guide.content
+        if (!tokens[0]!.includes(':')) {
+            return this.readGuides(tokens)
         }
 
+        const [identifier, ...args] = tokens
         const skill = parseQualifiedSkill(identifier!)
         if (args.length === 0) {
             return await this.readSkill(skill)
@@ -208,6 +204,27 @@ export class ExecLearnCatalog {
 
     private listGuides(): ExecLearnGuideSummary[] {
         return [...this.guidesById.values()].map(({ content: _content, ...summary }) => summary)
+    }
+
+    private readGuides(guideIds: string[]): string {
+        const uniqueGuideIds = [...new Set(guideIds)]
+        const guides = uniqueGuideIds.map((guideId) => this.guidesById.get(guideId))
+        const unknownGuideIds = uniqueGuideIds.filter((_, index) => guides[index] === undefined)
+        if (unknownGuideIds.length > 0) {
+            const available = this.listGuides()
+                .map((guide) => guide.id)
+                .join(', ')
+            const unknown = unknownGuideIds.map((guideId) => `"${guideId}"`).join(', ')
+            throw new Error(
+                `Unknown learning ${unknownGuideIds.length === 1 ? 'topic' : 'topics'}: ${unknown}. Available: ${available}`
+            )
+        }
+
+        const resolvedGuides = guides.filter((guide) => guide !== undefined)
+        if (resolvedGuides.length === 1) {
+            return resolvedGuides[0]!.content
+        }
+        return resolvedGuides.map((guide) => `## ${guide.title}\n\n${guide.content}`).join('\n\n')
     }
 
     private requirePostHogSkills(): SkillCatalog {
