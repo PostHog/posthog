@@ -109,6 +109,9 @@ class InsightAdmin(admin.ModelAdmin):
     )
     def restore_selected(self, request: HttpRequest, queryset: QuerySet[Insight]) -> None:
         insights = list(queryset.filter(deleted=True).select_related("team"))
+        # Count before restoring: the changelist queryset carries the deleted=True filter, so a
+        # post-restore count() would drop the rows we just un-deleted and skew "skipped" negative.
+        skipped = queryset.count() - len(insights)
         user = cast(User, request.user)
         # Same shape as the bulk_restore endpoint: restore, re-activate tiles, and log the
         # audit trail as one transaction, so a mid-batch failure can't leave insights restored
@@ -146,7 +149,6 @@ class InsightAdmin(admin.ModelAdmin):
                     ]
                 )
 
-        skipped = queryset.count() - len(insights)
         message = f"Restored {len(insights)} insights."
         if skipped:
             message += f" Skipped {skipped} that were not soft-deleted."

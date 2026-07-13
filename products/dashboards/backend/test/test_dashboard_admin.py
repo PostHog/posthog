@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
@@ -57,6 +58,18 @@ class TestDashboardAdminRestore(BaseTest):
         assert deleted_tile.deleted is False
         assert co_deleted_insight.deleted is False
         assert removed_tile.deleted is True
+
+    def test_restore_reports_no_negative_skip_when_queryset_is_filtered_to_deleted(self):
+        # The admin changelist passes an action queryset already filtered to deleted=True
+        # (the "deleted: Yes" sidebar filter). Counting after the restore would then drop the
+        # just-restored rows and report a negative "Skipped" count.
+        deleted_dashboard = Dashboard.objects.create(team=self.team, name="deleted dashboard", deleted=True)
+        queryset = Dashboard.objects_including_soft_deleted.filter(id=deleted_dashboard.id, deleted=True)
+
+        with patch.object(self.admin, "message_user") as message_user:
+            self.admin.restore_selected(self._post_request(), queryset)
+
+        assert message_user.call_args[0][1] == "Restored 1 dashboards."
 
     def test_bulk_hard_delete_action_is_not_offered(self):
         actions = self.admin.get_actions(self._post_request())

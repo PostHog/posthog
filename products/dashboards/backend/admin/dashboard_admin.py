@@ -66,6 +66,9 @@ class DashboardAdmin(admin.ModelAdmin):
         )
 
         dashboards = list(queryset.filter(deleted=True))
+        # Count before restoring: the changelist queryset carries the deleted=True filter, so a
+        # post-restore count() would drop the rows we just un-deleted and skew "skipped" negative.
+        skipped = queryset.count() - len(dashboards)
         with transaction.atomic():
             for dashboard in dashboards:
                 # The same path PATCH {"deleted": false} runs: un-deletes the dashboard's tiles
@@ -77,7 +80,6 @@ class DashboardAdmin(admin.ModelAdmin):
                 dashboard.deleted = False
                 dashboard.save()
 
-        skipped = queryset.count() - len(dashboards)
         message = f"Restored {len(dashboards)} dashboards."
         if skipped:
             message += f" Skipped {skipped} that were not soft-deleted."
