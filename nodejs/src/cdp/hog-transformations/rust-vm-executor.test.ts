@@ -1,3 +1,5 @@
+import { logger } from '~/common/utils/logger'
+
 import { createExampleInvocation } from '../_tests/fixtures'
 import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
 import { RustVmExecutor } from './rust-vm-executor'
@@ -98,6 +100,30 @@ describe('RustVmExecutor', () => {
         mockHogvmNode.executeSync.mockReturnValue(rustResult({ result: undefined, error }))
 
         expect(executor.execute(createExampleInvocation(), [])).toBeNull()
+    })
+
+    it('falls back to the node vm when the ffi boundary throws instead of returning an error', () => {
+        // e.g. globals containing NaN/Infinity, which serde_json can't represent.
+        mockHogvmNode.executeSync.mockImplementation(() => {
+            throw new Error('Failed to convert js number to serde_json::Number')
+        })
+
+        expect(executor.execute(createExampleInvocation(), [])).toBeNull()
+    })
+
+    it('redacts sensitive values from fallback logs', () => {
+        // Marshalling errors and panic messages can embed values from the invocation globals.
+        const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {})
+        mockHogvmNode.executeSync.mockImplementation(() => {
+            throw new Error('failed to convert value "secret-token" at inputs')
+        })
+
+        expect(executor.execute(createExampleInvocation(), ['secret-token'])).toBeNull()
+
+        const fallbackCalls = warnSpy.mock.calls.filter((call) => String(call[1]).includes('fell back'))
+        expect(fallbackCalls).toHaveLength(1)
+        expect(JSON.stringify(fallbackCalls)).not.toContain('secret-token')
+        expect(JSON.stringify(fallbackCalls)).toContain('***REDACTED***')
     })
 
     it('falls back to the node vm when the native addon is unavailable', () => {
