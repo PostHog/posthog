@@ -1660,11 +1660,13 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateExperimentMetrics: async () => {
-            await asyncActions.updateExperiment({
+            // Rebuild the arrays when the write actually runs (payloads are lazy) so a burst
+            // of edits persists the latest local state rather than a stale snapshot.
+            await asyncActions.updateExperiment(() => ({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
-            })
+            }))
             // Reload results for added/edited metrics
             actions.refreshExperimentResults(true, 'config_change')
         },
@@ -1712,7 +1714,9 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experimentUpdate, payload }) => {
             if (experimentUpdate) {
                 actions.updateExperiments(experimentUpdate)
-                if (payload?.update_feature_flag_params && experimentUpdate.feature_flag) {
+                // Metric writes pass a lazy builder (a function) and never touch flag params.
+                const updateFlagParams = typeof payload !== 'function' && payload?.update_feature_flag_params
+                if (updateFlagParams && experimentUpdate.feature_flag) {
                     actions.updateFlagFromPartial(experimentUpdate.feature_flag)
                 }
             }
@@ -2204,12 +2208,15 @@ export const experimentLogic = kea<experimentLogicType>([
             const field = isPrimary ? 'metrics' : 'metrics_secondary'
             const currentMetrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[] =
                 values.experiment[field] || []
-            const filtered = currentMetrics.filter((m) => m.uuid !== uuid)
 
-            actions.updateExperiment({
-                [field]: filtered,
+            // Apply the removal optimistically so a concurrent save that rebuilds the whole
+            // array from local state carries this removal instead of resurrecting the metric.
+            actions.setExperiment({ [field]: currentMetrics.filter((m) => m.uuid !== uuid) })
+
+            actions.updateExperiment(() => ({
+                [field]: values.experiment[field] || [],
                 update_feature_flag_params: false,
-            })
+            }))
         },
         saveMetricsReorder: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
             const removed = new Set(removedUuids)
@@ -2485,7 +2492,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
     })),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         experiment: {
             loadExperiment: async (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
                 void payload?.triggeredBy
@@ -2538,17 +2545,41 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentUpdate: [
             null as Experiment | null,
             {
-                updateExperiment: async (update: ExperimentUpdatePayload) => {
-                    const response: Experiment = await api.update(
-                        `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
-                        update
-                    )
-                    const responseWithMetricsOrdering = initializeMetricOrdering(response)
-                    refreshTreeItem('experiment', String(values.experimentId))
-                    actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
-                    // Also update the main experiment state
-                    actions.setExperiment(responseWithMetricsOrdering)
-                    return responseWithMetricsOrdering
+                // Accepts a payload or a builder evaluated once it's this write's turn, so
+                // serialized writes rebuild from the latest local state (see below).
+                updateExperiment: async (update: ExperimentUpdatePayload | (() => ExperimentUpdatePayload)) => {
+                    // Serialize experiment writes. The editor PATCHes whole arrays (notably
+                    // `metrics_secondary`), so two overlapping requests would race and the
+                    // slower response would clobber the other's changes — silently dropping
+                    // metrics. Chain each write behind the previous so only one is in flight,
+                    // rebuild the payload from the latest local state once it's our turn, and
+                    // let only the most recently queued write reconcile local state with the
+                    // server response — an earlier response must not overwrite newer edits.
+                    const seq = (cache.experimentUpdateSeq ?? 0) + 1
+                    cache.experimentUpdateSeq = seq
+                    const previous: Promise<unknown> = cache.experimentUpdateChain ?? Promise.resolve()
+
+                    const run = (async (): Promise<Experiment> => {
+                        await previous.catch(() => {})
+                        const payload = typeof update === 'function' ? update() : update
+                        const response: Experiment = await api.update(
+                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                            payload
+                        )
+                        const responseWithMetricsOrdering = initializeMetricOrdering(response)
+                        refreshTreeItem('experiment', String(values.experimentId))
+                        // While newer writes are still queued, their optimistic edits already
+                        // live in local state; reconciling here would revert them. The final
+                        // write reconciles against the authoritative server response.
+                        if (seq === cache.experimentUpdateSeq) {
+                            actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                            // Also update the main experiment state
+                            actions.setExperiment(responseWithMetricsOrdering)
+                        }
+                        return responseWithMetricsOrdering
+                    })()
+                    cache.experimentUpdateChain = run.catch(() => {})
+                    return run
                 },
             },
         ],
