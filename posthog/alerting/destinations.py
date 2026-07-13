@@ -55,7 +55,11 @@ def soft_delete_alert_destinations(
     """Soft-delete a destination's HogFunction group, verifying every ID belongs to the alert.
 
     The filtered UPDATE is the ownership check: touching fewer rows than requested
-    means something in the list doesn't belong to this alert — roll back.
+    means something in the list doesn't belong to this alert — roll back. Narrowed
+    to `template_id__in=DESTINATION_TYPE_BY_TEMPLATE_ID`, matching the delete-all
+    path below, so a same-team HogFunction that isn't an alert destination can't
+    be soft-deleted just because it happens to carry a matching `alert_id`
+    property (e.g. an unrelated automation reusing that property key).
 
     Unlike the delete-all path below, this deliberately does not filter on
     `deleted=False`: already-deleted rows still count as owned, keeping a retried
@@ -66,6 +70,7 @@ def soft_delete_alert_destinations(
         updated = HogFunction.objects.filter(
             team_id=team_id,
             id__in=unique_ids,
+            template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
             filters__properties__contains=[{"key": ALERT_ID_PROPERTY, "value": alert_id}],
         ).update(deleted=True, enabled=False)
         if updated != len(unique_ids):
