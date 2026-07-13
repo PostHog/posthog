@@ -79,6 +79,7 @@ from products.data_warehouse.backend.facade.api import (
     get_mysql_source_location,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
+    get_redshift_source_location,
     get_webhook_url,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
@@ -87,6 +88,7 @@ from products.data_warehouse.backend.facade.api import (
     is_xmin_enabled_for_team,
     reconcile_mysql_schemas,
     reconcile_postgres_schemas,
+    reconcile_redshift_schemas,
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
     reconcile_snowflake_schemas,
     source_namespace_is_blank,
@@ -96,6 +98,7 @@ from products.data_warehouse.backend.facade.api import (
     trigger_external_data_source_workflow,
     upsert_direct_mysql_table,
     upsert_direct_postgres_table,
+    upsert_direct_redshift_table,
     upsert_direct_snowflake_table,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
@@ -482,12 +485,31 @@ def get_snowflake_source_table_location(
     return catalog, normalized_default_schema or "", schema_name
 
 
+def get_redshift_source_table_location(
+    *,
+    schema_name: str,
+    source_schema: SourceSchema | None,
+    default_schema: str | None,
+    default_catalog: str | None = None,
+) -> tuple[str | None, str, str]:
+    return get_redshift_source_location(
+        schema_name=schema_name,
+        schema_metadata={
+            "source_catalog": source_schema.source_catalog if source_schema else None,
+            "source_schema": source_schema.source_schema if source_schema else None,
+            "source_table_name": source_schema.source_table_name if source_schema else None,
+        },
+        default_catalog=default_catalog,
+        default_schema=default_schema,
+    )
+
+
 CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
 DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
-    "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."
+    "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
 )
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake"]
+DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift"]
 
 
 def count_active_custom_sources(team_id: int) -> int:
@@ -1183,6 +1205,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                         source_schemas=discovered_schemas,
                         team_id=instance.team_id,
                     )
+                elif updated_source.source_type == ExternalDataSourceType.REDSHIFT:
+                    reconcile_redshift_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
                 else:
                     reconcile_mysql_schemas(
                         source=updated_source,
@@ -1834,6 +1862,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
         is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
+        is_direct_redshift = is_direct_query and source_type == ExternalDataSourceType.REDSHIFT
 
         if is_direct_query and source_type not in direct_capable_source_types():
             return Response(
@@ -1945,7 +1974,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         source_schemas_by_name = {schema.name: schema for schema in source_schemas}
         schema_names = [schema.name for schema in source_schemas]
-        default_source_schema = source_config.to_dict().get("schema")
+        source_config_dict = source_config.to_dict()
+        default_source_schema = source_config_dict.get("schema")
+        default_source_catalog = source_config_dict.get("database")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
@@ -2135,7 +2166,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         schema_name=schema_name,
                         source_schema=source_schema,
                         default_schema=default_source_schema,
-                        default_catalog=source_config.to_dict().get("database"),
+                        default_catalog=default_source_catalog,
+                    )
+                )
+            elif is_direct_redshift:
+                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
+                    get_redshift_source_table_location(
+                        schema_name=schema_name,
+                        source_schema=source_schema,
+                        default_schema=default_source_schema,
+                        default_catalog=default_source_catalog,
                     )
                 )
             else:
@@ -2326,6 +2366,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         source_schema.detected_primary_keys if source_schema else None,
                         incremental_field,
                         # Direct-snowflake columns are keyed by raw, case-sensitive source names.
+                        normalize=False,
+                    ),
+                    source_catalog=metadata_source_catalog,
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
+                )
+                schema_model.save(update_fields=["table"])
+            elif new_source_model.is_direct_redshift and should_sync:
+                schema_model.table = upsert_direct_redshift_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=filter_dwh_columns_by_enabled_columns(
+                        # Redshift information_schema types are Postgres-style, so reuse the Postgres mapper.
+                        postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        enabled_columns,
+                        source_schema.detected_primary_keys if source_schema else None,
+                        incremental_field,
+                        # Direct-redshift columns are keyed by raw source names.
                         normalize=False,
                     ),
                     source_catalog=metadata_source_catalog,
@@ -2729,6 +2788,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
             elif instance.source_type == ExternalDataSourceType.SNOWFLAKE:
                 reconciled_deleted_schemas = reconcile_snowflake_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif instance.source_type == ExternalDataSourceType.REDSHIFT:
+                reconciled_deleted_schemas = reconcile_redshift_schemas(
                     source=instance,
                     source_schemas=schemas,
                     team_id=self.team_id,

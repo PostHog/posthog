@@ -381,6 +381,27 @@ def _is_transient_connect_timeout(e: BaseException) -> bool:
     return "timed out" in " ".join(str(arg) for arg in e.args)
 
 
+# glibc's getaddrinfo returns EAI_AGAIN — "Temporary failure in name resolution" — when the DNS
+# resolver is momentarily unavailable (the nameserver couldn't be reached, returned SERVFAIL, or a
+# resolver-side blip prevented the lookup). pymysql wraps it as the 2003 connect failure, so without
+# this it falls through to the non-retryable "Can't connect to MySQL server on" classifier and the
+# sync gives up on a recoverable blip. EAI_AGAIN is a "try again later" condition — distinct from
+# EAI_NONAME ("Name or service not known"), where the host genuinely doesn't resolve and staying
+# non-retryable is correct. Match the stable, locale-independent gai_strerror text rather than the
+# platform-specific errno number.
+_DNS_TEMPORARY_FAILURE_TOKEN = "Temporary failure in name resolution"
+
+
+def _is_transient_connect_dns_failure(e: BaseException) -> bool:
+    """Return True if connect failed on a transient DNS-resolver blip — recoverable on retry."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _CANT_CONNECT_CODE:
+        return False
+    return _DNS_TEMPORARY_FAILURE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 # pymysql raises this `InternalError` from `_read_packet` when an incoming packet's
 # sequence number doesn't match the expected one (it `_force_close()`s the socket first).
 _PACKET_SEQUENCE_ERROR_PHRASE = "Packet sequence number wrong"
@@ -439,6 +460,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
             if attempt >= _MAX_CONNECT_ATTEMPTS or not (
                 _is_transient_connect_drop(e)
                 or _is_transient_connect_timeout(e)
+                or _is_transient_connect_dns_failure(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
             ):

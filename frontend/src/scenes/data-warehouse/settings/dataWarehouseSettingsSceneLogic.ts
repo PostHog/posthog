@@ -49,7 +49,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             dataWarehouseViewsLogic,
             ['deleteDataWarehouseSavedQuery', 'updateDataWarehouseSavedQuery', 'updateDataWarehouseSavedQuerySuccess'],
             databaseTableListLogic,
-            ['loadDatabase', 'loadDatabaseSuccess', 'loadDatabaseFailure'],
+            ['loadDatabase', 'refreshDatabaseSchema', 'loadDatabaseSuccess', 'loadDatabaseFailure'],
         ],
     })),
     actions(({ values }) => ({
@@ -214,7 +214,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
         deleteDataWarehouseSavedQuery: async (tableId) => {
             await api.dataWarehouseSavedQueries.delete(tableId)
             actions.selectRow(null)
-            actions.loadDatabase()
+            actions.refreshDatabaseSchema()
             lemonToast.success('View successfully deleted')
         },
         selectRow: () => {
@@ -243,7 +243,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
 
             try {
                 await api.dataWarehouseTables.updateSchema(tableId, schemaUpdates)
-                actions.loadDatabase()
+                actions.refreshDatabaseSchema()
 
                 if (values.selectedRow) {
                     posthog.capture('source schema saved', {

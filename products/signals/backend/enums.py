@@ -21,6 +21,7 @@ class SignalSourceProduct(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     GITHUB = "github"
     LINEAR = "linear"
+    JIRA = "jira"
     ZENDESK = "zendesk"
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
@@ -62,6 +63,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.LLM_ANALYTICS: "LLM analytics",
     SignalSourceProduct.GITHUB: "GitHub",
     SignalSourceProduct.LINEAR: "Linear",
+    SignalSourceProduct.JIRA: "Jira",
     SignalSourceProduct.ZENDESK: "Zendesk",
     SignalSourceProduct.CONVERSATIONS: "Conversations",
     SignalSourceProduct.ERROR_TRACKING: "Error tracking",
