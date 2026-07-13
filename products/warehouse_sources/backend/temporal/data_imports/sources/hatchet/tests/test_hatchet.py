@@ -291,6 +291,30 @@ class TestGetRows:
 
         fetch.assert_not_called()
 
+    def test_plaintext_http_host_raises_on_cloud(self):
+        # On cloud the bearer token must never go over plaintext http, even when the host passes the
+        # SSRF check.
+        manager = FakeManager()
+        connection = HatchetConnection(base_url="http://cloud.example", tenant_id="tenant-1")
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
+                return_value=(True, None),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.is_cloud",
+                return_value=True,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
+            ) as fetch,
+        ):
+            with pytest.raises(HatchetHostNotAllowedError):
+                _collect(get_rows("tok", connection, "workflow_runs", logger, manager, team_id=1))  # type: ignore[arg-type]
+
+        fetch.assert_not_called()
+
     def test_session_disables_redirects_and_redacts_token(self):
         # The bearer token is sent to a user-controlled host, so the session must never follow a
         # redirect off it and must redact the token from captured samples/logs. Response bodies
@@ -352,6 +376,30 @@ class TestValidateCredentials:
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
                 return_value=(False, "Hosts with internal IP addresses are not allowed"),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.make_tracked_session"
+            ) as session,
+        ):
+            valid, message = validate_credentials(token, None, None, team_id=99)
+
+        assert valid is False
+        assert message
+        session.assert_not_called()
+
+    def test_plaintext_http_host_fails_on_cloud(self):
+        # On cloud, a plaintext http host must be rejected before the token is sent — even when the
+        # host itself passes the SSRF check.
+        token = _make_token({"sub": "tenant-1", "server_url": "http://cloud.example"})
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
+                return_value=(True, None),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.is_cloud",
+                return_value=True,
             ),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.make_tracked_session"

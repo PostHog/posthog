@@ -11,6 +11,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.cloud_utils import is_cloud
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -28,6 +30,9 @@ DEFAULT_HATCHET_HOST = "https://cloud.onhatchet.run"
 
 # Returned when the resolved host resolves to a private/internal address on cloud (SSRF guard).
 HOST_NOT_ALLOWED_ERROR = "Hatchet host is not allowed"
+
+# Returned when a cloud connection would send the bearer token over plaintext HTTP.
+INSECURE_SCHEME_ERROR = "Hatchet host must use https"
 
 
 class HatchetRetryableError(Exception):
@@ -91,6 +96,17 @@ def _normalize_origin(raw: str) -> str:
 
 def _host_from_url(base_url: str) -> str:
     return (urlparse(base_url).hostname or "").lower()
+
+
+def _is_scheme_safe(base_url: str) -> tuple[bool, str | None]:
+    """On cloud, refuse to send the bearer token over plaintext HTTP.
+
+    Self-hosted PostHog may reach a private Hatchet instance over http on a trusted network, so — as
+    with the SSRF host check — this is only enforced on cloud, where a plaintext origin would leak
+    the token in transit."""
+    if urlparse(base_url).scheme == "https" or not is_cloud():
+        return True, None
+    return False, INSECURE_SCHEME_ERROR
 
 
 def resolve_connection(api_token: str, host: str | None = None, tenant_id: str | None = None) -> HatchetConnection:
@@ -247,6 +263,10 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
+        scheme_ok, scheme_err = _is_scheme_safe(connection.base_url)
+        if not scheme_ok:
+            return False, scheme_err or INSECURE_SCHEME_ERROR
+
     url = f"{connection.base_url}/api/v1/stable/tenants/{connection.tenant_id}/events/keys"
     try:
         # Redact the token, never follow a redirect off the validated host, and keep the response
@@ -306,6 +326,11 @@ def get_rows(
     host_ok, host_err = _is_host_safe(_host_from_url(connection.base_url), team_id)
     if not host_ok:
         raise HatchetHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+
+    # Never send the bearer token over plaintext HTTP on cloud (see _is_scheme_safe).
+    scheme_ok, scheme_err = _is_scheme_safe(connection.base_url)
+    if not scheme_ok:
+        raise HatchetHostNotAllowedError(scheme_err or INSECURE_SCHEME_ERROR)
 
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # Redact the token and never follow a redirect off the validated host. Keep response bodies out
