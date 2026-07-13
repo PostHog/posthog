@@ -2061,7 +2061,9 @@ class TestTaskAPI(BaseTaskAPITest):
             ("gpt_5_3_high", "gpt-5.3-codex", "high"),
             ("gpt_5_5_xhigh", "gpt-5.5", "xhigh"),
             ("gpt_5_6_sol_xhigh", "gpt-5.6-sol", "xhigh"),
+            ("gpt_5_6_sol_max", "gpt-5.6-sol", "max"),
             ("gpt_5_6_luna_xhigh", "gpt-5.6-luna", "xhigh"),
+            ("gpt_5_6_luna_max", "gpt-5.6-luna", "max"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -2289,7 +2291,6 @@ class TestTaskAPI(BaseTaskAPITest):
             ("gpt_5_4_xhigh", "gpt-5.4", "xhigh", "low, medium, high"),
             ("gpt_5_4_max", "gpt-5.4", "max", "low, medium, high"),
             ("gpt_5_5_max", "gpt-5.5", "max", "low, medium, high, xhigh"),
-            ("gpt_5_6_sol_max", "gpt-5.6-sol", "max", "low, medium, high, xhigh"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
