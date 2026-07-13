@@ -960,9 +960,16 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             // Hydrate the picked-person display when a shared link seeds `person_uuid`
             // without a matching pickedPerson (e.g. someone pasted the URL).
             if ('person_uuid' in filters && filters.person_uuid && values.pickedPerson?.id !== filters.person_uuid) {
+                const targetUuid = filters.person_uuid
                 try {
-                    const byUuid = await api.persons.getByUUIDs([filters.person_uuid])
-                    const person = byUuid[filters.person_uuid]
+                    const byUuid = await api.persons.getByUUIDs([targetUuid])
+                    // Re-check after the await: the user may have cleared the filter or picked a
+                    // different person while the hydrate was in flight. Restoring the stale hit
+                    // would silently reload invocations for the wrong person.
+                    if (values.filters.person_uuid !== targetUuid) {
+                        return
+                    }
+                    const person = byUuid[targetUuid]
                     if (person) {
                         actions.setPickedPerson(person)
                     }
