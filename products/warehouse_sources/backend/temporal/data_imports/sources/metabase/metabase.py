@@ -22,6 +22,10 @@ MAX_RETRIES = 5
 
 HOST_NOT_ALLOWED_ERROR = "Metabase host is not allowed"
 
+# Stable substring matched by MetabaseSource.get_non_retryable_errors when the session endpoint
+# returns a 2xx that isn't JSON (the Instance URL isn't a Metabase API).
+SESSION_RESPONSE_NOT_JSON_ERROR = "Metabase session response was not valid JSON"
+
 API_KEY_AUTH = "api_key"
 SESSION_AUTH = "session"
 
@@ -137,7 +141,12 @@ def _resolve_auth_headers(base_url: str, auth: MetabaseAuth, logger: FilteringBo
         logger.error(f"Metabase session error: status={response.status_code}, body={response.text}")
         raise MetabaseRetryableError(f"Metabase session error (retryable): status={response.status_code}")
 
-    token = response.json().get("id")
+    try:
+        token = response.json().get("id")
+    except requests.exceptions.JSONDecodeError as e:
+        # A 2xx with a non-JSON body means the Instance URL isn't Metabase's session API (e.g. an
+        # SSO/login page or a proxy). Deterministic, so surface it as a non-retryable auth error.
+        raise MetabaseAuthError(SESSION_RESPONSE_NOT_JSON_ERROR) from e
     if not token:
         raise MetabaseAuthError("Metabase session response did not contain a token")
     return {"X-Metabase-Session": token, "Accept": "application/json"}
