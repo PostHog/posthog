@@ -12965,6 +12965,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
@@ -14968,6 +14972,10 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                                    "type": "boolean"
                                 },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -17200,6 +17208,7 @@
                     "type": "object"
                 },
                 "format": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 },
                 "id": {
@@ -17229,10 +17238,11 @@
                     "type": "string"
                 },
                 "url_pattern": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 }
             },
-            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "required": ["fields", "id", "name", "type"],
             "type": "object"
         },
         "DatabaseSchemaEndpointTable": {
@@ -23242,7 +23252,14 @@
                 "Vultr",
                 "Windmill",
                 "Zep",
-                "Hex"
+                "Hex",
+                "Singular",
+                "Swonkie",
+                "Sumsub",
+                "GoogleChat",
+                "Kickscale",
+                "Zellify",
+                "RudderStack"
             ],
             "type": "string"
         },
@@ -23537,6 +23554,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
+                "mcp_analytics",
                 "exports"
             ],
             "type": "string"
@@ -25258,7 +25276,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "endPosition": {
@@ -25365,7 +25383,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "debug": {
@@ -25510,7 +25528,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "explain": {
@@ -31660,6 +31678,11 @@
             "enum": ["eq", "neq", "regex", "not_regex"],
             "type": "string"
         },
+        "MetricsOtelType": {
+            "description": "OTel metric type; matches what ingest writes to `metric_type`",
+            "enum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
+            "type": "string"
+        },
         "MetricsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -31723,6 +31746,10 @@
                 },
                 "metricName": {
                     "type": "string"
+                },
+                "metricType": {
+                    "$ref": "#/definitions/MetricsOtelType",
+                    "description": "Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series."
                 },
                 "name": {
                     "description": "Alias a formula refers to (e.g. \"a\"); must be unique within the query",
@@ -33239,6 +33266,7 @@
                 "experiment analyzed",
                 "feature flag created",
                 "session_replay_set_filters",
+                "session_replay_experiment_link_clicked",
                 "error_tracking_exception_autocapture_enabled",
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",
@@ -33256,6 +33284,10 @@
                 "logs_set_filters",
                 "logs_settings_opened",
                 "metrics_docs_viewed",
+                "metrics_viewer_query_run",
+                "metrics_sql_query_run",
+                "metrics_query_saved",
+                "metrics_first_ingested",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -35452,6 +35484,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -36836,6 +36872,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -46243,6 +46283,7 @@
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
+                "mcp_properties",
                 "max_ai_context",
                 "workflow_variables",
                 "suggested_filters",
@@ -49942,6 +49983,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"

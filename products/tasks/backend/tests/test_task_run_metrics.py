@@ -190,7 +190,13 @@ class TestTaskRunMetrics(TestCase):
 
         assert mock_sync_connect.called is expect_sync_connect_called
 
-    def test_task_run_failed_event_increments_failure_counter(self) -> None:
+    @parameterized.expand(
+        [
+            ("captures_analytics", True),
+            ("metrics_only", False),
+        ]
+    )
+    def test_task_run_failed_event_increments_failure_counter(self, _name: str, capture_analytics: bool) -> None:
         distinct_id = self.user.distinct_id
         assert distinct_id is not None
 
@@ -208,7 +214,7 @@ class TestTaskRunMetrics(TestCase):
 
         with patch(
             "products.tasks.backend.temporal.process_task.activities.track_workflow_event.posthoganalytics.capture"
-        ):
+        ) as mock_capture:
             track_workflow_event(
                 TrackWorkflowEventInput(
                     event_name="task_run_failed",
@@ -224,10 +230,37 @@ class TestTaskRunMetrics(TestCase):
                         "temporal_activity_retry_state": "MAXIMUM_ATTEMPTS_REACHED",
                         "cause_error_type": "RuntimeError",
                     },
+                    capture_analytics=capture_analytics,
                 )
             )
 
         assert _sample_value("posthog_tasks_task_run_failed_total", labels) == before + 1
+        assert mock_capture.called is capture_analytics
+
+    def test_patch_terminal_failure_captures_single_typed_task_run_failed(self) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        long_error = "w" * 1400 + "Error: wizard exited with code 7"
+
+        with (
+            patch.object(facade, "signal_workflow_completion"),
+            patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture,
+        ):
+            for _ in range(2):  # the repeat PATCH must not double-capture
+                facade.update_task_run(
+                    run.id,
+                    self.task.id,
+                    self.team.id,
+                    validated_data={"status": "failed", "error_message": long_error},
+                )
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        assert len(captured) == 1
+        props = captured[0].kwargs["properties"]
+        assert props["error_type"] == "agent_reported"
+        assert len(props["error_message"]) == 500
+        assert props["error_message"].endswith("Error: wizard exited with code 7")
 
     @parameterized.expand(
         [
