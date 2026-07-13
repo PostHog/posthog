@@ -228,8 +228,16 @@ def _dispatch_gated_notification(
         breaches = _build_breach_descriptions(
             alert_check=check, verdict=verdict, summary=summary, notebook_short_id=notebook_short_id
         )
+        # Surface the notebook URL as an event property so the Slack destination can render a
+        # "View Investigation" button. Absent when the investigation produced no notebook, in
+        # which case the button falls back to "View Alert".
+        extra_properties = (
+            {"investigation_notebook_url": absolute_uri(f"/notebooks/{notebook_short_id}")}
+            if notebook_short_id
+            else None
+        )
         try:
-            targets = dispatch_alert_notification(alert, check, breaches)
+            targets = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
             if targets is not None:
                 record_alert_delivery(alert, check, targets)
         except Exception:
