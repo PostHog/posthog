@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
 
-import { BaseBatchPipeline } from './base-batch-pipeline'
-import { createBatch, createNewBatchPipeline, createNewPipeline } from './helpers'
+import { BaseChunkPipeline } from './base-chunk-pipeline'
+import { createBatch, createNewChunkPipeline, createNewPipeline } from './helpers'
 import { dlq, drop, ok } from './results'
-import { SequentialBatchPipeline } from './sequential-batch-pipeline'
+import { SequentialChunkPipeline } from './sequential-chunk-pipeline'
 
-describe('SequentialBatchPipeline', () => {
+describe('SequentialChunkPipeline', () => {
     describe('basic functionality', () => {
         it('should process items sequentially through pipeline', async () => {
             const messages: Message[] = [
@@ -32,7 +32,7 @@ describe('SequentialBatchPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
 
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
                 const value = input.message.value?.toString()
@@ -40,7 +40,7 @@ describe('SequentialBatchPipeline', () => {
                 return ok({ processed: value })
             })
 
-            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
+            const pipeline = new SequentialChunkPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -55,13 +55,13 @@ describe('SequentialBatchPipeline', () => {
         })
 
         it('should handle empty batch', async () => {
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
                 await Promise.resolve() // Add await to satisfy linter
                 return ok(input)
             })
 
-            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
+            const pipeline = new SequentialChunkPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
 
             pipeline.feed([])
             const results = await pipeline.next()
@@ -107,7 +107,7 @@ describe('SequentialBatchPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
 
             const processOrder: number[] = []
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
@@ -117,7 +117,7 @@ describe('SequentialBatchPipeline', () => {
                 return ok({ count: value * 2 })
             })
 
-            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
+            const pipeline = new SequentialChunkPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
@@ -176,9 +176,9 @@ describe('SequentialBatchPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
 
-            const firstPipeline = new BaseBatchPipeline((items: any[]) => {
+            const firstPipeline = new BaseChunkPipeline((items: any[]) => {
                 return Promise.resolve(
                     items.map((item: any) => {
                         const value = item.message.value?.toString() || ''
@@ -200,7 +200,7 @@ describe('SequentialBatchPipeline', () => {
                 return ok({ count: input.count * 2 })
             })
 
-            const secondPipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), firstPipeline)
+            const secondPipeline = new SequentialChunkPipeline(createNewPipeline().pipe(mockProcessStep), firstPipeline)
 
             secondPipeline.feed(batch)
             const results = await secondPipeline.next()
@@ -234,14 +234,14 @@ describe('SequentialBatchPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
 
             const mockProcessStep = jest.fn().mockImplementation(async (_input: { message: Message }) => {
                 await Promise.resolve() // Add await to satisfy linter
                 throw new Error('Pipeline processing failed')
             })
 
-            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
+            const pipeline = new SequentialChunkPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
 
             pipeline.feed(batch)
             await expect(pipeline.next()).rejects.toThrow('Pipeline processing failed')
@@ -283,7 +283,7 @@ describe('SequentialBatchPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline().build()
+            const rootPipeline = createNewChunkPipeline().build()
 
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
                 const value = input.message.value?.toString()
@@ -295,7 +295,7 @@ describe('SequentialBatchPipeline', () => {
                 return ok({ processed: value })
             })
 
-            const pipeline = new SequentialBatchPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
+            const pipeline = new SequentialChunkPipeline(createNewPipeline().pipe(mockProcessStep), rootPipeline)
 
             pipeline.feed(batch)
             await expect(pipeline.next()).rejects.toThrow('Individual item failed')

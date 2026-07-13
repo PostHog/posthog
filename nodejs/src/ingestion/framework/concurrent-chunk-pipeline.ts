@@ -1,17 +1,17 @@
 import pLimit from 'p-limit'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
-import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
+import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
 /**
- * Processes each item of a batch concurrently, emitting results in input (FIFO)
+ * Processes each item of a chunk concurrently, emitting results in input (FIFO)
  * order. Items start processing as soon as they're pulled from upstream; results
  * are emitted one at a time by awaiting the head of the queue.
  *
  * Pulling/enqueueing more upstream input is interleaved with awaiting the head
- * via {@link InterleavingBatchPipeline}, so a slow head no longer blocks newly
+ * via {@link InterleavingChunkPipeline}, so a slow head no longer blocks newly
  * fed items from starting to process (it only delays their *emission*, which
  * stays FIFO by design).
  *
@@ -19,7 +19,7 @@ import { isOkResult } from './results'
  * already in flight still drain in FIFO order, then next() rejects with that
  * error permanently.
  */
-export class ConcurrentBatchProcessingPipeline<
+export class ConcurrentChunkProcessingPipeline<
     TInput,
     TIntermediate,
     TOutput,
@@ -27,21 +27,21 @@ export class ConcurrentBatchProcessingPipeline<
     COutput = CInput,
     RPrev extends string = never,
     RStep extends string = never,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
+> implements ChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 {
     private promiseQueue: Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>>[] = []
-    private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
+    private inner: InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 
     // Caps how many items process at once. Null means unbounded (start every item as it's pulled).
     private readonly limit: ReturnType<typeof pLimit> | null
 
     constructor(
         private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
+        private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
         maxConcurrency?: number
     ) {
         this.limit = maxConcurrency !== undefined ? pLimit(maxConcurrency) : null
-        this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
+        this.inner = new InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
             onFeed: (elements) => this.previousPipeline.feed(elements),
             onSourcePull: () => this.enqueueFromPrevious(),
             onProcessPull: () => this.dequeueProcessed(),
@@ -52,11 +52,11 @@ export class ConcurrentBatchProcessingPipeline<
         this.inner.feed(elements)
     }
 
-    next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+    next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         return this.inner.next()
     }
 
-    /** Pull one upstream batch and start processing every item concurrently. */
+    /** Pull one upstream chunk and start processing every item concurrently. */
     private async enqueueFromPrevious(): Promise<PullOutcome<TOutput, COutput, RPrev | RStep>> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {
@@ -83,7 +83,7 @@ export class ConcurrentBatchProcessingPipeline<
     }
 
     /** Emit the next processed item in FIFO order, or null when the queue is empty. */
-    private async dequeueProcessed(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+    private async dequeueProcessed(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         const promise = this.promiseQueue.shift()
         if (promise === undefined) {
             return null

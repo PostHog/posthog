@@ -1,18 +1,18 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
-import { GatheringBatchPipeline } from './gathering-batch-pipeline'
-import { createContext, createNewBatchPipeline, createOkContext } from './helpers'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
+import { GatheringChunkPipeline } from './gathering-chunk-pipeline'
+import { createContext, createNewChunkPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
 
 const TEST_REDIRECT_OUTPUT = 'test_redirect' as const
 
-// Mock batch processing pipeline for testing
-class MockBatchProcessingPipeline<T, C, R extends string = never> implements BatchPipeline<T, T, C, C, R> {
-    private results: BatchPipelineResultWithContext<T, C, R>[] = []
+// Mock chunk processing pipeline for testing
+class MockChunkProcessingPipeline<T, C, R extends string = never> implements ChunkPipeline<T, T, C, C, R> {
+    private results: ChunkPipelineResultWithContext<T, C, R>[] = []
     private currentIndex = 0
 
-    constructor(results: BatchPipelineResultWithContext<T, C, R>[]) {
+    constructor(results: ChunkPipelineResultWithContext<T, C, R>[]) {
         this.results = results
     }
 
@@ -20,7 +20,7 @@ class MockBatchProcessingPipeline<T, C, R extends string = never> implements Bat
         this.results.push(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<T, C, R> | null> {
+    async next(): Promise<ChunkPipelineResultWithContext<T, C, R> | null> {
         if (this.currentIndex >= this.results.length) {
             return Promise.resolve(null)
         }
@@ -28,7 +28,7 @@ class MockBatchProcessingPipeline<T, C, R extends string = never> implements Bat
     }
 }
 
-describe('GatheringBatchPipeline', () => {
+describe('GatheringChunkPipeline', () => {
     let message1: Message
     let message2: Message
     let message3: Message
@@ -72,18 +72,18 @@ describe('GatheringBatchPipeline', () => {
 
     describe('constructor', () => {
         it('should create instance with sub-pipeline', () => {
-            const subPipeline = createNewBatchPipeline<string>().build()
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const subPipeline = createNewChunkPipeline<string>().build()
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
-            expect(gatherPipeline).toBeInstanceOf(GatheringBatchPipeline)
+            expect(gatherPipeline).toBeInstanceOf(GatheringChunkPipeline)
         })
     })
 
     describe('feed', () => {
         it('should delegate to sub-pipeline', () => {
-            const subPipeline = createNewBatchPipeline<string>().build()
+            const subPipeline = createNewChunkPipeline<string>().build()
             const spy = jest.spyOn(subPipeline, 'feed')
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             const testBatch = [createOkContext('test', context1)]
 
@@ -95,21 +95,21 @@ describe('GatheringBatchPipeline', () => {
 
     describe('next', () => {
         it('should return null when no results available', async () => {
-            const subPipeline = createNewBatchPipeline<string>().build()
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const subPipeline = createNewChunkPipeline<string>().build()
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             const result = await gatherPipeline.next()
             expect(result).toBeNull()
         })
 
         it('should gather all results from sub-pipeline in single call', async () => {
-            const subPipeline = new MockBatchProcessingPipeline([
+            const subPipeline = new MockChunkProcessingPipeline([
                 [createContext(ok('hello'), context1)],
                 [createContext(ok('world'), context2)],
                 [createContext(ok('test'), context3)],
             ])
 
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             const result = await gatherPipeline.next()
             const result2 = await gatherPipeline.next()
@@ -127,13 +127,13 @@ describe('GatheringBatchPipeline', () => {
             const dlqResult = dlq<string>('test dlq', new Error('test error'))
             const redirectResult = redirect('test redirect', TEST_REDIRECT_OUTPUT)
 
-            const subPipeline = new MockBatchProcessingPipeline([
+            const subPipeline = new MockChunkProcessingPipeline([
                 [createContext(dropResult, context1)],
                 [createContext(dlqResult, context2)],
                 [createContext(redirectResult, context3)],
             ])
 
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             const result = await gatherPipeline.next()
             const result2 = await gatherPipeline.next()
@@ -149,13 +149,13 @@ describe('GatheringBatchPipeline', () => {
         it('should handle mixed success and non-success results', async () => {
             const dropResult = drop<string>('test drop')
 
-            const subPipeline = new MockBatchProcessingPipeline([
+            const subPipeline = new MockChunkProcessingPipeline([
                 [createContext(ok('hello'), context1)],
                 [createContext(dropResult, context2)],
                 [createContext(ok('world'), context3)],
             ])
 
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             const result = await gatherPipeline.next()
             const result2 = await gatherPipeline.next()
@@ -168,15 +168,15 @@ describe('GatheringBatchPipeline', () => {
             expect(result2).toBeNull()
         })
 
-        it('should handle empty batches from sub-pipeline', async () => {
-            const subPipeline = new MockBatchProcessingPipeline([
-                [], // Empty batch
+        it('should handle empty chunks from sub-pipeline', async () => {
+            const subPipeline = new MockChunkProcessingPipeline([
+                [], // Empty chunk
                 [createContext(ok('hello'), context1)],
-                [], // Another empty batch
+                [], // Another empty chunk
                 [createContext(ok('world'), context2)],
             ])
 
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             const result = await gatherPipeline.next()
             const result2 = await gatherPipeline.next()
@@ -185,26 +185,26 @@ describe('GatheringBatchPipeline', () => {
             expect(result2).toBeNull()
         })
 
-        it('should return null when all batches are empty', async () => {
-            const subPipeline = new MockBatchProcessingPipeline([
-                [], // Empty batch
-                [], // Another empty batch
+        it('should return null when all chunks are empty', async () => {
+            const subPipeline = new MockChunkProcessingPipeline([
+                [], // Empty chunk
+                [], // Another empty chunk
             ])
 
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             const result = await gatherPipeline.next()
             expect(result).toBeNull()
         })
 
         it('should preserve order of results from sub-pipeline', async () => {
-            const subPipeline = new MockBatchProcessingPipeline([
+            const subPipeline = new MockChunkProcessingPipeline([
                 [createContext(ok('first'), context1)],
                 [createContext(ok('second'), context2)],
                 [createContext(ok('third'), context3)],
             ])
 
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             const result = await gatherPipeline.next()
 
@@ -215,14 +215,14 @@ describe('GatheringBatchPipeline', () => {
             ])
         })
 
-        it('should handle large number of batches', async () => {
-            const batches: BatchPipelineResultWithContext<string, any>[] = []
+        it('should handle large number of chunks', async () => {
+            const chunks: ChunkPipelineResultWithContext<string, any>[] = []
             for (let i = 0; i < 10; i++) {
-                batches.push([createContext(ok(`item${i}`), context1)])
+                chunks.push([createContext(ok(`item${i}`), context1)])
             }
 
-            const subPipeline = new MockBatchProcessingPipeline(batches)
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const subPipeline = new MockChunkProcessingPipeline(chunks)
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
             const result = await gatherPipeline.next()
             const result2 = await gatherPipeline.next()
@@ -234,14 +234,14 @@ describe('GatheringBatchPipeline', () => {
         })
 
         it('should resume after returning null when more batches are fed', async () => {
-            const subPipeline = new MockBatchProcessingPipeline<string, { message: Message }>([
+            const subPipeline = new MockChunkProcessingPipeline<string, { message: Message }>([
                 [createContext(ok('first'), context1)],
                 [createContext(ok('second'), context2)],
             ])
 
-            const gatherPipeline = new GatheringBatchPipeline(subPipeline)
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
 
-            // First round: process initial batches
+            // First round: process initial chunks
             const result1 = await gatherPipeline.next()
             expect(result1).toEqual([createContext(ok('first'), context1), createContext(ok('second'), context2)])
 

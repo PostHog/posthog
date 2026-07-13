@@ -1,11 +1,11 @@
-import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipelineResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
-import { InterleavingBatchPipeline, InterleavingCallbacks, PullOutcome } from './interleaving-batch-pipeline'
+import { InterleavingCallbacks, InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 
 type Ctx = Record<string, never>
-type Batch = BatchPipelineResultWithContext<string, Ctx>
+type Chunk = ChunkPipelineResultWithContext<string, Ctx>
 
-function batch(value: string): Batch {
+function chunk(value: string): Chunk {
     return [createOkContext<string, Ctx>(value, {})]
 }
 
@@ -19,13 +19,13 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reje
     return { promise, resolve, reject }
 }
 
-describe('InterleavingBatchPipeline', () => {
+describe('InterleavingChunkPipeline', () => {
     const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
     function build(
         callbacks: Partial<InterleavingCallbacks<string, string, Ctx, Ctx, never>>
-    ): InterleavingBatchPipeline<string, string, Ctx, Ctx, never> {
-        return new InterleavingBatchPipeline<string, string, Ctx, Ctx, never>({
+    ): InterleavingChunkPipeline<string, string, Ctx, Ctx, never> {
+        return new InterleavingChunkPipeline<string, string, Ctx, Ctx, never>({
             onFeed: callbacks.onFeed ?? jest.fn(),
             onSourcePull:
                 callbacks.onSourcePull ??
@@ -34,11 +34,11 @@ describe('InterleavingBatchPipeline', () => {
         })
     }
 
-    it('emits a passthrough batch without draining the subpipeline', async () => {
-        const passthrough = batch('passthrough')
+    it('emits a passthrough chunk without draining the subpipeline', async () => {
+        const passthrough = chunk('passthrough')
         const onProcessPull = jest.fn()
         const pipeline = build({
-            onSourcePull: jest.fn().mockResolvedValue({ kind: 'emit', batch: passthrough }),
+            onSourcePull: jest.fn().mockResolvedValue({ kind: 'emit', chunk: passthrough }),
             onProcessPull,
         })
 
@@ -47,7 +47,7 @@ describe('InterleavingBatchPipeline', () => {
     })
 
     it('drains the subpipeline when input was routed into it', async () => {
-        const drained = batch('drained')
+        const drained = chunk('drained')
         const pipeline = build({
             onSourcePull: jest.fn().mockResolvedValue({ kind: 'drain' }),
             onProcessPull: jest.fn().mockResolvedValue(drained),
@@ -65,7 +65,7 @@ describe('InterleavingBatchPipeline', () => {
         expect(await pipeline.next()).toBeNull()
     })
 
-    it('keeps pulling while the source still has batches even if the sub yields nothing', async () => {
+    it('keeps pulling while the source still has chunks even if the sub yields nothing', async () => {
         const onSourcePull = jest
             .fn()
             .mockResolvedValueOnce({ kind: 'drain' })
@@ -88,13 +88,13 @@ describe('InterleavingBatchPipeline', () => {
 
     it('wakes a next() parked on a slow sub and does not re-issue the sub pull', async () => {
         // The sub stays parked forever; only a feed() should unblock next().
-        const neverResolves = deferred<Batch | null>()
+        const neverResolves = deferred<Chunk | null>()
         const onProcessPull = jest.fn().mockReturnValue(neverResolves.promise)
-        const afterFeed = batch('after-feed')
+        const afterFeed = chunk('after-feed')
         const onSourcePull = jest
             .fn()
             .mockResolvedValueOnce({ kind: 'drain' })
-            .mockResolvedValueOnce({ kind: 'emit', batch: afterFeed })
+            .mockResolvedValueOnce({ kind: 'emit', chunk: afterFeed })
         const onFeed = jest.fn()
         const pipeline = build({ onFeed, onSourcePull, onProcessPull })
 
@@ -121,7 +121,7 @@ describe('InterleavingBatchPipeline', () => {
     it('poisons after a sub error, draining remaining in-flight results first', async () => {
         // The sub surfaces the error, then can still hand out work that was already
         // in flight; once it is exhausted the stage rejects permanently.
-        const remaining = batch('remaining')
+        const remaining = chunk('remaining')
         const onSourcePull = jest.fn().mockResolvedValue({ kind: 'drain' })
         const onProcessPull = jest
             .fn()
@@ -141,7 +141,7 @@ describe('InterleavingBatchPipeline', () => {
     it('reuses the in-flight sub pull across a feed wake and returns its eventual value', async () => {
         // The sub pull issued before the feed must be the same one that later
         // resolves the value — a feed-driven loop must not start a second pull.
-        const slowSub = deferred<Batch | null>()
+        const slowSub = deferred<Chunk | null>()
         const onProcessPull = jest.fn().mockReturnValue(slowSub.promise)
         const onSourcePull = jest.fn().mockResolvedValue({ kind: 'drain' })
         const pipeline = build({ onSourcePull, onProcessPull })
@@ -159,7 +159,7 @@ describe('InterleavingBatchPipeline', () => {
         await tick()
         expect(settled).toBe(false) // looped back, still parked on the same sub pull
 
-        const eventual = batch('eventual')
+        const eventual = chunk('eventual')
         slowSub.resolve(eventual)
 
         expect(await nextPromise).toBe(eventual)
@@ -170,13 +170,13 @@ describe('InterleavingBatchPipeline', () => {
     it('preserves an in-flight sub pull across an emit so the next call reuses it', async () => {
         // A feed wakes the parked sub, the looped iteration returns via emit, but
         // the sub pull is still in flight — the next call must reuse it, not start a new one.
-        const neverResolves = deferred<Batch | null>()
+        const neverResolves = deferred<Chunk | null>()
         const onProcessPull = jest.fn().mockReturnValue(neverResolves.promise)
-        const afterFeed = batch('after-feed')
+        const afterFeed = chunk('after-feed')
         const onSourcePull = jest
             .fn()
             .mockResolvedValueOnce({ kind: 'drain' })
-            .mockResolvedValueOnce({ kind: 'emit', batch: afterFeed })
+            .mockResolvedValueOnce({ kind: 'emit', chunk: afterFeed })
             .mockResolvedValue({ kind: 'drain' })
         const pipeline = build({ onSourcePull, onProcessPull })
 
@@ -199,7 +199,7 @@ describe('InterleavingBatchPipeline', () => {
     it('coalesces multiple feeds during a single park into one wake', async () => {
         // Both feeds resolve the same one-shot signal, so the parked next() wakes
         // once and re-pulls the source once — it does not loop per feed.
-        const slowSub = deferred<Batch | null>()
+        const slowSub = deferred<Chunk | null>()
         const onProcessPull = jest.fn().mockReturnValue(slowSub.promise)
         const onSourcePull = jest.fn().mockResolvedValue({ kind: 'drain' })
         const onFeed = jest.fn()
@@ -216,7 +216,7 @@ describe('InterleavingBatchPipeline', () => {
         expect(onSourcePull).toHaveBeenCalledTimes(2)
         expect(onProcessPull).toHaveBeenCalledTimes(1)
 
-        const eventual = batch('eventual')
+        const eventual = chunk('eventual')
         slowSub.resolve(eventual)
         expect(await nextPromise).toBe(eventual)
     })
@@ -225,8 +225,8 @@ describe('InterleavingBatchPipeline', () => {
         // A feed with no parked next() leaves the one-shot signal resolved. The
         // reset at the top of next() discards it, so the loop parks on the slow
         // sub instead of letting the stale signal win the race and re-pull the
-        // source (which would coalesce batches downstream stages keep separate).
-        const slowSub = deferred<Batch | null>()
+        // source (which would coalesce chunks downstream stages keep separate).
+        const slowSub = deferred<Chunk | null>()
         const onProcessPull = jest.fn().mockReturnValue(slowSub.promise)
         const onSourcePull = jest.fn().mockResolvedValue({ kind: 'drain' })
         const pipeline = build({ onSourcePull, onProcessPull })
@@ -237,14 +237,14 @@ describe('InterleavingBatchPipeline', () => {
         await tick()
         expect(onSourcePull).toHaveBeenCalledTimes(1)
 
-        const batch1 = batch('batch1')
-        slowSub.resolve(batch1)
-        expect(await nextPromise).toBe(batch1)
+        const chunk1 = chunk('chunk1')
+        slowSub.resolve(chunk1)
+        expect(await nextPromise).toBe(chunk1)
         expect(onSourcePull).toHaveBeenCalledTimes(1)
     })
 
     it('poisons after a source error, draining in-flight sub results first', async () => {
-        const remaining = batch('remaining')
+        const remaining = chunk('remaining')
         const onSourcePull = jest
             .fn()
             .mockRejectedValueOnce(new Error('source boom'))
@@ -273,7 +273,7 @@ describe('InterleavingBatchPipeline', () => {
         // instead of committing to the first pull's (now stale) outcome.
         const slowSource = deferred<PullOutcome<string, Ctx, never>>()
         const onSourcePull = jest.fn().mockReturnValueOnce(slowSource.promise).mockResolvedValue({ kind: 'drained' })
-        const slowSub = deferred<Batch | null>()
+        const slowSub = deferred<Chunk | null>()
         const onProcessPull = jest.fn().mockReturnValue(slowSub.promise)
         const pipeline = build({ onSourcePull, onProcessPull })
 
@@ -293,13 +293,13 @@ describe('InterleavingBatchPipeline', () => {
         expect(onProcessPull).toHaveBeenCalledTimes(1) // the sub pull was reused
         expect(settled).toBe(false)
 
-        const eventual = batch('eventual')
+        const eventual = chunk('eventual')
         slowSub.resolve(eventual)
         expect(await nextPromise).toBe(eventual)
     })
 
     it('handles repeated feeds across separate parks without re-issuing the sub pull', async () => {
-        const slowSub = deferred<Batch | null>()
+        const slowSub = deferred<Chunk | null>()
         const onProcessPull = jest.fn().mockReturnValue(slowSub.promise)
         const onSourcePull = jest.fn().mockResolvedValue({ kind: 'drain' })
         const pipeline = build({ onSourcePull, onProcessPull })
@@ -317,7 +317,7 @@ describe('InterleavingBatchPipeline', () => {
         expect(onSourcePull).toHaveBeenCalledTimes(3)
         expect(onProcessPull).toHaveBeenCalledTimes(1)
 
-        const eventual = batch('eventual')
+        const eventual = chunk('eventual')
         slowSub.resolve(eventual)
         expect(await nextPromise).toBe(eventual)
     })
