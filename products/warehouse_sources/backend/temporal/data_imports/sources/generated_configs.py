@@ -290,7 +290,7 @@ class AmplitudeSourceConfig(config.Config):
 
 @config.config
 class AnthropicSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3433,6 +3433,11 @@ class SimplesatSourceConfig(config.Config):
 
 
 @config.config
+class SingularSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class SkyvernSourceConfig(config.Config):
     pass
 
@@ -3612,6 +3617,11 @@ class SurvicateSourceConfig(config.Config):
 @config.config
 class SvixSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class SwonkieSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -4827,6 +4837,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SIMFIN: SimFinSourceConfig,
         ExternalDataSourceType.SIMPLECAST: SimpleCastSourceConfig,
         ExternalDataSourceType.SIMPLESAT: SimplesatSourceConfig,
+        ExternalDataSourceType.SINGULAR: SingularSourceConfig,
         ExternalDataSourceType.SKYVERN: SkyvernSourceConfig,
         ExternalDataSourceType.SLACK: SlackSourceConfig,
         ExternalDataSourceType.SLASH: SlashSourceConfig,
@@ -4859,6 +4870,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SURVEYSPARROW: SurveySparrowSourceConfig,
         ExternalDataSourceType.SURVICATE: SurvicateSourceConfig,
         ExternalDataSourceType.SVIX: SvixSourceConfig,
+        ExternalDataSourceType.SWONKIE: SwonkieSourceConfig,
         ExternalDataSourceType.SYNTHESIA: SynthesiaSourceConfig,
         ExternalDataSourceType.SYSTEME: SystemeSourceConfig,
         ExternalDataSourceType.TMDB: TMDbSourceConfig,

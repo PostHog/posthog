@@ -1121,6 +1121,8 @@ export const CreatedViaEnumApi = {
  * * `TerraApi` - TerraApi
  * * `TriggerDev` - TriggerDev
  * * `Turso` - Turso
+ * * `Singular` - Singular
+ * * `Swonkie` - Swonkie
  * * `TwelveLabs` - TwelveLabs
  * * `Twenty` - Twenty
  * * `Unstructured` - Unstructured
@@ -1880,6 +1882,8 @@ export const ExternalDataSourceTypeEnumApi = {
     TerraApi: 'TerraApi',
     TriggerDev: 'TriggerDev',
     Turso: 'Turso',
+    Singular: 'Singular',
+    Swonkie: 'Swonkie',
     TwelveLabs: 'TwelveLabs',
     Twenty: 'Twenty',
     Unstructured: 'Unstructured',
@@ -2741,6 +2745,8 @@ export interface ExternalDataSourceCreateApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -3711,6 +3717,8 @@ export interface DatabaseSchemaRequestApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -4552,6 +4560,8 @@ export interface SourcePreviewRequestApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -5350,6 +5360,8 @@ export interface SourceSetupApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -6155,6 +6167,8 @@ export interface SourceCredentialCreateApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
