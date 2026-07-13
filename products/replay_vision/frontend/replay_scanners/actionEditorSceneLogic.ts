@@ -33,6 +33,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     actions({
         setScannerId: (scannerId: string) => ({ scannerId }),
         setScannerName: (scannerName: string) => ({ scannerName }),
+        setScannerType: (scannerType: string) => ({ scannerType }),
         setActionId: (actionId: string) => ({ actionId }),
         setTargetingMode: (mode: 'all' | 'filtered') => ({ mode }),
         loadAction: (actionId: string) => ({ actionId }),
@@ -54,6 +55,15 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             {
                 setScannerId: () => '',
                 setScannerName: (_, { scannerName }) => scannerName,
+            },
+        ],
+        // The bound scanner's type — drives which alert condition shapes make sense (summarizers
+        // have no verdict/tags/score, so their alerts collapse to "every new summary").
+        scannerType: [
+            '',
+            {
+                setScannerId: () => '',
+                setScannerType: (_, { scannerType }) => scannerType,
             },
         ],
         actionId: [
@@ -207,10 +217,8 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         },
 
         setScannerId: async ({ scannerId }, breakpoint) => {
-            // Only fetch the scanner name on the new-action route — the edit title uses the action name instead.
-            if (!values.isNew) {
-                return
-            }
+            // Fetched on both routes: the new-action title needs the name, and alert-condition
+            // normalization needs the scanner type (see setScannerType below).
             const teamId = teamLogic.values.currentTeamId
             if (!scannerId || !teamId) {
                 return
@@ -219,8 +227,32 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 const scanner = await visionScannersRetrieve(String(teamId), scannerId)
                 breakpoint()
                 actions.setScannerName(scanner.name)
+                actions.setScannerType(scanner.scanner_type)
             } catch {
                 // Display-only — the title falls back to "New summary".
+            }
+        },
+
+        setScannerType: ({ scannerType }) => {
+            // Summarizer observations carry no verdict/tags/score, so threshold alerts don't apply:
+            // their alerts are always "every new summary". Normalizing the form (not just the UI)
+            // keeps validation and the submitted alert_config consistent with what the editor shows.
+            if (scannerType === 'summarizer' && values.actionForm.mode === VisionActionModeEnumApi.Alert) {
+                actions.setActionFormValues({
+                    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
+                    alert_metric: VisionAlertMetricEnumApi.Count,
+                })
+            }
+        },
+
+        setActionFormValue: ({ name, value }) => {
+            // Switching an existing action to alert mode on a summarizer scanner gets the same
+            // normalization as loading one.
+            if (name === 'mode' && value === VisionActionModeEnumApi.Alert && values.scannerType === 'summarizer') {
+                actions.setActionFormValues({
+                    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
+                    alert_metric: VisionAlertMetricEnumApi.Count,
+                })
             }
         },
 

@@ -402,6 +402,20 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
     const everyMatch = actionForm.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
     const isScorer = scanner?.scanner_type === 'scorer'
 
+    // Summarizer observations have no verdict/tags/score to threshold on, so the only sensible
+    // alert is "every new summary" — no frequency or threshold controls to configure. The logic
+    // normalizes the form to every_match to match (actionEditorSceneLogic.setScannerType).
+    if (scanner?.scanner_type === 'summarizer') {
+        return (
+            <div className="flex flex-col gap-2">
+                <span className="text-sm">Get notified about every new summary this scanner produces.</span>
+                <span className="text-xs text-muted">
+                    Checked every few minutes; each notification covers the new summaries since the last check.
+                </span>
+            </div>
+        )
+    }
+
     return (
         <div className="flex flex-col gap-2">
             <LemonSegmentedButton
