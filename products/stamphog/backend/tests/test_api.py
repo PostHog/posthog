@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -6,6 +7,9 @@ from posthog.models.team import Team
 
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
+
+_VIEWS = "products.stamphog.backend.presentation.views"
+_CLIENT = "products.stamphog.backend.logic.github_client.StamphogGitHubClient"
 
 
 class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
@@ -15,7 +19,9 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/"
 
-    def test_create_and_retrieve(self) -> None:
+    def test_create_ignores_client_supplied_installation_id(self) -> None:
+        # installation_id is read-only: a manual create must not let a caller claim an installation
+        # they haven't proven ownership of. Only the verified sync_installation flow may set it.
         response = self.client.post(
             self.url,
             {"repository": "PostHog/posthog", "installation_id": "42"},
@@ -26,8 +32,10 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert body["repository"] == "PostHog/posthog"
         assert body["enabled"] is True
         assert body["provider"] == "github"
+        assert body["installation_id"] == ""
         config = StamphogRepoConfig.objects.unscoped().get(id=body["id"])
         assert config.team_id == self.team.id
+        assert config.installation_id == ""
 
     def test_list_excludes_other_teams_configs(self) -> None:
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
@@ -125,3 +133,78 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_output_excludes_raw_repo_content(self) -> None:
+        # run.output holds the full PR payload, changed-file patches, default-branch policy files, and
+        # raw reviewer stdout. A project member without repo access can read this endpoint, so the API
+        # must expose only the allowlisted, content-free summary — never the raw repo content.
+        run = self._make_run()
+        run.output = {
+            "reviewer_raw": "SECRET reviewer stdout with patches",
+            "pr": {"title": "secret PR", "body": "internal"},
+            "files": [{"filename": "app.py", "patch": "@@ secret diff @@"}],
+            "policy_files": {".stamphog/policy.yml": "secret policy"},
+            "stamphog_version": "test-1.0.0",
+            "reviewer_exit_code": 0,
+        }
+        run.save(update_fields=["output"])
+
+        response = self.client.get(f"{self.url}{run.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        output = response.json()["output"]
+        assert output == {"stamphog_version": "test-1.0.0", "reviewer_exit_code": 0}
+        for leaked in ("reviewer_raw", "pr", "files", "policy_files"):
+            assert leaked not in output
+
+
+class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/sync_installation/"
+
+    @patch(f"{_CLIENT}.list_installation_repositories", return_value=["PostHog/posthog", "PostHog/other"])
+    @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_verified_installation_binds_repos(self, mock_exchange, mock_verify, mock_list) -> None:
+        response = self.client.post(self.url, {"installation_id": "42", "code": "oauth-code"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_exchange.assert_called_once_with("oauth-code")
+        mock_verify.assert_called_once_with("42", "user-token")
+        synced = sorted(row["repository"] for row in response.json()["synced"])
+        assert synced == ["PostHog/other", "PostHog/posthog"]
+        bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
+        assert bound.count() == 2
+
+    @patch(f"{_CLIENT}.list_installation_repositories")
+    @patch(f"{_VIEWS}.user_can_access_installation", return_value=False)
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_installation_not_owned_by_caller_is_rejected(self, mock_exchange, mock_verify, mock_list) -> None:
+        # Regression: without ownership verification, a caller who learns another org's installation_id
+        # could bind its repos under their own team and hijack its webhooks. A verified-but-unowned
+        # installation must be refused and bind nothing.
+        response = self.client.post(self.url, {"installation_id": "999", "code": "oauth-code"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_list.assert_not_called()
+        assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="999").exists()
+
+    @patch(f"{_CLIENT}.list_installation_repositories")
+    @patch(f"{_VIEWS}.user_can_access_installation")
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value=None)
+    def test_unexchangeable_code_fails_closed(self, mock_exchange, mock_verify, mock_list) -> None:
+        # A bad/expired code or unset OAuth creds yields no user token — fail closed with a 400 and bind
+        # nothing, never fall through to the ownership check or the repo listing.
+        response = self.client.post(self.url, {"installation_id": "42", "code": "bad-code"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        mock_verify.assert_not_called()
+        mock_list.assert_not_called()
+        assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="42").exists()
+
+    def test_missing_code_is_rejected(self) -> None:
+        # code is the ownership proof — the endpoint must require it.
+        response = self.client.post(self.url, {"installation_id": "42"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content

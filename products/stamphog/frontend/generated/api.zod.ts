@@ -122,8 +122,6 @@ export const stamphogRepoConfigsCreateBodyProviderMax = 32
 
 export const stamphogRepoConfigsCreateBodyRepositoryMax = 255
 
-export const stamphogRepoConfigsCreateBodyInstallationIdMax = 64
-
 export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .string()
@@ -135,10 +133,6 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod.object({
         .max(stamphogRepoConfigsCreateBodyRepositoryMax)
         .describe("Repository full name, e.g. 'PostHog\/posthog'."),
     enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
-    installation_id: zod
-        .string()
-        .max(stamphogRepoConfigsCreateBodyInstallationIdMax)
-        .describe('Provider app installation ID that authorizes API calls for this repo.'),
     digest_enabled: zod
         .boolean()
         .optional()
@@ -153,8 +147,6 @@ export const stamphogRepoConfigsUpdateBodyProviderMax = 32
 
 export const stamphogRepoConfigsUpdateBodyRepositoryMax = 255
 
-export const stamphogRepoConfigsUpdateBodyInstallationIdMax = 64
-
 export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .string()
@@ -166,10 +158,6 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .max(stamphogRepoConfigsUpdateBodyRepositoryMax)
         .describe("Repository full name, e.g. 'PostHog\/posthog'."),
     enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
-    installation_id: zod
-        .string()
-        .max(stamphogRepoConfigsUpdateBodyInstallationIdMax)
-        .describe('Provider app installation ID that authorizes API calls for this repo.'),
     digest_enabled: zod
         .boolean()
         .optional()
@@ -184,8 +172,6 @@ export const stamphogRepoConfigsPartialUpdateBodyProviderMax = 32
 
 export const stamphogRepoConfigsPartialUpdateBodyRepositoryMax = 255
 
-export const stamphogRepoConfigsPartialUpdateBodyInstallationIdMax = 64
-
 export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .string()
@@ -198,11 +184,6 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Repository full name, e.g. 'PostHog\/posthog'."),
     enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
-    installation_id: zod
-        .string()
-        .max(stamphogRepoConfigsPartialUpdateBodyInstallationIdMax)
-        .optional()
-        .describe('Provider app installation ID that authorizes API calls for this repo.'),
     digest_enabled: zod
         .boolean()
         .optional()
@@ -217,5 +198,12 @@ export const StamphogRepoConfigsSyncInstallationCreateBody = /* @__PURE__ */ zod
         installation_id: zod
             .string()
             .describe('GitHub App installation ID returned on the post-install Setup URL redirect.'),
+        code: zod
+            .string()
+            .describe(
+                "GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound."
+            ),
     })
-    .describe('Request body for binding a completed GitHub App installation to the current team.')
+    .describe(
+        "Request body for binding a completed GitHub App installation to the current team.\n\nRequires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install\nredirect: the code proves the caller actually owns the installation, without which any caller could\nbind another org's installation to their own team."
+    )

@@ -86,6 +86,23 @@ def _upsert_pull_request(repo_config: StamphogRepoConfig, pr_payload: dict[str, 
     return pr_obj
 
 
+def _start_review_workflow(review_run_id: str, team_id: int) -> None:
+    """Start the review workflow, treating an already-live workflow as a no-op.
+
+    The workflow id is derived from ``review_run_id`` (see temporal/client.py) under
+    ``ALLOW_DUPLICATE_FAILED_ONLY``, so re-issuing a start for a run whose workflow is
+    already running raises ``WorkflowAlreadyStartedError`` — safe to swallow. Any other
+    failure (Temporal unreachable) propagates so the caller can retry the Celery task.
+    """
+    # Deferred so temporalio stays off the Celery/web import path (mirrors temporal/client.py).
+    from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
+
+    try:
+        execute_stamphog_review_workflow(review_run_id=review_run_id, team_id=team_id)
+    except WorkflowAlreadyStartedError:
+        logger.info("stamphog_review_workflow_already_running", review_run_id=review_run_id)
+
+
 def _supersede_prior_runs(pr_obj: PullRequest) -> None:
     """Mark every non-terminal run for this PR as superseded, under a row lock.
 
@@ -225,6 +242,35 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         return
 
     team_id = repo_config.team_id
+
+    # Recovery fast path: a run for this delivery already exists (a redelivery/Celery retry that
+    # slipped past the cache dedup). If it's still QUEUED, its earlier attempt committed the row but
+    # never started the workflow (Temporal was briefly down and the post-commit start failed) — so
+    # restart it here instead of silently dropping the PR. Any other status has a live/finished
+    # workflow, so this is a plain no-op. Doing this before the create also keeps the recovery off
+    # the post-IntegrityError path, where the aborted transaction can't run further queries.
+    if delivery_id:
+        existing = ReviewRun.objects.for_team(team_id).filter(delivery_id=delivery_id).first()
+        if existing is not None:
+            if existing.status == ReviewRunStatus.QUEUED:
+                logger.info(
+                    "stamphog_pr_event_restarting_queued_run",
+                    delivery_id=delivery_id,
+                    review_run_id=str(existing.id),
+                    repo=repo,
+                )
+                try:
+                    _start_review_workflow(str(existing.id), team_id)
+                except Exception as e:
+                    logger.exception(
+                        "stamphog_pr_event_restart_queued_run_failed", delivery_id=delivery_id, error=str(e)
+                    )
+                    raise cast(Any, process_pull_request_event).retry(exc=e)
+            else:
+                logger.info("stamphog_pr_event_delivery_already_processed", delivery_id=delivery_id, repo=repo)
+            _mark_pr_event_processed(delivery_id)
+            return
+
     try:
         with transaction.atomic():
             pr_obj = _upsert_pull_request(repo_config, pr)
@@ -240,13 +286,18 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             # Only start the workflow once the row is durably committed — an aborted
             # transaction must not leave a workflow chasing a run that never existed.
             review_run_id = str(review_run.id)
-            transaction.on_commit(
-                lambda: execute_stamphog_review_workflow(review_run_id=review_run_id, team_id=team_id)
-            )
+            # Let a post-commit start failure propagate: it lands in the `except Exception`
+            # below and retries the Celery task. The retry re-enters through the recovery fast
+            # path above and restarts the still-QUEUED run — the durable recovery for a
+            # committed-but-unstarted run.
+            transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id))
     except IntegrityError:
-        # The unique delivery_id already has a run — a redelivery that slipped past the
-        # cache dedup (miss/expiry). Nothing lost, nothing to retry.
+        # The unique delivery_id already has a run — two near-simultaneous deliveries raced past
+        # the fast-path check and both tried to create. The winner owns the workflow, so this loser
+        # is a no-op.
         logger.info("stamphog_pr_event_delivery_already_processed", delivery_id=delivery_id, repo=repo)
+        if delivery_id:
+            _mark_pr_event_processed(delivery_id)
         return
     except Exception as e:
         logger.exception("stamphog_pr_event_create_run_failed", repo=repo, pr_number=pr_number, error=str(e))

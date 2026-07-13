@@ -361,7 +361,8 @@ def _build_slim_template_image() -> modal.Image:
     """
     return (
         modal.Image.debian_slim()
-        .apt_install("git", "ca-certificates", "curl")
+        # bash is required by the NodeSource setup script below; debian_slim doesn't guarantee it.
+        .apt_install("git", "ca-certificates", "curl", "bash")
         .run_commands(
             f"curl -fsSL https://deb.nodesource.com/setup_{SANDBOX_SLIM_NODE_MAJOR}.x | bash -",
             "apt-get install -y --no-install-recommends nodejs",

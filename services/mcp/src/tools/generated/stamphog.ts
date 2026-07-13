@@ -77,9 +77,6 @@ const stamphogRepoConfigsCreate = (): ToolBase<typeof StamphogRepoConfigsCreateS
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
-        if (params.installation_id !== undefined) {
-            body['installation_id'] = params.installation_id
-        }
         if (params.digest_enabled !== undefined) {
             body['digest_enabled'] = params.digest_enabled
         }
@@ -110,9 +107,6 @@ const stamphogRepoConfigsUpdate = (): ToolBase<typeof StamphogRepoConfigsUpdateS
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
-        }
-        if (params.installation_id !== undefined) {
-            body['installation_id'] = params.installation_id
         }
         if (params.digest_enabled !== undefined) {
             body['digest_enabled'] = params.digest_enabled

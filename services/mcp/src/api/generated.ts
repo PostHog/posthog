@@ -35718,14 +35718,23 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Allowlisted, non-sensitive slice of ``ReviewRun.output``.
+     *
+     * The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
+     * and default-branch policy file contents — repository content a project member without repo access
+     * must never read over the API. Only these derived, content-free fields are exposed.
+     */
+    export interface _ReviewOutputSummary {
+      /** Version of the stamphog engine that produced this review, if it reported one. */
+      readonly stamphog_version: string;
+      /** Exit code of the reviewer process in the sandbox, if the run reached the sandbox stage. */
+      readonly reviewer_exit_code: number;
+    }
+
+    /**
      * Deterministic gate check outcome (pass/fail, tier, reason) computed before the reviewer runs.
      */
     export type ReviewRunGateResult = { [key: string]: unknown };
-
-    /**
-     * Structured reviewer output (reasoning, showstoppers, posted comment/review body).
-     */
-    export type ReviewRunOutput = { [key: string]: unknown };
 
     export interface ReviewRun {
       readonly id: string;
@@ -35766,8 +35775,8 @@ export namespace Schemas {
       readonly verdict: ReviewRunVerdictEnum;
       /** Deterministic gate check outcome (pass/fail, tier, reason) computed before the reviewer runs. */
       readonly gate_result: ReviewRunGateResult;
-      /** Structured reviewer output (reasoning, showstoppers, posted comment/review body). */
-      readonly output: ReviewRunOutput;
+      /** Allowlisted, non-sensitive subset of the reviewer output blob (stamphog version, reviewer exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file contents are deliberately excluded — they carry repository content a project member without repo access must not read. */
+      readonly output: _ReviewOutputSummary;
       /** Error message if the run failed, blank otherwise. */
       readonly error: string;
       /** When the review run was created. */
@@ -36715,11 +36724,8 @@ export namespace Schemas {
       repository: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
       enabled?: boolean;
-      /**
-         * Provider app installation ID that authorizes API calls for this repo.
-         * @maxLength 64
-         */
-      installation_id: string;
+      /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
+      readonly installation_id: string;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. */
       digest_enabled?: boolean;
       readonly created_at: string;
@@ -44209,11 +44215,8 @@ export namespace Schemas {
       repository?: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
       enabled?: boolean;
-      /**
-         * Provider app installation ID that authorizes API calls for this repo.
-         * @maxLength 64
-         */
-      installation_id?: string;
+      /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
+      readonly installation_id?: string;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. */
       digest_enabled?: boolean;
       readonly created_at?: string;
@@ -55520,10 +55523,16 @@ export namespace Schemas {
 
     /**
      * Request body for binding a completed GitHub App installation to the current team.
+     *
+     * Requires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install
+     * redirect: the code proves the caller actually owns the installation, without which any caller could
+     * bind another org's installation to their own team.
      */
     export interface StamphogSyncInstallationRequest {
       /** GitHub App installation ID returned on the post-install Setup URL redirect. */
       installation_id: string;
+      /** GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound. */
+      code: string;
     }
 
     /**

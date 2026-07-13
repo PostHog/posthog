@@ -55,9 +55,10 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         syncResult: [
             null as StamphogSyncInstallationResponseApi | null,
             {
-                syncInstallation: async ({ installationId }: { installationId: string }) => {
+                syncInstallation: async ({ installationId, code }: { installationId: string; code: string }) => {
                     return stamphogRepoConfigsSyncInstallationCreate(String(values.currentProjectId), {
                         installation_id: installationId,
+                        code,
                     })
                 },
             },
@@ -127,9 +128,12 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
 
     urlToAction(({ actions }) => ({
         [urls.stamphogCallback()]: (_, searchParams) => {
+            // The GitHub setup redirect carries both installation_id and a user OAuth code;
+            // the backend needs the code to prove the caller owns the installation.
             const installationId = searchParams.installation_id
-            if (installationId) {
-                actions.syncInstallation({ installationId: String(installationId) })
+            const code = searchParams.code
+            if (installationId && code) {
+                actions.syncInstallation({ installationId: String(installationId), code: String(code) })
             }
         },
     })),

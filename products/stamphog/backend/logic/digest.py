@@ -70,14 +70,16 @@ def _build_prompt(prs: list[PullRequest]) -> str:
         "Also write a 1-2 sentence overall intro for the digest.",
         "",
         "Return STRICT JSON only, no prose, in this shape:",
-        '{"intro": "...", "prs": [{"pr_number": 123, "summary": "..."}]}',
+        '{"intro": "...", "prs": [{"index": 0, "summary": "..."}]}',
+        "Key each PR you keep by the exact index we assigned below, not by its number — PR "
+        "numbers repeat across repositories, so a bare number is ambiguous.",
         "",
         "Pull requests:",
     ]
-    for pr in prs:
+    for index, pr in enumerate(prs):
         repository = pr.repo_config.repository
         lines.append(
-            f"- #{pr.pr_number} [{repository}] {pr.title} by {pr.author_login} "
+            f"- index={index} {repository}#{pr.pr_number} {pr.title} by {pr.author_login} "
             f"(+{pr.additions}/-{pr.deletions}, {pr.changed_files} files) {pr.pr_url}"
         )
         if pr.body_excerpt:
@@ -94,16 +96,21 @@ def _strip_code_fence(content: str) -> str:
     return stripped.strip()
 
 
-def _parse_llm_response(content: str, prs_by_number: dict[int, PullRequest]) -> DigestSummary:
-    """Map the model's JSON back onto captured PRs. Unknown PR numbers are ignored."""
+def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> DigestSummary:
+    """Map the model's JSON back onto captured PRs by the index we assigned. Unknown indexes ignored.
+
+    Keying on a per-PR index (not pr_number) keeps a team digest spanning multiple repos from
+    collapsing repo-a#123 and repo-b#123 into one entry — PR numbers are only unique within a repo.
+    """
     data = json.loads(_strip_code_fence(content))
     intro = str(data.get("intro") or "").strip()
     picked: list[DigestPRSummary] = []
     for item in data.get("prs") or []:
         if not isinstance(item, dict):
             continue
-        number = item.get("pr_number")
-        pr = prs_by_number.get(number) if isinstance(number, int) else None
+        index = item.get("index")
+        # bool is an int subclass; reject it so a stray `true` can't alias index 1.
+        pr = prs_by_index.get(index) if isinstance(index, int) and not isinstance(index, bool) else None
         if pr is None:
             continue
         picked.append(
@@ -118,7 +125,7 @@ def _parse_llm_response(content: str, prs_by_number: dict[int, PullRequest]) -> 
     if not picked:
         # The model returned nothing usable — don't post an empty digest, fall back to all PRs.
         raise ValueError("LLM returned no recognizable PRs")
-    return DigestSummary(intro=intro or _fallback_summary(list(prs_by_number.values())).intro, prs=picked)
+    return DigestSummary(intro=intro or _fallback_summary(list(prs_by_index.values())).intro, prs=picked)
 
 
 def summarize_merged_prs(prs: list[PullRequest]) -> DigestSummary:
@@ -136,7 +143,7 @@ def summarize_merged_prs(prs: list[PullRequest]) -> DigestSummary:
             extra_headers={"x-posthog-property-source_product": _SOURCE_PRODUCT},
         )
         content = response.choices[0].message.content or ""
-        return _parse_llm_response(content, {pr.pr_number: pr for pr in prs})
+        return _parse_llm_response(content, dict(enumerate(prs)))
     except Exception as e:
         logger.warning("stamphog_digest_summarize_fallback", team_id=team_id, error=str(e))
         return _fallback_summary(prs)

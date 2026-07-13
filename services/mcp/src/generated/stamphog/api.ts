@@ -206,8 +206,6 @@ export const stamphogRepoConfigsCreateBodyProviderMax = 32
 
 export const stamphogRepoConfigsCreateBodyRepositoryMax = 255
 
-export const stamphogRepoConfigsCreateBodyInstallationIdMax = 64
-
 export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .string()
@@ -219,10 +217,6 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod.object({
         .max(stamphogRepoConfigsCreateBodyRepositoryMax)
         .describe("Repository full name, e.g. 'PostHog/posthog'."),
     enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
-    installation_id: zod
-        .string()
-        .max(stamphogRepoConfigsCreateBodyInstallationIdMax)
-        .describe('Provider app installation ID that authorizes API calls for this repo.'),
     digest_enabled: zod
         .boolean()
         .optional()
@@ -257,8 +251,6 @@ export const stamphogRepoConfigsPartialUpdateBodyProviderMax = 32
 
 export const stamphogRepoConfigsPartialUpdateBodyRepositoryMax = 255
 
-export const stamphogRepoConfigsPartialUpdateBodyInstallationIdMax = 64
-
 export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .string()
@@ -271,11 +263,6 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Repository full name, e.g. 'PostHog/posthog'."),
     enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
-    installation_id: zod
-        .string()
-        .max(stamphogRepoConfigsPartialUpdateBodyInstallationIdMax)
-        .optional()
-        .describe('Provider app installation ID that authorizes API calls for this repo.'),
     digest_enabled: zod
         .boolean()
         .optional()

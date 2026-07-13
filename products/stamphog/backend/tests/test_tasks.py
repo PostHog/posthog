@@ -109,6 +109,43 @@ def test_disabled_repo_config_is_a_noop(team, repo_config):
     mock_execute.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "existing_status,expect_restart",
+    [
+        (ReviewRunStatus.QUEUED, True),
+        (ReviewRunStatus.REVIEWING, False),
+        (ReviewRunStatus.COMPLETED, False),
+    ],
+    ids=["queued_run_restarts", "reviewing_run_noop", "completed_run_noop"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_redelivery_restarts_only_a_still_queued_run(team, repo_config, existing_status, expect_restart):
+    # A run committed by an earlier delivery whose workflow never started (Temporal was briefly down)
+    # stays QUEUED. The redelivery/Celery-retry hits the unique delivery_id, and must restart that
+    # run instead of logging "already processed" and silently dropping the PR. A run already past
+    # QUEUED has a live/finished workflow, so its redelivery stays a plain no-op.
+    with team_scope(team.id):
+        pr_obj = PullRequest.objects.create(team_id=team.id, repo_config=repo_config, pr_number=42)
+        ReviewRun.objects.create(
+            team_id=team.id,
+            pull_request=pr_obj,
+            head_sha="sha-1",
+            delivery_id="delivery-redelivered",
+            status=existing_status,
+        )
+
+    mock_execute = _run_task(_pr_payload(head_sha="sha-1"), "delivery-redelivered", team.id)
+
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 1  # no second run created for the duplicate delivery
+        surviving = ReviewRun.objects.get()
+        assert surviving.status == existing_status  # not superseded by its own redelivery
+    if expect_restart:
+        mock_execute.assert_called_once_with(review_run_id=str(surviving.id), team_id=team.id)
+    else:
+        mock_execute.assert_not_called()
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_synchronize_supersedes_prior_non_terminal_run_but_not_terminal_ones(team, repo_config):
     _run_task(_pr_payload(action="opened", head_sha="sha-1"), "delivery-open", team.id)

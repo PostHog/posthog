@@ -16,13 +16,28 @@ class _GateResultField(serializers.JSONField):
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
-class _ReviewOutputField(serializers.JSONField):
-    pass
-
-
-@extend_schema_field(OpenApiTypes.OBJECT)
 class _DigestSummaryField(serializers.JSONField):
     pass
+
+
+class _ReviewOutputSummarySerializer(serializers.Serializer):
+    """Allowlisted, non-sensitive slice of ``ReviewRun.output``.
+
+    The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
+    and default-branch policy file contents — repository content a project member without repo access
+    must never read over the API. Only these derived, content-free fields are exposed.
+    """
+
+    stamphog_version = serializers.CharField(
+        read_only=True,
+        required=False,
+        help_text="Version of the stamphog engine that produced this review, if it reported one.",
+    )
+    reviewer_exit_code = serializers.IntegerField(
+        read_only=True,
+        required=False,
+        help_text="Exit code of the reviewer process in the sandbox, if the run reached the sandbox stage.",
+    )
 
 
 class StamphogRepoConfigSerializer(serializers.ModelSerializer):
@@ -46,7 +61,17 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
             },
             "repository": {"help_text": "Repository full name, e.g. 'PostHog/posthog'."},
             "enabled": {"help_text": "Whether stamphog actively reviews pull requests for this repo."},
-            "installation_id": {"help_text": "Provider app installation ID that authorizes API calls for this repo."},
+            # Read-only on purpose: an installation id may only ever be set by the verified
+            # sync_installation flow, which proves the caller owns the installation before binding it.
+            # A client-supplied value on the plain create/update path is ignored, so a manually created
+            # config carries no installation and simply won't resolve webhooks until synced.
+            "installation_id": {
+                "read_only": True,
+                "help_text": (
+                    "Provider app installation ID that authorizes API calls for this repo. Set only by the "
+                    "verified sync_installation flow; ignored on direct writes."
+                ),
+            },
             "digest_enabled": {
                 "required": False,
                 "help_text": "Whether merged PRs on this repo are captured for the daily Slack digest.",
@@ -71,10 +96,22 @@ class StamphogInstallInfoSerializer(serializers.Serializer):
 
 
 class StamphogSyncInstallationRequestSerializer(serializers.Serializer):
-    """Request body for binding a completed GitHub App installation to the current team."""
+    """Request body for binding a completed GitHub App installation to the current team.
+
+    Requires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install
+    redirect: the code proves the caller actually owns the installation, without which any caller could
+    bind another org's installation to their own team.
+    """
 
     installation_id = serializers.CharField(
         help_text="GitHub App installation ID returned on the post-install Setup URL redirect.",
+    )
+    code = serializers.CharField(
+        help_text=(
+            "GitHub user-to-server OAuth code from the post-install redirect (present when the App has "
+            "'Request user authorization during installation' enabled). Exchanged server-side to prove "
+            "the caller owns the installation before its repos are bound."
+        ),
     )
 
 
@@ -191,10 +228,25 @@ class ReviewRunSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Deterministic gate check outcome (pass/fail, tier, reason) computed before the reviewer runs.",
     )
-    output = _ReviewOutputField(
-        read_only=True,
-        help_text="Structured reviewer output (reasoning, showstoppers, posted comment/review body).",
+    output = serializers.SerializerMethodField(
+        help_text=(
+            "Allowlisted, non-sensitive subset of the reviewer output blob (stamphog version, reviewer "
+            "exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file "
+            "contents are deliberately excluded — they carry repository content a project member without "
+            "repo access must not read."
+        ),
     )
+
+    @extend_schema_field(_ReviewOutputSummarySerializer)
+    def get_output(self, obj: ReviewRun) -> dict[str, object]:
+        # Explicit allowlist: never echo reviewer_raw / pr / files / policy_files out of the API.
+        raw = obj.output or {}
+        summary: dict[str, object] = {}
+        if "stamphog_version" in raw:
+            summary["stamphog_version"] = raw["stamphog_version"]
+        if "reviewer_exit_code" in raw:
+            summary["reviewer_exit_code"] = raw["reviewer_exit_code"]
+        return summary
 
     class Meta:
         model = ReviewRun

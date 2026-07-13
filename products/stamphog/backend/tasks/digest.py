@@ -44,31 +44,44 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
     # unlinked until its digest actually posts). A recency filter would let a PR whose post keeps
     # failing quietly age out of the window and never get retried. Once a PR is posted, digest_run
     # is set and this query excludes it -- so already-digested PRs are never resurrected here.
-    prs = list(
-        PullRequest.objects.for_team(team_id)
-        .filter(audience_key=channel.audience_key, digest_run__isnull=True)
-        .select_related("repo_config")
-        .order_by("merged_at")
-    )
-    if not prs:
-        logger.info("stamphog_digest_no_prs", audience_key=channel.audience_key, team_id=team_id)
-        return
+    #
+    # Claim the candidate PRs before posting: two concurrent runs for the same channel would
+    # otherwise both read the same unlinked PRs and both post to Slack. select_for_update locks
+    # the unlinked rows, the run is created, and the PRs are linked to it — all committed before
+    # the Slack post. A second worker then blocks on the lock, re-reads, finds nothing unlinked,
+    # and returns without posting. of=("self",) keeps the lock off the joined repo_config rows.
+    with transaction.atomic():
+        prs = list(
+            PullRequest.objects.for_team(team_id)
+            .filter(audience_key=channel.audience_key, digest_run__isnull=True)
+            .select_for_update(of=("self",))
+            .select_related("repo_config")
+            .order_by("merged_at")
+        )
+        if not prs:
+            logger.info("stamphog_digest_no_prs", audience_key=channel.audience_key, team_id=team_id)
+            return
 
-    run = DigestRun.objects.for_team(team_id).create(
-        team_id=team_id,
-        digest_channel=channel,
-        status=DigestRunStatus.PENDING,
-    )
+        run = DigestRun.objects.for_team(team_id).create(
+            team_id=team_id,
+            digest_channel=channel,
+            status=DigestRunStatus.PENDING,
+        )
+        PullRequest.objects.for_team(team_id).filter(id__in=[pr.id for pr in prs]).update(digest_run=run)
 
     summary = summarize_merged_prs(prs)
     try:
         message_ts = post_digest(team_id, channel, summary)
     except Exception as e:
-        # PRs stay unlinked (digest_run is NULL) so tomorrow's run retries them.
+        # Unlink the claimed PRs (digest_run back to NULL) so the next run retries them — the retry
+        # query filters digest_run__isnull=True, so leaving them linked to a FAILED run would hide
+        # them forever. Unlinking keeps "Slack failure -> PRs stay retryable" intact.
         logger.exception("stamphog_digest_post_failed", digest_channel_id=digest_channel_id, error=str(e))
-        DigestRun.objects.for_team(team_id).filter(id=run.id).update(
-            status=DigestRunStatus.FAILED, summary=summary.to_dict(), error=str(e)
-        )
+        with transaction.atomic():
+            DigestRun.objects.for_team(team_id).filter(id=run.id).update(
+                status=DigestRunStatus.FAILED, summary=summary.to_dict(), error=str(e)
+            )
+            PullRequest.objects.for_team(team_id).filter(id__in=[pr.id for pr in prs]).update(digest_run=None)
         return
 
     now = timezone.now()
@@ -80,7 +93,6 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
             slack_message_ts=message_ts or "",
             posted_at=now,
         )
-        PullRequest.objects.for_team(team_id).filter(id__in=[pr.id for pr in prs]).update(digest_run=run)
         DigestChannel.objects.for_team(team_id).filter(id=channel.id).update(last_digest_at=now)
 
     logger.info("stamphog_digest_posted", digest_channel_id=digest_channel_id, pr_count=len(prs), run_id=str(run.id))

@@ -80,6 +80,88 @@ def _build_app_jwt() -> str:
         raise StamphogGitHubError("Failed to encode Stamphog App JWT; check STAMPHOG_GITHUB_APP_PRIVATE_KEY") from exc
 
 
+# --- User-to-server OAuth: installation ownership verification ---
+#
+# Binding an installation's repos to a team is only safe if the caller can prove they own that GitHub
+# App installation. A bare installation_id is caller-supplied and forgeable, so we mirror the shared
+# PostHog App's flow: exchange the post-install OAuth `code` for the *user's* own access token, then
+# confirm the installation is one that user can actually reach.
+
+
+def exchange_oauth_code_for_user_token(code: str) -> str | None:
+    """Exchange a Stamphog user-to-server OAuth ``code`` for the authorizing user's access token.
+
+    Talks to ``github.com/login/oauth/access_token`` (the App's OAuth endpoint, not the REST API) with
+    Stamphog's *own* client id/secret. Returns the user access token, or ``None`` when the creds are
+    unset or GitHub rejects the code — callers must treat ``None`` as "unverified" and fail closed.
+    """
+    client_id = settings.STAMPHOG_GITHUB_APP_CLIENT_ID
+    client_secret = settings.STAMPHOG_GITHUB_APP_CLIENT_SECRET
+    if not client_id or not client_secret:
+        # No creds means we can't verify ownership, so we must not bind anything.
+        logger.warning("stamphog github: STAMPHOG_GITHUB_APP_CLIENT_ID/SECRET unset, cannot verify installation")
+        return None
+
+    # github.com/login is the App's OAuth host, not api.github.com, so it goes over plain requests
+    # (identical to how the shared PostHog App exchanges its code) rather than the REST egress transport.
+    response = requests.post(
+        "https://github.com/login/oauth/access_token",
+        json={"client_id": client_id, "client_secret": client_secret, "code": code},
+        headers={"Accept": "application/json"},
+        timeout=10,
+    )
+    try:
+        data = response.json()
+    except ValueError:
+        logger.warning("stamphog github: non-JSON response exchanging OAuth code", status_code=response.status_code)
+        return None
+    access_token = data.get("access_token")
+    if not access_token:
+        # Never log token/error bodies verbatim — just the coarse GitHub error slug.
+        logger.warning("stamphog github: OAuth code exchange returned no access_token", error=data.get("error"))
+        return None
+    return str(access_token)
+
+
+def user_can_access_installation(installation_id: str, user_access_token: str) -> bool:
+    """Whether the OAuth'd user can reach the given App installation.
+
+    Lists the installations visible to the *user's* token (``GET /user/installations``) and checks the
+    submitted id is among them. Authenticated with the user token, so it is identity-blind on the egress
+    budget (no ``installation_id`` passed to the gate) — GitHub meters it against the user, not the
+    installation. Raises :class:`StamphogGitHubError` on an unexpected status so the caller fails closed
+    rather than silently treating an API hiccup as "no access".
+    """
+    for page in range(1, _MAX_PAGES + 1):
+        response = github_request(
+            "GET",
+            "https://api.github.com/user/installations",
+            source=_SOURCE,
+            headers={"Authorization": f"Bearer {user_access_token}"},
+            endpoint="/user/installations",
+            params={"per_page": _PER_PAGE, "page": page},
+            timeout=10,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to list user installations: {response.text[:200]}", status_code=response.status_code
+            )
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise StamphogGitHubError("Non-JSON response listing user installations") from exc
+        installations = data.get("installations") if isinstance(data, dict) else None
+        if not isinstance(installations, list):
+            raise StamphogGitHubError("Unexpected user installations payload")
+        for installation in installations:
+            if isinstance(installation, dict) and str(installation.get("id")) == str(installation_id):
+                return True
+        if len(installations) < _PER_PAGE:
+            break
+    return False
+
+
 class StamphogGitHubClient:
     """Installation-scoped GitHub client for one Stamphog App installation.
 

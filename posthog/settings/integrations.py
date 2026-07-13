@@ -45,6 +45,13 @@ GITHUB_APP_CLIENT_SECRET = get_from_env("GITHUB_APP_CLIENT_SECRET", "")
 STAMPHOG_GITHUB_APP_ID = get_from_env("STAMPHOG_GITHUB_APP_ID", "")
 STAMPHOG_GITHUB_APP_PRIVATE_KEY = get_from_env("STAMPHOG_GITHUB_APP_PRIVATE_KEY", "")
 STAMPHOG_GITHUB_WEBHOOK_SECRET = get_from_env("STAMPHOG_GITHUB_WEBHOOK_SECRET", "")
+# OAuth client id/secret for the Stamphog App's user-to-server authorization flow (enabled via
+# "Request user authorization during installation"). Used to exchange the post-install `code` for a
+# user access token and prove the caller actually owns the installation before its repos are bound to
+# their team. Separate from the JWT-signing private key above. Empty until the App is provisioned, in
+# which case installation binding fails closed.
+STAMPHOG_GITHUB_APP_CLIENT_ID = get_from_env("STAMPHOG_GITHUB_APP_CLIENT_ID", "")
+STAMPHOG_GITHUB_APP_CLIENT_SECRET = get_from_env("STAMPHOG_GITHUB_APP_CLIENT_SECRET", "")
 # URL-friendly App name in github.com/apps/<slug>; the install URL is built from it. Empty until
 # the App is provisioned, in which case the install-info endpoint returns a blank install URL.
 STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
