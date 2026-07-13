@@ -12,7 +12,6 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
-from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 
 # Each evaluated session is a full scanner run, so keep the bill bounded.
 EVALUATION_SESSION_CAP = 100
@@ -84,6 +83,12 @@ _EVALUATION_RUNNING_GRACE = dt.timedelta(minutes=5)
 
 def evaluation_in_flight(evaluation: Any) -> bool:
     """True while a running evaluation's workflow can still be alive. Past the timeout nothing is left to finalize it."""
+    # Deferred: importing anything under temporal.* runs the package __init__, whose activity
+    # imports circle back into quota.py -> this module, breaking import at module level.
+    from products.replay_vision.backend.temporal.constants import (  # noqa: PLC0415
+        EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
+    )
+
     if not isinstance(evaluation, dict) or evaluation.get("status") != "running":
         return False
     try:
