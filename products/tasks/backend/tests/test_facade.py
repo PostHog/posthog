@@ -216,15 +216,24 @@ class TestFacadeReadsAndMappers(TestCase):
 
         stale_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100)
         self.assertIn(stale.id, stale_ids)
-        # The unrestricted sweep (24h killer) still reaps abandoned local runs.
+        # Unfiltered, the query returns stale runs of every environment.
         self.assertIn(stale_local.id, stale_ids)
         self.assertNotIn(fresh.id, stale_ids)
 
-        # The dispatch reconciler must never see local (desktop-driven) runs — re-dispatching
-        # one starts a cloud workflow that hijacks and eventually fails the live local session.
-        cloud_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100, cloud_only=True)
+        # The dispatch reconciler and the 24h fail sweep must never see local (desktop-driven)
+        # runs — re-dispatching one starts a cloud workflow that hijacks the live local session,
+        # and failing one turns an idle desktop session into a bogus failure.
+        cloud_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24), limit=100, environment=TaskRun.Environment.CLOUD
+        )
         self.assertIn(stale.id, cloud_ids)
         self.assertNotIn(stale_local.id, cloud_ids)
+
+        local_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24), limit=100, environment=TaskRun.Environment.LOCAL
+        )
+        self.assertIn(stale_local.id, local_ids)
+        self.assertNotIn(stale.id, local_ids)
 
         with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
             self.assertTrue(facade.fail_task_run(stale.id, "boom"))
@@ -233,6 +242,29 @@ class TestFacadeReadsAndMappers(TestCase):
         stale.refresh_from_db()
         self.assertEqual(stale.status, TaskRun.Status.FAILED.value)
         self.assertEqual(stale.error_message, "boom")
+
+    def test_complete_idle_local_task_run_skips_run_handed_off_to_cloud(self):
+        task = self._make_task()
+        idle_local = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+        )
+        # Between the janitor's candidate scan and the finalize call, a user can resume the run
+        # into cloud (environment flips to CLOUD, workflow dispatched) — completing it then
+        # would kill a just-started cloud run.
+        handed_off = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.CLOUD
+        )
+
+        with patch("products.tasks.backend.push_dispatcher.notify_task_run_completed") as mock_notify:
+            self.assertTrue(facade.complete_idle_local_task_run(idle_local.id))
+            self.assertFalse(facade.complete_idle_local_task_run(handed_off.id))
+
+        idle_local.refresh_from_db()
+        self.assertEqual(idle_local.status, TaskRun.Status.COMPLETED.value)
+        self.assertIsNone(idle_local.error_message)
+        mock_notify.assert_not_called()
+        handed_off.refresh_from_db()
+        self.assertEqual(handed_off.status, TaskRun.Status.QUEUED.value)
 
     @parameterized.expand(
         [
