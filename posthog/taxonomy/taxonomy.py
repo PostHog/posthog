@@ -2593,7 +2593,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_git_branch": {
             "label": "AI git branch",
-            "description": "The git branch checked out when the AI generation ran; joins LLM spend to pull requests via the PR head ref.",
+            "description": "The git branch checked out when the AI generation ran.",
             "examples": ["feat/my-feature"],
         },
         "$ai_git_repo": {
