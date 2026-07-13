@@ -11,6 +11,7 @@ import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
+import CLAUDE_EXEC_HELP from '@/templates/sections/claude-exec-help.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
@@ -26,6 +27,7 @@ import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
+import type { ExecHelpEntry } from '@/tools/exec-help'
 
 export interface InstructionsContext {
     guidelines: string
@@ -79,6 +81,80 @@ export class InstructionsFormatter {
         return EXEC_TOOL_BLURB.trim()
     }
 
+    /**
+     * Build the optional guidance catalog used by Claude web/desktop. The
+     * existing prompt sections remain the source of truth; only their delivery
+     * moves from the advertised schema to `exec help`.
+     */
+    buildClaudeExecHelpEntries(ctx: InstructionsContext): ExecHelpEntry[] {
+        const entries: ExecHelpEntry[] = [
+            {
+                id: 'analytics',
+                kind: 'guide',
+                title: 'Analytics',
+                description: 'Detailed query selection, schema discovery, query-tool reference, and worked examples.',
+                content: this.compose([RETRIEVING_DATA, SCHEMA_WORKFLOW, EXAMPLES], ctx, { compact: false }),
+            },
+        ]
+
+        if (ctx.renderUiEnabled) {
+            entries.push({
+                id: 'visualizations',
+                kind: 'guide',
+                title: 'Visualizations',
+                description: 'When and how to render PostHog results with render-ui.',
+                content: this.compose([CLI_RENDERING], ctx, { compact: false }),
+            })
+        }
+
+        if (this.agentFeedbackEnabled(ctx.featureFlags)) {
+            entries.push({
+                id: 'feedback',
+                kind: 'guide',
+                title: 'Feedback',
+                description: 'When and how to send actionable feedback to PostHog.',
+                content: this.compose([AGENT_FEEDBACK], ctx, { compact: false }),
+            })
+        }
+
+        return entries
+    }
+
+    /**
+     * Claude web/desktop silently drops tool entries whose complete JSON schema
+     * exceeds 18,000 characters. Keep routine tool-use guidance inline and move
+     * only task-specific sections behind `help <topic>`.
+     */
+    buildClaudeExecCommandReference(ctx: InstructionsContext): string {
+        const helpEntries = this.buildClaudeExecHelpEntries(ctx)
+        const helpTopics = helpEntries.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
+        const helpSection = formatPrompt(CLAUDE_EXEC_HELP, { help_topics: helpTopics })
+        const renderCtx: InstructionsContext = {
+            guidelines: ctx.guidelines,
+            featureFlags: ctx.featureFlags,
+            metadata: ctx.metadata,
+            groupTypes: ctx.groupTypes,
+            tools: ctx.tools,
+        }
+
+        return this.compose(
+            [
+                CLI_SYNTAX,
+                helpSection,
+                CLI_SCHEMA_DRILLDOWN,
+                CLI_DATA_DISCOVERY,
+                CLI_EXAMPLES,
+                CLI_ERROR_HANDLING,
+                BASIC_FUNCTIONALITY,
+                TOOL_SEARCH,
+                ENV_CONTEXT,
+                URL_PATTERNS,
+            ],
+            renderCtx,
+            { compact: false, compactToolDomains: true }
+        )
+    }
+
     /** Build the `command` parameter description for the exec tool. When
      *  `stripEnvContext` is true (the client already received env via the
      *  `instructions` field), the env-related placeholders (metadata, group
@@ -92,11 +168,8 @@ export class InstructionsFormatter {
      *  (project metadata, group types) here even though `stripEnvContext` is
      *  set, so it still reaches the agent.
      *
-     *  SIZE BUDGET: the serialized exec tool entry must stay under 32,600 chars —
-     *  clients (e.g. Claude web/desktop) silently drop tools past ~32,768, which
-     *  breaks the entire MCP for them. Enforced by the budget test in
-     *  `tests/unit/instructions-formatter-snapshot.test.ts`; when adding prose
-     *  here or to the section templates, shrink elsewhere to stay under. */
+     *  Claude web/desktop uses `buildClaudeExecCommandReference` instead because
+     *  its complete JSON schema has a smaller client-enforced size budget. */
     buildExecCommandReference(
         ctx: InstructionsContext,
         opts: { stripEnvContext: boolean; keepEnvContext?: boolean }
@@ -139,8 +212,13 @@ export class InstructionsFormatter {
         return featureFlags?.['mcp-feedback-tool'] === true
     }
 
-    private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {
-        const renderToolDomains = opts.compact ? buildToolDomainsCompact : buildToolDomainsBlock
+    private compose(
+        sections: string[],
+        ctx: InstructionsContext,
+        opts: { compact: boolean; compactToolDomains?: boolean }
+    ): string {
+        const renderToolDomains =
+            opts.compact || opts.compactToolDomains ? buildToolDomainsCompact : buildToolDomainsBlock
         // `{query_tools}` only appears in non-compact sections (the exec command
         // reference and tools-mode instructions); compact mode surfaces queries
         // via the single `query` tool domain instead.
