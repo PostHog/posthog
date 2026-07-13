@@ -400,14 +400,14 @@ class TestEndpointMapping(BaseTest):
 class TestCostPerMergeSeries(BaseTest):
     """The cost-per-merged-PR trend on the repo hub: bucketing, zero-fill, and the cost/merge
     division guard. The two warehouse scans are mocked (curated fully faked), so this tests the
-    Python fold — the runner-tier cost model, the bucket join, the empty-bucket handling — without
-    a warehouse. The tier multiplier stays server-side; only group columns cross the mock boundary."""
+    Python fold — the bucket join, the trailing-window ratio, the empty-bucket handling — without a
+    warehouse. Cost is aggregated in SQL over the shared cost source, so only the per-bucket dollar
+    figure crosses the mock boundary."""
 
     @staticmethod
     def _curated(cost_rows: list[tuple], merges_rows: list[tuple], *, jobs_synced: bool = True) -> mock.Mock:
         curated = mock.Mock()
-        curated.jobs_source.return_value = "px_github_workflow_jobs" if jobs_synced else None
-        curated.run_source.return_value = "px_github_workflow_runs"
+        curated.job_cost_source.return_value = "(cost_source)" if jobs_synced else None
         curated.pr_source.return_value = "px_github_pull_requests"
         # Cost scan first, then the merges scan — the call order in query_cost_per_merge_series.
         curated.run.side_effect = [_resp(cost_rows), _resp(merges_rows)]
@@ -416,12 +416,12 @@ class TestCostPerMergeSeries(BaseTest):
     def test_buckets_cost_per_merge_and_zero_fills(self) -> None:
         date_from = _dt("2026-06-01T00:00:00")
         date_to = _dt("2026-06-30T00:00:00")  # 29-day window -> day granularity, deterministic buckets.
-        # Columns: bucket_start, labels, finished, elapsed, unfinished. depot-4 (4-core) bills at 2x, so
-        # 2 min -> 2 * 0.004 * 2 = 0.016; 1 min -> 0.008.
+        # Columns: bucket_start, billable_seconds, cost_sum, costed, unsettled, excluded — the SQL cost
+        # aggregates. depot-4 (4-core) bills at 2x, so 2 min -> 2 * 0.004 * 2 = 0.016; 1 min -> 0.008.
         cost_rows = [
-            (datetime(2026, 6, 2), '["depot-ubuntu-22.04-4"]', 1, 120.0, 0),
-            (datetime(2026, 6, 3), '["depot-ubuntu-22.04-4"]', 1, 60.0, 0),
-            (datetime(2026, 6, 6), '["depot-ubuntu-22.04-4"]', 1, 120.0, 0),  # cost but no merges below
+            (datetime(2026, 6, 2), 120.0, 0.016, 1, 0, 0),
+            (datetime(2026, 6, 3), 60.0, 0.008, 1, 0, 0),
+            (datetime(2026, 6, 6), 120.0, 0.016, 1, 0, 0),  # cost but no merges below
         ]
         # Columns: bucket_start, merges.
         merges_rows = [
