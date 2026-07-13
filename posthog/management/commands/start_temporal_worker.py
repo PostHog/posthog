@@ -602,10 +602,7 @@ class Command(BaseCommand):
         if workflows_include_data_import_syncs(workflows):
             load_all_sources()
 
-        # The generated schema models defer core-schema building to first use (see
-        # bin/patch-schema-defer-build.py). Build them all at worker boot so no
-        # workflow/activity pays a build at runtime — production processes stay eager;
-        # only tests and short-lived CLI invocations keep the lazy import win.
+        # See build_all_schema_models's docstring for why temporal builds eagerly at worker boot.
         build_all_schema_models()
 
         if options["client_key"]:

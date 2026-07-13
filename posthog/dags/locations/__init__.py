@@ -107,9 +107,17 @@ env = "local" if settings.DEBUG else "prod"
 resources = resources_by_env.get(env, resources_by_env["local"])
 
 
-# The generated schema models defer core-schema building to first use (see
-# bin/patch-schema-defer-build.py). Every dagster code location imports this package
-# (for `loggers`/`resources`), and dagster's per-run workers re-import the location
-# module too — so building here keeps dagster eager like web/celery/temporal, and no
-# op ever pays a first-use build (or relies on the lazy path) at runtime.
+# See build_all_schema_models's docstring for why this build is eager. Every dagster
+# code location imports this package (for `loggers`/`resources` above — an invisible but
+# load-bearing coupling: a refactor that stops importing them here would silently drop
+# dagster back to the lazy path), and both the definition server (dagit/code server) and
+# per-run workers re-import the location module — so building here covers every process
+# that loads this code location. Schema-model subclasses defined in later-imported
+# location submodules still defer and use the guarded lazy path at first use; this only
+# covers what's reachable from posthog.schema at this point in the import.
+#
+# Building here is paid per spawned subprocess, not shared copy-on-write: dagster's
+# multiprocess and k8s job executors re-import this module per step worker, so each
+# step pays the build cost even for ops that never touch schema models. This matches
+# the pre-defer eager baseline and is batch-tolerant, so it's an accepted trade-off.
 build_all_schema_models()

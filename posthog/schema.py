@@ -347,9 +347,10 @@ def _building_set() -> set[type]:
 
 def _reset_build_state_after_fork() -> None:
     # A child forked while another thread held _build_lock would inherit it permanently
-    # held (fork only clones the calling thread), deadlocking its first lazy build. Web
-    # and celery build eagerly pre-fork so they never hit this; the deliberately-lazy
-    # fork points (e.g. dagster's multiprocessing/billiard workers) are the exposed ones.
+    # held (fork only clones the calling thread), deadlocking its first lazy build. Web,
+    # celery, and dagster build eagerly pre-fork so they never hit this; a forking
+    # process that hasn't built yet (e.g. gunicorn's own arbiter fork, before wsgi.py's
+    # warm block runs) is a deliberately-lazy fork point that stays exposed.
     # _walked_schema_nodes must also be cleared: the walk memoizes a node before pushing
     # its children, and the walking thread doesn't survive fork — so a child forked
     # mid-walk would otherwise skip subtrees whose classes were never built.
