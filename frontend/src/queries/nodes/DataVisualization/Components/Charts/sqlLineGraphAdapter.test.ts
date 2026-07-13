@@ -509,6 +509,7 @@ describe('sqlLineGraphAdapter', () => {
                 { formatting: { decimalPlaces: 5 } },
                 '22.22222',
             ],
+            ['honors an explicit zero decimalPlaces', 22.222222222222, { formatting: { decimalPlaces: 0 } }, '22'],
         ])('%s', (_name, value, settings, expected) => {
             expect(formatSqlSeriesValue(value, settings)).toBe(expected)
         })

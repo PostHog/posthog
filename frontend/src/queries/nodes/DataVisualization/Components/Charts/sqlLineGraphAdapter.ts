@@ -254,10 +254,12 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
  *  is chart-display only. */
 export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSettings): string {
     const formatting = settings?.formatting
-    // Truthy checks match formatDataWithSettings, which owns rounding for styled values and
-    // ignores a falsy decimalPlaces. Prefix/suffix don't round, so they don't opt out.
-    const ownsRounding = !!formatting && ((formatting.style ?? 'none') !== 'none' || !!formatting.decimalPlaces)
-    const display = ownsRounding || !Number.isFinite(value) ? value : Number(value.toFixed(3))
+    // Styled values round inside formatDataWithSettings. Unstyled values are capped here — at the
+    // column's explicit decimalPlaces when set (formatDataWithSettings skips a falsy 0, so a
+    // zero-decimal column would otherwise keep its fraction digits), else at 3. Prefix/suffix
+    // don't round, so they don't opt out.
+    const hasStyle = !!formatting && (formatting.style ?? 'none') !== 'none'
+    const display = hasStyle || !Number.isFinite(value) ? value : Number(value.toFixed(formatting?.decimalPlaces ?? 3))
     return String(formatDataWithSettings(display, settings) ?? display)
 }
 
