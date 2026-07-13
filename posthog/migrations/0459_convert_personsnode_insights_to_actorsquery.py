@@ -11,32 +11,40 @@ def convert_insights(apps, schema_editor):
 
     insights = Insight.objects.filter(query__kind=NodeKind.DATA_TABLE_NODE, query__source__kind=NodeKind.PERSONS_NODE)
 
-    for insight in insights.iterator(chunk_size=100):
-        try:
-            query_dict = insight.query.copy()
-            query = DataTableNode(**query_dict)
-            node = cast(PersonsNode, query.source)
+    # .iterator() opens a server-side named cursor (DECLARE ... CURSOR). Some Postgres-compatible
+    # backends and connection poolers can't parse that statement and raise during iteration, which
+    # sits outside the per-insight try/except below and would abort the whole `migrate` run. This is
+    # an old, elidable, data-only migration, so if iteration itself fails we skip it rather than
+    # blocking the upgrade.
+    try:
+        for insight in insights.iterator(chunk_size=100):
+            try:
+                query_dict = insight.query.copy()
+                query = DataTableNode(**query_dict)
+                node = cast(PersonsNode, query.source)
 
-            properties = node.properties or []
-            if node.cohort is not None:
-                properties.append(CohortPropertyFilter(key="id", value=node.cohort))
+                properties = node.properties or []
+                if node.cohort is not None:
+                    properties.append(CohortPropertyFilter(key="id", value=node.cohort))
 
-            del query_dict["source"]
+                del query_dict["source"]
 
-            updated_query = DataTableNode(
-                **query_dict,
-                source=ActorsQuery(
-                    search=node.search,
-                    properties=properties,
-                    fixedProperties=node.fixedProperties,
-                    limit=node.limit,
-                    offset=node.offset,
-                ),
-            )
-            insight.query = updated_query.model_dump(exclude_none=True)
-            insight.save()
-        except:
-            pass
+                updated_query = DataTableNode(
+                    **query_dict,
+                    source=ActorsQuery(
+                        search=node.search,
+                        properties=properties,
+                        fixedProperties=node.fixedProperties,
+                        limit=node.limit,
+                        offset=node.offset,
+                    ),
+                )
+                insight.query = updated_query.model_dump(exclude_none=True)
+                insight.save()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 class Migration(migrations.Migration):
