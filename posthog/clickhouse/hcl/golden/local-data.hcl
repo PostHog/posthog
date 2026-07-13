@@ -773,6 +773,9 @@ database "posthog" {
     column "client_name" {
       type = "String"
     }
+    column "client_agent" {
+      type = "LowCardinality(String)"
+    }
     column "client_revision" {
       type = "UInt64"
     }
