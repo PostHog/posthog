@@ -293,7 +293,10 @@ fn single_outcome(
             continue;
         }
         if matching.replace(outcome).is_some() {
-            warn!(token, "remote resolution returned duplicate outcome for item");
+            warn!(
+                token,
+                "remote resolution returned duplicate outcome for item"
+            );
             return Err(UnhandledError::Other(
                 "remote resolution returned duplicate outcome for item".to_string(),
             ));
