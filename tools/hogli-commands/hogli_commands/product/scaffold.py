@@ -140,7 +140,7 @@ def _get_existing_databases() -> list[str]:
 
 
 def _add_to_db_routing(product_name: str, database_name: str, *, dry_run: bool) -> None:
-    route_entry = f"    - app_label: {product_name}\n      database: {database_name}\n      optional: true\n"
+    route_entry = f"    - app_label: {product_name}\n      database: {database_name}\n"
 
     def write(content: str) -> str:
         return content.rstrip() + "\n" + route_entry
@@ -189,11 +189,6 @@ def _prompt_for_separate_db(name: str) -> tuple[bool, str | None]:
         "  ⚠ Adding a route here is only the Django side. The database must also "
         "be provisioned by #team-infrastructure (Terraform + charts).",
         fg="yellow",
-    )
-    click.echo(
-        "  The route starts with 'optional: true' in db_routing.yaml, so cloud deploys "
-        "won't fail before infra provisions the database. Remove that line once it's "
-        "provisioned, so cloud deploys fail loudly if the connection ever goes missing."
     )
     existing_dbs = _get_existing_databases()
     if existing_dbs:
