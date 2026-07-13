@@ -250,6 +250,7 @@ export function InsightVizDisplay({
                 <InsightValidationError
                     query={query}
                     detail={validationError}
+                    validationErrorCode={validationErrorCode}
                     onRetry={
                         cta
                             ? undefined
@@ -360,7 +361,14 @@ export function InsightVizDisplay({
                     />
                 )
             case InsightType.FUNNELS:
-                return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
+                return (
+                    <Funnel
+                        context={context}
+                        inCardView={embedded}
+                        inSharedMode={inSharedMode}
+                        showPersonsModal={!inSharedMode}
+                    />
+                )
             case InsightType.RETENTION:
                 return (
                     <RetentionContainer

@@ -9,7 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
-import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import {
     isActionFilter,
     isEventFilter,
@@ -504,7 +504,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadEventsHaveSessionId: async () => {
                     const filters = filtersFromUniversalFilterGroups(values.filters)
-                    const events: FilterType['events'] = filters.filter(isEventFilter)
+                    // "All events" (id == null) matches any event, so it can always filter recordings
+                    const events: FilterType['events'] = filters
+                        .filter(isEventFilter)
+                        .filter((event) => event.id != null)
 
                     if (events === undefined || events.length === 0) {
                         return {}
