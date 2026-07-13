@@ -611,8 +611,10 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 
 	case key.Matches(msg, m.keys.InputMode):
 		// Enter explicit input mode so keystrokes reach a proc that's waiting on
-		// stdin even when the HasPrompt heuristic didn't catch it.
-		if p != nil && m.focusedPane == focusOutput && p.IsRunning() {
+		// stdin even when the HasPrompt heuristic didn't catch it. Skipped while
+		// a committed search (query survives a proc switch) is pending, so the
+		// footer's "enter: navigate" hint doesn't get hijacked into input mode.
+		if p != nil && m.focusedPane == focusOutput && p.IsRunning() && m.searchQuery == "" {
 			m.inputMode = true
 			m.inputBuffer = ""
 			m.dbg("input mode: enter")

@@ -70,14 +70,17 @@ You typically run phrocs via `hogli start` rather than directly.
 | `pgup` | Scroll output up                                        |
 | `home` | Jump to top of output                                   |
 | `end`  | Jump to bottom of output                                |
+| `s`    | Start selected process                                  |
+| `x`    | Stop selected process                                   |
 | `r`    | Restart selected process                                |
 | `R`    | Restart all failed processes                            |
-| `s`    | Stop selected process                                   |
+| `l`    | Clear logs of selected process                          |
 | `c`    | Enter copy mode                                         |
 | `i`    | Show process info in pager                              |
 | `o`    | Sort processes by <name/CPU/RAM/status>                 |
 | `g`    | Cycle process grouping (from config `groups` field)     |
 | `a`    | Toggle show all registry processes                      |
+| `t`    | Enter setup mode (choose which services to run)         |
 | `/`    | Enter search mode (then `tab` to switch to filter mode) |
 | `esc`  | Exit copy, search, and filter modes                     |
 | `↵`    | Send keystrokes to the process (output pane)            |
