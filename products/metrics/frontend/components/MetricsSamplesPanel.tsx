@@ -11,6 +11,7 @@ import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 import { type MetricsAggregateRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
+import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
 function SampleAttributes({ sample }: { sample: _MetricEventSampleApi }): JSX.Element {
@@ -34,6 +35,7 @@ function SampleAttributes({ sample }: { sample: _MetricEventSampleApi }): JSX.El
 function SamplesTab(): JSX.Element {
     const { samples, samplesLoading } = useValues(metricsSamplesLogic)
     const { hasMetricName } = useValues(metricsViewerLogic)
+    const { sampleRowExpanded, tracePivotClicked } = useActions(metricsUsageTrackingLogic)
 
     return (
         <LemonTable
@@ -48,6 +50,7 @@ function SamplesTab(): JSX.Element {
             }
             expandable={{
                 expandedRowRender: (sample) => <SampleAttributes sample={sample} />,
+                onRowExpand: (sample) => sampleRowExpanded(sample),
             }}
             columns={[
                 {
@@ -84,8 +87,12 @@ function SamplesTab(): JSX.Element {
                                         ts: sample.timestamp,
                                     })}
                                     className="font-mono"
+                                    onClick={() => tracePivotClicked(sample)}
                                 >
-                                    {sample.trace_id.slice(0, 8).toLowerCase()}
+                                    {/* Link doesn't take data-attr; the span gives autocapture a named element. */}
+                                    <span data-attr="metrics-trace-pivot">
+                                        {sample.trace_id.slice(0, 8).toLowerCase()}
+                                    </span>
                                 </Link>
                             </Tooltip>
                         ) : (
@@ -157,8 +164,18 @@ export function MetricsSamplesPanel(): JSX.Element {
                 activeKey={activeTab}
                 onChange={setActiveTab}
                 tabs={[
-                    { key: 'aggregates', label: 'Aggregates', content: <AggregatesTab /> },
-                    { key: 'samples', label: 'Samples', content: <SamplesTab /> },
+                    {
+                        key: 'aggregates',
+                        label: 'Aggregates',
+                        content: <AggregatesTab />,
+                        'data-attr': 'metrics-samples-panel-tab-aggregates',
+                    },
+                    {
+                        key: 'samples',
+                        label: 'Samples',
+                        content: <SamplesTab />,
+                        'data-attr': 'metrics-samples-panel-tab-samples',
+                    },
                 ]}
             />
         </div>

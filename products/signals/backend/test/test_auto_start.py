@@ -10,6 +10,7 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
+from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.auto_start import (
     ReviewerContent,
     _create_implementation_task_if_absent,
@@ -253,3 +254,45 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).count() == 1
     )
     assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(created_tasks[0].id)]
+
+
+@pytest.mark.django_db
+def test_create_implementation_task_threads_resolved_runtime(organization, team):
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team=team,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            created_by=user,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team=team)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    kwargs = {
+        "team_id": team.id,
+        "report_id": str(report.id),
+        "title": "t",
+        "description": "d",
+        "user_id": user.id,
+        "repository": "owner/repo",
+        "base_branch": None,
+    }
+    pinned = AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium")
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=pinned),
+    ):
+        _create_implementation_task_if_absent(**kwargs)
+
+    call_kwargs = mock_create.call_args.kwargs
+    assert call_kwargs["runtime_adapter"] == "codex"
+    assert call_kwargs["model"] == "gpt-5.6-terra"
+    assert call_kwargs["reasoning_effort"] == "medium"

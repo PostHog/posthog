@@ -974,6 +974,7 @@ export const CodexRuntimeAdapterEnumApi = {
 } as const
 
 /**
+ * * `plan` - plan
  * * `auto` - auto
  * * `read-only` - read-only
  * * `full-access` - full-access
@@ -982,6 +983,7 @@ export type CodexTaskRunCreateSchemaInitialPermissionModeEnumApi =
     (typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi]
 
 export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
+    Plan: 'plan',
     Auto: 'auto',
     ReadOnly: 'read-only',
     FullAccess: 'full-access',
@@ -1050,6 +1052,7 @@ export interface CodexTaskRunCreateSchemaApi {
     github_user_token?: string
     /** Initial permission mode for Codex runtimes.
      *
+     * * `plan` - plan
      * * `auto` - auto
      * * `read-only` - read-only
      * * `full-access` - full-access */
@@ -1509,7 +1512,7 @@ export interface TaskRunBootstrapCreateRequestApi {
     reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
     github_user_token?: string
-    /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.
+    /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
      *
      * * `default` - default
      * * `acceptEdits` - acceptEdits

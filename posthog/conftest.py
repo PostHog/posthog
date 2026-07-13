@@ -158,6 +158,26 @@ def reset_clickhouse_tables():
         # Using `ON CLUSTER` takes x20 more time to drop the tables: https://github.com/ClickHouse/ClickHouse/issues/15473.
         TABLES_TO_CREATE_DROP += [f"DROP TABLE {table[0]}" for table in kafka_tables]
 
+    # Skip truncating tables ClickHouse reports as empty: each truncate costs a keeper
+    # round-trip on replicated engines, and pure-Postgres sessions never write to these
+    # tables at all. Rather than parsing table names out of the statements, construct the
+    # expected statement from each empty table's name (the two forms our TRUNCATE_*_SQL
+    # constants produce) and exact-match. Fail-safe: any statement that doesn't match —
+    # ON CLUSTER clause, unexpected quoting, unknown total_rows (NULL for non-MergeTree
+    # engines) — is kept and truncated as before.
+    empty_table_truncates = {
+        form
+        for (name,) in sync_execute(
+            "SELECT name FROM system.tables WHERE database = %(database)s AND total_rows = 0",
+            {"database": settings.CLICKHOUSE_DATABASE},
+        )
+        for form in (
+            f"TRUNCATE TABLE IF EXISTS {name}",
+            f"TRUNCATE TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.`{name}`",
+        )
+    }
+    TABLES_TO_CREATE_DROP = [q for q in TABLES_TO_CREATE_DROP if q.strip() not in empty_table_truncates]
+
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
 
     from posthog.clickhouse.schema import CREATE_DATA_QUERIES

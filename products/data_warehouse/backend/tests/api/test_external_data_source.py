@@ -1015,7 +1015,12 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"message": "Source type already exists. Prefix is required"})
+        self.assertEqual(
+            response.json(),
+            {
+                "message": "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source."
+            },
+        )
 
         # Create with prefix
         response = self.client.post(
@@ -1130,14 +1135,14 @@ class TestExternalDataSource(APIBaseTest):
                 [(None, False)],
                 "",
                 400,
-                "Source type already exists. Prefix is required",
+                "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source.",
             ),
             (
                 "no-prefix source (empty string) blocks another no-prefix",
                 [("", False)],
                 "",
                 400,
-                "Source type already exists. Prefix is required",
+                "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source.",
             ),
             (
                 "no-prefix source still allows a prefixed source",

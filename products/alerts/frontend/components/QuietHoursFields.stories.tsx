@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import type { ScheduleRestriction } from 'lib/components/Alerts/types'
-
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+
+import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 
 import type { QuietHoursFieldsProps } from './QuietHoursFields'
 import { QuietHoursFields } from './QuietHoursFields'

@@ -12,6 +12,7 @@ from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -130,6 +131,9 @@ def _create_implementation_task_if_absent(
     returns ``False``. Returns ``True`` if it created the task, ``False`` if one already exists / the
     report is gone.
     """
+    # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
+    agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
+
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
@@ -163,6 +167,9 @@ def _create_implementation_task_if_absent(
             ai_stage="implementation",
             # Internal so the run stays out of the default task list; the report surfaces it by id.
             internal=True,
+            runtime_adapter=agent_runtime.runtime_adapter,
+            model=agent_runtime.model,
+            reasoning_effort=agent_runtime.reasoning_effort,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
