@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import timedelta
 from uuid import uuid4
 
@@ -22,6 +23,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingRecommendation,
+    sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.weekly_digest import (
     auto_select_project_for_user,
@@ -62,6 +64,8 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
             issue=issue,
             fingerprint=str(uuid4()),
         )
+        # issue_id_v2 resolves via the fingerprint issue state table in ClickHouse
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         return issue
 
     def _create_exception_event(
@@ -74,6 +78,13 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         props: dict = {}
         if issue_id:
             props["$exception_issue_id"] = str(issue_id)
+            fingerprint = (
+                ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_id)
+                .values_list("fingerprint", flat=True)
+                .first()
+            )
+            if fingerprint:
+                props["$exception_fingerprint"] = fingerprint
         if session_id:
             props["$session_id"] = session_id
 
@@ -254,6 +265,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         )
         ErrorTrackingIssue.objects.filter(id=old_issue.id).update(created_at=timezone.now() - timedelta(days=14))
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=old_issue, fingerprint=str(uuid4()))
+        sync_issues_to_clickhouse(issue_ids=[old_issue.id], team_id=self.team.pk)
         for _ in range(10):
             self._create_exception_event(issue_id=old_issue.id)
         flush_persons_and_events()
@@ -267,6 +279,39 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
     def test_get_new_issues_empty_when_none(self):
         result = get_new_issues_for_team(self.team)
         assert result == []
+
+    def test_summary_not_suppressed_by_high_issue_cardinality(self):
+        # 101+ distinct prior-week issues used to fill HogQL's silently-injected LIMIT (oldest-first)
+        # and truncate away the current week, making an active project look like it had no exceptions.
+        for _ in range(101):
+            self._create_exception_event(issue_id=uuid7(), timestamp=_days_ago(10))
+        issue = self._create_issue()
+        self._create_exception_event(issue_id=issue.id)
+        flush_persons_and_events()
+
+        result = get_exception_summary_for_team(self.team)
+
+        assert result["exception_count"] == 1
+        assert result["prev_exception_count"] == 101
+
+    def test_top_issues_follow_issue_merges(self):
+        issue_a = self._create_issue(name="OriginalIssue")
+        self._create_exception_event(issue_id=issue_a.id)  # ingested while the fingerprint pointed at A
+        issue_b = ErrorTrackingIssue.objects.create(
+            id=uuid7(), team=self.team, status=ErrorTrackingIssue.Status.ACTIVE, name="MergedIntoIssue"
+        )
+        ErrorTrackingIssueFingerprintV2.objects.filter(issue=issue_a).update(issue=issue_b)
+        # sync versions come from time.time() millis; force a later version so the merge wins argMax
+        with patch("products.error_tracking.backend.models.time") as mock_time:
+            mock_time.time.return_value = time.time() + 10
+            sync_issues_to_clickhouse(issue_ids=[issue_b.id], team_id=self.team.pk)
+        flush_persons_and_events()
+
+        result = get_top_issues_for_team(self.team)
+
+        assert len(result) == 1
+        assert str(result[0]["id"]) == str(issue_b.id)
+        assert result[0]["name"] == "MergedIntoIssue"
 
     def test_get_org_ids_with_exceptions(self):
         issue = self._create_issue()
@@ -583,11 +628,14 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
         issue = ErrorTrackingIssue.objects.create(
             id=uuid7(), team=self.team, status=ErrorTrackingIssue.Status.ACTIVE, name="TestError"
         )
+        fingerprint = str(uuid4())
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         _create_event(
             distinct_id="user_1",
             event="$exception",
             team=self.team,
-            properties={"$exception_issue_id": str(issue.id)},
+            properties={"$exception_issue_id": str(issue.id), "$exception_fingerprint": fingerprint},
             timestamp=_days_ago(1),
         )
         flush_persons_and_events()
