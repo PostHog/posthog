@@ -45,7 +45,9 @@ def check_credentials(api_key: str) -> tuple[bool, int | None]:
     """
     url = f"{VELLUM_BASE_URL}/document-indexes"
     try:
-        session = make_tracked_session(redact_values=(api_key,))
+        # capture=False: Vellum bodies can echo user-authored content (workflow inputs/outputs,
+        # document metadata, descriptions) the name-based scrubbers can't recognise.
+        session = make_tracked_session(redact_values=(api_key,), capture=False)
         response = session.get(url, headers=_get_headers(api_key), params={"limit": 1}, timeout=10)
         return response.status_code == 200, response.status_code
     except Exception:
@@ -226,7 +228,9 @@ def get_rows(
     config = VELLUM_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session(redact_values=(api_key,))
+    # capture=False: Vellum bodies can echo user-authored content (workflow inputs/outputs,
+    # document metadata, descriptions) the name-based scrubbers can't recognise.
+    session = make_tracked_session(redact_values=(api_key,), capture=False)
 
     if config.fan_out_over_workflow_deployments:
         yield from _get_execution_event_rows(session, headers, logger, batcher, resumable_source_manager, config)
