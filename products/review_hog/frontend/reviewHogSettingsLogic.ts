@@ -112,7 +112,7 @@ function currentProjectId(): string {
 }
 
 /**
- * State for the Inbox "Code review" tab: the user's ReviewHog settings (triggers + urgency
+ * State for the "Code review" scene: the user's ReviewHog settings (triggers + urgency
  * threshold) and the three skill lists (perspectives / blind-spot check / validation criteria)
  * with their per-user enablement. Cardinality rules mirror the backend: perspectives keep a
  * min-1 floor, blind spots and validators are exactly-one-active (deactivation is blocked,
@@ -120,7 +120,7 @@ function currentProjectId(): string {
  * mirroring the Inbox "Make a scout" flow.
  */
 export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
-    path(['scenes', 'inbox', 'logics', 'reviewHogSettingsLogic']),
+    path(['products', 'review_hog', 'frontend', 'reviewHogSettingsLogic']),
 
     actions({
         // Fires the four initial loads — also the retry entry point after a failed load.

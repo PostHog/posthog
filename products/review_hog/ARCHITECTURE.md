@@ -391,17 +391,23 @@ The first ReviewHog UI surface (uncommitted): one scrollable onboarding-and-sett
 label flow); urgency threshold = pure **priority** filter (not placement); perspectives keep the min-1
 floor and blind-spots/validator are **exactly-one-active with deactivation blocked on BE and FE**.
 
-- **Placement:** new `'code-review'` `InboxTabKey` after `'archived'`, staff-gated via
-  `INBOX_STAFF_ONLY_TAB_KEYS`, tag from the new `INBOX_TAB_TAG` map ("Alpha" vs "Staff"). Body =
-  `CodeReviewTab` (hero → pipeline diagram → trigger toggles → urgency slider → perspectives →
-  blind-spot check → validation criteria → read-only skill drawer). The tab body sits behind the Inbox
-  onboarding takeover like every tab — on a fresh dev project, enable one scout/source to see it.
-- **Where the code lives (and why not `products/review_hog/frontend/`):** `frontend/src/scenes/inbox/`
-  (`components/tabs/CodeReviewTab.tsx`, `logics/reviewHogSettingsLogic.ts`) — the Inbox precedent
-  (signals' whole inbox UI lives there; products contribute only `frontend/generated/`). The
-  products-dir attempt required adding kea deps to `products/review_hog/package.json`, and
-  `pnpm install` hard-failed on `ERR_PNPM_TRUST_DOWNGRADE` for kea's `reselect@5.1.1` (a supply-chain
-  guard — not bypassed).
+- **Placement (as of 2026-07-13 — standalone scene):** originally shipped as a `'code-review'`
+  `InboxTabKey` after `'archived'` (staff-gated via `INBOX_STAFF_ONLY_TAB_KEYS`, "Alpha" tag from
+  `INBOX_TAB_TAG`). Moved out of the Inbox to its own `CodeReview` scene at `/code_review`, registered
+  by `products/review_hog/manifest.tsx` with an "Unreleased" nav entry (`ProductItemCategory.UNRELEASED`,
+  `tags: ['alpha']`). Gating is two-layer by design: `FEATURE_FLAGS.REVIEW_HOG` (`review-hog`) controls
+  **only the menu entry's visibility** (who discovers it); the scene itself stays **staff-only**
+  (non-staff get `NotFound`) regardless of the flag. The old inbox tab and `/inbox/code-review` URL are
+  gone with no redirect. Body unchanged: hero → pipeline diagram → trigger toggles → urgency slider →
+  perspectives → blind-spot check → validation criteria → read-only skill drawer; it no longer sits
+  behind the Inbox onboarding takeover.
+- **Where the code lives:** `products/review_hog/frontend/` (`CodeReviewScene.tsx`,
+  `reviewHogSettingsLogic.ts`, plus the pre-existing `generated/` orval clients). The kea deps live in
+  `products/review_hog/package.json` as `"catalog:"` entries (kea / kea-loaders / kea-router — the
+  `links` / `visual_review` pattern); the 2026-07-02 `ERR_PNPM_TRUST_DOWNGRADE` failure that originally
+  forced the code into `frontend/src/scenes/inbox/` no longer reproduces with catalog deps. New schema
+  enum members `FileSystemIconType.code_review` and `ProductKey.REVIEW_HOG` back the nav icon
+  (`IconPullRequest`) and the tree item's `intents`.
 - **`ReviewUserSettings`** (migration 0008; one row per team+user, `db_constraint=False` FKs):
   `review_inbox_prs` (default off; consumed by the Stage-6 inbox trigger since 2026-07-02),
   `review_labeled_prs` (default on), `urgency_threshold` (`consider`/`should_fix`/`must_fix`, default

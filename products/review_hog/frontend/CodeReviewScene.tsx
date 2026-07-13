@@ -28,12 +28,18 @@ import {
 
 import { Logomark } from 'lib/brand'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type {
     ReviewFindingApi,
@@ -43,7 +49,7 @@ import type {
     UrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from '../../logics/reviewHogSettingsLogic'
+import { ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
 function prettifySkillName(skillName: string): string {
@@ -1350,70 +1356,90 @@ function SkillDrawer(): JSX.Element {
     )
 }
 
+export const scene: SceneExport = {
+    component: CodeReviewScene,
+    logic: reviewHogSettingsLogic,
+}
+
 /**
- * The Inbox "Code review" tab: ReviewHog's combined onboarding and settings page. One scrollable
+ * The "Code review" scene: ReviewHog's combined onboarding and settings page. One scrollable
  * guided-configuration page — every control is live from load, no save step. See
- * `reviewHogSettingsLogic` for the data flow.
+ * `reviewHogSettingsLogic` for the data flow. Staff-only while ReviewHog is an internal alpha;
+ * the FEATURE_FLAGS.REVIEW_HOG flag only controls the menu entry's visibility.
  */
-export function CodeReviewTab(): JSX.Element {
+export function CodeReviewScene(): JSX.Element {
+    const { user } = useValues(userLogic)
     const { blindSpots, validators, initialLoadFailed } = useValues(reviewHogSettingsLogic)
     const { selectBlindSpots, selectValidator, loadAll } = useActions(reviewHogSettingsLogic)
 
+    if (user != null && !user.is_staff) {
+        return <NotFound object="page" />
+    }
+
     return (
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 pb-30 pt-11">
-            <section className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                    <span className="size-1.5 rounded-full bg-warning" />
-                    <span className="text-xxs font-semibold uppercase tracking-widest text-tertiary">
-                        Automated pull request review
-                    </span>
-                </div>
-                <h2 className="m-0 text-3xl font-bold" style={{ textWrap: 'balance' }}>
-                    ReviewHog reviews pull requests before humans do
-                </h2>
-                <p className="m-0 max-w-155 text-sm text-secondary">
-                    Specialist review perspectives read your changed code in parallel, a blind-spot sweep catches what
-                    they missed, and only validated findings get published back to the pull request.
-                </p>
-                <ProofCard />
-            </section>
-
-            {initialLoadFailed && (
-                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadAll() }}>
-                    Some ReviewHog settings failed to load.
-                </LemonBanner>
-            )}
-
-            <RecentReviewsSection />
-            <PipelineSection />
-            <TriggersSection />
-            <UrgencySection />
-            <PerspectivesSection />
-            <SingleActiveSection
-                icon={<IconSearch />}
-                title="Blind-spot check"
-                intro="After the enabled perspectives finish, ReviewHog runs one more sweep over each chunk — it sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
-                kind="blind_spots"
-                kindLabel="blind-spot check"
-                preamble={<EffectivenessCard kind="blind_spots" />}
-                createLabel="Create your own blind-spot check"
-                skills={blindSpots?.map((s) => ({ ...s, on: s.active })) ?? null}
-                onSelect={selectBlindSpots}
+        <SceneContent>
+            <SceneTitleSection
+                name="Code review"
+                description="Automated code reviews of your pull requests, and your review agent settings."
+                resourceType={{ type: 'code_review' }}
             />
-            <SingleActiveSection
-                icon={<IconShield />}
-                title="Validation criteria"
-                intro="Every candidate finding is checked against your quality bar before publishing, so noisy, speculative, or low-value issues never reach the pull request. Keep several bars on hand, but only one is applied."
-                kind="validator"
-                kindLabel="validator"
-                createLabel="Create your own validation criteria"
-                preamble={<ValidatorEffectivenessCard />}
-                skills={validators?.map((s) => ({ ...s, on: s.active })) ?? null}
-                onSelect={selectValidator}
-            />
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 pb-30 pt-4">
+                <section className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                        <span className="size-1.5 rounded-full bg-warning" />
+                        <span className="text-xxs font-semibold uppercase tracking-widest text-tertiary">
+                            Automated pull request review
+                        </span>
+                    </div>
+                    <h2 className="m-0 text-3xl font-bold" style={{ textWrap: 'balance' }}>
+                        ReviewHog reviews pull requests before humans do
+                    </h2>
+                    <p className="m-0 max-w-155 text-sm text-secondary">
+                        Specialist review perspectives read your changed code in parallel, a blind-spot sweep catches
+                        what they missed, and only validated findings get published back to the pull request.
+                    </p>
+                    <ProofCard />
+                </section>
 
-            <SkillDrawer />
-            <ReviewDetailDrawer />
-        </div>
+                {initialLoadFailed && (
+                    <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadAll() }}>
+                        Some ReviewHog settings failed to load.
+                    </LemonBanner>
+                )}
+
+                <RecentReviewsSection />
+                <PipelineSection />
+                <TriggersSection />
+                <UrgencySection />
+                <PerspectivesSection />
+                <SingleActiveSection
+                    icon={<IconSearch />}
+                    title="Blind-spot check"
+                    intro="After the enabled perspectives finish, ReviewHog runs one more sweep over each chunk — it sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
+                    kind="blind_spots"
+                    kindLabel="blind-spot check"
+                    preamble={<EffectivenessCard kind="blind_spots" />}
+                    createLabel="Create your own blind-spot check"
+                    skills={blindSpots?.map((s) => ({ ...s, on: s.active })) ?? null}
+                    onSelect={selectBlindSpots}
+                />
+                <SingleActiveSection
+                    icon={<IconShield />}
+                    title="Validation criteria"
+                    intro="Every candidate finding is checked against your quality bar before publishing, so noisy, speculative, or low-value issues never reach the pull request. Keep several bars on hand, but only one is applied."
+                    kind="validator"
+                    kindLabel="validator"
+                    createLabel="Create your own validation criteria"
+                    preamble={<ValidatorEffectivenessCard />}
+                    skills={validators?.map((s) => ({ ...s, on: s.active })) ?? null}
+                    onSelect={selectValidator}
+                />
+
+                <SkillDrawer />
+                <ReviewDetailDrawer />
+            </div>
+        </SceneContent>
     )
 }
+
+export default CodeReviewScene

@@ -19,7 +19,6 @@ import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { ArchivedTab } from './components/tabs/ArchivedTab'
-import { CodeReviewTab } from './components/tabs/CodeReviewTab'
 import { NotActionableTab } from './components/tabs/NotActionableTab'
 import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
@@ -61,8 +60,6 @@ function ActiveTabBody({
             return <ArchivedTab />
         case 'runs':
             return <RunsTab runs={signalRuns} loading={signalRunsLoading} />
-        case 'code-review':
-            return <CodeReviewTab />
         case 'config':
             return <AgentSetupColumn layout="stacked" />
     }
@@ -87,8 +84,7 @@ function InboxListView(): JSX.Element {
     // Self-driving isn't set up and the inbox is empty: the inbox becomes a single locked "Welcome"
     // tab (the other tabs are visible but disabled) whose body is the onboarding card. The setup rail
     // is dropped too, so the onboarding is the whole story – just run the one command.
-    // Code review runs independently of self-driving, so its tab stays reachable during the takeover.
-    const onboarding = onboardingMode === 'takeover' && activeTab !== 'code-review'
+    const onboarding = onboardingMode === 'takeover'
     const showRail = wide && !onboarding
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
@@ -194,10 +190,9 @@ export function InboxScene(): JSX.Element {
                 <SceneTitleSection
                     name="Inbox"
                     // The description explains the active tab so new users can orient themselves.
-                    // In the onboarding takeover the tabs are locked, so keep the overall pitch –
-                    // except on Code review, which stays open regardless of self-driving.
+                    // In the onboarding takeover the tabs are locked, so keep the overall pitch.
                     description={
-                        onboardingMode === 'takeover' && activeTab !== 'code-review'
+                        onboardingMode === 'takeover'
                             ? 'Self-driving for your product. Look through work done by PostHog agents – code changes and reports.'
                             : INBOX_TAB_DESCRIPTION[activeTab]
                     }

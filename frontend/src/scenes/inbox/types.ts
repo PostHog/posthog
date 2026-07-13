@@ -136,17 +136,9 @@ export enum SignalSourceConfigStatus {
 
 // ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
 
-export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'archived' | 'code-review' | 'config'
+export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'archived' | 'config'
 
-export const INBOX_TAB_KEYS: InboxTabKey[] = [
-    'pulls',
-    'reports',
-    'not-actionable',
-    'runs',
-    'archived',
-    'code-review',
-    'config',
-]
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived', 'config']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     pulls: 'Pull requests',
@@ -154,7 +146,6 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     'not-actionable': 'Not actionable',
     runs: 'Runs',
     archived: 'Archive',
-    'code-review': 'Code review',
     config: 'Configuration',
 }
 
@@ -166,7 +157,6 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
         'Reports judged not actionable – too vague, missing supporting evidence, or describing expected behavior.',
     runs: 'Project-wide list of agent runs, for debugging.',
     archived: 'Reports you archived. You can restore them to the inbox at any time.',
-    'code-review': 'Automated code reviews of your pull requests, and your review agent settings.',
     config: 'Set up signal sources, scouts, and how autonomously agents can act.',
 }
 
@@ -182,15 +172,13 @@ export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-ac
 
 /**
  * Tabs only visible to staff users (internal). The Not-actionable reports view is an internal
- * triage surface and the code review alpha is internal; everything else (including Runs) is
- * public to any team member.
+ * triage surface; everything else (including Runs) is public to any team member.
  */
-export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable', 'code-review']
+export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
 
 /** Small tag rendered next to a tab's label in the tab bar. */
 export const INBOX_TAB_TAG: Partial<Record<InboxTabKey, 'Staff' | 'Alpha'>> = {
     'not-actionable': 'Staff',
-    'code-review': 'Alpha',
 }
 
 /** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */

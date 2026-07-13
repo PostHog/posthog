@@ -84,8 +84,7 @@ export function InboxTabBar({
                 )}
             </span>
         ),
-        // Code review doesn't need self-driving, so it stays clickable during the takeover.
-        disabledReason: onboarding && key !== 'code-review' ? 'Set up self-driving to open your inbox' : undefined,
+        disabledReason: onboarding ? 'Set up self-driving to open your inbox' : undefined,
         content: <></>,
     }))
 
