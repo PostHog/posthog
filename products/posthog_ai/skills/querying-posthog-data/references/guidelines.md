@@ -13,8 +13,7 @@ Proactively use different search types depending on a task:
 - Dumping results to a file and using bash commands to process potentially large outputs.
 
 Substring search on events-table strings is a full scan: `LIKE '%term%'`, `ILIKE '%term%'`, and `position()` read the column for every row in the time range, and a leading `%` makes indexes useless.
-Before fuzzy-matching a property value, look up the real value with `read-data-schema` (`event_property_values`) and use equality or an anchored prefix (`LIKE 'term%'`).
-When substring search is genuinely needed, keep the timestamp window tight and filter `event` first.
+Before fuzzy-matching a property value, try `read-data-schema` (`event_property_values`) to find common exact values. If the requested value is not returned, or the user needs true contains semantics, keep the timestamp window tight, filter `event` first, and use the substring predicate.
 
 #### Data Groups
 
