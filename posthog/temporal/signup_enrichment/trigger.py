@@ -9,6 +9,7 @@ for every signup so consumers can read it either way.
 
 import asyncio
 import threading
+from email.utils import parseaddr
 
 from django.conf import settings
 from django.db import transaction
@@ -31,9 +32,10 @@ _generic_emails = GenericEmails()
 
 
 def _domain_from_email(email: str) -> str | None:
-    if not email or "@" not in email:
+    _, address = parseaddr(email or "")
+    if "@" not in address:
         return None
-    domain = email.rsplit("@", 1)[1].strip().lower()
+    domain = address.rsplit("@", 1)[1].strip().lower()
     return domain or None
 
 
