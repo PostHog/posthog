@@ -185,7 +185,10 @@ export function InsightsTable({
                     item={item}
                     formatItemBreakdownLabel={formatItemBreakdownLabel!}
                     breakdownFilter={breakdownFilter}
-                    compareValue={item.compare && !isCompareTable ? formatCompareLabel(item) : undefined}
+                    compareValue={
+                        // Formula results synthesized from filler rows can carry compare_label without compare
+                        (item.compare || item.compare_label) && !isCompareTable ? formatCompareLabel(item) : undefined
+                    }
                 />
             ) : (
                 <SeriesColumnItem
