@@ -66,7 +66,7 @@ function createExec(
 }
 
 describe('exec tool', () => {
-    describe('help command', () => {
+    describe('learn command', () => {
         const helpCatalog = new ExecHelpCatalog([
             {
                 id: 'analytics',
@@ -87,7 +87,7 @@ describe('exec tool', () => {
         it('lists topic metadata without loading topic content', async () => {
             const exec = createExec(undefined, undefined, { helpCatalog })
 
-            const result = JSON.parse((await exec.handler(mockContext, { command: 'help' })) as string)
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'learn' })) as string)
 
             expect(result).toEqual([
                 {
@@ -108,7 +108,7 @@ describe('exec tool', () => {
         it('loads a topic by its globally unique ID', async () => {
             const exec = createExec(undefined, undefined, { helpCatalog })
 
-            await expect(exec.handler(mockContext, { command: 'help analytics' })).resolves.toBe(
+            await expect(exec.handler(mockContext, { command: 'learn analytics' })).resolves.toBe(
                 '### Retrieving data\n\nUse the analytics tools.'
             )
         })
@@ -116,8 +116,8 @@ describe('exec tool', () => {
         it('reports the available IDs when a topic is unknown', async () => {
             const exec = createExec(undefined, undefined, { helpCatalog })
 
-            await expect(exec.handler(mockContext, { command: 'help unknown' })).rejects.toThrow(
-                'Unknown help topic: "unknown". Available: analytics, retention-analysis'
+            await expect(exec.handler(mockContext, { command: 'learn unknown' })).rejects.toThrow(
+                'Unknown learning topic: "unknown". Available: analytics, retention-analysis'
             )
         })
     })

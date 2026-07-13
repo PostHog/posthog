@@ -1,5 +1,5 @@
-### Optional help topics
+**LEARN FIRST: HARD REQUIREMENT**
 
-Load the matching topic before a relevant task with `help <topic>`. Run `help` to list the topics currently available.
+Load all matching topics in parallel first. Topics are cumulative.
 
 {help_topics}

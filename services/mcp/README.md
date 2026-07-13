@@ -295,10 +295,10 @@ In cli mode, the `posthog` tool keeps the guidance needed for routine calls in i
 The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
 Optional, task-specific guidance is served through the same tool:
 
-- `help` lists the available topics.
-- `help analytics` loads detailed analytics guidance and examples.
-- `help visualizations` loads rendering guidance when visualizations are available.
-- `help feedback` loads feedback guidance when feedback is available.
+- `learn` lists the available topics.
+- `learn analytics` loads detailed analytics guidance and examples.
+- `learn visualizations` loads rendering guidance when visualizations are available.
+- `learn feedback` loads feedback guidance when feedback is available.
 
 Other clients keep the full inline command reference.
 

@@ -11,6 +11,7 @@ import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
 import CLAUDE_EXEC_HELP from '@/templates/sections/claude-exec-help.md'
+import CLAUDE_WEB_CLI_EXAMPLES from '@/templates/sections/claude-web/cli-examples.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
@@ -80,7 +81,7 @@ export class InstructionsFormatter {
     /**
      * Build the optional guidance catalog used by Claude web/desktop. The
      * existing prompt sections remain the source of truth; only their delivery
-     * moves from the advertised schema to `exec help`.
+     * moves from the advertised schema to `exec learn`.
      */
     buildClaudeExecHelpEntries(ctx: InstructionsContext): ExecHelpEntry[] {
         const entries: ExecHelpEntry[] = [
@@ -88,7 +89,7 @@ export class InstructionsFormatter {
                 id: 'analytics',
                 kind: 'guide',
                 title: 'Analytics',
-                description: 'Detailed query selection, schema discovery, query-tool reference, and worked examples.',
+                description: 'Query or analyze PostHog data, metrics, and events.',
                 content: this.compose([RETRIEVING_DATA, SCHEMA_WORKFLOW, EXAMPLES], ctx, { compact: false }),
             },
         ]
@@ -98,7 +99,7 @@ export class InstructionsFormatter {
                 id: 'visualizations',
                 kind: 'guide',
                 title: 'Visualizations',
-                description: 'When and how to render PostHog results with render-ui.',
+                description: 'Create or render a visualization.',
                 content: this.compose([CLI_RENDERING], ctx, { compact: false }),
             })
         }
@@ -107,7 +108,7 @@ export class InstructionsFormatter {
             id: 'feedback',
             kind: 'guide',
             title: 'Feedback',
-            description: 'When and how to send actionable feedback to PostHog.',
+            description: 'Send feedback about PostHog.',
             content: this.compose([AGENT_FEEDBACK], ctx, { compact: false }),
         })
 
@@ -117,7 +118,7 @@ export class InstructionsFormatter {
     /**
      * Claude web/desktop silently drops tool entries whose complete JSON schema
      * exceeds 18,000 characters. Keep routine tool-use guidance inline and move
-     * only task-specific sections behind `help <topic>`.
+     * only task-specific sections behind `learn <topic>`.
      */
     buildClaudeExecCommandReference(ctx: InstructionsContext): string {
         const helpEntries = this.buildClaudeExecHelpEntries(ctx)
@@ -136,7 +137,7 @@ export class InstructionsFormatter {
                 helpSection,
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
-                CLI_EXAMPLES,
+                CLAUDE_WEB_CLI_EXAMPLES,
                 CLI_ERROR_HANDLING,
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
@@ -144,7 +145,11 @@ export class InstructionsFormatter {
                 URL_PATTERNS,
             ],
             renderCtx,
-            { compact: false, compactToolDomains: true }
+            {
+                compact: false,
+                compactToolDomains: true,
+                extraCommands: 'learn <topic> - load a learning topic\n',
+            }
         )
     }
 
@@ -200,7 +205,7 @@ export class InstructionsFormatter {
     private compose(
         sections: string[],
         ctx: InstructionsContext,
-        opts: { compact: boolean; compactToolDomains?: boolean }
+        opts: { compact: boolean; compactToolDomains?: boolean; extraCommands?: string }
     ): string {
         const renderToolDomains =
             opts.compact || opts.compactToolDomains ? buildToolDomainsCompact : buildToolDomainsBlock
@@ -214,6 +219,7 @@ export class InstructionsFormatter {
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
+            extra_commands: opts.extraCommands ?? '',
         }
         const body = sections
             .map((s) => s.trim())

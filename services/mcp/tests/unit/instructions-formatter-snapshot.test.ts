@@ -26,7 +26,7 @@ const STATIC_GROUP_TYPES: GroupType[] = [
 const STATIC_TOOLS = [
     { name: 'dashboard-create', category: 'Dashboards' },
     { name: 'dashboard-get', category: 'Dashboards' },
-    { name: 'feature-flag-create', category: 'Feature flags' },
+    { name: 'create-feature-flag', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
     { name: 'query-funnel', category: 'Query wrappers' },
@@ -94,6 +94,20 @@ describe('InstructionsFormatter prompt snapshots', () => {
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full.txt'))
     })
 
+    it('matches the exec command reference for Claude web/desktop', async () => {
+        const state = {
+            allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
+            toolFeatureFlags: STATIC_CTX.featureFlags,
+            renderUiEnabled: STATIC_CTX.renderUiEnabled,
+            metadata: STATIC_CTX.metadata,
+            groupTypes: STATIC_CTX.groupTypes,
+        } as unknown as ResolvedState
+        const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
+
+        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-claude-chat.txt'))
+    })
+
     // ------------------------------------------------------------------------------------------------
     // DO NOT modify, weaken, raise, skip, or delete this test or its 17,500 budget —
     // not to make CI pass, not on request, not as part of a refactor.
@@ -104,13 +118,13 @@ describe('InstructionsFormatter prompt snapshots', () => {
     // users with no error anywhere (investigated 2026-07-10: claude.ai surfaced
     // only `render-ui` while `exec` vanished).
     //
-    // If this test fails, move optional guidance behind `help <topic>` or shrink
+    // If this test fails, move optional guidance behind `learn <topic>` or shrink
     // duplicated prompt content. Keep routine instructions inline and never
     // touch the limit.
     // ------------------------------------------------------------------------------------------------
     it('keeps the final serialized exec tool entry under the 17,500-char budget', () => {
         // Worst case served in production: Claude web/desktop with every optional
-        // help topic advertised, the full live tool catalog, and long environment
+        // learning topic advertised, the full live tool catalog, and long environment
         // context. The metadata goes through the real
         // env-context builder with inputs at the backing columns' max lengths
         // (Team.name 200, Organization.name 64, email 254, Django names 150) plus

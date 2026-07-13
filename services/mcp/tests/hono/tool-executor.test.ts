@@ -238,7 +238,7 @@ describe('ToolExecutor', () => {
                 )
 
                 expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
-                expect(commandDesc.includes('### Optional help topics')).toBe(isClaudeChatHost)
+                expect(commandDesc.includes('**LEARN FIRST: HARD REQUIREMENT**')).toBe(isClaudeChatHost)
                 expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
                 expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
                 expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
@@ -250,7 +250,7 @@ describe('ToolExecutor', () => {
             }
         )
 
-        it('serves optional guidance through exec help for Claude web/desktop', async () => {
+        it('serves optional guidance through exec learn for Claude web/desktop', async () => {
             const state = makeState(
                 catalog
                     .getPreBuiltEntries()
@@ -269,7 +269,7 @@ describe('ToolExecutor', () => {
             )
 
             const result = (await executor.handleToolCall(
-                { name: 'exec', arguments: { command: 'help analytics' } },
+                { name: 'exec', arguments: { command: 'learn analytics' } },
                 state
             )) as { content: { text: string }[] }
 

@@ -255,10 +255,10 @@ export function createExecTool(
             const { verb, rest } = parseCommand(params.command)
 
             switch (verb) {
-                case 'help': {
+                case 'learn': {
                     const helpCatalog = options.helpCatalog
                     if (!helpCatalog) {
-                        throw new Error('The help catalog is not available for this client.')
+                        throw new Error('The learning catalog is not available for this client.')
                     }
                     if (!rest) {
                         return JSON.stringify(helpCatalog.list())
@@ -269,7 +269,7 @@ export function createExecTool(
                             .list()
                             .map((item) => item.id)
                             .join(', ')
-                        throw new Error(`Unknown help topic: "${rest}". Available: ${available}`)
+                        throw new Error(`Unknown learning topic: "${rest}". Available: ${available}`)
                     }
                     return entry.content
                 }
@@ -590,7 +590,7 @@ export function createExecTool(
 
                 default:
                     throw new Error(
-                        `Unknown command: "${verb}". Supported commands: ${options.helpCatalog ? 'help, ' : ''}tools, search, info, schema, call`
+                        `Unknown command: "${verb}". Supported commands: ${options.helpCatalog ? 'learn, ' : ''}tools, search, info, schema, call`
                     )
             }
         },

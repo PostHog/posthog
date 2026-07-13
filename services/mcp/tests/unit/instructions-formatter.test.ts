@@ -231,13 +231,24 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildClaudeExecCommandReference(fullCtx)
 
-            expect(result).toContain('### Optional help topics')
+            expect(result).toContain('**LEARN FIRST: HARD REQUIREMENT**')
+            expect(result).toContain('learn <topic> - load a learning topic')
+            expect(result).toContain('Topics are cumulative.')
+            expect(result).toContain('User: create pageviews visualization')
+            expect(result).toContain(
+                "Assistant: This needs analytics and visualization guidance, so I'll load both first."
+            )
+            expect(result).toContain('posthog:exec({"command":"learn analytics"})')
+            expect(result).toContain('posthog:exec({"command":"learn visualizations"})')
             expect(result).toContain('- analytics:')
             expect(result).toContain('- visualizations:')
             expect(result).toContain('- feedback:')
             expect(result).toContain('SCHEMA DRILL-DOWN RULE')
             expect(result).toContain('**Data discovery:**')
             expect(result).toContain('**CORRECT usage pattern:**')
+            expect(result.indexOf('User: create pageviews visualization')).toBeGreaterThan(
+                result.indexOf('**CORRECT usage pattern:**')
+            )
             expect(result).toContain('### Basic functionality')
             expect(result).toContain('### Tool search')
             expect(result).toContain(buildToolDomainsCompact(realisticTools))
@@ -251,7 +262,7 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toMatch(/\{help_topics\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/)
         })
 
-        it('combines analytics guidance and examples in one help topic', () => {
+        it('combines analytics guidance and examples in one learning topic', () => {
             const formatter = new InstructionsFormatter()
             const entries = formatter.buildClaudeExecHelpEntries(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
