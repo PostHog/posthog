@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
 from types import UnionType
-from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
+from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
 import posthoganalytics
 from prometheus_client import Counter, Histogram
@@ -262,7 +262,19 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
     return category, SloOutcome.FAILURE
 
 
-def shared_insights_execution_mode(execution_mode: ExecutionMode) -> tuple[ExecutionMode, int | None]:
+class SharedExecutionSettings(NamedTuple):
+    """Execution mode plus the staleness override that makes it a throttle.
+
+    `cache_age_seconds` is not optional garnish: dropping it when threading the mode into
+    `calculate_for_query_based_insight`/`process_query_dict` silently disables the shared
+    force-refresh throttle. Named so call sites that discard it have to do so visibly.
+    """
+
+    execution_mode: ExecutionMode
+    cache_age_seconds: int | None
+
+
+def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecutionSettings:
     """Map a requested execution mode to the one allowed on shared/embedded resources.
 
     Returns the mode plus an optional `cache_age_seconds` override for the query runner.
@@ -272,11 +284,13 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> tuple[Execu
     separate clock.
     """
     if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-        return (
+        return SharedExecutionSettings(
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
         )
-    return _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE), None
+    return SharedExecutionSettings(
+        _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE), None
+    )
 
 
 RunnableQueryNode = Union[
@@ -1641,6 +1655,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 slo_properties["dashboard_id"] = dashboard_id
             if product_key is not None:
                 slo_properties["product_key"] = product_key
+            if cache_age_seconds is not None:
+                # Makes the staleness override observable: override set + execution_path=cache_hit
+                # + is_cache_stale=false means the shared force-refresh throttle (or an endpoint's
+                # data freshness window) served cache instead of recomputing.
+                slo_properties["cache_age_override"] = cache_age_seconds
 
             with slo_operation(
                 spec=SloSpec(
@@ -1745,6 +1764,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                                 "query_type": query_type,
                                 "cache_key": cache_key,
                                 "cache_hit": isinstance(results, CachedResponse),
+                                "cache_age_override": cache_age_seconds,
                                 "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
                                 **cache_tracking_props,
                             }
@@ -1920,6 +1940,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "insight_id": insight_id,
                 "dashboard_id": dashboard_id,
                 "cache_hit": False,
+                "cache_age_override": getattr(self, "_cache_age_override", None),
                 "cache_key": cache_key,
                 "calculation_trigger": trigger,
                 "execution_mode": execution_mode.value,
