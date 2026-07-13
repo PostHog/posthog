@@ -751,7 +751,6 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-node", "@posthog/pi", "posthog_pi_events"),
         ("posthog-node", "posthog-ai", "posthog_ai_events"),
         ("posthog-node", None, "node_events"),
-        ("posthog-node-mcp", None, "mcp_events"),
         ("posthog-edge", None, "edge_events"),
         ("posthog-convex", None, "convex_events"),
         ("posthog-android", None, "android_events"),
@@ -773,6 +772,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     quoted_tracked_libs = ", ".join(f"'{lib}'" for lib in tracked_libs)
     metric_filter_conditions = [f"event LIKE '{event_prefix}'" for event_prefix, _metric in event_prefix_metrics]
     metric_filter_conditions.append(f"{lib_expression} IN ({quoted_tracked_libs})")
+    metric_filter_conditions.append("startsWith(event, '$mcp_')")
     metric_filter = "\n            OR ".join(metric_filter_conditions)
     # The main scan classifies SDKs by $lib only, so it never reads the `properties` blob. The AI
     # sub-SDK split (openclaw / posthog_pi / posthog_ai, keyed by $ai_lib) is computed separately
@@ -791,7 +791,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             multiIf(
                 {metric_expression}
             ) AS metric,
-            count(1) as count
+            count(1) as count,
+            countIf(startsWith(event, '$mcp_')) AS mcp_events_count
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
         WHERE (
@@ -835,12 +836,15 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 
         # Process each result set
         for results in results_list:
-            for team_id, metric, count in results:
+            for team_id, metric, count, mcp_events_count in results:
                 if metric in metrics:  # Make sure the metric exists in our dictionary
                     if team_id in metrics[metric]:
                         metrics[metric][team_id] += count
                     else:
                         metrics[metric][team_id] = count
+                if mcp_events_count:
+                    team_mcp_events = metrics["mcp_events"]
+                    team_mcp_events[team_id] = team_mcp_events.get(team_id, 0) + mcp_events_count
 
         # Convert to the expected format
         result = {}

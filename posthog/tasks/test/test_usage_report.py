@@ -1426,8 +1426,9 @@ class TestQueryUsageReportSQL:
         assert "event LIKE 'helicone%%'" in main_query
         assert "event LIKE 'traceloop%%'" in main_query
         assert "OR lib_expr IN (" in main_query
+        assert "startsWith(event, '$mcp_')" in main_query
+        assert "countIf(startsWith(event, '$mcp_'))" in main_query
         assert "'posthog-node'" in main_query
-        assert "'posthog-node-mcp'" in main_query
         assert "'posthog-rs'" in main_query
         assert "ai_lib_expr" not in main_query
         assert "HAVING metric != 'other'" not in main_query
@@ -5410,14 +5411,22 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 timestamp=self.begin + relativedelta(hours=index + 1),
                 properties={"$lib": "posthog-node-mcp"},
             )
+        _create_event(
+            event="$mcp_initialize",
+            team=self.team,
+            distinct_id="python_mcp_user",
+            timestamp=self.begin + relativedelta(hours=3),
+            properties={"$lib": "posthog-python"},
+        )
 
         flush_persons_and_events()
 
         billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
         event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
 
-        self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 2)])
-        self.assertEqual(dict(event_metrics["mcp_events"]).get(self.team.id), 2)
+        self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
+        self.assertEqual(dict(event_metrics["mcp_events"]).get(self.team.id), 3)
+        self.assertEqual(dict(event_metrics["python_events"]).get(self.team.id), 1)
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(
         self,
