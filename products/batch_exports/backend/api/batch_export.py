@@ -1812,14 +1812,17 @@ def create_backfill(
     backfill_id = str(uuid.uuid4())
 
     if start_at is None or end_at is None:
-        backfill_export(
-            temporal=temporal,
-            batch_export_id=str(batch_export.pk),
-            team_id=team.pk,
-            start_at=start_at,
-            end_at=end_at,
-            backfill_id=backfill_id,
-        )
+        try:
+            backfill_export(
+                temporal=temporal,
+                batch_export_id=str(batch_export.pk),
+                team_id=team.pk,
+                start_at=start_at,
+                end_at=end_at,
+                backfill_id=backfill_id,
+            )
+        except BatchExportWithNoEndNotAllowedError:
+            raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
         return backfill_id
 
     if start_at >= end_at:
