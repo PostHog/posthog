@@ -12,18 +12,21 @@
 # If you need a new transition, add a helper in common/alerting/state_machine.py (or
 # the product's state machine module) rather than bypassing this rule — the point is
 # to keep the legal-transitions table readable in one place.
+#
+# When a new product adopts the shared machine, add its backend to paths.include and
+# its state machine module + tests to paths.exclude below.
 rules:
-    - id: logs-alert-state-direct-mutation
+    - id: alert-state-direct-mutation
       patterns:
           - pattern-either:
                 - pattern: $ALERT.state = $VALUE
                 - pattern: $ALERT.consecutive_failures = $VALUE
       message: |
-          Direct mutation of LogsAlertConfiguration.state / .consecutive_failures
-          bypasses alert_state_machine.py, which is the single source of truth for
-          alert state transitions.
+          Direct mutation of an alert configuration's .state / .consecutive_failures
+          bypasses the product's alert state machine module, which is the single
+          source of truth for alert state transitions.
 
-          Route state changes through the state machine instead:
+          Route state changes through the state machine instead, e.g. for logs:
 
               from products.logs.backend.alert_state_machine import (
                   apply_outcome, apply_user_reset, apply_disable, ...

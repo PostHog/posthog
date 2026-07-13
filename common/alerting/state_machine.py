@@ -15,7 +15,7 @@ the same decision table rather than a fork of it.
 This module is pure Python — no Django, no product imports. Products own persistence:
 they build a snapshot from their model, call the machine, and apply the outcome through
 their product-local `apply_outcome` (the single legal mutator, enforced by semgrep —
-see `.semgrep/rules/alert-state-must-go-through-state-machine.yaml`).
+see `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml`).
 """
 
 from __future__ import annotations

@@ -30,6 +30,7 @@ UNGATED_RESOLVE = AlertPolicy(cooldown_gates_resolve=False)
 RENOTIFY = AlertPolicy(renotify_while_firing=True)
 SNOOZE_UNTIL_CLEAR = AlertPolicy(clear_check_ends_snooze=True)
 DISABLE_ON_BROKEN = AlertPolicy(disable_when_broken=True)
+BREAKS_EARLY = AlertPolicy(max_consecutive_failures=2)
 
 
 def snapshot(**overrides) -> AlertSnapshot:
@@ -89,6 +90,15 @@ class TestPolicyDecisionTable:
                 TRANSIENT_BREAKS,
                 snapshot(state=AlertState.ERRORED, consecutive_failures=4),
                 TRANSIENT_ERROR,
+                AlertState.BROKEN,
+                NotificationAction.BROKEN,
+            ),
+            # max_consecutive_failures: breaks at the policy's threshold, not the default constant
+            (
+                "custom_failure_threshold_breaks",
+                BREAKS_EARLY,
+                snapshot(state=AlertState.ERRORED, consecutive_failures=1),
+                ERROR,
                 AlertState.BROKEN,
                 NotificationAction.BROKEN,
             ),
