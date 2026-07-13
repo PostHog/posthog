@@ -34,7 +34,6 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
-    featureFlags: { 'mcp-feedback-tool': true },
     renderUiEnabled: true,
 }
 
@@ -82,15 +81,12 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('{metadata}')
         })
 
-        it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
+        it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
-            const withFeedback = formatter.buildToolsInstructions(fullCtx)
-            expect(withFeedback).toContain('### Sharing feedback on PostHog')
-
-            for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
-                const result = formatter.buildToolsInstructions({ ...fullCtx, featureFlags })
-                expect(result).not.toContain('### Sharing feedback on PostHog')
-            }
+            expect(formatter.buildToolsInstructions(fullCtx)).toContain('### Sharing feedback on PostHog')
+            expect(formatter.buildToolsInstructions({ guidelines: 'rules' })).toContain(
+                '### Sharing feedback on PostHog'
+            )
         })
     })
 
@@ -205,17 +201,11 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('Defined group types: organization')
         })
 
-        it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
+        it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
             for (const stripEnvContext of [true, false]) {
                 const withFeedback = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
                 expect(withFeedback).toContain('### Sharing feedback on PostHog')
-
-                const withoutFeedback = formatter.buildExecCommandReference(
-                    { ...fullCtx, featureFlags: { 'mcp-feedback-tool': false } },
-                    { stripEnvContext }
-                )
-                expect(withoutFeedback).not.toContain('### Sharing feedback on PostHog')
             }
         })
 
