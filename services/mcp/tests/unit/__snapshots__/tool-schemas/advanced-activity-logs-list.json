@@ -47,6 +47,7 @@
                 ],
                 "type": "string"
             },
+            "minItems": 1,
             "type": "array"
         },
         "hogql_filter": {
