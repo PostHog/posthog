@@ -359,6 +359,33 @@ describe('generateToolCode with input_schema', () => {
         )
         expect(result.code).toMatchSnapshot()
     })
+
+    it('extends the custom schema with a selectable `fields` param and narrows the response', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            response: { include: ['id', 'name'], selectable: true },
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // The `fields` param must be added to the custom schema, constrained to the allowlist.
+        expect(result.code).toContain('.extend({ fields: z.array(z.enum([')
+        expect(result.code).toContain("z.enum(['id', 'name'])")
+        // And the response filter must honor it, falling back to the full allowlist when omitted.
+        expect(result.code).toContain("params.fields?.length ? params.fields : ['id', 'name']")
+    })
 })
 
 describe('generateToolCode without input_schema', () => {

@@ -1391,6 +1391,12 @@ function generateCustomSchemaToolCode(
 
     let baseSchemaExpr = config.input_schema as string
     const toolInputsImports: string[] = config.input_schema ? [config.input_schema] : []
+    // Add the `fields` selection param before any validator wrapping, while the custom schema is
+    // still a ZodObject that supports `.extend` — mirrors the Orval-schema path in generateToolCode.
+    const selectableExtension = buildSelectableFieldsExtension(config)
+    if (selectableExtension) {
+        baseSchemaExpr = `${baseSchemaExpr}${selectableExtension}`
+    }
     if (config.validators && config.validators.length > 0) {
         for (const fn of config.validators) {
             baseSchemaExpr = `(${baseSchemaExpr}).superRefine(${fn})`
