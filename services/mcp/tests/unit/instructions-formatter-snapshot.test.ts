@@ -109,27 +109,31 @@ describe('InstructionsFormatter prompt snapshots', () => {
     })
 
     // ------------------------------------------------------------------------------------------------
-    // DO NOT modify, weaken, raise, skip, or delete this test or its 17,500 budget —
+    // DO NOT modify, weaken, raise, skip, or delete this test or its 16,384 budget —
     // not to make CI pass, not on request, not as part of a refactor.
     //
-    // Claude web/desktop silently drops tools whose complete serialized entry
-    // grows past 18,000 chars. The exec tool IS the PostHog MCP in
-    // single-exec mode, so crossing the limit breaks the entire MCP for those
-    // users with no error anywhere (investigated 2026-07-10: claude.ai surfaced
-    // only `render-ui` while `exec` vanished).
+    // claude.ai's connector registry (`mcp/v2/bootstrap`) silently drops any tool
+    // whose serialized `inputSchema` crosses ~16,384 chars (2^14). The total entry
+    // size and the top-level `description` are NOT capped (bisected 2026-07-10:
+    // schema 13,996 passed, 17,799 dropped; a 31k-total entry with a 787-char
+    // schema survived intact). The exec tool IS the PostHog MCP in single-exec mode,
+    // so a dropped `inputSchema` breaks the entire MCP for those users with no error
+    // anywhere (claude.ai surfaced only `render-ui` while `exec` vanished).
     //
-    // If this test fails, move optional guidance behind `learn <topic>` or shrink
-    // duplicated prompt content. Keep routine instructions inline and never
-    // touch the limit.
+    // The exec command reference lives in `inputSchema.properties.command.description`,
+    // so it counts against this cap; `EXEC_TOOL_BLURB` lives in the top-level
+    // `description` and does NOT. If this test fails, move optional guidance behind
+    // `learn <topic>` or shrink duplicated prompt content in the command reference —
+    // trimming the top-level description does nothing for this budget.
     // ------------------------------------------------------------------------------------------------
-    it('keeps the final serialized exec tool entry under the 17,500-char budget', () => {
+    it('keeps the serialized exec inputSchema under the claude.ai registry cap', () => {
         // Worst case served in production: Claude web/desktop with every optional
         // learning topic advertised, the full live tool catalog, and long environment
         // context. The metadata goes through the real
         // env-context builder with inputs at the backing columns' max lengths
         // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
         // the longer person-on-events branch, so a long org/project/user cannot
-        // push a real entry past the cap while this test passes.
+        // push the real schema past the cap while this test passes.
         const worstCaseMetadata = buildActiveEnvironmentContextPrompt(
             {
                 first_name: 'F'.repeat(150),
@@ -164,10 +168,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
         const posthog = new PostHogMCP('phc_test', { disabled: true })
         const finalEntry = posthog.prepareToolList([entry])[0]!
+        // `prepareToolList` injects the `context` property into `inputSchema`, so the
+        // measured schema must include it — measure the final, post-injection schema.
         const properties = finalEntry.inputSchema.properties as Record<string, unknown>
-        const size = JSON.stringify(finalEntry).length
+        const inputSchemaSize = JSON.stringify(finalEntry.inputSchema).length
 
         expect(properties).toHaveProperty('context')
-        expect(size).toBeLessThanOrEqual(17_500)
+        expect(inputSchemaSize).toBeLessThan(16_384)
     })
 })

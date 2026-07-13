@@ -116,9 +116,11 @@ export class InstructionsFormatter {
     }
 
     /**
-     * Claude web/desktop silently drops tool entries whose complete JSON schema
-     * exceeds 18,000 characters. Keep routine tool-use guidance inline and move
-     * only task-specific sections behind `learn <topic...>`.
+     * claude.ai's registry silently drops a tool whose serialized `inputSchema`
+     * crosses ~16,384 chars. This reference lands in
+     * `inputSchema.properties.command.description`, so keep routine tool-use
+     * guidance inline and move only task-specific sections behind `learn <topic...>`.
+     * Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
      */
     buildClaudeExecCommandReference(ctx: InstructionsContext): string {
         const helpEntries = this.buildClaudeExecHelpEntries(ctx)
