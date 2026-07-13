@@ -1199,6 +1199,7 @@ impl Config {
             shutdown_flush_timeout: std::time::Duration::from_millis(
                 self.billing_shutdown_flush_timeout_ms,
             ),
+            jitter_override: None,
         }
     }
 
@@ -1684,6 +1685,7 @@ mod service_mode_tests {
         assert_eq!(bcfg.max_pending_entries, 99);
         assert_eq!(bcfg.per_flush_batch_size, 7);
         assert_eq!(bcfg.shutdown_flush_timeout, Duration::from_millis(5_000));
+        assert_eq!(bcfg.jitter_override, None);
     }
 }
 

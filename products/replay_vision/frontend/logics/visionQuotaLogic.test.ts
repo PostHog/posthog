@@ -7,10 +7,10 @@ import { makeQuota } from '../utils/quotaTestUtils'
 import { visionQuotaLogic } from './visionQuotaLogic'
 
 const quota = makeQuota({
-    monthly_quota: 1000,
-    usage_this_month: 100,
+    credit_limit: 1000,
+    credits_used: 100,
     remaining: 900,
-    projected_monthly_observations: 500,
+    projected_monthly_credits: 500,
 })
 
 describe('visionQuotaLogic', () => {
@@ -35,10 +35,10 @@ describe('visionQuotaLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
 
         logic.actions.adjustProjectedMonthly(250)
-        expect(logic.values.quota?.projected_monthly_observations).toBe(750)
+        expect(logic.values.quota?.projected_monthly_credits).toBe(750)
 
         logic.actions.adjustProjectedMonthly(-10_000)
-        expect(logic.values.quota?.projected_monthly_observations).toBe(0)
+        expect(logic.values.quota?.projected_monthly_credits).toBe(0)
     })
 
     it('adjustProjectedMonthly is a no-op before the quota has loaded', () => {
@@ -52,6 +52,6 @@ describe('visionQuotaLogic', () => {
 
         await expectLogic(logic, () => logic.actions.loadQuota()).toDispatchActions(['loadQuotaSuccess'])
 
-        expect(logic.values.quota?.projected_monthly_observations).toBe(500)
+        expect(logic.values.quota?.projected_monthly_credits).toBe(500)
     })
 })

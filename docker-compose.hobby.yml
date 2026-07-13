@@ -33,10 +33,6 @@ services:
             - redis7-data:/data
 
     clickhouse:
-        #
-        # Note: please keep the default version in sync across
-        #       `posthog` and the `charts-clickhouse` repos
-        #
         extends:
             file: docker-compose.base.yml
             service: clickhouse
@@ -106,6 +102,16 @@ services:
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            # Point Django at the Rust feature-flags container; the setting
+            # otherwise defaults to localhost:3001.
+            FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
+            # The logs product uses a dedicated ClickHouse cluster config (separate
+            # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
+            # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
+            # plaintext; the other logs-cluster settings already default correctly
+            # (native port 9000, user "default", empty password).
+            CLICKHOUSE_LOGS_CLUSTER_HOST: 'clickhouse'
+            CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -155,6 +161,16 @@ services:
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
+            # Point Django at the Rust feature-flags container; the setting
+            # otherwise defaults to localhost:3001.
+            FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
+            # The logs product uses a dedicated ClickHouse cluster config (separate
+            # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
+            # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
+            # plaintext; the other logs-cluster settings already default correctly
+            # (native port 9000, user "default", empty password).
+            CLICKHOUSE_LOGS_CLUSTER_HOST: 'clickhouse'
+            CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -411,6 +427,18 @@ services:
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            # Point Django at the Rust feature-flags container; the setting
+            # otherwise defaults to localhost:3001.
+            FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
+            # The logs product uses a dedicated ClickHouse cluster config (separate
+            # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
+            # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
+            # plaintext; the other logs-cluster settings already default correctly
+            # (native port 9000, user "default", empty password). This worker runs
+            # the logs alert-check Temporal activities, which query ClickHouse under
+            # Workload.LOGS.
+            CLICKHOUSE_LOGS_CLUSTER_HOST: 'clickhouse'
+            CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}

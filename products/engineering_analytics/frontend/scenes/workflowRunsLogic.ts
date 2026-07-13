@@ -210,6 +210,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     durationSeconds: point.duration_seconds,
                     headBranch: point.head_branch,
                     prNumber: point.pr_number,
+                    headSha: point.head_sha,
                 })),
         ],
         // The chart's own cap, distinct from `runsTruncated` (the table's smaller cap).
@@ -282,6 +283,12 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     key: 'EngineeringAnalytics',
                     name: 'Engineering analytics',
                     path: urls.engineeringAnalytics(),
+                    iconType: 'health',
+                },
+                {
+                    key: 'EngineeringAnalyticsWorkflows',
+                    name: 'Workflows',
+                    path: urls.engineeringAnalyticsWorkflows(),
                     iconType: 'health',
                 },
                 {

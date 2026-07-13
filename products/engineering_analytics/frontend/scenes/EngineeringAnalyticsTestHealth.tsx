@@ -218,7 +218,7 @@ function FlakyTestLeaderboard(): JSX.Element {
                         dataSource={flakyTests?.rows ?? []}
                         rowKey={(row) => row.nodeid}
                         loading={flakyTestsLoading}
-                        pagination={{ pageSize: 50 }}
+                        pagination={{ pageSize: 25 }}
                         useURLForSorting={false}
                         emptyState="No flaky tests detected in this window."
                         nouns={['flaky test', 'flaky tests']}
@@ -620,7 +620,7 @@ function QuarantineRegister(): JSX.Element {
                 dataSource={filteredQuarantineEntries}
                 rowKey={(row) => `${row.runner}:${row.id}`}
                 loading={quarantineLoading}
-                pagination={{ pageSize: 50 }}
+                pagination={{ pageSize: 25 }}
                 useURLForSorting={false}
                 emptyState={
                     hasActiveQuarantineFilters ? (

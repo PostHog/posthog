@@ -32,8 +32,11 @@ class ScannerProvider(models.TextChoices):
 
 
 class ScannerModel(models.TextChoices):
+    """Priced per observation in `billing.OBSERVATION_CREDITS_BY_MODEL`; new members need a price there."""
+
+    GEMINI_2_5_FLASH = "gemini-2.5-flash", "Gemini 2.5 Flash"
     GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_FLASH_LITE = "gemini-3.1-flash-lite-preview", "Gemini 3 Flash Lite"
+    GEMINI_3_5_FLASH = "gemini-3.5-flash", "Gemini 3.5 Flash"
 
 
 def initial_watermark() -> "datetime":
@@ -99,6 +102,14 @@ class ReplayScanner(UUIDModel):
         default="",
         db_default="",
         help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
+    )
+
+    # Shape: feedback_themes.build_feedback_themes. Not version-tracked: themes describe the
+    # ratings, not the scanner's behavior.
+    feedback_themes = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes.",
     )
 
     estimated_monthly_observations = models.PositiveIntegerField(

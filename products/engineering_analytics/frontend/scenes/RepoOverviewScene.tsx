@@ -4,107 +4,94 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconBox } from '@posthog/icons'
-import { LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
-import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { EntityHeader } from '../components/EntityHeader'
+import { RepoEntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
-import { DeltaBadge, MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
-import { RunActivityChart, hasEnoughRunActivity } from '../components/RunActivityChart'
-import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
-import { Section, SectionNav, scrollToSection } from '../components/Section'
-import { ShareRow } from '../components/ShareRow'
+import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
+import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
+import { ScopeDateFilter, SourceScopeChip } from '../components/ScopeBar'
+import { Section, scrollToSection } from '../components/Section'
+import { HeroStat } from '../components/StatCard'
+import { TrendCard } from '../components/TrendCard'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import type { MasterFailureGroupApi } from '../generated/api.schemas'
-import { compactCount, compactHours, compactHoursUnit, compactMinutes, compactUsd, percent } from '../lib/format'
+import { compactHoursLabel, compactMinutes, compactUsd, percent } from '../lib/format'
+import { githubCommitUrl } from '../lib/github'
+import { HUB_PREVIEW_MAX } from '../lib/preview'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
-
-const SHARE_COLORS = [
-    'var(--data-color-1)',
-    'var(--data-color-2)',
-    'var(--data-color-3)',
-    'var(--data-color-4)',
-    'var(--data-color-5)',
-]
-
-// The hub shows capped tables; the dedicated list pages keep the full 50-per-page tables.
-const HUB_TABLE_PAGE_SIZE = 8
 
 function withSource(url: string, sourceId: string | null): string {
     return combineUrl(url, sourceId ? { source: sourceId } : {}).url
 }
 
-function RepoEntityHeader({ repoFullName }: { repoFullName: string }): JSX.Element {
-    const name = repoFullName.split('/')[1] || repoFullName || 'GitHub repository'
-    return (
-        <EntityHeader
-            icon={<IconBox />}
-            title={name}
-            // No slug line when the source hasn't reported a repo name yet.
-            slug={
-                repoFullName ? (
-                    <>
-                        {repoFullName}
-                        {' · '}
-                        <Link to={`https://github.com/${repoFullName}`} target="_blank" targetBlankIcon>
-                            View on GitHub
-                        </Link>
-                    </>
-                ) : undefined
-            }
-        />
-    )
-}
-
-/** Default-branch verdict tile: a calm dot when clean, a red "N failing" that jumps to the triage table. */
-function MasterStatusTile({
+/** The page's thesis: is the pipeline healthy right now? Default-branch verdict plus open-PR backlog
+ *  pressure, both current-state, so it sits above the date filter that scopes everything below. */
+function PipelineVerdictHero({
     failingCount,
+    failingWorkflows,
     loading,
     defaultBranch,
+    backlog,
 }: {
     failingCount: number
+    failingWorkflows: string[]
     loading: boolean
     defaultBranch: string
+    backlog: { open: number | null; failingCi: number | null; stuck: number | null }
 }): JSX.Element {
     const failing = failingCount > 0
     const dotColor = loading ? 'var(--muted)' : failing ? 'var(--danger)' : 'var(--success)'
-    const status = loading ? 'Checking…' : failing ? `${failingCount} failing` : 'Passing'
+    const status = loading ? 'Checking' : failing ? `${failingCount} failing` : 'Passing'
+    // Only the failing state earns a subline (which workflows broke). "Passing" already says the rest.
+    const failingNames = failingWorkflows.slice(0, 3).join(', ') + (failingCount > 3 ? ` +${failingCount - 3}` : '')
     return (
         <LemonCard
             hoverEffect={failing}
             onClick={failing ? () => scrollToSection('now') : undefined}
-            className="flex min-w-44 flex-1 flex-col justify-center gap-1 px-5 py-4"
+            className={cn(
+                'flex flex-wrap items-center justify-between gap-x-8 gap-y-4 px-6 py-5',
+                failing && 'bg-fill-error-tertiary'
+            )}
         >
-            <Tooltip title="Workflows failing on the default branch in the last 24 hours.">
-                <span className="self-start cursor-default text-xs text-secondary">
-                    {defaultBranch === 'main' ? 'Main' : 'Master'}
+            <div className="flex min-w-0 flex-col gap-1.5">
+                <Tooltip title="Default-branch workflow runs failing in the last 24 hours.">
+                    <span className="w-fit cursor-default font-mono text-xs text-tertiary">{defaultBranch}</span>
+                </Tooltip>
+                <span className="flex items-baseline gap-2.5">
+                    <span
+                        className="inline-block size-2.5 shrink-0 translate-y-[-0.15em] rounded-full"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ backgroundColor: dotColor }}
+                    />
+                    <span
+                        className={cn(
+                            'text-3xl font-bold leading-none tracking-tight',
+                            loading ? 'text-tertiary' : failing ? 'text-danger' : 'text-primary'
+                        )}
+                    >
+                        {status}
+                    </span>
+                    {failing && <span className="text-sm font-medium text-danger">View →</span>}
                 </span>
-            </Tooltip>
-            <span className="flex items-center gap-2">
-                <span
-                    className="inline-block size-2.5 shrink-0 rounded-full"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ backgroundColor: dotColor }}
-                />
-                <span
-                    className={cn(
-                        'text-2xl font-semibold leading-none',
-                        loading ? 'text-tertiary' : failing ? 'text-danger' : 'text-primary'
-                    )}
-                >
-                    {status}
-                </span>
-            </span>
+                {failing && <span className="truncate text-xs text-secondary">{failingNames}</span>}
+            </div>
+            <div className="flex items-center gap-6">
+                <HeroStat label="Open PRs" value={backlog.open} />
+                <HeroStat label="Failing CI" value={backlog.failingCi} tone="danger" />
+                <HeroStat label="Stuck >7d" value={backlog.stuck} tone="warning" />
+            </div>
         </LemonCard>
     )
 }
@@ -238,29 +225,47 @@ export function RepoOverviewScene(): JSX.Element {
         repoActivityLoading,
         repoActivityFailed,
         attentionPrs,
-        draftCount,
-        costByWorkflow,
-        otherCostWorkflowCount,
         costPerMergeSeries,
+        timeToGreenSeries,
+        passRateSeries,
+        openToMergeSeries,
         jobsAvailable,
         defaultBranch,
         notConnected,
         overviewFailed,
         overviewLoading,
         failingWorkflowCount,
+        masterFailures,
         masterFailuresLoading,
+        prPreviewCount,
+        workflowPreviewCount,
     } = useValues(repoOverviewLogic)
-    const {
-        cards,
-        pullRequestsLoading,
-        workflowHealth,
-        workflowHealthLoading,
-        sourceId,
-        costLensEnabled,
-        activeSource,
-    } = useValues(engineeringAnalyticsLogic)
-    const { loadOverview, loadMasterFailures, loadRepoActivity } = useActions(repoOverviewLogic)
+    const { cards, pullRequestsLoading, workflowHealth, workflowHealthLoading, sourceId, activeSource } =
+        useValues(engineeringAnalyticsLogic)
+    const { loadOverview, loadMasterFailures, loadRepoActivity, showMorePrs, showMoreWorkflows } =
+        useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
+    const { timezone } = useValues(teamLogic)
+    const chartTheme = useChartTheme()
+
+    // Window/source changes reload the overview, activity, and workflow health (the date-scoped surfaces);
+    // the PR backlog is current-state, not windowed, so it stays put. Surface the reload so a window change
+    // doesn't silently swap stale numbers.
+    const hubReloading = overviewLoading || repoActivityLoading || workflowHealthLoading
+
+    // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
+    // to the dedicated full table. Workflows are ranked by cost (or run count) to pick the top few; the
+    // table then displays them failing-first-then-name. attentionPrs is already ordered failing-first.
+    // Distinct workflow names failing on the default branch — the hero's "what's broken" subline.
+    const failingWorkflows = Array.from(new Set(masterFailures.map((group) => group.workflow_name)))
+    const shownPrs = attentionPrs.slice(0, prPreviewCount)
+    const canShowMorePrs = shownPrs.length < attentionPrs.length && prPreviewCount < HUB_PREVIEW_MAX
+    // Rank the leaderboard by spend when cost is known (where the money goes), else by run volume.
+    const rankedWorkflows = jobsAvailable
+        ? [...workflowHealth].sort((a, b) => (b.estimatedCostUsd ?? -1) - (a.estimatedCostUsd ?? -1))
+        : [...workflowHealth].sort((a, b) => b.runCount - a.runCount)
+    const shownWorkflows = rankedWorkflows.slice(0, workflowPreviewCount)
+    const canShowMoreWorkflows = shownWorkflows.length < workflowHealth.length && workflowPreviewCount < HUB_PREVIEW_MAX
 
     // jobsAvailable reads false until the overview payload lands, so "not synced" messaging
     // during the initial fetch would misread as a broken setup — hold it back while loading.
@@ -283,107 +288,167 @@ export function RepoOverviewScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            {/* The entity header below is the repo identity — the scope bar only adds the source
-                picker (multi-source teams) so the repo name isn't stated twice on one screen. */}
-            <ScopeBar repoSlot={<SourceScopeChip pickerOnly />} />
-
+            {/* Repo identity. The scope controls used to dock here; they now sit below the verdict hero, so
+                the date filter visibly governs only the windowed surfaces beneath it. */}
             <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
 
-            <div className="flex flex-wrap gap-2.5">
-                <MasterStatusTile
-                    failingCount={failingWorkflowCount}
-                    loading={masterFailuresLoading}
-                    defaultBranch={defaultBranch}
-                />
-                <MetricTile
-                    label="Pass rate"
-                    tooltip="Workflow-level, across all branches."
-                    value={percent(overview?.success_rate)}
-                    delta={
-                        <DeltaBadge
-                            value={pointChange(overview?.success_rate, overview?.success_rate_prev)}
-                            unit="pp"
-                        />
-                    }
-                />
-                <MetricTile
-                    label="Runs"
-                    value={compactCount(overview?.run_count)}
-                    delta={<DeltaBadge value={percentChange(overview?.run_count, overview?.run_count_prev)} />}
-                />
-                <MetricTile
-                    label="CI cost"
-                    tooltip={
-                        jobsAvailable
-                            ? `Estimated: ${compactMinutes(overview?.billable_minutes)} billable × runner-tier rate.`
-                            : overviewPending
-                              ? undefined
-                              : 'Available once the job-level source is synced.'
-                    }
-                    value={jobsAvailable ? compactUsd(overview?.estimated_cost_usd) : '—'}
-                    delta={
-                        jobsAvailable ? (
-                            <DeltaBadge
-                                value={percentChange(overview?.estimated_cost_usd, overview?.estimated_cost_usd_prev)}
-                                goodWhenDown
-                            />
-                        ) : undefined
-                    }
-                    sub={jobsAvailable || overviewPending ? undefined : 'Job-level source not synced'}
-                />
-                <MetricTile
-                    label="Median PR open→merge"
-                    tooltip="Created to merged, over PRs merged in the window. Bots and drafts excluded."
-                    value={compactHours(overview?.median_open_to_merge_seconds)}
-                    valueSuffix={compactHoursUnit(overview?.median_open_to_merge_seconds)}
-                    delta={
-                        <DeltaBadge
-                            value={
-                                overview?.median_open_to_merge_seconds != null &&
-                                overview?.median_open_to_merge_seconds_prev != null
-                                    ? (overview.median_open_to_merge_seconds -
-                                          overview.median_open_to_merge_seconds_prev) /
-                                      3600
-                                    : null
-                            }
-                            unit="h"
-                            goodWhenDown
-                        />
-                    }
-                />
-                <MetricTile
-                    label="Re-run cycles"
-                    tooltip="Runs with attempt > 1 in the window."
-                    value={compactCount(overview?.rerun_cycles)}
-                    delta={
-                        <DeltaBadge
-                            value={percentChange(overview?.rerun_cycles, overview?.rerun_cycles_prev)}
-                            goodWhenDown
-                        />
-                    }
-                />
-            </div>
-
-            <SectionNav
-                items={[
-                    { id: 'master', label: `${defaultBranch === 'main' ? 'Main' : 'Master'} health` },
-                    { id: 'now', label: `Failing on ${defaultBranch}` },
-                    { id: 'prs', label: 'Pull requests' },
-                    { id: 'workflows', label: 'Workflows' },
-                    { id: 'cost', label: 'Cost' },
-                ]}
+            {/* The thesis: is the pipeline healthy right now? Current-state, above the date filter. */}
+            <PipelineVerdictHero
+                failingCount={failingWorkflowCount}
+                failingWorkflows={failingWorkflows}
+                loading={masterFailuresLoading}
+                defaultBranch={defaultBranch}
+                backlog={{
+                    open: cards?.openPrs ?? null,
+                    failingCi: cards?.failingCi ?? null,
+                    stuck: cards?.stuck ?? null,
+                }}
             />
 
-            <Section id="master" title={`${defaultBranch === 'main' ? 'Main' : 'Master'} health`}>
-                {/* One dot per commit to the default branch: X = when its CI started, Y = wall-clock CI
-                    duration, color = the commit's overall verdict (red if any workflow failed). Replaces the
-                    old success-rate line + failed-runs bar — the scatter says time, outcome, and cost at once. */}
+            {/* Now zone: current-state surfaces above the filter. The hero owns the backlog summary, so this
+                section is just the triage table. */}
+            <MasterFailuresSection />
+
+            <Section id="prs" title="Pull requests needing attention">
+                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
+                    <PullRequestTable
+                        rows={shownPrs}
+                        loading={pullRequestsLoading}
+                        sourceId={sourceId}
+                        embedded
+                        pageSize={HUB_PREVIEW_MAX}
+                        emptyState="Nothing failing or stuck in the open backlog."
+                        dataAttr="engineering-analytics-attention-prs"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                        <span>
+                            Showing {shownPrs.length} of {humanFriendlyNumber(attentionPrs.length)} needing attention
+                        </span>
+                        <div className="flex items-center gap-3">
+                            {canShowMorePrs && (
+                                <LemonButton size="xsmall" onClick={showMorePrs}>
+                                    Show more
+                                </LemonButton>
+                            )}
+                            <Link to={withSource(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
+                                View all →
+                            </Link>
+                        </div>
+                    </div>
+                </LemonCard>
+            </Section>
+
+            {/* The filter is the seam: everything above is current-state, everything below reflects its window. */}
+            <div className="mt-1 flex flex-wrap items-center justify-end gap-2 border-t border-primary pt-4">
+                {hubReloading && <Spinner className="text-secondary" />}
+                <SourceScopeChip pickerOnly />
+                <ScopeDateFilter />
+            </div>
+
+            {/* The windowed headline metrics, each a value + colored delta over a sentiment-colored sparkline.
+                CI cost is a window total, not a rate, so its number lives on the Workflows section below. */}
+            <Section id="trends" title="Trends" busy={overviewLoading}>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {/* CI health: share of completed runs that passed, all branches. */}
+                    <TrendCard
+                        title="Pass rate"
+                        series={passRateSeries}
+                        formatValue={(value) => percent(value)}
+                        renderTooltipValue={(value) => percent(value, 1)}
+                        loading={overviewPending}
+                        emptyText="Not enough completed CI runs in the window yet."
+                        caption="Share of completed CI runs that passed, all branches."
+                    />
+
+                    {/* Median time-to-green on PR runs (success-only, PR-scoped; see #67398). */}
+                    <TrendCard
+                        title="PR time to green"
+                        series={timeToGreenSeries}
+                        formatValue={formatAxisMinutes}
+                        renderTooltipValue={formatAxisMinutes}
+                        goodWhenDown
+                        loading={overviewPending}
+                        emptyText="Not enough successful PR CI runs in the window yet."
+                        caption="Median time-to-green on pull requests: successful runs only, default branch excluded."
+                    />
+
+                    {/* PR throughput: coarse created→merged time, bots and drafts excluded. */}
+                    <TrendCard
+                        title="Median PR open→merge"
+                        series={openToMergeSeries}
+                        formatValue={compactHoursLabel}
+                        renderTooltipValue={compactHoursLabel}
+                        goodWhenDown
+                        loading={overviewPending}
+                        emptyText="No PRs merged in the window yet."
+                        caption="Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused."
+                    />
+
+                    {/* CI cost per merged PR — the headline economic trend, so it earns a full quill line
+                        chart (axes + tooltip) rather than a sparkline. costPerMergeSeries carries ISO labels
+                        plus its interval; the chart owns tick/tooltip date formatting. Card chrome mirrors
+                        TrendCard so it sits flush in the grid. */}
+                    <LemonCard hoverEffect={false} className="flex flex-col p-4">
+                        <h3 className="mb-1 text-xs font-semibold text-secondary">Cost per merged PR</h3>
+                        {overviewPending ? (
+                            <LemonSkeleton className="h-20 w-full" />
+                        ) : jobsAvailable && costPerMergeSeries ? (
+                            <div className="h-20 w-full">
+                                <TimeSeriesLineChart
+                                    series={[
+                                        {
+                                            key: 'cost_per_merge',
+                                            label: 'Cost per merged PR',
+                                            data: costPerMergeSeries.values,
+                                        },
+                                    ]}
+                                    labels={costPerMergeSeries.labels}
+                                    theme={chartTheme}
+                                    config={{
+                                        xAxis: { timezone, interval: costPerMergeSeries.interval },
+                                        yAxis: { format: 'currency', currency: 'USD' },
+                                        tooltip: { valueFormatter: (value) => compactUsd(value) },
+                                    }}
+                                />
+                            </div>
+                        ) : (
+                            <div className="flex h-20 items-center text-xs text-secondary">
+                                {jobsAvailable
+                                    ? 'No costable jobs in the window.'
+                                    : 'Cost appears once the job-level source is synced.'}
+                            </div>
+                        )}
+                        <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
+                            Estimated Depot CI cost per merged PR, trailing-window ratio. Per-workflow spend is in
+                            Workflows below.
+                        </div>
+                    </LemonCard>
+                </div>
+            </Section>
+
+            <Section
+                id="master"
+                title={`${defaultBranch === 'main' ? 'Main' : 'Master'} health`}
+                busy={repoActivityLoading}
+            >
+                {/* Hub preview: one bar per default-branch commit, height = CI duration, color = verdict — the
+                    at-a-glance "is master healthy and fast lately" read without the full chart's weight. The
+                    full scatter (start-time axis, in-flight band, zoom) lives on the workflow page. */}
                 {hasEnoughRunActivity(activityRuns) ? (
-                    <RunActivityChart
+                    <RunActivityMiniBars
                         runs={activityRuns}
                         truncated={activityTruncated}
-                        title={`Every ${defaultBranch} commit`}
+                        title="CI duration per commit"
                         noun="commit"
+                        onBarClick={(run) => {
+                            // Each bar is a whole commit (its workflows collapsed), so open the commit on
+                            // GitHub — all its checks — rather than one arbitrary workflow run.
+                            const [owner, repoName] = (activeSource?.repo || '').split('/')
+                            if (!run.headSha || !owner || !repoName) {
+                                return
+                            }
+                            window.open(githubCommitUrl(owner, repoName, run.headSha), '_blank', 'noopener,noreferrer')
+                        }}
                     />
                 ) : (
                     <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
@@ -396,144 +461,59 @@ export function RepoOverviewScene(): JSX.Element {
                 )}
             </Section>
 
-            <MasterFailuresSection />
-
-            <Section id="prs" title="Pull requests needing attention">
-                <div className="mb-2 flex flex-wrap gap-2 text-xs text-secondary">
-                    <span>
-                        <strong className="text-primary">{cards ? humanFriendlyNumber(cards.openPrs) : '…'}</strong>{' '}
-                        open
-                    </span>
-                    <span>·</span>
-                    <span>
-                        <strong className="text-primary">{humanFriendlyNumber(draftCount)}</strong> drafts
-                    </span>
-                    <span>·</span>
-                    <span>
-                        <strong className="text-danger">{cards ? humanFriendlyNumber(cards.failingCi) : '…'}</strong>{' '}
-                        failing CI
-                    </span>
-                    <span>·</span>
-                    <span>
-                        <strong className="text-warning-dark">{cards ? humanFriendlyNumber(cards.stuck) : '…'}</strong>{' '}
-                        stuck &gt;7d
-                    </span>
-                </div>
-                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                    <PullRequestTable
-                        rows={attentionPrs}
-                        loading={pullRequestsLoading}
-                        sourceId={sourceId}
-                        costLensEnabled={costLensEnabled}
-                        embedded
-                        pageSize={HUB_TABLE_PAGE_SIZE}
-                        emptyState="Nothing failing or stuck in the open backlog."
-                        dataAttr="engineering-analytics-attention-prs"
-                    />
-                    <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                        Showing {attentionPrs.length} of {cards ? humanFriendlyNumber(cards.openPrs) : '…'} open pull
-                        requests ·{' '}
-                        <Link to={withSource(urls.engineeringAnalyticsPullRequestList(), sourceId)}>View all</Link>
-                    </div>
-                </LemonCard>
-            </Section>
-
-            <Section id="workflows" title="Workflows">
+            <Section
+                id="workflows"
+                title={jobsAvailable ? 'Top workflows by cost' : 'Busiest workflows'}
+                right={
+                    jobsAvailable && overview?.estimated_cost_usd != null ? (
+                        <Tooltip
+                            title={`Estimated: ${compactMinutes(overview?.billable_minutes)} billable × runner-tier rate, across all workflows in the window.`}
+                        >
+                            <span className="cursor-default text-tertiary">
+                                {compactUsd(overview.estimated_cost_usd)} total CI spend
+                            </span>
+                        </Tooltip>
+                    ) : undefined
+                }
+            >
                 <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                     <WorkflowHealthTable
-                        rows={workflowHealth}
+                        rows={shownWorkflows}
                         loading={workflowHealthLoading}
                         sourceId={sourceId}
                         showCost={jobsAvailable}
                         embedded
-                        defaultSorting={{ columnKey: 'runCount', order: -1 }}
-                        pageSize={HUB_TABLE_PAGE_SIZE}
+                        compact
+                        pageSize={HUB_PREVIEW_MAX}
                         emptyState="No workflow runs in the window."
                     />
-                    <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                        Showing top {Math.min(HUB_TABLE_PAGE_SIZE, workflowHealth.length)} of {workflowHealth.length}{' '}
-                        workflows ·{' '}
-                        <Link
-                            to={
-                                // A bare link would reset the shared window/branch scope (the filters logic
-                                // re-hydrates from the URL on every route) — carry it, plus the source.
-                                combineUrl(urls.engineeringAnalyticsWorkflows(), {
-                                    ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
-                                    ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
-                                    ...(searchParams.q ? { q: searchParams.q } : {}),
-                                    ...(sourceId ? { source: sourceId } : {}),
-                                }).url
-                            }
-                        >
-                            View all
-                        </Link>
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                        <span>
+                            Showing top {shownWorkflows.length} of {workflowHealth.length} workflows
+                        </span>
+                        <div className="flex items-center gap-3">
+                            {canShowMoreWorkflows && (
+                                <LemonButton size="xsmall" onClick={showMoreWorkflows}>
+                                    Show more
+                                </LemonButton>
+                            )}
+                            <Link
+                                to={
+                                    // A bare link would reset the shared window/branch scope (the filters logic
+                                    // re-hydrates from the URL on every route) — carry it, plus the source.
+                                    combineUrl(urls.engineeringAnalyticsWorkflows(), {
+                                        ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
+                                        ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
+                                        ...(searchParams.q ? { q: searchParams.q } : {}),
+                                        ...(sourceId ? { source: sourceId } : {}),
+                                    }).url
+                                }
+                            >
+                                View all →
+                            </Link>
+                        </div>
                     </div>
                 </LemonCard>
-            </Section>
-
-            <Section id="cost" title="Cost">
-                {overviewPending ? (
-                    <LemonCard hoverEffect={false} className="p-4">
-                        <LemonSkeleton className="mb-3 h-4 w-40" />
-                        <LemonSkeleton className="h-24 w-full" />
-                    </LemonCard>
-                ) : jobsAvailable && costPerMergeSeries ? (
-                    <LemonCard hoverEffect={false} className="mb-2 p-4">
-                        <h3 className="mb-1 text-xs font-semibold text-secondary">Cost per merged PR</h3>
-                        <Sparkline
-                            data={costPerMergeSeries.values}
-                            labels={costPerMergeSeries.labels}
-                            name="Cost per merged PR"
-                            type="line"
-                            className="h-24 w-full"
-                            renderLabel={(label) => label}
-                            renderTooltipValue={(value) => compactUsd(value)}
-                        />
-                        <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
-                            Estimated Depot CI cost per PR merged. Each point divides a trailing window's CI cost by its
-                            merges (24 h, 7 d, or 4 w to match the grain), so quiet buckets don't punch holes in the
-                            trend. Cost counts by run start, merges by merge time — the same coarse split the daily
-                            depot tooling uses.
-                        </div>
-                    </LemonCard>
-                ) : null}
-                {overviewPending ? null : jobsAvailable && costByWorkflow.length > 0 ? (
-                    <LemonCard hoverEffect={false} className="p-4">
-                        <h3 className="mb-1 text-xs font-semibold text-secondary">By workflow</h3>
-                        {costByWorkflow.map((row, i) => (
-                            <ShareRow
-                                key={row.workflowName ?? 'other'}
-                                label={row.workflowName ?? `Other (${otherCostWorkflowCount} workflows)`}
-                                value={compactUsd(row.costUsd)}
-                                valueSub={`${Math.round(row.share * 100)}% of total`}
-                                share={row.share}
-                                color={row.workflowName ? SHARE_COLORS[i % SHARE_COLORS.length] : 'var(--muted)'}
-                                to={
-                                    row.workflowName && workflowHealth.length
-                                        ? withSource(
-                                              urls.engineeringAnalyticsWorkflowRuns(
-                                                  workflowHealth[0].repoOwner,
-                                                  workflowHealth[0].repoName,
-                                                  row.workflowName
-                                              ),
-                                              sourceId
-                                          )
-                                        : undefined
-                                }
-                            />
-                        ))}
-                        <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
-                            Estimated from billable job minutes × runner-tier rate. GitHub-hosted runners are free for
-                            open source.
-                        </div>
-                    </LemonCard>
-                ) : (
-                    <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                        {jobsAvailable
-                            ? 'No costable jobs in the window.'
-                            : 'Cost data will appear once the job-level source (github_workflow_jobs) is synced.'}
-                    </LemonCard>
-                )}
             </Section>
         </div>
     )

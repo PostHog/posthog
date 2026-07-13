@@ -15,6 +15,8 @@ from celery.signals import task_postrun, task_prerun
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.team import Team
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -276,7 +278,7 @@ def get_non_writable_property_names(
 
 def get_restricted_properties_for_team(
     *,
-    user: User | None,
+    user: User | SyntheticUser | SharedLinkUser | None,
     team: Team | None = None,
     team_id: int | None = None,
 ) -> set[tuple[str, int]]:
@@ -298,6 +300,11 @@ def get_restricted_properties_for_team(
 
     :returns: A set of (property_name, property_definition_type) tuples that are restricted.
     """
+    # Shared-link user and synthetic user have no membership to resolve restrictions against;
+    # treat them as userless so only the default rules apply.
+    if isinstance(user, SyntheticUser | SharedLinkUser):
+        user = None
+
     if team is not None:
         if team_id is not None:
             raise ValueError("pass either team or team_id, not both")

@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { getRecentSlackChannelIds, slackChannelId } from 'lib/integrations/slackChannel'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { SlackChannelType } from '~/types'
 
@@ -97,7 +97,9 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                     if (aRecency !== bRecency) {
                         return aRecency - bRecency
                     }
-                    return a.name.localeCompare(b.name)
+                    // Private channels the bot can't access come back from Slack without a name,
+                    // so guard the comparator instead of assuming a string.
+                    return (a.name ?? '').localeCompare(b.name ?? '')
                 })
             },
         ],

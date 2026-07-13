@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -92,8 +92,22 @@ describe('PropertyFilters recent selections', () => {
         await userEvent.click(screen.getByTestId(tabTestId))
     }
 
+    // Typing here pays taxonomicFilterLogic's real 500ms search breakpoint (plus stacked 100ms
+    // ones). Fake timers skip that wait; real timers resume immediately after so the resulting
+    // MSW round trip settles normally instead of fighting fake-timer polling. setImmediate is
+    // excluded like queueMicrotask (see jest.config.ts) — it also drives MSW v2's response pump.
     async function searchFor(query: string): Promise<void> {
-        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), query)
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate'] })
+        try {
+            await userEvent
+                .setup({ advanceTimers: jest.advanceTimersByTime })
+                .type(screen.getByTestId('taxonomic-filter-searchfield'), query)
+            await act(async () => {
+                jest.advanceTimersByTime(600)
+            })
+        } finally {
+            jest.useRealTimers()
+        }
     }
 
     async function selectItem(itemTestId: string, onChange: jest.Mock): Promise<void> {
