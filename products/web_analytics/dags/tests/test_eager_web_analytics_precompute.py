@@ -67,7 +67,7 @@ class TestResolveEagerAudience:
         team_ids, reason, diag = _resolve_eager_audience()
         assert team_ids == [2, 7]
         assert reason == "ok"
-        assert diag == {"teams_configured": 2}
+        assert diag == {"teams_configured": 2, "active_limit": 0, "active_teams": 0}
 
     def test_returns_empty_on_self_hosted(self, _is_cloud):
         _is_cloud.return_value = False
@@ -98,7 +98,29 @@ class TestResolveEagerAudience:
             team_ids, reason, diag = _resolve_eager_audience()
         assert team_ids == expected
         assert reason == "ok"
-        assert diag == {"teams_configured": len(expected)}
+        assert diag == {"teams_configured": len(expected), "active_limit": 0, "active_teams": 0}
+
+    @override_settings(
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[2, 7], WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[]
+    )
+    def test_active_audience_appends_after_static_lists(self, _is_cloud):
+        # Static lists must stay first (they warm before the ramp audience when a
+        # run hits the job's max_runtime) and overlaps must dedupe.
+        with (
+            patch(
+                f"{_EAGER_MODULE}._fetch_active_wa_team_ids",
+                return_value=[7, 31, 42],
+            ) as fetch,
+            patch(
+                "posthog.models.instance_setting.get_instance_setting",
+                return_value=500,
+            ),
+        ):
+            team_ids, reason, diag = _resolve_eager_audience()
+        assert team_ids == [2, 7, 31, 42]
+        assert reason == "ok"
+        assert diag == {"teams_configured": 4, "active_limit": 500, "active_teams": 3}
+        fetch.assert_called_once_with(500)
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)

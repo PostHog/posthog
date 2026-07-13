@@ -197,12 +197,50 @@ EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED = Counter(
 )
 
 
+ACTIVE_AUDIENCE_LOOKBACK_HOURS = 24
+
+
+def _fetch_active_wa_team_ids(limit: int) -> list[int]:
+    """Top teams by deliberate WA dashboard activity (stats-table tile queries),
+    most active first. Powers the warm-audience ramp experiment: the instance
+    setting caps how many join the warm set, so scale can grow without deploys.
+
+    Best-effort: any failure returns [] so the warmer falls back to the static
+    lists rather than skipping a run."""
+    from posthog.clickhouse.client import sync_execute  # noqa: PLC0415 — keep dagster import path light
+
+    try:
+        rows = sync_execute(
+            """
+            SELECT JSONExtractInt(log_comment, 'team_id') AS team_id, count() AS n
+            FROM clusterAllReplicas(%(cluster)s, system, query_log)
+            WHERE event_time > now() - INTERVAL %(hours)s HOUR
+              AND type = 'QueryFinish' AND is_initial_query = 1
+              AND JSONExtractString(log_comment, 'query_type') LIKE 'stats_table%%'
+              AND JSONExtractString(log_comment, 'feature') != 'cache_warmup'
+              AND JSONExtractString(log_comment, 'trigger') = ''
+              AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
+              AND team_id != 0
+            GROUP BY team_id
+            ORDER BY n DESC
+            LIMIT %(limit)s
+            """,
+            {"cluster": "posthog", "hours": ACTIVE_AUDIENCE_LOOKBACK_HOURS, "limit": limit},
+        )
+        return [int(row[0]) for row in rows]
+    except Exception:
+        logger.exception("eager_warm_active_audience_fetch_failed")
+        return []
+
+
 def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     """Resolve the audience and return a structured trace of which gate
     fired. Returns `(team_ids, gate_reason, diagnostics)`.
 
     `gate_reason` is one of: `not_cloud`, `no_teams_configured`, `ok`.
     """
+    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415 — keep dagster import path light
+
     if not is_cloud():
         return [], "not_cloud", {}
 
@@ -211,15 +249,25 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     # `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` must still get its
     # baseline warmed — otherwise its reads land on cold on-demand inserts.
     # dict.fromkeys preserves order and dedupes teams in both lists.
+    active_limit = 0
+    try:
+        active_limit = int(get_instance_setting("WEB_ANALYTICS_EAGER_WARM_ACTIVE_TEAMS_LIMIT") or 0)
+    except Exception:
+        logger.exception("eager_warm_active_limit_read_failed")
+    active_team_ids = _fetch_active_wa_team_ids(active_limit) if active_limit > 0 else []
+
+    # Static lists first so the always-enrolled teams warm before the ramp
+    # audience when a run is truncated by the job's max_runtime.
     team_ids = list(
         dict.fromkeys(
             [
                 *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS,
                 *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS,
+                *active_team_ids,
             ]
         )
     )
-    diag = {"teams_configured": len(team_ids)}
+    diag = {"teams_configured": len(team_ids), "active_limit": active_limit, "active_teams": len(active_team_ids)}
     if not team_ids:
         return [], "no_teams_configured", diag
     return team_ids, "ok", diag
