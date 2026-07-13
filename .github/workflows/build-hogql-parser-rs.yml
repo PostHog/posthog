@@ -130,7 +130,7 @@ jobs:
                   python-version: '3.12.10' # 3.12.11/.12 binaries lag on macOS
 
             - name: Build wheel via maturin
-              uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.3
+              uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
               with:
                   command: build
                   target: ${{ matrix.target }}
@@ -146,7 +146,7 @@ jobs:
 
             - name: Build sdist (linux x86_64 manylinux only)
               if: matrix.os == 'ubuntu-22.04' && matrix.target == 'x86_64' && matrix.manylinux == '2_28'
-              uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.3
+              uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
               with:
                   command: sdist
                   args: --out dist --manifest-path rust/hogql/parser/Cargo.toml
