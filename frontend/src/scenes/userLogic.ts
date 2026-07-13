@@ -71,6 +71,7 @@ export const userLogic = kea<userLogicType>([
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: (preserveLocation = false) => ({ preserveLocation }),
         upgradeImpersonation: (reason: string) => ({ reason }),
+        downgradeImpersonation: (reason: string) => ({ reason }),
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
             user,
             successCallback,
@@ -208,6 +209,21 @@ export const userLogic = kea<userLogicType>([
                         return values.user
                     }
                 },
+                downgradeImpersonation: async ({ reason }) => {
+                    try {
+                        await api.create('admin/impersonation/downgrade/', { reason })
+                        actions.loadUser()
+                        lemonToast.success('Downgraded to read-only impersonation')
+
+                        // optimistically update user to read-only rather than
+                        // waiting for `loadUser` to complete
+                        return values.user ? { ...values.user, is_impersonated_read_only: true } : null
+                    } catch (error: any) {
+                        console.error(error)
+                        lemonToast.error('Failed to downgrade impersonation')
+                        return values.user
+                    }
+                },
             },
         ],
     })),
@@ -233,6 +249,14 @@ export const userLogic = kea<userLogicType>([
                 upgradeImpersonation: () => true,
                 upgradeImpersonationSuccess: () => false,
                 upgradeImpersonationFailure: () => false,
+            },
+        ],
+        isImpersonationDowngradeInProgress: [
+            false,
+            {
+                downgradeImpersonation: () => true,
+                downgradeImpersonationSuccess: () => false,
+                downgradeImpersonationFailure: () => false,
             },
         ],
         optimisticThemeMode: [

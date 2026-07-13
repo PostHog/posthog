@@ -283,7 +283,8 @@ export function ImpersonationNotice(): JSX.Element | null {
         ticketContext,
         adminLoginUrls,
     } = useValues(impersonationNoticeLogic)
-    const { minimize, maximize, openUpgradeModal, setPageVisible } = useActions(impersonationNoticeLogic)
+    const { minimize, maximize, openUpgradeModal, downgradeImpersonation, setPageVisible } =
+        useActions(impersonationNoticeLogic)
 
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -354,13 +355,20 @@ export function ImpersonationNotice(): JSX.Element | null {
                         <div className="ImpersonationNotice__header">
                             <IconWarning className="ImpersonationNotice__warning-icon" />
                             <span className="ImpersonationNotice__title">{title}</span>
-                            {isImpersonated && isReadOnly && (
+                            {isImpersonated && (
                                 <LemonMenu
                                     items={[
-                                        {
-                                            label: 'Upgrade to read-write',
-                                            onClick: openUpgradeModal,
-                                        },
+                                        isReadOnly
+                                            ? {
+                                                  label: 'Upgrade to read-write',
+                                                  onClick: openUpgradeModal,
+                                              }
+                                            : {
+                                                  // Downgrading is a safety-increasing action with no
+                                                  // meaningful reason, so switch straight away.
+                                                  label: 'Downgrade to read-only',
+                                                  onClick: () => downgradeImpersonation('–'),
+                                              },
                                     ]}
                                 >
                                     <LemonButton size="xsmall" icon={<IconEllipsis />} />

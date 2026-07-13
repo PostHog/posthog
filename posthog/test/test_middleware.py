@@ -26,6 +26,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import per_request_logging_context_middleware
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1473,6 +1474,29 @@ class TestUpgradeImpersonation(APIBaseTest):
         self.login_as_read_only()
         assert self.client.get("/api/users/@me/").json()["is_impersonated_reason"] == "Initial read-only impersonation"
 
+    def test_upgrade_exposes_reason_and_logs_activity(self):
+        self.login_as_read_only()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                reverse("impersonation-upgrade"),
+                data=json.dumps({"reason": "Upgrade reason for ticket #5678"}),
+                content_type="application/json",
+            )
+        assert response.status_code == 200
+
+        # Reason is surfaced to the frontend for autofill
+        assert self.client.get("/api/users/@me/").json()["is_impersonated_reason"] == "Upgrade reason for ticket #5678"
+
+        # And recorded in the activity log, attributed to the staff user, scoped to the target
+        log = ActivityLog.objects.filter(scope="User", activity="impersonation_upgraded").latest("created_at")
+        assert log.was_impersonated is True
+        assert log.user_id == self.user.id
+        assert str(log.item_id) == str(self.other_user.id)
+        assert log.detail is not None
+        assert log.detail["context"]["reason"] == "Upgrade reason for ticket #5678"
+        assert log.detail["context"]["mode"] == "read_write"
+
     def test_upgrade_returns_404_when_not_impersonated(self):
         response = self.client.post(
             reverse("impersonation-upgrade"),
@@ -1538,6 +1562,145 @@ class TestUpgradeImpersonation(APIBaseTest):
         )
         assert response.status_code == 400
         assert response.json()["error"] == "Unable to upgrade impersonation"
+
+
+class TestDowngradeImpersonation(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        self.client = cast(Any, DjangoClient())
+        self.client.force_login(self.user)
+
+    def login_as_read_only(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true", "reason": "Initial read-only impersonation"},
+            follow=True,
+        )
+
+    def login_as_read_write(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false", "reason": "Initial read-write impersonation"},
+            follow=True,
+        )
+
+    def test_downgrade_succeeds_from_read_write_with_reason(self):
+        self.login_as_read_write()
+
+        # Verify we're in read-write mode
+        user_response = self.client.get("/api/users/@me/")
+        assert user_response.json()["is_impersonated_read_only"] is False
+
+        # Downgrade to read-only
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Done making changes, returning to read-only"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+        # Verify we're now in read-only mode
+        user_response = self.client.get("/api/users/@me/")
+        assert user_response.json()["is_impersonated_read_only"] is True
+
+    def test_downgrade_exposes_reason_and_logs_activity(self):
+        self.login_as_read_write()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                reverse("impersonation-downgrade"),
+                data=json.dumps({"reason": "Done with changes, back to read-only"}),
+                content_type="application/json",
+            )
+        assert response.status_code == 200
+
+        assert (
+            self.client.get("/api/users/@me/").json()["is_impersonated_reason"]
+            == "Done with changes, back to read-only"
+        )
+
+        log = ActivityLog.objects.filter(scope="User", activity="impersonation_downgraded").latest("created_at")
+        assert log.was_impersonated is True
+        assert log.user_id == self.user.id
+        assert str(log.item_id) == str(self.other_user.id)
+        assert log.detail is not None
+        assert log.detail["context"]["reason"] == "Done with changes, back to read-only"
+        assert log.detail["context"]["mode"] == "read_only"
+
+    def test_downgrade_returns_404_when_not_impersonated(self):
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+
+    def test_downgrade_returns_404_when_already_read_only(self):
+        self.login_as_read_only()
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+
+    def test_downgrade_returns_400_without_reason(self):
+        self.login_as_read_write()
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert "reason" in response.json()["error"].lower()
+
+    def test_downgrade_returns_400_with_empty_reason(self):
+        self.login_as_read_write()
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "   "}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    @patch("ee.admin.loginas_views.get_original_user_from_session", return_value=None)
+    def test_downgrade_returns_400_when_staff_user_not_found(self, mock_get_staff):
+        self.login_as_read_write()
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "Unable to downgrade impersonation"
+
+    def test_downgrade_returns_400_when_staff_demoted_mid_session(self):
+        self.login_as_read_write()
+
+        # Revoke staff privileges mid-session
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "Unable to downgrade impersonation"
 
 
 @override_settings(SESSION_COOKIE_AGE=100)

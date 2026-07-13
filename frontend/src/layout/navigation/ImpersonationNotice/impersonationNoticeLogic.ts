@@ -55,7 +55,13 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
         values: [userLogic, ['user', 'isImpersonationUpgradeInProgress'], membersLogic, ['members', 'membersLoading']],
         actions: [
             userLogic,
-            ['upgradeImpersonation', 'upgradeImpersonationSuccess', 'loadUser', 'loadUserSuccess'],
+            [
+                'upgradeImpersonation',
+                'upgradeImpersonationSuccess',
+                'downgradeImpersonation',
+                'loadUser',
+                'loadUserSuccess',
+            ],
             membersLogic,
             ['ensureAllMembersLoaded'],
         ],
