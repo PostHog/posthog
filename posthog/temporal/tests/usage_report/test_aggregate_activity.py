@@ -64,6 +64,7 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
             "web_events": [(team_a_id, 7), (team_b_id, 11), *extra_event_rows],
             "web_lite_events": [],
             "node_events": [],
+            "mcp_events": [],
             "android_events": [],
             "flutter_events": [],
             "ios_events": [],

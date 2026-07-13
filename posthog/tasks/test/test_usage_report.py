@@ -651,6 +651,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_events_count_in_period": 37,
                     "web_lite_events_count_in_period": 1,
                     "node_events_count_in_period": 1,
+                    "mcp_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 1,
                     "posthog_pi_events_count_in_period": 1,
                     "posthog_ai_events_count_in_period": 1,
@@ -728,6 +729,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 25,
                             "web_lite_events_count_in_period": 1,
                             "node_events_count_in_period": 1,
+                            "mcp_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 1,
                             "posthog_pi_events_count_in_period": 1,
                             "posthog_ai_events_count_in_period": 1,
@@ -799,6 +801,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 12,
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
+                            "mcp_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
                             "posthog_ai_events_count_in_period": 0,
@@ -893,6 +896,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_events_count_in_period": 11,
                     "web_lite_events_count_in_period": 0,
                     "node_events_count_in_period": 0,
+                    "mcp_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 0,
                     "posthog_pi_events_count_in_period": 0,
                     "posthog_ai_events_count_in_period": 0,
@@ -970,6 +974,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 11,
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
+                            "mcp_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
                             "posthog_ai_events_count_in_period": 0,
@@ -1429,6 +1434,7 @@ class TestQueryUsageReportSQL:
         assert "event = '$mcp_tool_call'" in main_query
         assert "uniqExactIf(" in main_query
         assert "'posthog-node'" in main_query
+        assert "'posthog-node-mcp'" in main_query
         assert "'posthog-rs'" in main_query
         assert "ai_lib_expr" not in main_query
         assert "HAVING metric != 'other'" not in main_query
@@ -5409,7 +5415,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 team=self.team,
                 distinct_id=f"mcp_user_{index}",
                 timestamp=self.begin + relativedelta(hours=index + 1),
-                properties={"$lib": "posthog-node"},
+                properties={"$lib": "posthog-node-mcp"},
             )
 
         flush_persons_and_events()
@@ -5419,7 +5425,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 2)])
         self.assertEqual(event_metrics["mcp_tool_calls"], [(self.team.id, 2)])
-        self.assertEqual(dict(event_metrics["node_events"]).get(self.team.id), 2)
+        self.assertEqual(dict(event_metrics["mcp_events"]).get(self.team.id), 2)
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(
         self,
