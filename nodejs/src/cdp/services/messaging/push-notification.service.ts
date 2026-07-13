@@ -1,4 +1,4 @@
-import { createSign } from 'crypto'
+import { createHash, createSign } from 'crypto'
 import { Counter } from 'prom-client'
 
 import {
@@ -333,10 +333,12 @@ export class PushNotificationService {
     }
 
     private async generateApnsJwt(teamId: string, keyId: string, signingKey: string): Promise<string> {
-        // Key on the Apple team id + key id, not the key id alone: key ids are unique only within an
-        // Apple account, so two PostHog teams could share one. Keying on both preserves fleet-wide reuse
-        // per signing key while preventing a cross-account collision that would serve the wrong token.
-        const cacheKey = `${APNS_JWT_CACHE_PREFIX}${teamId}/${keyId}`
+        // Key the cache on a fingerprint of the signing-key material, not on the team id / key id — those
+        // come from tenant-controlled integration config, so another team could set matching values to
+        // collide with or poison this shared cache entry. Hashing the signing key makes the key unforgeable
+        // while still letting the fleet reuse one token per signing key.
+        const keyFingerprint = createHash('sha256').update(`${teamId}:${keyId}:${signingKey}`).digest('hex')
+        const cacheKey = `${APNS_JWT_CACHE_PREFIX}${keyFingerprint}`
 
         const cached = await this.redis?.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
             client.get(cacheKey)
