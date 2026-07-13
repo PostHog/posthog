@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/products-review_hog",
+    "name": "@posthog/products-review-hog",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/reviewer/tests -v --tb=short"
     },

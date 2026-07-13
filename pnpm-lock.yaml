@@ -755,6 +755,9 @@ importers:
       '@posthog/products-revenue-analytics':
         specifier: workspace:*
         version: link:../products/revenue_analytics
+      '@posthog/products-review-hog':
+        specifier: workspace:*
+        version: link:../products/review_hog
       '@posthog/products-session-replay':
         specifier: workspace:*
         version: link:../products/session_replay
