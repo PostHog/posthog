@@ -11,6 +11,7 @@ import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { FilterPanel } from 'scenes/heatmaps/components/FilterPanel'
 import { HeatmapHeader } from 'scenes/heatmaps/components/HeatmapHeader'
 import { urls } from 'scenes/urls'
@@ -18,6 +19,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { heatmapLogic } from './heatmapLogic'
 
@@ -52,6 +54,11 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         exportHeatmap,
         setContainerWidth,
     } = useActions(logic)
+
+    const toolbarAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Toolbar,
+        AccessControlLevel.Viewer
+    )
 
     const measureRef = useRef<HTMLDivElement | null>(null)
     useEffect(() => {
@@ -132,7 +139,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                             : undefined,
                         targetBlank: true,
                         'data-attr': 'heatmaps-open-in-toolbar',
-                        disabledReason: !displayUrl ? 'Select a URL first' : undefined,
+                        disabledReason: !displayUrl ? 'Select a URL first' : toolbarAccessDisabledReason,
                     }}
                 >
                     You can also open your website using the toolbar and verify results there (useful for auth-protected
