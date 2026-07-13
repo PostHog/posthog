@@ -202,10 +202,22 @@ describe('janitor HTTP', () => {
         expect(res.body.sections).toContain('models')
     })
 
-    it('GET /sessions?application_id= returns summaries, newest first', async () => {
+    it('GET /sessions?application_id= returns summaries, most recently active first', async () => {
         const { queue, app } = mk()
-        const a = { ...session('s-a'), application_id: uuidFor('app-1'), created_at: '2026-05-01T00:00:00Z' }
-        const b = { ...session('s-b'), application_id: uuidFor('app-1'), created_at: '2026-05-02T00:00:00Z' }
+        // s-a was created first but touched most recently — activity ordering
+        // must put it ahead of the newer-created s-b.
+        const a = {
+            ...session('s-a'),
+            application_id: uuidFor('app-1'),
+            created_at: '2026-05-01T00:00:00Z',
+            updated_at: '2026-05-04T00:00:00Z',
+        }
+        const b = {
+            ...session('s-b'),
+            application_id: uuidFor('app-1'),
+            created_at: '2026-05-02T00:00:00Z',
+            updated_at: '2026-05-02T00:00:00Z',
+        }
         const c = { ...session('s-c'), application_id: uuidFor('other'), created_at: '2026-05-03T00:00:00Z' }
         await queue.enqueue(a)
         await queue.enqueue(b)
@@ -215,7 +227,7 @@ describe('janitor HTTP', () => {
             .query({ application_id: uuidFor('app-1') })
         expect(res.status).toBe(200)
         const ids = (res.body.results as Array<{ id: string }>).map((s) => s.id)
-        expect(ids).toEqual([uuidFor('s-b'), uuidFor('s-a')])
+        expect(ids).toEqual([uuidFor('s-a'), uuidFor('s-b')])
         expect(res.body.count).toBe(2)
         // Summaries strip the heavy conversation body.
         expect(Object.keys(res.body.results[0])).not.toContain('conversation')

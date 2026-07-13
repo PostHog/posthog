@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url'
 
 import { buildInParallel } from '@posthog/esbuilder'
 
-import { getToolbarBuildConfig } from '../toolbar-config.mjs'
+import { finalizeToolbarBuild, getToolbarAppBuildConfig } from '../toolbar-config.mjs'
 
 const __dirname = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -24,9 +24,13 @@ const common = {
 await buildInParallel(
     [
         {
-            ...getToolbarBuildConfig(__dirname),
+            ...getToolbarAppBuildConfig(__dirname),
             ...common,
         },
     ],
-    {}
+    {
+        async onBuildComplete(config, buildResponse) {
+            await finalizeToolbarBuild(__dirname, buildResponse)
+        },
+    }
 )

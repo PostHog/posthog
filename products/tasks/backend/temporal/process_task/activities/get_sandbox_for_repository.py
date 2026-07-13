@@ -23,7 +23,7 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_restore, increment_snapshot_usage
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
@@ -31,6 +31,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_github_token,
     get_sandbox_name_for_task,
     get_sandbox_snapshot_metadata,
+    get_task_run_credential_user,
     parse_run_state,
 )
 
@@ -96,6 +97,13 @@ class GetSandboxForRepositoryOutput:
     used_snapshot: bool
     should_create_snapshot: bool
     agent_server_launched: bool = False
+    boot_path: str = "classic"
+    image_source: str | None = None
+    # Per-phase boot durations, threaded through to the sandbox_started analytics event.
+    create_ms: int | None = None
+    clone_ms: int | None = None
+    checkout_ms: int | None = None
+    launch_ms: int | None = None
 
 
 @activity.defn
@@ -145,6 +153,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # All other sandboxes use shallow clone (--depth 1) for faster boot.
         shallow = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
+        actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
         should_inject_github_token = ctx.has_github_credentials and (
             has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
@@ -157,6 +166,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                         run_id=ctx.run_id,
                         state=ctx.state,
                         task=task,
+                        actor_user=actor_user,
                         github_user_integration_id=ctx.github_user_integration_id,
                         repository=repository,
                     )
@@ -170,7 +180,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 )
 
         try:
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",

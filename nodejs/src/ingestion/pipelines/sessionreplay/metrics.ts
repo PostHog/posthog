@@ -2,6 +2,11 @@ import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
+/** Which anonymizer produced the output; the label makes the flag rollout a direct A/B. */
+export type MlAnonymizeImpl = 'rust' | 'ts'
+/** Rust engine that produced the output (tree = the parse fallback fired). `''` when not applicable. */
+export type MlAnonymizeRoute = 'stream' | 'tree' | ''
+
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({
         name: 'recording_blob_ingestion_v2_session_manager_count',
@@ -53,6 +58,19 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['content_encoding'],
     })
 
+    private static readonly mlAnonymizeDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_anonymize_duration_ms',
+        help: 'Per-message ML mirror anonymize time in ms, by implementation and route',
+        labelNames: ['impl', 'route'],
+        buckets: [0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, Infinity],
+    })
+
+    private static readonly mlAnonymizeFailed = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_anonymize_failed',
+        help: 'Messages dropped because ML mirror anonymization failed (fail-closed), by implementation',
+        labelNames: ['impl'],
+    })
+
     public static incrementMessageReceived(partition: number): void {
         this.messageReceived.labels(partition.toString()).inc()
     }
@@ -87,5 +105,13 @@ export class SessionRecordingIngesterMetrics {
 
     public static observeKafkaBatchSizeKb(sizeKb: number): void {
         this.kafkaBatchSizeKb.observe(sizeKb)
+    }
+
+    public static observeMlAnonymizeDuration(impl: MlAnonymizeImpl, ms: number, route: MlAnonymizeRoute = ''): void {
+        this.mlAnonymizeDuration.labels(impl, route).observe(ms)
+    }
+
+    public static incrementMlAnonymizeFailed(impl: MlAnonymizeImpl): void {
+        this.mlAnonymizeFailed.labels(impl).inc()
     }
 }

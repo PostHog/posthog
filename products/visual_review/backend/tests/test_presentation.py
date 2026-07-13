@@ -575,12 +575,13 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self._branches(response.json()), expected_branches)
 
-    def test_exact_matches_rank_before_fuzzy_and_set_match_type(self):
+    def test_exact_matches_hide_fuzzy_matches_and_set_match_type(self):
         # "login" is a substring of feature/login (exact) and a fuzzy match for fix/logout (similar).
+        # With an exact match present, the fuzzy-only match is suppressed.
         results = self.client.get(self._runs_url(search="login")).json()["results"]
 
-        self.assertEqual([run["branch"] for run in results], ["feature/login", "fix/logout"])
-        self.assertEqual([run["search_match_type"] for run in results], ["exact", "similar"])
+        self.assertEqual([run["branch"] for run in results], ["feature/login"])
+        self.assertEqual([run["search_match_type"] for run in results], ["exact"])
 
     def test_match_type_is_null_without_search(self):
         results = self.client.get(self._runs_url()).json()["results"]

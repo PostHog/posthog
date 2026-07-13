@@ -1,5 +1,4 @@
-import { renderHook, type RenderHookResult } from '@testing-library/react'
-import { act } from 'react'
+import { act, renderHook, type RenderHookResult } from '@testing-library/react'
 
 import { dimensions } from '../../testing'
 import type { ChartScales } from '../types'
@@ -136,6 +135,31 @@ describe('useChartInteraction — tooltip pinning', () => {
 
         expect(result.current.tooltipCtx).not.toBeNull()
         expect(result.current.hoverIndex).toBeGreaterThanOrEqual(0)
+    })
+
+    it('treats a resolveHoverIndex veto (-1) as a dead zone — no hover index, no tooltip', () => {
+        const { result } = renderHook(() =>
+            useChartInteraction({
+                scales,
+                dimensions,
+                labels,
+                series,
+                canvasRef: refs.canvasRef,
+                wrapperRef: refs.wrapperRef,
+                showTooltip: true,
+                pinnable: false,
+                resolveValue: (s, i) => s.data[i],
+                // Chart-type seam vetoes every position (e.g. a funnel compare bar's blank volume gap).
+                resolveHoverIndex: () => -1,
+            })
+        )
+
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 200, 100)
+        })
+
+        expect(result.current.hoverIndex).toBe(-1)
+        expect(result.current.tooltipCtx).toBeNull()
     })
 
     it('pins tooltip on click when pinnable and multiple series', () => {

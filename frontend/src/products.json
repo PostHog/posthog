@@ -312,6 +312,13 @@
         },
         { "path": "Endpoints", "category": "Tools", "iconType": null, "type": null, "intents": [] },
         {
+            "path": "Managed migrations",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": null,
+            "intents": []
+        },
+        {
             "path": "Event definitions",
             "category": "Schema",
             "iconType": "event_definition",

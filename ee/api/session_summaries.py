@@ -601,7 +601,8 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             yield f"event: done\ndata: {done_data}\n\n".encode()
 
         return sse_streaming_response(
-            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream)
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream),
+            endpoint="session_summaries",
         )
 
     @extend_schema(

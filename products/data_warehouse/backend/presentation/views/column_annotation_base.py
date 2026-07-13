@@ -22,6 +22,34 @@ DESCRIPTION_HELP_TEXT = (
 )
 
 
+def upsert_annotation(
+    model: Any,
+    team_id: int,
+    *,
+    parent_field: str,
+    parent: Any,
+    column_name: str,
+    description: str,
+) -> Any:
+    """Upsert a column annotation on ``(parent, column_name)`` as a user edit, protected from enrichment."""
+    # nosemgrep: orm-field-injection -- parent_field is a hardcoded caller constant ("table"/"saved_query"), not user input
+    annotation, created = model.objects.for_team(team_id).get_or_create(
+        **{parent_field: parent, "column_name": column_name},
+        defaults={
+            "team_id": team_id,
+            "description": description,
+            "description_source": DescriptionSource.USER_EDITED,
+            "is_user_edited": True,
+        },
+    )
+    if not created:
+        annotation.description = description
+        annotation.description_source = DescriptionSource.USER_EDITED
+        annotation.is_user_edited = True
+        annotation.save(update_fields=["description", "description_source", "is_user_edited", "updated_at"])
+    return annotation
+
+
 class BaseColumnAnnotationSerializer(serializers.ModelSerializer):
     """Shared serializer for the physical-table and saved-query-view annotation surfaces.
 
@@ -141,25 +169,17 @@ class BaseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         # 500, so agents can call create without first checking whether an annotation already exists.
         parent = serializer.validated_data[self.parent_field_name]
         self._require_parent_editor_access(parent)
-        self._validate_column_name(parent, serializer.validated_data.get("column_name", ""))
+        column_name = serializer.validated_data.get("column_name", "")
+        self._validate_column_name(parent, column_name)
         model: Any = cast(Any, serializer).Meta.model
-        description = serializer.validated_data["description"]
-        # nosemgrep: orm-field-injection -- parent_field_name is a hardcoded class attribute ("table"/"saved_query"), not user input
-        annotation, created = model.objects.for_team(self.team_id).get_or_create(
-            **{self.parent_field_name: parent, "column_name": serializer.validated_data.get("column_name", "")},
-            defaults={
-                "team_id": self.team_id,
-                "description": description,
-                "description_source": DescriptionSource.USER_EDITED,
-                "is_user_edited": True,
-            },
+        serializer.instance = upsert_annotation(
+            model,
+            self.team_id,
+            parent_field=self.parent_field_name,
+            parent=parent,
+            column_name=column_name,
+            description=serializer.validated_data["description"],
         )
-        if not created:
-            annotation.description = description
-            annotation.description_source = DescriptionSource.USER_EDITED
-            annotation.is_user_edited = True
-            annotation.save(update_fields=["description", "description_source", "is_user_edited", "updated_at"])
-        serializer.instance = annotation
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # The parent FK is read-only on update (see serializer.get_fields), so this can't repoint.

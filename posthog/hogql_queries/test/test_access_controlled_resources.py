@@ -134,6 +134,26 @@ class TestQueriedAccessControlledResources(BaseTest):
         )
         assert result == {"warehouse_table", "notebook"}
 
+    def test_catalog_fetch_loads_only_name_fields(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="s",
+            connection_id="c",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="myprefix",
+        )
+        table = self._create_warehouse_table("stripe_customers")
+        table.external_data_source = source
+        table.save()
+
+        query = HogQLQuery(query="select * from stripe_customers")
+        # One query each for tables and views. A third means either the .only() field list no
+        # longer covers what get_data_warehouse_table_name reads (rows silently defer-load per
+        # row) or the default manager's externaldataschema_set prefetch leaked back in.
+        with self.assertNumQueries(2):
+            assert queried_access_controlled_resources(query, self.team) == {"warehouse_table"}
+
     def test_warehouse_table_of_another_team_not_matched(self):
         from posthog.models import Team
 

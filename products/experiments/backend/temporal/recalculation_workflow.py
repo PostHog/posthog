@@ -24,10 +24,10 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
 
-# Offline recalc shares the org's ClickHouse query budget (app:query:per-org, default 20,
-# halved/quartered under cluster load) with the org's live queries. Cap at 4 so a single run
-# stays under the budget even when it drops to 5, avoiding ClickHouseAtCapacity throttling.
-MAX_CONCURRENT_METRICS = 4
+# Per-run metric fan-out: how many metric activities one run keeps in flight, sized so a typical experiment
+# recalculates in a single concurrent wave. Cross-run ClickHouse load is bounded separately by the dedicated
+# recalc worker's activity-slot cap (MAX_CONCURRENT_ACTIVITIES), not by this constant.
+MAX_CONCURRENT_METRICS = 14
 
 
 @temporalio.workflow.defn(name="experiment-metrics-recalculation-workflow")

@@ -13,6 +13,7 @@ flow through ``ast.Constant`` placeholders in the calling query, never be string
 into these fragments.
 """
 
+import math
 from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLQueryResponse
@@ -102,7 +103,10 @@ class CuratedGitHubSource:
                     countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing,
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
-                    countIf(s IS NULL OR s != 'completed') AS pending
+                    countIf(s IS NULL OR s != 'completed') AS pending,
+                    -- The names behind `failing`, sorted for a stable order — the UI shows what is
+                    -- failing under the CI tag instead of a bare count.
+                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ('failure', 'timed_out'))) AS failing_workflows
                 FROM (
                     SELECT
                         head_sha,
@@ -205,3 +209,10 @@ class CuratedGitHubSource:
                 # strip the tables — bypass is set ONLY in this genuinely userless case.
                 bypass_warehouse_access_control=uac is None,
             )
+
+
+def opt_float(value: float | None) -> float | None:
+    """ClickHouse aggregate → optional float: quantile/avg over an empty set returns NaN, nullIf None."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    return float(value)

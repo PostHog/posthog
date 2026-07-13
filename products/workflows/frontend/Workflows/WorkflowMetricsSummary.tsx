@@ -90,6 +90,23 @@ export function WorkflowMetricsSummary({
                     ),
             },
             {
+                title: 'Bounce prevented',
+                dataIndex: 'bouncePrevented',
+                key: 'bouncePrevented',
+                align: 'right',
+                render: (_, row) =>
+                    onMetricClick && row.bouncePrevented > 0 ? (
+                        <span
+                            className="cursor-pointer text-link"
+                            onClick={() => onMetricClick('email_bounce_prevented')}
+                        >
+                            {row.bouncePrevented.toLocaleString()}
+                        </span>
+                    ) : (
+                        row.bouncePrevented.toLocaleString()
+                    ),
+            },
+            {
                 title: 'Blocked',
                 dataIndex: 'blocked',
                 key: 'blocked',

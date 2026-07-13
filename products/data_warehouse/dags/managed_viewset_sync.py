@@ -4,7 +4,7 @@ import structlog
 from posthog.dags.common import JobOwners
 
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
 

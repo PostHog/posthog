@@ -29,9 +29,11 @@ import type {
     TagSuggestionApi,
 } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
+import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import type { replayScannerLogicType } from './replayScannerLogicType'
+import { SCANNER_EDITOR_STEPS, scannerEditorSceneLogic, scannerStepUrl } from './scannerEditorSceneLogic'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     ScannerConfig,
@@ -110,6 +112,7 @@ const STATIC_ORDER_KEYS: Record<string, string> = {
     created_at: 'created_at',
     version: 'scanner_version',
     recording_subject: 'recording_subject_email',
+    confidence: 'result_confidence',
 }
 // Only monitor and scorer have a JSONB-backed Result sort key on the server.
 const RESULT_ORDER_KEY_BY_TYPE: Partial<Record<ScannerType, string>> = {
@@ -117,7 +120,7 @@ const RESULT_ORDER_KEY_BY_TYPE: Partial<Record<ScannerType, string>> = {
     monitor: 'result_verdict',
 }
 
-function resolveOrderByKey(columnKey: string, scannerType: ScannerType | undefined): string | null {
+export function resolveOrderByKey(columnKey: string, scannerType: ScannerType | undefined): string | null {
     if (columnKey === 'result') {
         return (scannerType && RESULT_ORDER_KEY_BY_TYPE[scannerType]) ?? null
     }
@@ -232,6 +235,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         triggerOnDemandObservation: (sessionId: string, silent = false) => ({ sessionId, silent }),
         triggerOnDemandObservationSuccess: true,
         triggerOnDemandObservationFailure: true,
+        retryObservation: (observationId: string) => ({ observationId }),
+        retryObservationSuccess: (observationId: string) => ({ observationId }),
+        retryObservationFailure: (observationId: string) => ({ observationId }),
         refreshObservations: true,
     }),
 
@@ -276,13 +282,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
             submit: async (scanner: ReplayScanner) => {
-                // Mid-wizard Enter (default 'save' intent) must advance, not create; pathname is project-prefixed, hence endsWith.
-                const onConfigureStep = router.values.location.pathname.endsWith(
-                    urls.replayVisionScannerConfigure(props.id)
+                // Advance to the next visible step instead of persisting, when the footer asked to (intent
+                // 'advance') or a new scanner submitted mid-wizard via Enter on any non-final step. The step
+                // order and self-driving visibility live in the editor scene, so read visibleSteps from there;
+                // findMounted keeps this usable in isolation (tests), falling back to the full order.
+                const steps = scannerEditorSceneLogic.findMounted()?.values.visibleSteps ?? SCANNER_EDITOR_STEPS
+                const currentStep = steps.find((step) =>
+                    router.values.location.pathname.endsWith(scannerStepUrl(step, props.id))
                 )
-                if (values.submitIntent === 'advance' || (values.isNew && onConfigureStep)) {
+                const nextStep = currentStep ? steps[steps.indexOf(currentStep) + 1] : undefined
+                if (nextStep && (values.submitIntent === 'advance' || values.isNew)) {
                     actions.setSubmitIntent('save')
-                    router.actions.push(urls.replayVisionScannerTriggers(props.id))
+                    router.actions.push(scannerStepUrl(nextStep, props.id))
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
@@ -295,7 +306,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
                         actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
-                        lemonToast.success('Scanner created')
+                        // First results are minutes away on the schedule — hand off to the instant on-demand tab.
+                        lemonToast.success('Scanner created', {
+                            button: {
+                                label: 'Scan a recording now',
+                                action: () => router.actions.push(`${urls.replayVision(response.id)}?tab=on-demand`),
+                                dataAttr: 'vision-scanner-created-scan-now',
+                            },
+                        })
                     } else {
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         actions.scannerSaved(scanner)
@@ -375,6 +393,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             0,
             {
                 triggerOnDemandObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+                // The replacement row is inserted by the workflow moments after the retry 202 lands.
+                retryObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+            },
+        ],
+        retryingObservationIds: [
+            [] as string[],
+            {
+                retryObservation: (state: string[], { observationId }: { observationId: string }) => [
+                    ...state,
+                    observationId,
+                ],
+                retryObservationSuccess: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
+                retryObservationFailure: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
             },
         ],
         scannerLoading: [
@@ -564,6 +597,36 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 verdictFilter.length > 0 ||
                 tagFilter.length > 0 ||
                 subjectFilter.trim().length > 0,
+        ],
+        // Carried into observation detail links so server-computed prev/next neighbors honor the table's filters + sort.
+        observationDetailLinkParams: [
+            (s) => [
+                s.observationStatusFilter,
+                s.observationTriggeredByFilter,
+                s.observationVerdictFilter,
+                s.observationTagFilter,
+                s.observationSubjectFilter,
+                s.observationsSort,
+                s.scanner,
+            ],
+            (
+                observationStatusFilter: ObservationStatusValue[],
+                observationTriggeredByFilter: ObservationTriggeredByValue[],
+                observationVerdictFilter: ObservationVerdictValue[],
+                observationTagFilter: string[],
+                observationSubjectFilter: string,
+                observationsSort: ObservationsSorting | null,
+                scanner: ReplayScanner | null
+            ): Record<string, string> =>
+                buildObservationListParams({
+                    observationStatusFilter,
+                    observationTriggeredByFilter,
+                    observationVerdictFilter,
+                    observationTagFilter,
+                    observationSubjectFilter,
+                    observationsSort,
+                    scanner,
+                }) as Record<string, string>,
         ],
         availableTags: [
             (s) => [s.observationStatsApi],
@@ -769,6 +832,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const response = await visionScannersEstimateCreate(String(teamId), {
                         query: scanner.query ?? undefined,
                         sampling_rate: scanner.sampling_rate,
+                        // The proposed model prices the credit estimate.
+                        model: scanner.model,
+                        sampling_mode: scanner.sampling_mode,
                         // Exclude the edited scanner from the others-sum so the forecast doesn't double-count it.
                         scanner_id: props.id !== 'new' ? props.id : null,
                     })
@@ -848,6 +914,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             triggerOnDemandObservationSuccess: () => refreshVisionQuota(),
+
+            retryObservation: async ({ observationId }) => {
+                if (props.id === 'new' || !(await requestObservationRetry(observationId))) {
+                    actions.retryObservationFailure(observationId)
+                    return
+                }
+                actions.retryObservationSuccess(observationId)
+                reloadObservationsAndStats()
+            },
 
             refreshObservations: () => reloadObservationsAndStats(),
 

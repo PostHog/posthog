@@ -41,8 +41,8 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
     get_exposure_config_params_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import (
-    DEFAULT_EXPOSURE_TTL_SECONDS,
     experiment_has_min_runtime_for_precomputation,
+    experiment_precompute_ttl_schedule,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.models.experiment import Experiment
@@ -121,10 +121,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             insert_query=query_string,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            spill_to_disk=True,
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:

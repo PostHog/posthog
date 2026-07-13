@@ -37,7 +37,6 @@ import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
-    SelfLoopGuardMode,
     getSelfLoopDepth,
     injectSelfLoopDepth,
     isPostHogIngestUrl,
@@ -57,7 +56,6 @@ export interface HogExecutorConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
-    selfLoopGuardMode: SelfLoopGuardMode
 }
 
 export interface HogExecutorAsyncContext {
@@ -215,6 +213,51 @@ export class HogExecutorService {
         additionalInputs?: Record<string, any>
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
+    }
+
+    /**
+     * For mapping destinations the per-mapping inputs (e.g. the Google Ads
+     * `gclid`) are resolved only for mappings whose filters match the event —
+     * see `buildHogFunctionInvocations`, which merges `mapping.inputs` when it
+     * first builds the invocation. The rerun path re-enqueues invocations with
+     * `inputs` stripped and keeps no record of which mapping produced them, so
+     * a plain rebuild against the top-level config drops those inputs entirely
+     * and any function guarding on them (e.g. `if (empty(inputs.gclid))`)
+     * early-exits. Re-match the mappings here against the (current) config to
+     * rebuild the additional inputs before the executor resolves them.
+     *
+     * When several mappings match one event the original produced a separate
+     * invocation per mapping; the stored row can't be tied back to a single
+     * one, so we merge all matching mappings' inputs — exact for the common
+     * single-mapping case and strictly better than dropping them.
+     */
+    private async resolveMappingInputs(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals
+    ): Promise<HogFunctionType['inputs'] | undefined> {
+        const mappings = hogFunction.mappings
+        if (!mappings || mappings.length === 0) {
+            return undefined
+        }
+
+        const filterGlobals = convertToHogFunctionFilterGlobal(globals)
+        let merged: HogFunctionType['inputs'] | undefined
+
+        for (const mapping of mappings) {
+            if (!mapping.inputs) {
+                continue
+            }
+            const { match } = await filterFunctionInstrumented({
+                fn: hogFunction,
+                filters: mapping.filters,
+                filterGlobals,
+            })
+            if (match) {
+                merged = { ...(merged ?? {}), ...mapping.inputs }
+            }
+        }
+
+        return merged
     }
 
     async buildHogFunctionInvocations(
@@ -516,9 +559,17 @@ export class HogExecutorService {
                 if (invocation.state.globals.inputs) {
                     globals = invocation.state.globals
                 } else {
-                    globals = await this.hogInputsService.buildInputsWithGlobals(
+                    // Mapping destinations need their per-mapping inputs
+                    // re-merged here — they aren't part of the top-level config
+                    // and were stripped from the rerun blob.
+                    const additionalInputs = await this.resolveMappingInputs(
                         invocation.hogFunction,
                         invocation.state.globals
+                    )
+                    globals = await this.hogInputsService.buildInputsWithGlobals(
+                        invocation.hogFunction,
+                        invocation.state.globals,
+                        additionalInputs
                     )
                 }
             } catch (e) {
@@ -767,8 +818,7 @@ export class HogExecutorService {
         // ingest-URL check gates the team lookup so external fetches (the common case) pay
         // nothing, and the whole block fails open - the guard must never break a destination
         // it was only meant to protect.
-        const guardMode = this.config.selfLoopGuardMode
-        if (guardMode !== 'disabled' && isPostHogIngestUrl(params.url)) {
+        if (isPostHogIngestUrl(params.url)) {
             try {
                 const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
                 if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
@@ -778,15 +828,9 @@ export class HogExecutorService {
                     const functionId = invocation.hogFunction.id
                     const depth = getSelfLoopDepth(invocation.state.globals.event?.properties, functionId)
 
-                    if (guardMode === 'warn') {
-                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'detected' })
-                        addLog(
-                            'warn',
-                            `This fetch targets a PostHog ingestion endpoint using this project's own API key, which can form an event-forwarding loop. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
-                        )
-                    } else if (depth >= SELF_LOOP_MAX_DEPTH) {
-                        // enforce, this destination has re-fed itself to the cap - break it.
-                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'blocked' })
+                    if (depth >= SELF_LOOP_MAX_DEPTH) {
+                        // This destination has re-fed itself to the cap - break it.
+                        selfLoopGuardCounter.inc({ mode: 'enforce', action: 'blocked' })
                         addLog(
                             'error',
                             `Refusing to fetch a PostHog ingestion endpoint using this project's own API key - this destination's event-forwarding loop has already repeated ${SELF_LOOP_MAX_DEPTH} times. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
@@ -794,11 +838,10 @@ export class HogExecutorService {
                         result.error = new Error('Self-referential event-forwarding loop blocked at max depth')
                         result.finished = true
                         return result
-                    } else {
-                        // enforce, under the cap - stamp this destination's next hop and proceed.
-                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'allowed_with_counter' })
-                        params.body = injectSelfLoopDepth(params.body, functionId, depth + 1)
                     }
+                    // Under the cap - stamp this destination's next hop and proceed.
+                    selfLoopGuardCounter.inc({ mode: 'enforce', action: 'allowed_with_counter' })
+                    params.body = injectSelfLoopDepth(params.body, functionId, depth + 1)
                 }
             } catch (err) {
                 logger.warn('🦔', '[HogExecutor] Self-loop guard skipped due to an internal error', {

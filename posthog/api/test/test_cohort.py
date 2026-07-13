@@ -1613,17 +1613,19 @@ email@example.org,
 
         assert response["results"] == []
 
-    def test_cohort_list_search_orders_exact_before_similar_and_labels_match_type(self):
+    def test_cohort_list_search_hides_similar_when_exact_exists_but_falls_back_when_none(self):
         exact = Cohort.objects.create(team=self.team, name="marketing", created_by=self.user)
         similar = Cohort.objects.create(team=self.team, name="markteing", created_by=self.user)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=marketing").json()
-        results = response["results"]
-        by_id = {c["id"]: c for c in results}
+        with_exact = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=marketing").json()["results"]
+        assert [c["id"] for c in with_exact] == [exact.id], "similar matches must be hidden when exact matches exist"
+        assert with_exact[0]["search_match_type"] == "exact"
 
-        assert [c["id"] for c in results][:2] == [exact.id, similar.id]
-        assert by_id[exact.id]["search_match_type"] == "exact"
-        assert by_id[similar.id]["search_match_type"] == "similar"
+        # Delete the exact match; the fuzzy-only match must now surface as the fallback.
+        exact.delete()
+        without_exact = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=marketing").json()["results"]
+        assert [c["id"] for c in without_exact] == [similar.id]
+        assert without_exact[0]["search_match_type"] == "similar"
 
     def test_cohort_list_omits_search_match_type_when_not_searching(self):
         Cohort.objects.create(team=self.team, name="Power users", created_by=self.user)
@@ -1838,6 +1840,7 @@ email@example.org,
                 filters={"properties": {"type": "OR", "values": values}},
                 cohort_type=CohortType.REALTIME if realtime_backfilled else None,
                 last_backfill_person_properties_at=timezone.now() if realtime_backfilled else None,
+                last_backfill_events_at=timezone.now() if realtime_backfilled else None,
             )
 
         cohorts = {
@@ -2064,6 +2067,7 @@ email@example.org,
             },
             cohort_type=cohort_type,
             last_backfill_person_properties_at=datetime.now() if is_backfilled else None,
+            last_backfill_events_at=datetime.now() if is_backfilled else None,
         )
 
         regular_cohort = Cohort.objects.create(
@@ -2119,6 +2123,7 @@ email@example.org,
             },
             cohort_type=CohortType.REALTIME,
             last_backfill_person_properties_at=datetime.now(),
+            last_backfill_events_at=datetime.now(),
         )
 
         # Parent: non-behavioral cohort that references the leaf
