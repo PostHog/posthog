@@ -450,6 +450,8 @@ class DeltaTableHelper:
 
                     chunk_predicate_ops = predicate_ops.copy()
                     if len(partition_values) == 1:
+                        # Not just style: e2e pins assert this exact legacy `=` shape, and it
+                        # keeps chunk-size-1 byte-identical to the old per-partition behavior.
                         chunk_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition_values[0]}'")
                     else:
                         in_list = ", ".join(f"'{value}'" for value in partition_values)
