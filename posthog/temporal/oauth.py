@@ -26,6 +26,16 @@ INTERNAL_SCOPES: list[str] = [
 ]
 
 
+# Provenance marker for PostHog-initiated internal runs (Task.internal=True). The LLM
+# gateway requires it to reach internal, unbilled products (background_agents, signals,
+# conversations). Kept OUT of `INTERNAL_SCOPES`: user-facing cloud runs expose their token
+# in the sandbox env, so minting this into every task token would let any user reach the
+# unbilled products with an exfiltrated token.
+INTERNAL_RUN_SCOPES: list[str] = [
+    "llm_gateway_internal:read",
+]
+
+
 # Writes for the Signals scout harness — sandbox-only because the scope object is in
 # `INTERNAL_API_SCOPE_OBJECTS` and so cannot be minted via the personal API key UI or
 # granted through the OAuth consent flow. Reads use the public `signal_scout:read` scope.
@@ -202,8 +212,11 @@ def create_oauth_access_token_for_user(
     scopes: PosthogMcpScopes = "read_only",
     include_internal_scopes: bool = True,
     application: SandboxOAuthApplication = "array",
+    internal_run: bool = False,
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+    if internal_run:
+        resolved = [*resolved, *INTERNAL_RUN_SCOPES]
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved))
 

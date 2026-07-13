@@ -68,6 +68,7 @@ APIScopeObject = Literal[
     "live_debugger",
     "llm_analytics",
     "llm_gateway",
+    "llm_gateway_internal",
     "llm_prompt",
     "llm_provider_key",
     "llm_skill",
@@ -136,6 +137,11 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
+        # Provenance marker for PostHog-initiated internal sandbox runs (Task.internal=True).
+        # The LLM gateway requires it — as an explicit scope, wildcard `*` doesn't count —
+        # to reach internal, unbilled products (background_agents, signals, conversations),
+        # so user-held Code tokens can't route spend there. It grants nothing else.
+        "llm_gateway_internal",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.

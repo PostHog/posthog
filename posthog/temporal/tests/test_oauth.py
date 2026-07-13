@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.temporal.oauth import (
+    INTERNAL_RUN_SCOPES,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
@@ -168,6 +169,21 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "PostHog AI app not found"):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
+
+    @parameterized.expand([("internal_run", True), ("user_facing_run", False)])
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_internal_run_marker_minted_only_for_internal_runs(self, _name: str, internal_run: bool) -> None:
+        # The marker gates internal LLM gateway products. Minting it into user-facing
+        # run tokens would re-open the product bypass (tokens are exfiltratable from
+        # the sandbox env); dropping it from internal runs breaks them at the gateway.
+        self._create_oauth_app(POSTHOG_AI_APP_CLIENT_ID_DEV, "PostHog AI Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, application="posthog_ai", internal_run=internal_run)
+
+        minted_scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        for scope in INTERNAL_RUN_SCOPES:
+            assert (scope in minted_scopes) is internal_run
 
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):

@@ -64,22 +64,51 @@ class TestCheckProductAccess:
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
             ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
-            # signals allows API keys (shared gateway key) with any model, and OAuth from the
-            # array/twig (posthog_code) app for coding-agent tasks
+            # signals allows API keys (shared gateway key) with any model; OAuth additionally
+            # needs the internal-run scope (see TestInternalProductScopeRequirement)
             ("signals", "personal_api_key", None, "claude-haiku-4-5", True, None),
             ("signals", "personal_api_key", None, "claude-sonnet-4-5", True, None),
             ("signals", "personal_api_key", None, "claude-3-opus", True, None),
             ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
-            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", True, None),
-            ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", True, None),
-            # conversations: utility prompts (API key) and support-reply sandbox (array OAuth app)
+            (
+                "signals",
+                "oauth_access_token",
+                POSTHOG_CODE_US_APP_ID,
+                "claude-haiku-4-5",
+                False,
+                "internal service token",
+            ),
+            (
+                "signals",
+                "oauth_access_token",
+                POSTHOG_CODE_EU_APP_ID,
+                "claude-sonnet-4-5",
+                False,
+                "internal service token",
+            ),
+            # conversations: utility prompts (API key); support-reply sandbox OAuth additionally
+            # needs the internal-run scope (see TestInternalProductScopeRequirement)
             ("conversations", "personal_api_key", None, "claude-haiku-4-5", True, None),
             ("conversations", "personal_api_key", None, "claude-sonnet-4-6", True, None),
             ("conversations", "personal_api_key", None, "claude-sonnet-5", True, None),
             ("conversations", "personal_api_key", None, "claude-opus-4-8", False, "not allowed"),
             ("conversations", "oauth_access_token", "any-app-id", "claude-sonnet-5", False, "not authorized"),
-            ("conversations", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", True, None),
-            ("conversations", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-6", True, None),
+            (
+                "conversations",
+                "oauth_access_token",
+                POSTHOG_CODE_US_APP_ID,
+                "claude-sonnet-5",
+                False,
+                "internal service token",
+            ),
+            (
+                "conversations",
+                "oauth_access_token",
+                POSTHOG_CODE_EU_APP_ID,
+                "claude-sonnet-4-6",
+                False,
+                "internal service token",
+            ),
             # posthog_ai allows API keys with any model and OAuth from the PostHog AI app.
             ("posthog_ai", "personal_api_key", None, "claude-sonnet-4-5", True, None),
             ("posthog_ai", "personal_api_key", None, "gpt-5.3-codex", True, None),
@@ -241,7 +270,13 @@ class TestCheckProductAccess:
         ],
     )
     def test_background_agents_allows_configured_models(self, model: str):
-        allowed, error = check_product_access("background_agents", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
+        allowed, error = check_product_access(
+            "background_agents",
+            "oauth_access_token",
+            POSTHOG_CODE_US_APP_ID,
+            model,
+            scopes=["llm_gateway_internal:read"],
+        )
         assert allowed is True
         assert error is None
 
@@ -253,7 +288,11 @@ class TestCheckProductAccess:
 
     def test_background_agents_does_not_allow_claude_sonnet_4_6(self):
         allowed, error = check_product_access(
-            "background_agents", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-4-6"
+            "background_agents",
+            "oauth_access_token",
+            POSTHOG_CODE_US_APP_ID,
+            "claude-sonnet-4-6",
+            scopes=["llm_gateway_internal:read"],
         )
         assert allowed is False
         assert error is not None
@@ -269,13 +308,20 @@ class TestCheckProductAccess:
             POSTHOG_CODE_US_APP_ID,
             "claude-sonnet-4-6",
             provider="bedrock",
+            scopes=["llm_gateway_internal:read"],
         )
         assert allowed is True
         assert error is None
 
     @pytest.mark.parametrize("model", sorted(BEDROCK_MODELS))
     def test_background_agents_allows_bedrock_models(self, model: str):
-        allowed, error = check_product_access("background_agents", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
+        allowed, error = check_product_access(
+            "background_agents",
+            "oauth_access_token",
+            POSTHOG_CODE_US_APP_ID,
+            model,
+            scopes=["llm_gateway_internal:read"],
+        )
         assert allowed is True
         assert error is None
 
@@ -357,6 +403,50 @@ class TestCheckProductAccess:
         assert allowed is False
         assert error is not None
         assert "not authorized" in error
+
+
+class TestInternalProductScopeRequirement:
+    """Internal, unbilled products share the Code OAuth app IDs, so OAuth access
+    additionally requires the internal-run marker scope — otherwise any Code user's
+    token could route spend to them, dodging posthog_code's quota and billing."""
+
+    INTERNAL_PRODUCTS = [
+        ("background_agents", "claude-fable-5"),
+        ("signals", "claude-haiku-4-5"),
+        ("conversations", "claude-sonnet-5"),
+    ]
+
+    @pytest.mark.parametrize("product,model", INTERNAL_PRODUCTS)
+    @pytest.mark.parametrize(
+        "scopes",
+        [
+            None,
+            # A user-consented desktop token — wildcard must not satisfy the marker.
+            ["*"],
+            # A user-facing cloud run's sandbox token (exfiltratable from the sandbox
+            # env) — carries gateway access but not the internal-run marker.
+            ["llm_gateway:read", "task:write"],
+        ],
+    )
+    def test_denies_oauth_without_internal_run_scope(self, product: str, model: str, scopes: list[str] | None):
+        allowed, error = check_product_access(
+            product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, model, scopes=scopes
+        )
+        assert allowed is False
+        assert error is not None
+        assert "internal service token" in error
+
+    @pytest.mark.parametrize("product,model", INTERNAL_PRODUCTS)
+    def test_allows_oauth_with_internal_run_scope(self, product: str, model: str):
+        allowed, error = check_product_access(
+            product,
+            "oauth_access_token",
+            POSTHOG_CODE_US_APP_ID,
+            model,
+            scopes=["llm_gateway:read", "llm_gateway_internal:read"],
+        )
+        assert allowed is True
+        assert error is None
 
 
 class TestBackwardsCompatibility:

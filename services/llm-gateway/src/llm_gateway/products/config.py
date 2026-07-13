@@ -48,6 +48,15 @@ class ProductConfig:
     # seat-covered (free/pro/alpha) users are excluded from the org's billed usage
     # counter at the usage-report layer, so they must not be blocked by it either.
     credit_bucket_scope: Literal["all_users", "usage_based_plans"] = "all_users"
+    # Scope an OAuth token must EXPLICITLY carry to use this product — wildcard `*` does
+    # not satisfy it. This is a provenance check, not a permission level: internal-run
+    # scopes (posthog/scopes.py INTERNAL_API_SCOPE_OBJECTS) are only ever minted
+    # server-side into PostHog-initiated internal sandbox runs (Task.internal=True), so
+    # requiring one keeps user-held tokens on the same OAuth app (desktop Code logins,
+    # tokens lifted from a user-facing cloud run's sandbox env) out of internal, unbilled
+    # products. Not applied to personal-API-key auth — users can't self-grant internal
+    # scopes there, and server-held keys (e.g. Django's) keep working unchanged.
+    required_oauth_scope: str | None = None
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
@@ -142,6 +151,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         ),
         allow_api_keys=False,
         credit_bucket=None,
+        # Unbilled and sharing the Code OAuth app IDs — without this, any Code user's
+        # token could route spend here to dodge posthog_code's quota and billing.
+        required_oauth_scope="llm_gateway_internal:read",
     ),
     "slack_app": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
@@ -216,6 +228,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
         credit_bucket=None,
+        # Same exposure as background_agents: unbilled + Code app IDs (scout sandboxes are
+        # internal runs). API-key callers (Django's server-held key) are unaffected.
+        required_oauth_scope="llm_gateway_internal:read",
     ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,
@@ -232,6 +247,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # PostHog" per the pricing RFC — it gets its own pricing later, not posthog_code's
         # pass-through bucket.
         credit_bucket=None,
+        # Same exposure as background_agents: unbilled + Code app IDs (support-reply
+        # sandboxes are internal runs). API-key callers are unaffected.
+        required_oauth_scope="llm_gateway_internal:read",
     ),
     "warehouse_semantic_enrichment": ProductConfig(
         allowed_application_ids=None,
@@ -310,6 +328,7 @@ def check_product_access(
     application_id: str | None,
     model: str | None,
     provider: str | None = None,
+    scopes: list[str] | None = None,
 ) -> tuple[bool, str | None]:
     """
     Check if request is authorized for product.
@@ -327,10 +346,15 @@ def check_product_access(
 
     is_oauth = auth_method == "oauth_access_token"
     if is_oauth and not settings.debug:
-        # Skip application ID checks in debug mode
+        # Skip application ID and scope checks in debug mode
         allowed_application_ids = config.allowed_application_ids or frozenset()
         if application_id not in allowed_application_ids:
             return False, f"OAuth application not authorized for product '{product}'"
+
+        # Explicit membership only — `*` (user-consented tokens) must not pass; see
+        # ProductConfig.required_oauth_scope.
+        if config.required_oauth_scope is not None and config.required_oauth_scope not in (scopes or []):
+            return False, f"Product '{product}' requires an internal service token"
 
     if model and config.allowed_models is not None:
         if not _model_matches_product_allowlist(model, config.allowed_models, provider=provider, settings=settings):

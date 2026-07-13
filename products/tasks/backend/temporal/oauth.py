@@ -60,6 +60,9 @@ def create_oauth_access_token(
         task.team_id,
         scopes=scopes,
         application=_oauth_application_for_task(task),
+        # Internal runs get the provenance marker the LLM gateway requires for
+        # internal, unbilled products (background_agents, signals, conversations).
+        internal_run=task.internal,
     )
 
 
@@ -111,9 +114,12 @@ def create_oauth_access_token_for_user(
     *,
     scopes: PosthogMcpScopes = "read_only",
     application: SandboxOAuthApplication = "array",
+    internal_run: bool = False,
 ) -> str:
     """Create an OAuth access token for a sandbox app, scoped to a specific team."""
     try:
-        return _create_oauth_access_token_for_user(user, team_id, scopes=scopes, application=application)
+        return _create_oauth_access_token_for_user(
+            user, team_id, scopes=scopes, application=application, internal_run=internal_run
+        )
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": team_id}, cause=err) from err
