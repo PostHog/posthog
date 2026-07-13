@@ -613,7 +613,9 @@ class TestBedrockCountTokensViaProvider:
         # The runtime CountTokens API always rejects CRIS-only models, so it must not be tried.
         mock_count_tokens.assert_not_called()
         assert mock_mantle_count_tokens.await_count == 1
-        assert mock_mantle_count_tokens.await_args.args[1] == expected_mantle_model
+        mantle_count_tokens_call = mock_mantle_count_tokens.await_args
+        assert mantle_count_tokens_call is not None
+        assert mantle_count_tokens_call.args[1] == expected_mantle_model
 
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock_mantle", new_callable=AsyncMock)
