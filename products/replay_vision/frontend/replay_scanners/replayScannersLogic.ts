@@ -1,8 +1,10 @@
-import { actions, afterMount, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -118,6 +120,10 @@ export function buildScannerListParams(
 
 export const replayScannersLogic = kea<replayScannersLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannersLogic']),
+
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
 
     actions({
         loadScanners: true,
@@ -252,6 +258,10 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
     listeners(({ actions, values }) => ({
         loadScanners: async (_, breakpoint) => {
+            if (!values.hasVisionAccess) {
+                actions.loadScannersFailure('Replay vision is not enabled') // Clear the loading flag without a toast.
+                return
+            }
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.loadScannersFailure('No team in context') // Clear the loading flag; a bare return spins forever.
@@ -363,6 +373,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     })),
 
     selectors({
+        // Gate on the same flag the scene checks before rendering NotFound; the backend answers scanner
+        // endpoints with a 404 for users without access, so firing the loaders would stack an error toast
+        // on top of the not-found page.
+        hasVisionAccess: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_VISION],
+        ],
         search: [(s) => [s.filters], (filters: ScannersFilters) => filters.search],
         enabledFilter: [(s) => [s.filters], (filters: ScannersFilters) => filters.enabledFilter],
         scannerTypeFilter: [(s) => [s.filters], (filters: ScannersFilters) => filters.scannerTypeFilter],
@@ -421,6 +438,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
     urlToAction(({ actions, values, cache }) => ({
         [urls.replayVision()]: (_, searchParams) => {
+            if (!values.hasVisionAccess) {
+                return
+            }
             const pageRaw = Number(searchParams.page ?? 1)
             const parsed: ScannersFilters = {
                 search: typeof searchParams.search === 'string' ? searchParams.search : '',
@@ -441,7 +461,10 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        if (!values.hasVisionAccess) {
+            return
+        }
         actions.loadCreators()
         actions.loadScannerStats()
     }),
