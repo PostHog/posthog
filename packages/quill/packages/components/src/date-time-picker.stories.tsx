@@ -229,23 +229,10 @@ const analyticsRanges: DateTimeRange[] = [
 
 // An exclusions control for the footerExtra slot: a small link opening a panel with an
 // incomplete-period toggle and exclude-day chips. Host-supplied; the picker only provides the slot.
+// A nested Popover portals the panel out, so it can't be clipped by the picker or a host popover.
 function ExcludeControlDemo(): React.ReactElement {
     const [excludedDays, setExcludedDays] = React.useState<string[]>([])
     const [excludeIncomplete, setExcludeIncomplete] = React.useState(false)
-    const [openPanel, setOpenPanel] = React.useState(false)
-    const rootRef = React.useRef<HTMLDivElement>(null)
-    React.useEffect(() => {
-        if (!openPanel) {
-            return
-        }
-        const onPointerDown = (event: PointerEvent): void => {
-            if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-                setOpenPanel(false)
-            }
-        }
-        document.addEventListener('pointerdown', onPointerDown)
-        return () => document.removeEventListener('pointerdown', onPointerDown)
-    }, [openPanel])
     const labels: Record<string, string> = { 1: 'M', 2: 'T', 3: 'W', 4: 'T', 5: 'F', 6: 'S', 7: 'S' }
     const sorted = [...excludedDays].sort().join(',')
     const parts: string[] = []
@@ -256,51 +243,49 @@ function ExcludeControlDemo(): React.ReactElement {
         parts.push('incomplete')
     }
     return (
-        <div className="relative" ref={rootRef}>
-            <Button variant="link" size="xs" aria-expanded={openPanel} onClick={() => setOpenPanel((prev) => !prev)}>
+        <Popover>
+            <PopoverTrigger render={<Button variant="link" size="xs" />}>
                 {parts.length > 0 ? `Excluding ${parts.join(', ')}` : '+ Exclude'}
-            </Button>
-            {openPanel && (
-                <div className="bg-card absolute bottom-full left-0 z-10 mb-1 flex w-64 flex-col rounded-md border shadow-md">
-                    <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-                        <Label htmlFor="story-exclude-incomplete">Incomplete period</Label>
-                        <Switch
-                            id="story-exclude-incomplete"
-                            size="sm"
-                            checked={excludeIncomplete}
-                            onCheckedChange={setExcludeIncomplete}
-                        />
-                    </div>
-                    <Separator />
-                    <div className="flex flex-col gap-2 px-3 py-2.5">
-                        <ToggleGroup
-                            multiple
-                            size="sm"
-                            className="w-full"
-                            value={excludedDays}
-                            onValueChange={setExcludedDays}
-                        >
-                            {Object.keys(labels).map((day) => (
-                                <ToggleGroupItem key={day} value={day} className="flex-1">
-                                    {labels[day]}
-                                </ToggleGroupItem>
-                            ))}
-                        </ToggleGroup>
-                        <div className="flex items-center justify-center gap-3">
-                            <Button variant="link" size="xs" onClick={() => setExcludedDays(['6', '7'])}>
-                                Weekends
-                            </Button>
-                            <Button variant="link" size="xs" onClick={() => setExcludedDays(['1', '2', '3', '4', '5'])}>
-                                Weekdays
-                            </Button>
-                            <Button variant="link" size="xs" onClick={() => setExcludedDays([])}>
-                                Clear
-                            </Button>
-                        </div>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="start" className="w-64 gap-0 p-0">
+                <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                    <Label htmlFor="story-exclude-incomplete">Incomplete period</Label>
+                    <Switch
+                        id="story-exclude-incomplete"
+                        size="sm"
+                        checked={excludeIncomplete}
+                        onCheckedChange={setExcludeIncomplete}
+                    />
+                </div>
+                <Separator />
+                <div className="flex flex-col gap-2 px-3 py-2.5">
+                    <ToggleGroup
+                        multiple
+                        size="sm"
+                        className="w-full"
+                        value={excludedDays}
+                        onValueChange={setExcludedDays}
+                    >
+                        {Object.keys(labels).map((day) => (
+                            <ToggleGroupItem key={day} value={day} className="flex-1">
+                                {labels[day]}
+                            </ToggleGroupItem>
+                        ))}
+                    </ToggleGroup>
+                    <div className="flex items-center justify-center gap-3">
+                        <Button variant="link" size="xs" onClick={() => setExcludedDays(['6', '7'])}>
+                            Weekends
+                        </Button>
+                        <Button variant="link" size="xs" onClick={() => setExcludedDays(['1', '2', '3', '4', '5'])}>
+                            Weekdays
+                        </Button>
+                        <Button variant="link" size="xs" onClick={() => setExcludedDays([])}>
+                            Clear
+                        </Button>
                     </div>
                 </div>
-            )}
-        </div>
+            </PopoverContent>
+        </Popover>
     )
 }
 

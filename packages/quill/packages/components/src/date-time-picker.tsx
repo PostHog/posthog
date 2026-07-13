@@ -256,8 +256,13 @@ export function DateTimePicker({
             )}>
                 {/* Presets-first list column */}
                 {presetsFirstMode && (
-                    <div className={cn('flex flex-col', customExpanded && 'shrink-0 border-r border-border')}>
-                        <ul className="flex max-h-[400px] flex-col gap-px overflow-y-auto p-1">
+                    <div className={cn('flex flex-col', customExpanded && 'relative w-36 shrink-0 border-r border-border')}>
+                        <ul
+                            className={cn(
+                                'flex flex-col gap-px overflow-y-auto p-1',
+                                customExpanded ? 'absolute inset-0' : 'max-h-[400px]'
+                            )}
+                        >
                             {presetRanges.map((quick) => (
                                 <li key={quick.id} className="w-full">
                                     <Button
@@ -404,10 +409,10 @@ export function DateTimePicker({
 
             {/* Actions */}
             {!showCalendarArea && footerExtra && (
-                <div className="flex items-center px-3 py-2 bg-muted/30">{footerExtra}</div>
+                <div className="flex items-center px-3 py-2">{footerExtra}</div>
             )}
             {showCalendarArea && (
-            <div className="flex justify-end px-3 py-2 items-center gap-2 bg-muted/30">
+            <div className={cn('flex justify-end px-3 py-2 items-center gap-2', !presetsFirstMode && 'bg-muted/30')}>
                 <div className="mr-auto flex items-center gap-2">
                     {/* The lg inputs row shows the same staged range, so the readout yields to it */}
                     <span
