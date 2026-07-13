@@ -442,6 +442,36 @@ export const AutocaptureContextPromotesElements: Story = {
     },
 }
 
+export const MCPToolCallContextLeadsWithMCPProperties: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <SeedRecents count={0} />
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'mcp-tool-call-context',
+        eventNames: ['$mcp_tool_call'],
+        taxonomicGroupTypes: [
+            TaxonomicFilterGroupType.SuggestedFilters,
+            TaxonomicFilterGroupType.MCPProperties,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+        ],
+    },
+    parameters: {
+        ...SUGGESTED_FILTERS_PARAMETERS,
+        docs: {
+            description: {
+                story: 'When the picker is scoped to $mcp_tool_call, the known @posthog/mcp schema is separated into a leading "MCP properties" group, and SuggestedFilters leads with the tool name (the event\'s primary property) and error state. Without an $mcp_* event in scope the group disappears entirely.',
+            },
+        },
+    },
+}
+
 function CategoryDropdownStoryRender({
     variant,
     ...args

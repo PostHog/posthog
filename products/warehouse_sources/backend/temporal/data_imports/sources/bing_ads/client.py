@@ -10,6 +10,10 @@ from suds import WebFault
 
 from posthog.settings import integrations
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+)
+
 from .schemas import REPORT_CONFIG, RESOURCE_SCHEMAS, BingAdsResource
 from .utils import (
     ENVIRONMENT,
@@ -20,6 +24,11 @@ from .utils import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Bing Ads API version pinned across the Customer/Campaign management SOAP services (matches `bingads.v13`).
+BING_ADS_API_VERSION = 13
+# Microsoft's documented maximum page size for GetCustomersInfo.
+GET_CUSTOMERS_INFO_MAX_RESULTS = 1000
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -115,7 +124,7 @@ class BingAdsClient:
         try:
             service_client = ServiceClient(
                 service="CustomerManagementService",
-                version=13,
+                version=BING_ADS_API_VERSION,
                 authorization_data=self.authorization_data,
                 environment=ENVIRONMENT,
             )
@@ -127,6 +136,48 @@ class BingAdsClient:
 
         return self._customer_id
 
+    def list_accounts(self) -> list[IntegrationAccount]:
+        """Every account the user can access, across all their customers, as ``IntegrationAccount``.
+
+        A user can belong to multiple customers (agencies) and ``GetAccountsInfo`` is per-customer,
+        so enumerate customers first (``GetCustomersInfo``) and collect each one's accounts.
+        """
+        primary_customer_id = self.get_customer_id()
+        original_customer_id = self.authorization_data.customer_id
+        try:
+            service_client = ServiceClient(
+                service="CustomerManagementService",
+                version=BING_ADS_API_VERSION,
+                authorization_data=self.authorization_data,
+                environment=ENVIRONMENT,
+            )
+            customers = service_client.GetCustomersInfo(CustomerNameFilter="", TopN=GET_CUSTOMERS_INFO_MAX_RESULTS)
+
+            accounts: list[IntegrationAccount] = []
+            for customer in getattr(customers, "CustomerInfo", None) or []:
+                # GetAccountsInfo reads the customer from authorization_data, so scope it per customer.
+                self.authorization_data.customer_id = customer.Id
+                result = service_client.GetAccountsInfo(CustomerId=customer.Id, OnlyParentAccounts=False)
+                for account in getattr(result, "AccountInfo", None) or []:
+                    status = getattr(account, "AccountLifeCycleStatus", None) or "Unknown"
+                    accounts.append(
+                        IntegrationAccount(
+                            value=str(account.Id),
+                            display_name=getattr(account, "Name", None) or "Unnamed account",
+                            is_primary=customer.Id == primary_customer_id,
+                            badges=(status,),
+                            group=getattr(customer, "Name", None),
+                            secondary_text=getattr(account, "Number", None),
+                        )
+                    )
+        except Exception as e:
+            raise _wrap_with_fault_detail(e, "Failed to list Bing Ads accounts") from e
+        finally:
+            # Restore the shared scope so a later sync on this client isn't left pointed at the last customer.
+            self.authorization_data.customer_id = original_customer_id
+
+        return accounts
+
     def get_campaigns(self, account_id: int, customer_id: int) -> Generator[list[dict[str, Any]]]:
         self.authorization_data.account_id = account_id
         self.authorization_data.customer_id = customer_id
@@ -134,7 +185,7 @@ class BingAdsClient:
         try:
             service_client = ServiceClient(
                 service="CampaignManagementService",
-                version=13,
+                version=BING_ADS_API_VERSION,
                 authorization_data=self.authorization_data,
                 environment=ENVIRONMENT,
             )

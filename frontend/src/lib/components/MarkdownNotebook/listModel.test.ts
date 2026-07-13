@@ -82,6 +82,20 @@ describe('listModel', () => {
             ).toBeNull()
         })
 
+        it('clamps a surviving deeper item when its depth bridge is deleted', () => {
+            const items = [makeItem('parent', 0), makeItem('bridge', 1), makeItem('nested', 2), makeItem('tail', 0)]
+
+            const deletion = deleteListItemSelectionRange(items, {
+                firstItemIndex: 0,
+                firstStart: 3,
+                lastItemIndex: 1,
+                lastEnd: 3,
+            })
+
+            expect(deletion?.items.map((item) => getInlineText(item.children))).toEqual(['pardge', 'nested', 'tail'])
+            expect(deletion?.items.map((item) => item.depth)).toEqual([0, 1, 0])
+        })
+
         it('keeps the first item identity and depth when merging', () => {
             const items = [makeItem('parent', 0, 'item-a'), makeItem('child', 1, 'item-b')]
 

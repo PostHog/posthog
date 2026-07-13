@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { IconBell, IconCheck, IconInfo } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { useAnimatedNumber } from '@posthog/quill-charts'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { ExperimentLastRefreshText } from 'scenes/experiments/ExperimentView/ExperimentReloadAction'
 
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { experimentResultsNotificationLogic } from '~/scenes/experiments/experimentResultsNotificationLogic'
@@ -69,8 +70,8 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
                         <>
                             <LemonDivider vertical className="h-3.5" />
                             <span className="flex items-center gap-1 whitespace-nowrap text-muted text-xs [&_span]:align-baseline">
-                                <span>Refreshed</span>
-                                <TZLabel time={currentRecalculation.completed_at} timestampStyle="relative" />
+                                <span>Results calculated </span>
+                                <ExperimentLastRefreshText lastRefresh={currentRecalculation.completed_at} />
                             </span>
                         </>
                     )}
@@ -179,10 +180,14 @@ function CountsSegment({
 
 function ClimbingRows({ rowsRead, estimatedRows }: { rowsRead: number; estimatedRows?: number }): JSX.Element {
     const showCeiling = estimatedRows !== undefined && estimatedRows >= rowsRead
+
+    const animatedRowsRead = useAnimatedNumber(rowsRead, 350)
+    const animatedEstimatedTotal = useAnimatedNumber(estimatedRows ?? 0, 350)
+
     return (
         <span className="text-muted text-xs whitespace-nowrap">
-            · {humanFriendlyNumber(rowsRead, 0)}
-            {showCeiling && ` / ${humanFriendlyNumber(estimatedRows, 0)}`} rows
+            · {humanFriendlyNumber(animatedRowsRead, 0)}
+            {showCeiling && ` / ${humanFriendlyNumber(animatedEstimatedTotal, 0)}`} rows read
         </span>
     )
 }

@@ -115,6 +115,22 @@ export function getMarkdownNotebookVisualGroups(
     return groups
 }
 
+// ensureEditableNotebookDocument prepends an empty `# ` title row so editors always have a
+// title to type into. Viewers can't type, so in view mode that synthetic row would render as
+// a bare "Untitled notebook" placeholder card (e.g. profile canvases whose content starts
+// with a component) — drop it from the rendered groups instead.
+export function withoutLeadingEmptyTitleGroup(groups: MarkdownNotebookVisualGroup[]): MarkdownNotebookVisualGroup[] {
+    const firstGroup = groups[0]
+    if (!firstGroup || firstGroup.type !== 'text') {
+        return groups
+    }
+    const [firstItem, ...restItems] = firstGroup.items
+    if (!firstItem || firstItem.index !== 0 || !isTextBlockNode(firstItem.node) || nodeHasContent(firstItem.node)) {
+        return groups
+    }
+    return restItems.length ? [{ ...firstGroup, items: restItems }, ...groups.slice(1)] : groups.slice(1)
+}
+
 export function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
     return node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote'
 }
@@ -470,49 +486,53 @@ export function getTextBlockShortcutReplacement(
         }
     }
 
-    if (isTitleBlock || node.type !== 'paragraph') {
+    if (isTitleBlock || (node.type !== 'paragraph' && node.type !== 'blockquote')) {
         return null
     }
 
-    if (getBlockquoteShortcut(text)) {
-        return {
-            nodes: [
-                {
-                    id: node.id,
-                    type: 'blockquote',
-                    children: [],
-                },
-            ],
-            restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+    // Only the list shortcut applies inside a quote: code blocks and dividers have no quoted
+    // form, and a quote marker typed in a quote stays literal text.
+    if (node.type === 'paragraph') {
+        if (getBlockquoteShortcut(text)) {
+            return {
+                nodes: [
+                    {
+                        id: node.id,
+                        type: 'blockquote',
+                        children: [],
+                    },
+                ],
+                restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+            }
         }
-    }
 
-    if (getCodeBlockShortcut(text)) {
-        return {
-            nodes: [
-                {
-                    id: node.id,
-                    type: 'code',
-                    text: '',
-                },
-            ],
-            restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+        if (getCodeBlockShortcut(text)) {
+            return {
+                nodes: [
+                    {
+                        id: node.id,
+                        type: 'code',
+                        text: '',
+                    },
+                ],
+                restoreSelection: { nodeId: node.id, start: 0, end: 0 },
+            }
         }
-    }
 
-    if (getDividerShortcut(text)) {
-        const trailingParagraph = makeEmptyParagraph(`divider-${node.id}`)
-        return {
-            nodes: [
-                {
-                    id: node.id,
-                    type: 'component',
-                    tagName: DIVIDER_COMPONENT_TAG,
-                    props: {},
-                },
-                trailingParagraph,
-            ],
-            restoreSelection: { nodeId: trailingParagraph.id, start: 0, end: 0 },
+        if (getDividerShortcut(text)) {
+            const trailingParagraph = makeEmptyParagraph(`divider-${node.id}`)
+            return {
+                nodes: [
+                    {
+                        id: node.id,
+                        type: 'component',
+                        tagName: DIVIDER_COMPONENT_TAG,
+                        props: {},
+                    },
+                    trailingParagraph,
+                ],
+                restoreSelection: { nodeId: trailingParagraph.id, start: 0, end: 0 },
+            }
         }
     }
 
@@ -526,6 +546,8 @@ export function getTextBlockShortcutReplacement(
                     type: 'list',
                     ordered: listShortcut.ordered,
                     start: listShortcut.start,
+                    // A list typed inside a quote stays part of the quote
+                    blockquote: node.type === 'blockquote' ? true : undefined,
                     items: [
                         {
                             id: listItemId,

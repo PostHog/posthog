@@ -40,6 +40,21 @@ def cleanup_sandbox(input: CleanupSandboxInput) -> None:
             sandbox = None
 
         if sandbox is not None:
+            if input.complete_stream_on_cleanup:
+                try:
+                    stop_result = sandbox.stop_agent_server()
+                    if stop_result.exit_code != 0:
+                        logger.warning(
+                            "cleanup_sandbox_agent_server_shutdown_timed_out",
+                            extra={"sandbox_id": input.sandbox_id},
+                        )
+                except Exception:
+                    logger.warning(
+                        "cleanup_sandbox_agent_server_shutdown_failed",
+                        extra={"sandbox_id": input.sandbox_id},
+                        exc_info=True,
+                    )
+
             try:
                 sandbox.destroy()
                 stream_completion_safe = True

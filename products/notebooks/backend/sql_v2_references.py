@@ -13,12 +13,17 @@ own ``WITH`` is left alone. Broken definitions that nothing references are never
 so an unrelated malformed node can't fail a run.
 """
 
+from dataclasses import dataclass
+from typing import Any
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.visitor import TraversingVisitor
+
+from products.notebooks.backend.python_analysis import analyze_python_globals
 
 
 class SQLV2ReferenceError(Exception):
@@ -124,3 +129,43 @@ def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
     root.ctes = ctes
 
     return print_prepared_ast(root, context=HogQLContext(team_id=None), dialect="hogql")
+
+
+@dataclass(frozen=True)
+class PythonNodeRef:
+    """The latest completed run of an upstream node a Python frame can materialize from."""
+
+    node_id: str
+    run_id: str
+    query: str
+
+
+def resolve_python_node_inputs(code: str, refs: dict[str, PythonNodeRef | None]) -> list[dict[str, Any]]:
+    """Return the materialization specs for the upstream frames a Python node reads.
+
+    `refs` maps each named upstream node's dataframe name to its **latest completed run**
+    (or None if it has never completed a run). A Python node references frames as plain
+    variables, so we materialize only the names its code actually reads — each becomes a
+    HogQL input the executor fetches to a local Arrow file, keyed by the upstream `run_id`
+    so a re-run of that node yields a fresh frame (not stale data) and the executor can
+    evict the node's superseded frames.
+
+    Raises SQLV2ReferenceError if the code reads a known node that has not been run yet.
+    """
+    used = set(analyze_python_globals(code).used)
+    inputs: list[dict[str, Any]] = []
+    for name, ref in refs.items():
+        if not name or name not in used:
+            continue
+        if ref is None or not ref.query.strip():
+            raise SQLV2ReferenceError(f"Referenced node '{name}' has not been run yet — run it first.")
+        inputs.append(
+            {
+                "name": name,
+                "kind": "hogql",
+                "node_id": ref.node_id,
+                "run_id": ref.run_id,
+                "query": ref.query,
+            }
+        )
+    return inputs

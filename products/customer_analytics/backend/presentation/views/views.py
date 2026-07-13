@@ -47,6 +47,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
     CustomPropertyValueSerializer,
+    CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
 )
 
@@ -221,6 +222,33 @@ class CustomPropertyDefinitionViewSet(
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="key",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Id of the custom property definition to suggest values for.",
+            ),
+            OpenApiParameter(
+                name="value",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring to narrow the suggestions.",
+            ),
+        ],
+        responses={200: CustomPropertyValueSuggestionsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def values(self, request: Request, *args, **kwargs) -> Response:
+        key = request.GET.get("key")
+        if not key:
+            return Response({"results": [], "refreshing": False})
+        suggestions = api.list_custom_property_value_suggestions(self.team_id, key, request.GET.get("value"))
+        return Response({"results": [{"name": value} for value in suggestions], "refreshing": False})
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = CustomPropertyDefinitionSerializer(data=request.data)

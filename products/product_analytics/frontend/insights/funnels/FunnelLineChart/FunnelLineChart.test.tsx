@@ -2,9 +2,18 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
-import { ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
+import { dragSelection, ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 
-import { buildFunnelsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import {
+    buildFunnelsQuery,
+    chart,
+    getHogChart,
+    getQuerySource,
+    personsModal,
+    renderInsight,
+} from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope } from '~/types'
 
@@ -246,5 +255,38 @@ describe('FunnelLineChart', () => {
                 }
             }
         )
+    })
+
+    describe('drag-to-zoom', () => {
+        const zoomFlag = { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true }
+        const totalLabels = 5 // funnelTrendsSteps.default has 5 days/labels
+
+        it('reports the dragged range as day strings to context.onDateRangeZoom', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildFunnelsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
+
+            const canvas = await screen.findByLabelText(/chart with/i)
+            dragSelection(canvas.parentElement!, 1, 3, totalLabels)
+
+            await waitFor(() => {
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
+            })
+        })
+
+        it('ignores drags when the drag-to-zoom flag is off', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({
+                query: buildFunnelsQuery(),
+                context: { onDateRangeZoom },
+                featureFlags: { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: false },
+            })
+
+            const canvas = await screen.findByLabelText(/chart with/i)
+            dragSelection(canvas.parentElement!, 1, 3, totalLabels)
+
+            // A regression dropping the flag gate would ship zoom to everyone.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(getQuerySource().dateRange).toBeUndefined()
+        })
     })
 })
