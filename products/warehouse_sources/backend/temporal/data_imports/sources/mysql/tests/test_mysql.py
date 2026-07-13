@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
     _is_transient_vitess_dial_timeout,
+    _is_transient_vitess_reparent,
     _release_streaming_cursor,
     _retry_on_transient_tablet_unavailable,
     _safe_convert_date,
@@ -1216,6 +1217,40 @@ class TestIsTransientTabletUnavailable:
         assert not _is_transient_tablet_unavailable(ValueError("code = Unavailable"))
 
 
+class TestIsTransientVitessReparent:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The shape Vitess/PlanetScale surfaces while a shard is mid-failover — the target
+            # keyspace/shard prefix varies, the `reparent operation in progress` phrase is stable.
+            "unknown: target: keyspace.-.primary: primary is not serving, "
+            "there may be a reparent operation in progress",
+            # Older Vitess used "master" wording; the tail phrase we match is unchanged.
+            "target: keyspace.0.master: master is not serving, there may be a reparent operation in progress",
+        ],
+    )
+    def test_matches_reparent(self, message):
+        assert _is_transient_vitess_reparent(pymysql.err.OperationalError(1105, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # Other 1105 payloads and the tablet-unavailable sibling are not this class.
+            (1105, "vttablet: rpc error: code = Unavailable desc = node is shutting down"),
+            (1105, "vttablet: rpc error: code = InvalidArgument desc = some bad request"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_vitess_reparent(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_vitess_reparent(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_vitess_reparent(ValueError("reparent operation in progress"))
+
+
 class TestRetryOnTransientTabletUnavailable:
     @staticmethod
     def _unavailable() -> pymysql.err.OperationalError:
@@ -1240,6 +1275,19 @@ class TestRetryOnTransientTabletUnavailable:
 
         assert operation.call_count == fail_count + 1
         assert [c.args[0] for c in sleep.call_args_list] == expected_sleeps
+
+    def test_retries_vitess_reparent_then_succeeds(self, mocker):
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        reparent = pymysql.err.OperationalError(
+            1105,
+            "unknown: target: keyspace.-.primary: primary is not serving, "
+            "there may be a reparent operation in progress",
+        )
+        operation = MagicMock(side_effect=[reparent, "ok"])
+
+        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
+
+        assert operation.call_count == 2
 
     def test_gives_up_after_max_attempts(self, mocker):
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
