@@ -764,6 +764,85 @@ def process_property_removal_per_shard(
     return deletion_request
 
 
+@dagster.op(tags=OWNER_TAG)
+def verify_property_removal(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    deletion_request: DeletionRequestContext,
+) -> DeletionRequestContext:
+    """Fail the run when property removal left originals behind or duplicated cleaned rows.
+
+    Two checks over the distributed ``events`` table:
+    - remaining: rows still matching the full removal predicate (same builder and
+      ``inserted_at_max`` bound as the copy/delete passes, so post-marker ingestion
+      cannot wedge verification). Non-zero means an original survived.
+    - duplicates: uuids appearing more than once among marker-stamped rows. Non-zero
+      means a cleaned re-insert was duplicated.
+    """
+    marker = deletion_request.inserted_at_marker
+    if marker is None:
+        raise dagster.Failure(description="property_removal_marker missing; load_property_removal_request must set it")
+    marker_str = marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+    hogql_compiled = compile_hogql_predicate(deletion_request)
+    properties = deletion_request.properties
+    person_properties = deletion_request.person_properties
+
+    def check(client: Client) -> tuple[int, int]:
+        mat_cols = (
+            _get_affected_mat_columns(client, "events", properties, table_column="properties") if properties else []
+        )
+        person_mat_cols = (
+            _get_affected_mat_columns(client, "events", person_properties, table_column="person_properties")
+            if person_properties
+            else []
+        )
+        predicate, params = _property_removal_where(
+            deletion_request,
+            mat_cols=mat_cols,
+            person_mat_cols=person_mat_cols,
+            inserted_at_max=marker_str,
+            hogql_compiled=hogql_compiled,
+        )
+        remaining = client.execute(
+            f"SELECT count() FROM events WHERE {predicate} AND _row_exists = 1",
+            params,
+            settings={"max_execution_time": 1800},
+        )[0][0]
+        duplicates = client.execute(
+            "SELECT count() FROM ("
+            "SELECT uuid FROM events "
+            "WHERE team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s "
+            "AND inserted_at = toDateTime64(%(marker)s, 6, 'UTC') AND _row_exists = 1 "
+            "GROUP BY uuid HAVING count() > 1)",
+            {
+                "team_id": deletion_request.team_id,
+                "start_time": deletion_request.start_time,
+                "end_time": deletion_request.end_time,
+                "marker": marker_str,
+            },
+            settings={"max_execution_time": 1800},
+        )[0][0]
+        return remaining, duplicates
+
+    remaining, duplicates = cluster.any_host(check).result()
+    context.add_output_metadata(
+        {
+            "remaining_originals": dagster.MetadataValue.int(remaining),
+            "duplicated_cleaned_uuids": dagster.MetadataValue.int(duplicates),
+        }
+    )
+    if remaining or duplicates:
+        raise dagster.Failure(
+            description=(
+                f"Property removal verification failed for request {deletion_request.request_id}: "
+                f"{remaining} events still match the removal predicate, "
+                f"{duplicates} cleaned uuids are duplicated. Investigate before re-approving."
+            )
+        )
+    context.log.info("Property removal verified: no residual originals, no duplicated cleaned rows.")
+    return deletion_request
+
+
 # ---------------------------------------------------------------------------
 # Person removal ops
 # ---------------------------------------------------------------------------
@@ -1087,9 +1166,11 @@ def data_deletion_request_event_removal():
 @dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
 def data_deletion_request_property_removal():
     """Execute an approved property removal request: per shard, copy events, drop properties,
-    re-insert, delete originals, drop temp."""
+    re-insert, delete originals, drop temp — then verify completeness and uniqueness before
+    finalizing."""
     request = load_property_removal_request()
     request = process_property_removal_per_shard(request)
+    request = verify_property_removal(request)
     finalize_deletion_request(request)
 
 

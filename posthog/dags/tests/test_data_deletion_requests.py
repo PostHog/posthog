@@ -1479,7 +1479,7 @@ def test_full_job_property_removal_clears_materialized_columns(
 def _insert_events_with_properties_and_inserted_at(events: list[tuple], client: Client) -> None:
     # writable_events does not expose inserted_at, so write the shard-local table directly.
     client.execute(
-        "INSERT INTO sharded_events (team_id, event, uuid, timestamp, properties, inserted_at) VALUES",
+        "INSERT INTO sharded_events (team_id, event, uuid, distinct_id, timestamp, properties, inserted_at) VALUES",
         events,
     )
 
@@ -1503,10 +1503,10 @@ def test_full_job_property_removal_leaves_events_ingested_after_marker_untouched
     now = datetime.now()
     props = json.dumps({"secret": "value", "keep": "yes"})
     in_scope = [
-        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props, marker - timedelta(hours=1))
+        (PROP_TEAM_ID, "$pageview", uuid4(), "user-1", now - timedelta(hours=i + 1), props, marker - timedelta(hours=1))
         for i in range(5)
     ]
-    late = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=1), props, marker + timedelta(hours=1))]
+    late = [(PROP_TEAM_ID, "$pageview", uuid4(), "user-1", now - timedelta(hours=1), props, marker + timedelta(hours=1))]
     cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, in_scope + late)).result()
 
     request = DataDeletionRequest.objects.create(
@@ -1575,6 +1575,46 @@ def test_full_job_property_removal_rerun_after_delete_failure_does_not_duplicate
     stamped, total = cluster.any_host(partial(_count_marker_rows, PROP_TEAM_ID, marker)).result()
     assert total == 20
     assert stamped == 20
+
+
+@pytest.mark.django_db
+def test_full_job_property_removal_fails_on_residual_duplicates(cluster: ClickhouseCluster):
+    from django.utils import timezone
+
+    marker = timezone.now() - timedelta(minutes=5)
+    now = datetime.now()
+    dup_uuid = uuid4()
+    clean = json.dumps({"keep": "yes"})
+    dirty = json.dumps({"secret": "value", "keep": "yes"})
+    # Two cleaned twins of one uuid from a hypothetically-broken earlier attempt. All three rows
+    # carry different distinct_ids (distinct sorting keys) so a background replacing merge cannot
+    # collapse any of them mid-test — byte-identical twins self-heal within seconds, un-seeding
+    # the corruption before verification gets to observe it.
+    rows = [
+        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-0", now - timedelta(hours=1), dirty, marker - timedelta(hours=1)),
+        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-1", now - timedelta(hours=1), clean, marker),
+        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-2", now - timedelta(hours=1), clean, marker),
+    ]
+    cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, rows)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["secret"],
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.APPROVED,
+        property_removal_marker=marker,
+    )
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
+        resources={"cluster": cluster},
+        raise_on_error=False,
+    )
+    assert not result.success
+    request.refresh_from_db()
+    assert request.status == RequestStatus.FAILED
 
 
 @pytest.mark.django_db
