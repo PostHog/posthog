@@ -361,14 +361,6 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "allow_staff": True,
     },
     {
-        # Impersonation read-only/read-write changes are staff-only operations and must not
-        # surface to the impersonated customer's org admins.
-        "scope": "User",
-        "activities": ["impersonation_upgraded", "impersonation_downgraded"],
-        "exclude_when": {},
-        "allow_staff": True,
-    },
-    {
         "scope": "User",
         "activities": ["created", "updated"],
         "exclude_when": {},

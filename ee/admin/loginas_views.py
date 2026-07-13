@@ -1,7 +1,7 @@
 import json
-import dataclasses
 from typing import Optional
 
+from django.contrib.admin.models import CHANGE, LogEntry
 from django.http import Http404, JsonResponse
 from django.views.decorators.http import require_http_methods
 
@@ -17,50 +17,31 @@ from posthog.middleware import (
     is_read_only_impersonation,
 )
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 
 logger = structlog.get_logger(__name__)
 
 
-@dataclasses.dataclass(frozen=True)
-class ImpersonationContext(ActivityContextBase):
-    staff_user_email: str
-    target_user_email: Optional[str]
-    reason: str
-    mode: str
+def _log_impersonation_mode_change(staff_user: User, target_user: Optional[User], reason: str, mode: str) -> None:
+    """Record an impersonation upgrade/downgrade in the Django admin audit log.
 
-
-def _log_impersonation_mode_change(staff_user: User, target_user: Optional[User], reason: str, activity: str) -> None:
-    """Record an impersonation upgrade/downgrade in the activity log (staff-only visibility).
-
-    Actor is the original staff user; the entry is scoped to the impersonated user's org so it
-    surfaces in the org-level activity log. Logging must never break the mode change itself.
+    Mirrors how `loginas` records impersonation starts (a LogEntry against the target user,
+    attributed to the original staff user) so mode changes share the same audit trail. Logging
+    must never break the mode change itself.
     """
-    if not target_user or not target_user.current_organization_id:
+    if not target_user:
         return
-    mode = "read_write" if activity == "impersonation_upgraded" else "read_only"
+    change_message = f"User {staff_user} changed impersonation of {target_user} to {mode}."
+    if reason:
+        change_message += f" Reason: {reason}"
     try:
-        log_activity(
-            organization_id=target_user.current_organization_id,
-            team_id=None,
-            user=staff_user,
-            item_id=target_user.id,
-            scope="User",
-            activity=activity,
-            detail=Detail(
-                name=target_user.email,
-                changes=[],
-                context=ImpersonationContext(
-                    staff_user_email=staff_user.email,
-                    target_user_email=target_user.email,
-                    reason=reason,
-                    mode=mode,
-                ),
-            ),
-            was_impersonated=True,
+        LogEntry.objects.log_actions(
+            user_id=staff_user.pk,
+            queryset=[target_user],
+            change_message=change_message,
+            action_flag=CHANGE,
         )
     except Exception:
-        logger.exception("Failed to log impersonation mode change", activity=activity)
+        logger.exception("Failed to log impersonation mode change", mode=mode)
 
 
 def loginas_user(request, user_id):
@@ -129,7 +110,7 @@ def upgrade_impersonation(request):
             "reason": reason,
         },
     )
-    _log_impersonation_mode_change(staff_user, target_user, reason, "impersonation_upgraded")
+    _log_impersonation_mode_change(staff_user, target_user, reason, "read-write")
 
     return JsonResponse({"success": True})
 
@@ -169,6 +150,6 @@ def downgrade_impersonation(request):
             "reason": reason,
         },
     )
-    _log_impersonation_mode_change(staff_user, target_user, reason, "impersonation_downgraded")
+    _log_impersonation_mode_change(staff_user, target_user, reason, "read-only")
 
     return JsonResponse({"success": True})

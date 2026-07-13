@@ -37,19 +37,5 @@ export function userActivityDescriber(logItem: ActivityLogItem, asNotification?:
         }
     }
 
-    if (logItem.activity === 'impersonation_upgraded' || logItem.activity === 'impersonation_downgraded') {
-        const target = context?.target_user_email || logItem.detail?.name || 'a user'
-        const mode = logItem.activity === 'impersonation_upgraded' ? 'read-write' : 'read-only'
-        return {
-            description: (
-                <>
-                    <strong>{userNameForLogItem(logItem)}</strong> changed impersonation of <strong>{target}</strong> to{' '}
-                    {mode}
-                    {context?.reason && <> (reason: {context.reason})</>}
-                </>
-            ),
-        }
-    }
-
     return defaultDescriber(logItem, asNotification)
 }

@@ -8,6 +8,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt, override_settings
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.contrib.admin.models import LogEntry
 from django.core.cache import cache
 from django.http import HttpResponse, HttpResponseRedirect
 from django.test import (
@@ -26,7 +27,6 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import per_request_logging_context_middleware
-from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1474,28 +1474,27 @@ class TestUpgradeImpersonation(APIBaseTest):
         self.login_as_read_only()
         assert self.client.get("/api/users/@me/").json()["is_impersonated_reason"] == "Initial read-only impersonation"
 
-    def test_upgrade_exposes_reason_and_logs_activity(self):
+    def test_upgrade_exposes_reason_and_logs_admin_audit(self):
         self.login_as_read_only()
 
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(
-                reverse("impersonation-upgrade"),
-                data=json.dumps({"reason": "Upgrade reason for ticket #5678"}),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "Upgrade reason for ticket #5678"}),
+            content_type="application/json",
+        )
         assert response.status_code == 200
 
         # Reason is surfaced to the frontend for autofill
         assert self.client.get("/api/users/@me/").json()["is_impersonated_reason"] == "Upgrade reason for ticket #5678"
 
-        # And recorded in the activity log, attributed to the staff user, scoped to the target
-        log = ActivityLog.objects.filter(scope="User", activity="impersonation_upgraded").latest("created_at")
-        assert log.was_impersonated is True
-        assert log.user_id == self.user.id
-        assert str(log.item_id) == str(self.other_user.id)
-        assert log.detail is not None
-        assert log.detail["context"]["reason"] == "Upgrade reason for ticket #5678"
-        assert log.detail["context"]["mode"] == "read_write"
+        # And recorded in the Django admin audit log, attributed to the staff user, against the target
+        log = LogEntry.objects.filter(
+            user_id=self.user.id,
+            object_id=str(self.other_user.id),
+            change_message__contains="changed impersonation",
+        ).latest("action_time")
+        assert "read-write" in log.change_message
+        assert "Upgrade reason for ticket #5678" in log.change_message
 
     def test_upgrade_returns_404_when_not_impersonated(self):
         response = self.client.post(
@@ -1612,15 +1611,14 @@ class TestDowngradeImpersonation(APIBaseTest):
         user_response = self.client.get("/api/users/@me/")
         assert user_response.json()["is_impersonated_read_only"] is True
 
-    def test_downgrade_exposes_reason_and_logs_activity(self):
+    def test_downgrade_exposes_reason_and_logs_admin_audit(self):
         self.login_as_read_write()
 
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(
-                reverse("impersonation-downgrade"),
-                data=json.dumps({"reason": "Done with changes, back to read-only"}),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Done with changes, back to read-only"}),
+            content_type="application/json",
+        )
         assert response.status_code == 200
 
         assert (
@@ -1628,13 +1626,13 @@ class TestDowngradeImpersonation(APIBaseTest):
             == "Done with changes, back to read-only"
         )
 
-        log = ActivityLog.objects.filter(scope="User", activity="impersonation_downgraded").latest("created_at")
-        assert log.was_impersonated is True
-        assert log.user_id == self.user.id
-        assert str(log.item_id) == str(self.other_user.id)
-        assert log.detail is not None
-        assert log.detail["context"]["reason"] == "Done with changes, back to read-only"
-        assert log.detail["context"]["mode"] == "read_only"
+        log = LogEntry.objects.filter(
+            user_id=self.user.id,
+            object_id=str(self.other_user.id),
+            change_message__contains="changed impersonation",
+        ).latest("action_time")
+        assert "read-only" in log.change_message
+        assert "Done with changes, back to read-only" in log.change_message
 
     def test_downgrade_returns_404_when_not_impersonated(self):
         response = self.client.post(
