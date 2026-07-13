@@ -20,7 +20,10 @@ describe('toolbarApi request error reporting', () => {
         const result = await toolbarApi.get('/api/projects/@current/product_tours/', { context: 'load_product_tours' })
 
         expect(result.ok).toBe(false)
-        expect(result.error?.isNetworkError).toBe(true)
+        if (result.ok) {
+            throw new Error('expected a failure result')
+        }
+        expect(result.error.isNetworkError).toBe(true)
         expect(mockCaptureException).not.toHaveBeenCalled()
     })
 
