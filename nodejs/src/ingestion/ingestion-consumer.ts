@@ -215,16 +215,12 @@ export class IngestionConsumer {
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
         })
 
-        this.groupStore = new BatchWritingGroupStore(
-            this.deps.groupRepository,
-            this.deps.clickhouseGroupRepository,
-            {
-                useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
-                maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-                maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-                optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-            }
-        )
+        this.groupStore = new BatchWritingGroupStore(this.deps.groupRepository, this.deps.clickhouseGroupRepository, {
+            useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
+            maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+            maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+            optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+        })
 
         this.kafkaConsumer = createKafkaConsumer({
             groupId: this.groupId,
