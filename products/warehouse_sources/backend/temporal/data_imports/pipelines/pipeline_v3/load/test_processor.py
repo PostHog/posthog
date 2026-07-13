@@ -355,9 +355,12 @@ class TestProcessMessagesCoalescing:
     ) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_OP_COLUMN
 
-        schema = pa.schema(
-            [pa.field("id", pa.int64()), pa.field("name", pa.string()), pa.field(CDC_OP_COLUMN, pa.string())]
-        )
+        schema_fields: list[pa.Field] = [
+            pa.field("id", pa.int64()),
+            pa.field("name", pa.string()),
+            pa.field(CDC_OP_COLUMN, pa.string()),
+        ]
+        schema = pa.schema(schema_fields)
         # Existing Delta state has no row for the PK — sequential per-batch merges
         # would still enrich the DELETE because batch 1's INSERT lands in Delta
         # before batch 2's merge reads it. The coalesced path must recover the
