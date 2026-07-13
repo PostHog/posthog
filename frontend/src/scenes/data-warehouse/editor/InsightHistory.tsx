@@ -15,9 +15,9 @@ import { fullName } from 'lib/utils/strings'
 
 import { QueryBasedInsightModel } from '~/types'
 
-import { OutputTab, outputPaneLogic } from '../outputPaneLogic'
-import { sqlEditorLogic, toDataVisualizationNode } from '../sqlEditorLogic'
+import { editorSceneLogic } from './editorSceneLogic'
 import { InsightQueryVersion, insightHistoryLogic } from './insightHistoryLogic'
+import { sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
 
 interface VersionRowShellProps {
     createdAt: string
@@ -89,7 +89,7 @@ function VersionRowShell({
 
 function EditVersionRow({ version, isCurrent }: { version: InsightQueryVersion; isCurrent: boolean }): JSX.Element {
     const { setSuggestedQueryInput } = useActions(sqlEditorLogic)
-    const { setActiveTab } = useActions(outputPaneLogic)
+    const { closeHistoryModal } = useActions(editorSceneLogic)
 
     return (
         <VersionRowShell
@@ -109,7 +109,8 @@ function EditVersionRow({ version, isCurrent }: { version: InsightQueryVersion; 
                     ? undefined
                     : () => {
                           setSuggestedQueryInput(version.afterSql, 'query_history')
-                          setActiveTab(OutputTab.Results)
+                          // Close the modal so the restore diff in the editor is visible
+                          closeHistoryModal()
                       }
             }
         >
@@ -129,7 +130,7 @@ function OriginalVersionRow({
     isCurrent: boolean
 }): JSX.Element {
     const { setSuggestedQueryInput } = useActions(sqlEditorLogic)
-    const { setActiveTab } = useActions(outputPaneLogic)
+    const { closeHistoryModal } = useActions(editorSceneLogic)
 
     return (
         <VersionRowShell
@@ -151,7 +152,7 @@ function OriginalVersionRow({
                     ? undefined
                     : () => {
                           setSuggestedQueryInput(sql, 'query_history')
-                          setActiveTab(OutputTab.Results)
+                          closeHistoryModal()
                       }
             }
         >

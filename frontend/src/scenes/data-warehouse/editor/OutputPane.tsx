@@ -7,7 +7,6 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
-    IconClock,
     IconCode,
     IconColumns,
     IconCopy,
@@ -30,7 +29,6 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -81,7 +79,6 @@ import {
     copyTableToMarkdown,
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
-import { InsightHistory } from './output-pane-tabs/InsightHistory'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
@@ -171,12 +168,6 @@ const outputTabs: OutputTabConfig[] = [
         icon: <IconGraph />,
     },
 ]
-
-const historyTab: OutputTabConfig = {
-    key: OutputTab.History,
-    label: 'History',
-    icon: <IconClock />,
-}
 
 const cleanClickhouseType = (type: string | undefined): string | undefined => {
     if (!type) {
@@ -591,19 +582,11 @@ interface OutputPaneProps {
 }
 
 export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPaneProps): JSX.Element {
-    const { activeTab: rawActiveTab } = useValues(outputPaneLogic)
+    const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
-    const queryHistoryEnabled = useFeatureFlag('SQL_EDITOR_QUERY_HISTORY')
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, editingInsight } =
-        useValues(sqlEditorLogic)
+    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
     const { setSourceQuery } = useActions(sqlEditorLogic)
-
-    // insightLoading counts too, so the tab is there as soon as edit mode opens rather than after the fetch
-    const showHistoryTab = queryHistoryEnabled && (!!editingInsight?.id || insightLoading)
-    // If the history tab is hidden (flag off, or not editing a saved insight), fall back to results
-    const activeTab = !showHistoryTab && rawActiveTab === OutputTab.History ? OutputTab.Results : rawActiveTab
-    const visibleTabs = showHistoryTab ? [...outputTabs, historyTab] : outputTabs
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -810,7 +793,6 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
         isEmbeddedMode,
-        editingInsight,
     }
     const sharedActionsProps = {
         response,
@@ -870,7 +852,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
                 <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                     <div className="flex min-h-[41px] gap-2 ml-4">
                         {splitToggle}
-                        {visibleTabs.map((tab) => (
+                        {outputTabs.map((tab) => (
                             <OutputTabLabel
                                 key={tab.key}
                                 tab={tab}
@@ -1124,7 +1106,6 @@ const Content = ({
     insightLoading,
     showVisualizationSettings,
     isEmbeddedMode,
-    editingInsight,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1155,17 +1136,6 @@ const Content = ({
         })
     }, [rows, sortColumns])
     const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
-
-    // Version history is independent of the current query's response state, so it renders before error/loading branches
-    if (activeTab === OutputTab.History) {
-        return (
-            <TabScroller data-attr="sql-editor-output-pane-history">
-                <div className="px-4 py-2 border-t">
-                    <InsightHistory insight={editingInsight ?? null} />
-                </div>
-            </TabScroller>
-        )
-    }
 
     if (hasError) {
         return (

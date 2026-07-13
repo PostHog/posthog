@@ -63,7 +63,7 @@ export interface InsightActivityPage {
 }
 
 export const insightHistoryLogic = kea<insightHistoryLogicType>([
-    path(['data-warehouse', 'editor', 'output-pane-tabs', 'insightHistoryLogic']),
+    path(['data-warehouse', 'editor', 'insightHistoryLogic']),
     props({} as InsightHistoryLogicProps),
     key((props) => props.insightId),
     loaders(({ props }) => ({

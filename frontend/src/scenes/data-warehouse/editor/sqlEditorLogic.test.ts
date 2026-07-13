@@ -1859,35 +1859,6 @@ describe('sqlEditorLogic', () => {
         })
 
         it.each([
-            [OutputTab.History, OutputTab.Results],
-            [OutputTab.Visualization, OutputTab.Visualization],
-            [OutputTab.Both, OutputTab.Both],
-        ])('running a query from the %s output tab lands on the %s tab', async (startTab, expectedTab) => {
-            const performQuerySpy = jest
-                .spyOn(queryRunner, 'performQuery')
-                .mockResolvedValue({ results: [], columns: [], types: [] } as never)
-
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
-
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
-            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
-            await new Promise((resolve) => setTimeout(resolve, 0))
-
-            logic.actions.setActiveTab(startTab)
-            logic.actions.runQuery()
-            await new Promise((resolve) => setTimeout(resolve, 0))
-
-            expect(logic.values.outputActiveTab).toEqual(expectedTab)
-
-            performQuerySpy.mockRestore()
-        })
-
-        it.each([
             ['query_history' as const, 'Restore', 'Cancel'],
             ['max_ai' as const, 'Accept', 'Reject'],
         ])('suggestions from %s use the %s/%s handlers', async (source, acceptText, rejectText) => {

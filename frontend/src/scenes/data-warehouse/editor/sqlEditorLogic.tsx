@@ -1293,11 +1293,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: executedSource,
                 }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, executedSource)
 
-                // Running from the history tab should surface the results; other tabs (incl. split view) stay put
-                if (values.outputActiveTab === OutputTab.History) {
-                    actions.setActiveTab(OutputTab.Results)
-                }
-
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
                 const compactQuery = query.replace(/\s+/g, ' ').trim()
