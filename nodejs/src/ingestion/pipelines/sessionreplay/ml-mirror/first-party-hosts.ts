@@ -1,12 +1,12 @@
 import { parse as parseHostname } from 'tldts'
 
 /**
- * Reduce a team's recording domains to registrable-domain patterns; the anonymizer collapses
- * matching hosts to `example.com`.
+ * Reduce a team's first-party URL entries (recording domains and app URLs) to deduplicated
+ * registrable-domain patterns; the anonymizer collapses matching hosts to `example.com`.
  */
-export function firstPartyHostPatterns(recordingDomains: string[] | null | undefined): string[] {
+export function firstPartyHostPatterns(firstPartyUrlEntries: string[] | null | undefined): string[] {
     const patterns: string[] = []
-    for (const domain of recordingDomains ?? []) {
+    for (const domain of firstPartyUrlEntries ?? []) {
         // The DB column allows NULL elements; one bad entry must not poison the team refresh.
         if (typeof domain !== 'string') {
             continue
@@ -39,5 +39,6 @@ export function firstPartyHostPatterns(recordingDomains: string[] | null | undef
             patterns.push(hostname.toLowerCase())
         }
     }
-    return patterns
+    // Recording domains and app URLs routinely name the same site.
+    return [...new Set(patterns)]
 }

@@ -10,7 +10,8 @@
 //! - Host policy: the port is dropped and the host collapses to `example.com` (keeping a leading
 //!   allow-listed subdomain label) with `collapse_host` (positions that are the recorded page or
 //!   its assets by construction), when the host matches the context's first-party host patterns
-//!   (the team's recording domains), or when no patterns are configured — with nothing to classify
+//!   (the team's recording domains and app URLs), or when no patterns are configured — with
+//!   nothing to classify
 //!   against, the recorded site's own domain must not pass through. A real hostname survives only
 //!   as a classified external domain, keeping first-party and external URLs distinguishable.
 

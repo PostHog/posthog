@@ -69,6 +69,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
             session_recording_retention_period: string
             is_ai_training_opted_in: boolean
             recording_domains: string[] | null
+            app_urls: string[] | null
         } & Pick<Team, 'id' | 'api_token'>
     >(
         PostgresUse.COMMON_READ,
@@ -79,6 +80,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
                 t.capture_console_log_opt_in,
                 t.session_recording_retention_period,
                 t.recording_domains,
+                t.app_urls,
                 COALESCE(o.is_ai_training_opted_in, false) AS is_ai_training_opted_in
             FROM posthog_team t
             LEFT JOIN posthog_organization o ON o.id = t.organization_id
@@ -94,7 +96,9 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
                 teamId: row.id,
                 consoleLogIngestionEnabled: row.capture_console_log_opt_in,
                 aiTrainingOptedIn: row.is_ai_training_opted_in,
-                firstPartyHosts: firstPartyHostPatterns(row.recording_domains),
+                // App URLs (toolbar authorized URLs) fold in because many teams leave recording
+                // domains empty; either field naming a site marks its host first-party.
+                firstPartyHosts: firstPartyHostPatterns([...(row.recording_domains ?? []), ...(row.app_urls ?? [])]),
             }
             return acc
         },

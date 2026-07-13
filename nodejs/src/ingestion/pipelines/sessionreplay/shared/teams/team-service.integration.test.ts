@@ -43,4 +43,19 @@ describe('TeamService (integration)', () => {
         const teamService = new TeamService(postgres)
         expect(await teamService.getTeamByToken(apiToken)).toMatchObject({ teamId })
     })
+
+    it('folds recording_domains and app_urls into firstPartyHosts', async () => {
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_team SET recording_domains = $1, app_urls = $2 WHERE id = $3`,
+            [['https://www.recorded-site.test'], ['https://app.toolbar-site.test'], teamId],
+            'test-set-first-party-urls'
+        )
+        const teamService = new TeamService(postgres)
+
+        expect((await teamService.getTeamByToken(apiToken))?.firstPartyHosts).toEqual([
+            'recorded-site.test',
+            'toolbar-site.test',
+        ])
+    })
 })
