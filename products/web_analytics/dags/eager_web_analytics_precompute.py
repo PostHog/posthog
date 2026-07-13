@@ -611,6 +611,27 @@ def web_analytics_eager_baseline_warming_job():
     warm_eager_baseline_op()
 
 
+@dagster.job(
+    name="web_analytics_eager_backfill",
+    description=(
+        "Manual backfill of the eager baseline across the active WA audience. Same op and "
+        "per-team concurrency as the hourly warmer (WARM_TEAM_CONCURRENCY caps instantaneous "
+        "cluster pressure regardless of audience size — a bigger audience only runs longer), "
+        "but defaults to active_teams_pct=100 and gets a 24h runtime budget instead of 90min. "
+        "Fully resumable: windows built before a termination persist via their TTLs, so "
+        "relaunching skips them and continues the tail. Safe to run alongside the hourly "
+        "schedule — the pending-job unique index dedupes concurrent window builds."
+    ),
+    config={"ops": {"warm_eager_baseline_op": {"config": {"active_teams_pct": 100}}}},
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/max_runtime": str(24 * 60 * 60),
+    },
+)
+def web_analytics_eager_backfill_job():
+    warm_eager_baseline_op()
+
+
 @dagster.schedule(
     # DEPRECATED: being wound down — see module docstring. The plan is to stop
     # this schedule and validate teams on the lazy-on-read path alone; once that
