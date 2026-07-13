@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -30,6 +32,8 @@ import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
+import { FunnelTimeToConvertTable } from 'scenes/insights/views/Funnels/FunnelTimeToConvertTable'
+import { FunnelTrendsTable } from 'scenes/insights/views/Funnels/FunnelTrendsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { Paths } from 'scenes/paths/Paths'
@@ -77,6 +81,7 @@ function DashboardInsightRefreshHintOrLoading({
                 key={queryId}
                 insightProps={insightProps}
                 renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
             />
         )
     }
@@ -135,6 +140,7 @@ export function InsightVizDisplay({
         isPaths,
         hasDetailedResultsTable,
         showLegend,
+        usesInChartLegend,
         hasFormula,
         supportsDisplay,
         samplingFactor,
@@ -148,9 +154,10 @@ export function InsightVizDisplay({
         series,
         insightData,
         validationError,
+        validationErrorCode,
         theme,
     } = useValues(insightVizDataLogic(insightProps))
-    const { loadData } = useActions(insightVizDataLogic(insightProps))
+    const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
     const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
@@ -167,6 +174,7 @@ export function InsightVizDisplay({
                     key={queryId}
                     insightProps={insightProps}
                     renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                    suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
                 />
             )
         }
@@ -190,13 +198,35 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
+            const isUnsupportedDataWarehouseSettings =
+                validationErrorCode === 'data_warehouse_series_unsupported_settings'
+            const resetCta = isUnsupportedDataWarehouseSettings ? (
+                <LemonButton
+                    type="primary"
+                    loading={insightDataLoading}
+                    onClick={() =>
+                        updateQuerySource({
+                            filterTestAccounts: false,
+                            properties: undefined,
+                            samplingFactor: undefined,
+                        })
+                    }
+                >
+                    Reset unsupported settings
+                </LemonButton>
+            ) : undefined
             return (
                 <InsightValidationError
                     query={query}
                     detail={validationError}
-                    onRetry={() => {
-                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
-                    }}
+                    onRetry={
+                        resetCta
+                            ? undefined
+                            : () => {
+                                  loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+                              }
+                    }
+                    cta={resetCta}
                 />
             )
         }
@@ -253,6 +283,12 @@ export function InsightVizDisplay({
 
         return null
     })()
+
+    // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
+    // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts do
+    // when the quill in-chart legend is on (`usesInChartLegend`).
+    const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
+    const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
@@ -314,18 +350,28 @@ export function InsightVizDisplay({
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
-            (funnelsFilter?.funnelVizType === FunnelVizType.Steps ||
-                funnelsFilter?.funnelVizType === FunnelVizType.Flow) &&
             !disableTable
         ) {
-            return (
-                <SceneSection
-                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
-                    className="mt-4"
-                >
+            const funnelVizType = funnelsFilter?.funnelVizType
+            const funnelTable =
+                funnelVizType === FunnelVizType.TimeToConvert ? (
+                    <FunnelTimeToConvertTable />
+                ) : funnelVizType === FunnelVizType.Trends ? (
+                    <FunnelTrendsTable />
+                ) : funnelVizType === FunnelVizType.Steps || funnelVizType === FunnelVizType.Flow ? (
                     <FunnelStepsTable />
-                </SceneSection>
-            )
+                ) : null
+
+            if (funnelTable) {
+                return (
+                    <SceneSection
+                        title={<span className="font-semibold text-lg m-0">Detailed results</span>}
+                        className="mt-4"
+                    >
+                        {funnelTable}
+                    </SceneSection>
+                )
+            }
         }
 
         if (display === ChartDisplayType.BoxPlot && !disableTable) {
@@ -441,12 +487,12 @@ export function InsightVizDisplay({
                         <div
                             className={clsx(
                                 'InsightVizDisplay__content',
-                                supportsDisplay && showLegend && 'InsightVizDisplay__content--with-legend'
+                                showSideLegend && 'InsightVizDisplay__content--with-legend'
                             )}
                         >
                             {BlockingEmptyState ? (
                                 BlockingEmptyState
-                            ) : supportsDisplay && showLegend ? (
+                            ) : showSideLegend ? (
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
                                     <div className="InsightVizDisplay__content__right empty:hidden">

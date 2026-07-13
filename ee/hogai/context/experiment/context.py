@@ -1,9 +1,9 @@
 from posthog.schema import MaxExperimentMetricResult
 
-from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import Experiment
 
 from .prompts import (
@@ -97,16 +97,14 @@ class ExperimentContext:
             variants_section = EXPERIMENT_VARIANTS_TEMPLATE.format(variants_list=variants_list)
 
         feature_flag_variants_section = ""
-        if experiment.parameters:
-            params = experiment.parameters
-            if params.get("feature_flag_variants"):
-                variants_list = "\n".join(
-                    f"- {v.get('key', 'unknown')}: {v.get('rollout_percentage', 0)}%"
-                    for v in params["feature_flag_variants"]
-                )
-                feature_flag_variants_section = EXPERIMENT_FEATURE_FLAG_VARIANTS_TEMPLATE.format(
-                    variants_list=variants_list
-                )
+        flag_variants = experiment.feature_flag.variants if experiment.feature_flag else []
+        if flag_variants:
+            variants_list = "\n".join(
+                f"- {v.get('key', 'unknown')}: {v.get('rollout_percentage', 0)}%" for v in flag_variants
+            )
+            feature_flag_variants_section = EXPERIMENT_FEATURE_FLAG_VARIANTS_TEMPLATE.format(
+                variants_list=variants_list
+            )
 
         return EXPERIMENT_CONTEXT_TEMPLATE.format(
             experiment_name=experiment.name,

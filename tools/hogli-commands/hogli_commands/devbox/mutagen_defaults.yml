@@ -1,0 +1,65 @@
+sync:
+    defaults:
+        mode: one-way-safe
+        ignore:
+            vcs: true
+            paths:
+                # `vcs: true` ignores the `.git/` *directory*, but a git worktree
+                # checkout (e.g. `/wt`) has `.git` as a *file* (gitdir pointer),
+                # which it doesn't catch -- it would conflict with the remote's
+                # real `.git` directory on every sync. Ignore the name outright.
+                - '.git'
+
+                # Per-language deps -- OS-incompatible, prewarmed on remote AMI.
+                - 'node_modules'
+                - '.venv'
+                # PostHog's Python venv lives under `.flox/cache/venv` (flox), not
+                # `.venv`. Ignore only flox's machine-local subdirs (mirrors
+                # `.flox/.gitignore`); the tracked `.flox/env*` definition still
+                # syncs so dev-environment edits reach the box.
+                - '.flox/cache'
+                - '.flox/run'
+                - '.flox/lib'
+                - '.flox/log'
+                - '**/__pycache__'
+                - '*.pyc'
+                - '*.egg-info'
+                # Compiled native artifacts (e.g. the built hogql_parser
+                # extension) are OS-specific -- never round-trip macOS .so/.dylib
+                # onto the Linux box.
+                - '*.so'
+                - '*.dylib'
+                - '.pnpm-store'
+                - 'target'
+                - 'rust/target'
+                - 'funnel-udf/target'
+
+                # NB: don't ignore all of `common/hogql_parser` -- it holds
+                # hand-maintained C++ sources (error.cpp, parser_python.cpp,
+                # CMakeLists.txt...) that must sync. Its build outputs are caught
+                # by the *.so/build/dist/.cache/build_wasm ignores instead.
+                - 'common/hogql_parser/.cache'
+                - 'common/hogql_parser/build_wasm'
+                - 'frontend/types'
+                - 'frontend/dist'
+                - 'frontend/.cache'
+
+                # Build outputs.
+                - '.next'
+                - 'dist'
+                - 'build'
+                - '.turbo'
+                - '.parcel-cache'
+
+                # Runtime / user-local state.
+                - '.posthog/.generated'
+                - '.dagster_home'
+                - 'mprocs.log'
+                - 'bin/start.lock'
+                - '.env.local'
+
+                # Editor / OS.
+                - '.idea'
+                - '.vscode'
+                - '.cursor'
+                - '.DS_Store'

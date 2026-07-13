@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.paddle.paddle import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PaddlePermissionError,
     PaddleResumeConfig,
     _format_paddle_datetime_query_value,
@@ -15,11 +15,11 @@ from posthog.temporal.data_imports.sources.paddle.paddle import (
     paddle_source,
     validate_credentials,
 )
-from posthog.temporal.data_imports.sources.paddle.settings import ENDPOINTS
-from posthog.temporal.data_imports.sources.paddle.source import PaddleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.source import PaddleSource
 
 # We patch requests.Session.request to ensure NO real HTTP calls are made.
-MOCK_PATH = "posthog.temporal.data_imports.sources.paddle.paddle.requests.Session.request"
+MOCK_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.requests.Session.request"
 
 
 class MockResponse:
@@ -132,7 +132,9 @@ def test_validate_credentials_missing_permissions(mock_request):
 
 
 @patch(MOCK_PATH)
-@patch("posthog.temporal.data_imports.sources.paddle.paddle.get_dlt_mapping_for_external_table")
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.get_dlt_mapping_for_external_table"
+)
 def test_paddle_source(mock_get_mapping, mock_request):
     mock_get_mapping.return_value = {"id": {"data_type": "text"}}
     logger = MagicMock()
@@ -182,9 +184,12 @@ def test_get_rows_resume(mock_request):
 def test_paddle_request_fails_fast(mock_request):
     mock_request.return_value = MockResponse({"error": "rate_limited"}, status_code=429)
 
-    from posthog.temporal.data_imports.sources.paddle.paddle import _get_paddle_session, paddle_request
+    from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
+        _get_paddle_session,
+        paddle_request,
+    )
 
-    session = _get_paddle_session()
+    session = _get_paddle_session("fake")
 
     response = paddle_request(
         session,

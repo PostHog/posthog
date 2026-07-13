@@ -1,19 +1,18 @@
-use super::DataSource;
-use crate::error::{RateLimitedError, ToUserError};
-use crate::extractor::{ExtractedPartData, PartExtractor};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Error as ReqwestError};
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tempfile::TempDir;
-use tokio::{
-    fs::File,
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-    sync::Mutex,
-};
+use tokio::{fs::File, io::AsyncWriteExt, sync::Mutex};
 use tracing::{debug, info, warn};
+
+use super::{read_prepared_chunk, remove_prepared_key, DataSource, PreparedPart};
+use crate::error::{RateLimitedError, ToUserError};
+use crate::extractor::PartExtractor;
+use crate::staging::StagingGuard;
 
 // Extract a user friendly error message
 // from status code of request to the export source endpoint
@@ -77,6 +76,7 @@ pub struct DateRangeExportSourceBuilder {
     end: DateTime<Utc>,
     interval_duration: i64,
     extractor: Arc<dyn PartExtractor>,
+    staging_dir: PathBuf,
 
     // Optional with defaults
     start_qp: String,
@@ -87,6 +87,7 @@ pub struct DateRangeExportSourceBuilder {
     auth_config: AuthConfig,
     date_format: String,
     headers: HashMap<String, String>,
+    staging_max_bytes: u64,
 }
 
 impl DateRangeExportSourceBuilder {
@@ -96,6 +97,7 @@ impl DateRangeExportSourceBuilder {
         end: DateTime<Utc>,
         interval_duration: i64,
         extractor: Arc<dyn PartExtractor>,
+        staging_dir: PathBuf,
     ) -> Self {
         Self {
             base_url,
@@ -103,6 +105,7 @@ impl DateRangeExportSourceBuilder {
             end,
             interval_duration,
             extractor,
+            staging_dir,
             start_qp: "start".to_string(),
             end_qp: "end".to_string(),
             timeout: Duration::from_secs(30),
@@ -111,7 +114,13 @@ impl DateRangeExportSourceBuilder {
             auth_config: AuthConfig::None,
             date_format: "%Y-%m-%dT%H:%M:%SZ".to_string(),
             headers: HashMap::new(),
+            staging_max_bytes: 0,
         }
+    }
+
+    pub fn with_staging_max_bytes(mut self, staging_max_bytes: u64) -> Self {
+        self.staging_max_bytes = staging_max_bytes;
+        self
     }
 
     pub fn with_query_params(mut self, start_qp: String, end_qp: String) -> Self {
@@ -180,6 +189,8 @@ impl DateRangeExportSourceBuilder {
             retries: self.retries,
             retry_delay: self.retry_delay,
             extractor: self.extractor,
+            staging_dir: self.staging_dir,
+            staging_max_bytes: self.staging_max_bytes,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -198,8 +209,10 @@ pub struct DateRangeExportSource {
     pub extractor: Arc<dyn PartExtractor>,
     pub start_qp: String,
     pub end_qp: String,
+    staging_dir: PathBuf,
+    staging_max_bytes: u64,
     temp_dir: Arc<Mutex<Option<TempDir>>>,
-    prepared_keys: Arc<Mutex<HashMap<String, ExtractedPartData>>>,
+    prepared_keys: Arc<Mutex<HashMap<String, PreparedPart>>>,
     auth_config: AuthConfig,
     date_format: String,
     headers: HashMap<String, String>,
@@ -225,8 +238,16 @@ impl DateRangeExportSource {
         end: DateTime<Utc>,
         interval_duration: i64,
         extractor: Arc<dyn PartExtractor>,
+        staging_dir: PathBuf,
     ) -> DateRangeExportSourceBuilder {
-        DateRangeExportSourceBuilder::new(base_url, start, end, interval_duration, extractor)
+        DateRangeExportSourceBuilder::new(
+            base_url,
+            start,
+            end,
+            interval_duration,
+            extractor,
+            staging_dir,
+        )
     }
 
     fn interval_key((start, end): (DateTime<Utc>, DateTime<Utc>)) -> String {
@@ -291,10 +312,12 @@ impl DateRangeExportSource {
     // To support exporting directly from sources that do not provide a byte seekable interface, we need to create
     // that byte seekable interface ourselves
 
-    // This method streams the data from the source into a temp file on disk via 8kb buffers,
-    // then uses an extractor to convert the compressed/separated data into a single file that
-    // can be read/seeked through via byte offsets
-    async fn download_and_prepare_part_data(&self, key: &str) -> Result<ExtractedPartData, Error> {
+    // This method streams the compressed data from the source into a temp `.raw`
+    // file on disk, then opens a streaming decoder over it. The compressed file is
+    // kept and decompressed on demand as the job reads forward, so disk usage is
+    // bounded by the compressed size rather than the (potentially much larger)
+    // decompressed size.
+    async fn download_and_prepare_part_data(&self, key: &str) -> Result<PreparedPart, Error> {
         let (start, end) = self
             .interval_from_key(key)
             .ok_or_else(|| Error::msg("Invalid interval key"))?;
@@ -316,7 +339,7 @@ impl DateRangeExportSource {
         key: &str,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
-    ) -> Result<ExtractedPartData, Error> {
+    ) -> Result<PreparedPart, Error> {
         // All date range export APIs (Mixpanel, Amplitude, etc.) use inclusive date ranges,
         // meaning both start and end dates/times are included in the results. Our intervals
         // are created as semi-open [start, end), so we subtract one interval unit from the
@@ -375,16 +398,7 @@ impl DateRangeExportSource {
                 key
             );
             tokio::time::sleep(Duration::from_secs(2)).await;
-            let temp_dir = self.get_temp_dir_path().await?;
-
-            let empty_data_file_path = temp_dir.join(format!("{}.data", key.replace(':', "_")));
-            let empty_file = File::create(&empty_data_file_path).await?;
-            empty_file.sync_all().await?;
-
-            return Ok(ExtractedPartData {
-                data_file_path: empty_data_file_path,
-                data_file_size: 0,
-            });
+            return Ok(PreparedPart::empty());
         }
 
         if response.status().as_u16() == 429 {
@@ -408,6 +422,11 @@ impl DateRangeExportSource {
 
         let temp_dir = self.get_temp_dir_path().await?;
 
+        // Pause the job if staging is already over budget (e.g. leftover from a
+        // prior part) before we add to it, and again as the `.raw` grows.
+        let mut guard = StagingGuard::new(self.staging_dir.clone(), self.staging_max_bytes);
+        guard.check().await?;
+
         let raw_file_path = temp_dir.join(format!("{}.raw", key.replace(':', "_")));
         let mut raw_file = File::create(&raw_file_path)
             .await
@@ -427,6 +446,7 @@ impl DateRangeExportSource {
                 )
             })?;
             total_bytes += chunk.len();
+            guard.record(chunk.len() as u64).await?;
         }
 
         raw_file.sync_all().await.with_context(|| {
@@ -435,6 +455,10 @@ impl DateRangeExportSource {
                 raw_file_path.display()
             )
         })?;
+        // Final check once the whole `.raw` is on disk: the per-chunk `record` calls are
+        // throttled, so a part smaller than the check interval could otherwise exceed the
+        // limit without ever being measured. This enforces the limit at the part boundary.
+        guard.check().await?;
         info!(
             "Streamed {} bytes to file {} for key: {}",
             total_bytes,
@@ -442,27 +466,15 @@ impl DateRangeExportSource {
             key
         );
 
-        let extracted_part = self
-            .extractor
-            .extract_compressed_to_seekable_file(key, &raw_file_path, temp_dir.as_path())
-            .await
-            .with_context(|| {
-                format!("Failed to extract compressed to seekable file for key: {key}")
-            })?;
-
-        if let Err(e) = tokio::fs::remove_file(&raw_file_path).await {
-            warn!(
-                "Failed to remove raw file {0}: {e}",
-                raw_file_path.display()
-            );
-        }
+        // Keep the `.raw` file and decompress on demand as the job reads forward.
+        let reader = self.extractor.open_reader(raw_file_path.clone());
 
         info!(
-            "Extracted part key: {} with {} total bytes",
-            key, extracted_part.data_file_size
+            "Prepared key {} ({total_bytes} compressed bytes, streaming decode)",
+            key
         );
 
-        Ok(extracted_part)
+        Ok(PreparedPart::streaming(raw_file_path, reader))
     }
 
     async fn get_chunk_from_prepared_key(
@@ -471,48 +483,7 @@ impl DateRangeExportSource {
         offset: u64,
         size: u64,
     ) -> Result<Vec<u8>, Error> {
-        let extracted_part = {
-            let prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys
-                .get(key)
-                .ok_or_else(|| Error::msg(format!("Key not prepared: {key}")))?
-                .clone()
-        };
-
-        if extracted_part.data_file_size == 0 {
-            return Ok(Vec::new());
-        }
-
-        let total_size = extracted_part.data_file_size as u64;
-        if offset >= total_size {
-            return Ok(Vec::new());
-        }
-
-        let end_offset = std::cmp::min(offset + size, total_size);
-        let read_size = (end_offset - offset) as usize;
-
-        let mut file = File::open(extracted_part.data_file_path)
-            .await
-            .with_context(|| format!("Failed to open extracted data file for key: {key}"))?;
-        file.seek(std::io::SeekFrom::Start(offset))
-            .await
-            .with_context(|| {
-                format!("Failed to seek to offset {offset} in extracted data file for key: {key}")
-            })?;
-        let mut buffer = vec![0u8; read_size];
-        file.read_exact(&mut buffer).await.with_context(|| {
-            format!(
-                "Failed to read exact {read_size} bytes from extracted data file for key: {key}"
-            )
-        })?;
-
-        if end_offset == total_size {
-            if let Err(e) = self.cleanup_key(key).await {
-                warn!("Failed to cleanup key {key}: {e:?}");
-            }
-        }
-
-        Ok(buffer)
+        read_prepared_chunk(&self.prepared_keys, key, offset, size).await
     }
 }
 
@@ -528,12 +499,7 @@ impl DataSource for DateRangeExportSource {
 
     async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
         let prepared_keys = self.prepared_keys.lock().await;
-        if let Some(extracted_part) = prepared_keys.get(key) {
-            let total_bytes = extracted_part.data_file_size as u64;
-            Ok(Some(total_bytes))
-        } else {
-            Ok(None)
-        }
+        Ok(prepared_keys.get(key).and_then(|part| part.total_size))
     }
 
     async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
@@ -556,14 +522,17 @@ impl DataSource for DateRangeExportSource {
         }
     }
 
-    // The lifecycle of this temp dir matches the lifecycle of the job
-    // It should be cleaned up when the job completes, fails, panics, etc.
-    // This ensures that files are cleaned up on a per job basis, but does not clean up
-    // .raw and .data files that are created for each key that we process per job
-    // We need to make sure to properly manage the clean up of those files as well
     async fn prepare_for_job(&self) -> Result<(), Error> {
-        let temp_dir =
-            tempfile::tempdir().with_context(|| "Failed to create temp directory for job")?;
+        // Temp dir lifetime is tied to the job via self.temp_dir
+        let temp_dir = tempfile::Builder::new()
+            .prefix("job-")
+            .tempdir_in(&self.staging_dir)
+            .with_context(|| {
+                format!(
+                    "Failed to create temp directory in staging dir: {}",
+                    self.staging_dir.display()
+                )
+            })?;
         debug!("Created temp directory for job: {:?}", temp_dir.path());
 
         {
@@ -575,8 +544,7 @@ impl DataSource for DateRangeExportSource {
     }
 
     async fn cleanup_after_job(&self) -> Result<(), Error> {
-        // Best-effort:clear in-memory references and drop the job-scoped temp dir.
-        // TempDir drop removes the directory recursively; per-file deletes are redundant and noisy.
+        // Clear refs then explicitly close() the temp dir to surface removal errors
         {
             let mut prepared_keys = self.prepared_keys.lock().await;
             prepared_keys.clear();
@@ -584,8 +552,12 @@ impl DataSource for DateRangeExportSource {
         {
             let mut temp_dir_guard = self.temp_dir.lock().await;
             if let Some(temp_dir) = temp_dir_guard.take() {
-                drop(temp_dir);
-                debug!("Cleaned up temp directory");
+                let path = temp_dir.path().to_path_buf();
+                if let Err(e) = temp_dir.close() {
+                    warn!("Failed to remove temp directory {}: {e}", path.display());
+                } else {
+                    debug!("Cleaned up temp directory: {}", path.display());
+                }
             }
         }
         debug!("Job cleanup complete");
@@ -603,11 +575,11 @@ impl DataSource for DateRangeExportSource {
             }
         }
 
-        let extracted_part = self.download_and_prepare_part_data(key).await?;
+        let prepared_part = self.download_and_prepare_part_data(key).await?;
 
         {
             let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys.insert(key.to_string(), extracted_part);
+            prepared_keys.insert(key.to_string(), prepared_part);
         }
 
         Ok(())
@@ -615,18 +587,7 @@ impl DataSource for DateRangeExportSource {
 
     // Should be called after we've read the last of a key/part into memory and attempt to commit it
     async fn cleanup_key(&self, key: &str) -> Result<(), Error> {
-        let extracted_part = {
-            let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys.remove(key)
-        };
-
-        if let Some(extracted_part) = extracted_part {
-            if let Err(e) = tokio::fs::remove_file(&extracted_part.data_file_path).await {
-                warn!("Failed to remove temp file for key {}: {}", key, e);
-            } else {
-                debug!("Cleaned up key: {}", key);
-            }
-        }
+        remove_prepared_key(&self.prepared_keys, key).await;
         Ok(())
     }
 
@@ -638,40 +599,70 @@ impl DataSource for DateRangeExportSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::extractor::ExtractedPartData;
+    use crate::extractor::StreamingReader;
     use chrono::{TimeZone, Utc};
     use httpmock::MockServer;
     use std::path::Path;
-    use tokio::fs;
+    use tempfile::TempDir;
 
+    /// Test extractor that streams the downloaded body back verbatim (no
+    /// decompression, no newline normalization), so assertions can compare
+    /// against the exact plaintext body served by the mock server.
     struct MockExtractor;
 
-    #[async_trait]
     impl PartExtractor for MockExtractor {
-        async fn extract_compressed_to_seekable_file(
-            &self,
-            _key: &str,
-            raw_file_path: &Path,
-            temp_dir: &Path,
-        ) -> Result<ExtractedPartData, Error> {
-            let data_file_path = temp_dir.join(format!(
-                "{}.data",
-                raw_file_path.file_stem().unwrap().to_string_lossy()
-            ));
-            fs::copy(raw_file_path, &data_file_path).await?;
-            let metadata = fs::metadata(&data_file_path).await?;
-            Ok(ExtractedPartData {
-                data_file_path,
-                data_file_size: metadata.len() as usize,
-            })
+        fn open_reader(&self, raw_file_path: PathBuf) -> StreamingReader {
+            StreamingReader::open_verbatim(raw_file_path)
         }
+    }
+
+    /// Read a key to completion through the public source API in `chunk`-sized
+    /// forward reads, returning the reconstructed bytes. Mirrors how the job's
+    /// chunker consumes a key (monotonic offsets), and drives lazy size discovery.
+    async fn read_key_to_end(source: &DateRangeExportSource, key: &str, chunk: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut offset = 0u64;
+        loop {
+            let bytes = source.get_chunk(key, offset, chunk).await.unwrap();
+            if bytes.is_empty() {
+                break;
+            }
+            offset += bytes.len() as u64;
+            out.extend_from_slice(&bytes);
+        }
+        out
+    }
+
+    /// Count `.raw` staging files anywhere under `dir`. Peak/residual `.raw` count
+    /// is how we assert staging disk is freed (see the free-on-EOF tests below).
+    fn count_raw_files(dir: &Path) -> usize {
+        let mut count = 0;
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&d) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("raw") {
+                    count += 1;
+                }
+            }
+        }
+        count
     }
 
     const TEST_DATA: &str = r#"{"event": "test1", "timestamp": "2023-01-01T00:00:00Z"}
 {"event": "test2", "timestamp": "2023-01-01T01:00:00Z"}
 {"event": "test3", "timestamp": "2023-01-01T02:00:00Z"}"#;
 
-    fn create_test_source(base_url: String, interval_duration: i64) -> DateRangeExportSource {
+    fn create_test_source(
+        base_url: String,
+        interval_duration: i64,
+        staging_dir: PathBuf,
+    ) -> DateRangeExportSource {
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 6, 0, 0).unwrap();
 
@@ -681,6 +672,7 @@ mod tests {
             end,
             interval_duration,
             Arc::new(MockExtractor),
+            staging_dir,
         )
         .with_auth(AuthConfig::None)
         .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
@@ -692,7 +684,8 @@ mod tests {
     #[tokio::test]
     async fn test_interval_generation() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600); // 1 hour intervals
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf()); // 1 hour intervals
 
         let keys = source.keys().await.unwrap();
         assert_eq!(keys.len(), 6); // 6 hours with 1-hour intervals
@@ -731,7 +724,8 @@ mod tests {
     #[tokio::test]
     async fn test_interval_key_parsing() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00";
         let interval = source.interval_from_key(key).unwrap();
@@ -761,7 +755,8 @@ mod tests {
                 .body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -769,9 +764,11 @@ mod tests {
 
         source.prepare_key(key).await.unwrap();
 
-        let size = source.size(key).await.unwrap();
-        assert!(size.is_some());
-        assert_eq!(size.unwrap(), TEST_DATA.len() as u64);
+        // Size is discovered lazily: unknown until the stream has been read to EOF.
+        assert_eq!(source.size(key).await.unwrap(), None);
+
+        let data = read_key_to_end(&source, key, 8).await;
+        assert_eq!(data, TEST_DATA.as_bytes());
 
         source.cleanup_after_job().await.unwrap();
     }
@@ -784,7 +781,8 @@ mod tests {
             then.status(404);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -811,6 +809,7 @@ mod tests {
 
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap();
+        let _staging = TempDir::new().unwrap();
 
         let source = DateRangeExportSource::builder(
             server.url("/export"),
@@ -818,6 +817,7 @@ mod tests {
             end,
             3600,
             Arc::new(MockExtractor),
+            _staging.path().to_path_buf(),
         )
         .with_auth(AuthConfig::ApiKey {
             header_name: "X-API-Key".to_string(),
@@ -847,6 +847,7 @@ mod tests {
 
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap();
+        let _staging = TempDir::new().unwrap();
 
         let source = DateRangeExportSource::builder(
             server.url("/export"),
@@ -854,6 +855,7 @@ mod tests {
             end,
             3600,
             Arc::new(MockExtractor),
+            _staging.path().to_path_buf(),
         )
         .with_auth(AuthConfig::BearerToken {
             token: "test-token".to_string(),
@@ -877,7 +879,8 @@ mod tests {
             then.status(200).body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -904,7 +907,8 @@ mod tests {
             then.status(200).body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -914,11 +918,13 @@ mod tests {
 
         let file_size = TEST_DATA.len() as u64;
 
-        let chunk = source.get_chunk(key, file_size + 100, 10).await.unwrap();
-        assert!(chunk.is_empty());
-
+        // Reads are forward-only. A window that straddles EOF returns just the
+        // available tail; a subsequent read at EOF returns empty.
         let chunk = source.get_chunk(key, file_size - 5, 20).await.unwrap();
         assert_eq!(chunk.len(), 5);
+
+        let chunk = source.get_chunk(key, file_size, 10).await.unwrap();
+        assert!(chunk.is_empty());
 
         source.cleanup_after_job().await.unwrap();
     }
@@ -933,7 +939,8 @@ mod tests {
             then.status(401);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -958,7 +965,8 @@ mod tests {
             then.status(500);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -985,6 +993,7 @@ mod tests {
 
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap();
+        let _staging = TempDir::new().unwrap();
 
         let mut headers = HashMap::new();
         headers.insert("X-Custom-Header".to_string(), "custom-value".to_string());
@@ -995,6 +1004,7 @@ mod tests {
             end,
             3600,
             Arc::new(MockExtractor),
+            _staging.path().to_path_buf(),
         )
         .with_auth(AuthConfig::None)
         .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
@@ -1016,7 +1026,8 @@ mod tests {
             then.status(200).body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -1024,11 +1035,14 @@ mod tests {
 
         source.prepare_key(key).await.unwrap();
 
-        assert!(source.size(key).await.unwrap().is_some());
+        // The key is prepared and readable.
+        let chunk = source.get_chunk(key, 0, 8).await.unwrap();
+        assert!(!chunk.is_empty());
 
         source.cleanup_key(key).await.unwrap();
 
-        assert!(source.size(key).await.unwrap().is_none());
+        // After cleanup the key is torn down, so reading it errors.
+        assert!(source.get_chunk(key, 0, 8).await.is_err());
 
         source.cleanup_after_job().await.unwrap();
     }
@@ -1041,7 +1055,8 @@ mod tests {
             then.status(200).body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -1056,26 +1071,98 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_reading_entire_file_cleans_up_key() {
+    async fn test_reading_entire_file_frees_raw_and_keeps_size() {
         let server = MockServer::start();
         let _mock = server.mock(|when, then| {
             when.method(httpmock::Method::GET).path("/export");
             then.status(200).body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
         let key = &keys[0];
 
         source.prepare_key(key).await.unwrap();
+        assert_eq!(
+            count_raw_files(staging.path()),
+            1,
+            "prepared key stages one .raw"
+        );
 
-        let file_size = source.size(key).await.unwrap().unwrap();
+        // Reading the key to completion reconstructs the body, and the source frees
+        // the compressed `.raw` on the EOF read — no `cleanup_after_job` needed.
+        let data = read_key_to_end(&source, key, 8).await;
+        assert_eq!(data, TEST_DATA.as_bytes());
+        assert_eq!(
+            count_raw_files(staging.path()),
+            0,
+            "the .raw must be deleted once the key is fully read"
+        );
 
-        let _chunk = source.get_chunk(key, 0, file_size).await.unwrap();
+        // The bookkeeping entry is retained so the now-known size is still reportable.
+        assert_eq!(
+            source.size(key).await.unwrap(),
+            Some(TEST_DATA.len() as u64)
+        );
 
-        assert!(source.size(key).await.unwrap().is_none());
+        source.cleanup_after_job().await.unwrap();
+    }
+
+    /// Robustness proof for the hex-security finding / the A1 class of regression:
+    /// staging cleanup happens on the EOF read itself, so a caller that consumes
+    /// the final chunk and immediately treats the part as done (issuing no further
+    /// read) still frees the `.raw`. A single read larger than the body reaches EOF
+    /// in one shot; we assert the file is gone without any terminal `offset>=total`
+    /// read, and that the retained entry keeps `prepare_key` from re-downloading it.
+    #[tokio::test]
+    async fn test_raw_freed_on_single_eof_read_without_terminal_read() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(200).body(TEST_DATA);
+        });
+
+        let staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, staging.path().to_path_buf());
+        source.prepare_for_job().await.unwrap();
+
+        let keys = source.keys().await.unwrap();
+        let key = &keys[0];
+
+        source.prepare_key(key).await.unwrap();
+        assert_eq!(mock.hits(), 1);
+        assert_eq!(count_raw_files(staging.path()), 1);
+
+        // One read past the end returns the whole body and reaches EOF.
+        let bytes = source
+            .get_chunk(key, 0, TEST_DATA.len() as u64 + 4096)
+            .await
+            .unwrap();
+        assert_eq!(bytes, TEST_DATA.as_bytes());
+
+        // Cleanup fired on that read alone — no second (terminal) get_chunk issued.
+        assert_eq!(
+            count_raw_files(staging.path()),
+            0,
+            "the .raw must be freed on the EOF read, without a terminal read"
+        );
+        assert_eq!(
+            source.size(key).await.unwrap(),
+            Some(TEST_DATA.len() as u64)
+        );
+
+        // The retained entry keeps prepare_key a no-op, so the freed file is not
+        // re-downloaded (which would re-stage the .raw we just reclaimed).
+        source.prepare_key(key).await.unwrap();
+        assert_eq!(
+            mock.hits(),
+            1,
+            "prepare_key must not re-download a freed key"
+        );
+        assert_eq!(count_raw_files(staging.path()), 0);
 
         source.cleanup_after_job().await.unwrap();
     }
@@ -1083,7 +1170,8 @@ mod tests {
     #[tokio::test]
     async fn test_format_date_range_from_key() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00";
         let formatted = source.format_date_range_from_key(key).unwrap();
@@ -1094,7 +1182,8 @@ mod tests {
     #[tokio::test]
     async fn test_format_date_range_from_key_different_dates() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key = "2023-12-31T23:30:00+00:00_2024-01-01T00:30:00+00:00";
         let formatted = source.format_date_range_from_key(key).unwrap();
@@ -1105,7 +1194,8 @@ mod tests {
     #[tokio::test]
     async fn test_format_date_range_from_invalid_key() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key = "invalid-key-format";
         let formatted = source.format_date_range_from_key(key);
@@ -1116,7 +1206,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_date_range_for_key_trait_method() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key = "2023-06-15T12:00:00+00:00_2023-06-15T13:00:00+00:00";
         let date_range = source.get_date_range_for_key(key).unwrap();
@@ -1127,7 +1218,8 @@ mod tests {
     #[tokio::test]
     async fn test_format_date_range_edge_cases() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key_with_ms = "2023-01-01T00:00:00.123+00:00_2023-01-01T01:30:45.456+00:00";
         let formatted = source.format_date_range_from_key(key_with_ms).unwrap();
@@ -1154,12 +1246,14 @@ mod tests {
             then.status(429); // Always return 429
         });
 
+        let _staging = TempDir::new().unwrap();
         let source = DateRangeExportSource::builder(
             server.url("/export"),
             Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
             Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap(),
             3600,
             Arc::new(MockExtractor),
+            _staging.path().to_path_buf(),
         )
         .build()
         .unwrap();
@@ -1251,6 +1345,7 @@ mod tests {
         // the end date query parameter for inclusive APIs.
         let start = Utc.with_ymd_and_hms(2025, 6, 5, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2025, 6, 7, 0, 0, 0).unwrap();
+        let _staging = TempDir::new().unwrap();
 
         let source = DateRangeExportSource::builder(
             server.url("/export"),
@@ -1258,6 +1353,7 @@ mod tests {
             end,
             86400, // 1 day intervals - also used to adjust end date for inclusive APIs
             Arc::new(MockExtractor),
+            _staging.path().to_path_buf(),
         )
         .with_query_params("from_date".to_string(), "to_date".to_string())
         .with_date_format("%Y-%m-%d".to_string())

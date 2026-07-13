@@ -28,15 +28,18 @@ from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
+from confluent_kafka import Producer as ConfluentProducer
 from structlog import get_logger
 
 from posthog.celery import app
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
+from posthog.kafka_client.profiles import KafkaClusterProfile
+from posthog.kafka_client.routing import get_producer
 from posthog.security.outbound_proxy import internal_requests
 
 logger = get_logger(__name__)
 
-ServiceRole = Literal["events", "web", "worker", "decide", "query", "report"]
+ServiceRole = Literal["events", "web", "worker", "decide", "query", "report", "conversations"]
 
 service_dependencies: dict[ServiceRole, list[str]] = {
     "events": ["http"],
@@ -69,6 +72,7 @@ service_dependencies: dict[ServiceRole, list[str]] = {
     "decide": ["http"],
     "query": ["http", "postgres", "cache"],
     "report": ["http"],
+    "conversations": ["http", "postgres", "cache"],
 }
 
 # if atleast one of the checks is True, then the service is considered healthy
@@ -193,6 +197,18 @@ def is_postgres_connected(db_alias=DEFAULT_DB_ALIAS) -> bool:
     return True
 
 
+def get_pending_postgres_migrations() -> list[str]:
+    """
+    Return the `app_label.name` of every migration the running code knows about
+    that has not yet been applied to the default database. Empty list means up to date.
+
+    Does not swallow errors — callers decide how to treat an unreachable database.
+    """
+    executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
+    plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    return [f"{migration.app_label}.{migration.name}" for migration, _backwards in plan]
+
+
 def are_postgres_migrations_uptodate() -> bool:
     """
     Check that all migrations that the running version of the code knows about
@@ -201,13 +217,10 @@ def are_postgres_migrations_uptodate() -> bool:
     Returns `True` if so, `False` otherwise
     """
     try:
-        executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
-        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+        return not get_pending_postgres_migrations()
     except Exception:
         logger.debug("postgres_migrations_check_failure", exc_info=True)
         return False
-
-    return not plan
 
 
 def is_clickhouse_connected() -> bool:
@@ -225,6 +238,32 @@ def is_clickhouse_connected() -> bool:
         logger.debug("clickhouse_connection_failure", exc_info=True)
         return False
 
+    return True
+
+
+def is_kafka_connected() -> bool:
+    """
+    Probe Kafka connectivity for the preflight check on self-hosted instances.
+
+    Constructs a producer for the DEFAULT cluster profile (routing-aware) and
+    asks for cluster metadata with a short timeout. If either step fails, the
+    cluster is treated as unreachable.
+    """
+    if settings.DEBUG or settings.TEST:
+        return True
+
+    try:
+        producer = get_producer(profile=KafkaClusterProfile.DEFAULT)
+        # Outside TEST/DEBUG `_KafkaProducer` always wraps a real `ConfluentProducer`
+        # (the test fake has no `list_topics`), but mypy can't see that from the
+        # union type — cast to narrow it.
+        cast(ConfluentProducer, producer.producer).list_topics(timeout=3)
+    except Exception:
+        # Surface at warning, not debug: this probe exists so a self-hosted operator
+        # can see *why* /preflight blocks setup. Debug logs are off by default, which
+        # would leave them with a red light and no reason.
+        logger.warning("kafka_connection_failure", exc_info=True)
+        return False
     return True
 
 

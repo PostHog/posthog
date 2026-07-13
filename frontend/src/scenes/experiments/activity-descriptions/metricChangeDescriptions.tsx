@@ -95,6 +95,14 @@ const getRatioChanges = (metricBefore: ExperimentMetric, metricAfter: Experiment
         return `changed the denominator`
     }
 
+    // check if outlier handling was changed for either component
+    if (!equal(metricBefore.numerator_outlier_handling, metricAfter.numerator_outlier_handling)) {
+        return `changed the numerator outlier handling`
+    }
+    if (!equal(metricBefore.denominator_outlier_handling, metricAfter.denominator_outlier_handling)) {
+        return `changed the denominator outlier handling`
+    }
+
     return null
 }
 export const getMetricChanges = (

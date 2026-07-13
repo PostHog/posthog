@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import Team
 
-from products.signals.backend.api import emit_signal
+from products.signals.backend.facade.api import emit_signal
 
 
 class Command(BaseCommand):

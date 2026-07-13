@@ -5,11 +5,11 @@ import React from 'react'
 import { IconChevronRight } from '@posthog/icons'
 import { LemonDropdown, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { SpanTreeNode } from '~/queries/schema/schema-general'
 
-import { formatDuration } from './TraceFlameChart'
+import { formatDuration } from './TraceWaterfallView'
 
 interface TreeNode {
     serviceName: string
@@ -47,29 +47,49 @@ function countDescendants(node: TreeNode): number {
 }
 
 /**
+ * Count-weighted median of per-edge percentile values. Each edge contributes its value
+ * with its sample count as weight; we walk the sorted values and return the one where
+ * cumulative weight crosses half the total. A weighted *average* of medians is dragged
+ * far off by a single skewed call site (a rare slow edge pulls the whole node up); the
+ * weighted median stays within the range of actually-observed per-edge values.
+ */
+function weightedMedianByCount(samples: { value: number; count: number }[]): number {
+    const sorted = samples.filter((s) => s.count > 0).sort((a, b) => a.value - b.value)
+    if (sorted.length === 0) {
+        return 0
+    }
+    const target = sorted.reduce((acc, s) => acc + s.count, 0) / 2
+    let cumulative = 0
+    for (const s of sorted) {
+        cumulative += s.count
+        if (cumulative >= target) {
+            return s.value
+        }
+    }
+    return sorted[sorted.length - 1].value
+}
+
+/**
  * Merge multiple (parent → child) rows that describe the same span into a single node.
  * The backend's tree query emits one row per (parent_service, parent_name, service_name,
  * name) edge, so a span with multiple parents shows up multiple times. Summing across
  * rows is what makes the per-span totals here match the per-span totals in the
  * aggregation list.
  *
- * Percentiles can't be combined exactly without raw samples; we use a count-weighted
- * average, which is close enough for this UI's purpose (relative comparison).
+ * Percentiles can't be combined exactly without raw samples, so we take the count-weighted
+ * median of the per-edge percentiles (see weightedMedianByCount). Means (avg, start offset)
+ * combine exactly as a count-weighted average.
  */
 function mergeRows(rows: SpanTreeNode[]): SpanTreeNode {
     let totalCount = 0
     let totalDuration = 0
     let errorCount = 0
-    let p50Weighted = 0
-    let p95Weighted = 0
     let avgDurationWeighted = 0
     let startOffsetWeighted = 0
     for (const row of rows) {
         totalCount += row.count
         totalDuration += row.total_duration_nano
         errorCount += row.error_count
-        p50Weighted += row.p50_duration_nano * row.count
-        p95Weighted += row.p95_duration_nano * row.count
         avgDurationWeighted += row.avg_duration_nano * row.count
         startOffsetWeighted += row.avg_start_offset_nano * row.count
     }
@@ -80,8 +100,10 @@ function mergeRows(rows: SpanTreeNode[]): SpanTreeNode {
         count: totalCount,
         total_duration_nano: totalDuration,
         error_count: errorCount,
-        p50_duration_nano: p50Weighted / denom,
-        p95_duration_nano: p95Weighted / denom,
+        p50_duration_nano: weightedMedianByCount(rows.map((r) => ({ value: r.p50_duration_nano, count: r.count }))),
+        p95_duration_nano: weightedMedianByCount(rows.map((r) => ({ value: r.p95_duration_nano, count: r.count }))),
+        p99_duration_nano: weightedMedianByCount(rows.map((r) => ({ value: r.p99_duration_nano, count: r.count }))),
+        p999_duration_nano: weightedMedianByCount(rows.map((r) => ({ value: r.p999_duration_nano, count: r.count }))),
         avg_duration_nano: avgDurationWeighted / denom,
         avg_start_offset_nano: startOffsetWeighted / denom,
     }
@@ -243,6 +265,10 @@ function FlameRow({ node, fraction, selfPath, onFocus }: FlameRowProps): JSX.Ele
             p95: {fmtDur(current?.p95_duration_nano)}
             <DeltaPct current={current?.p95_duration_nano} previous={previous?.p95_duration_nano} higherIsWorse />
             {previous ? ` (prev ${fmtDur(previous.p95_duration_nano)})` : ''}
+            <br />
+            p99: {fmtDur(current?.p99_duration_nano)}
+            <DeltaPct current={current?.p99_duration_nano} previous={previous?.p99_duration_nano} higherIsWorse />
+            {previous ? ` (prev ${fmtDur(previous.p99_duration_nano)})` : ''}
             <br />
             total: {fmtDur(current?.total_duration_nano)}
             <DeltaPct current={current?.total_duration_nano} previous={previous?.total_duration_nano} higherIsWorse />

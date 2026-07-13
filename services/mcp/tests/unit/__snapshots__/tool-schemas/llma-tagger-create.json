@@ -1,0 +1,188 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "conditions": {
+            "description": "Conditions that scope when the tagger runs",
+            "items": {
+                "properties": {
+                    "id": {
+                        "description": "Stable identifier for this condition",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "properties": {
+                        "description": "Property filters that scope when this condition fires",
+                        "items": {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "rollout_percentage": {
+                        "default": 100,
+                        "description": "Percentage of matching events to apply this condition to",
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": "number"
+                    }
+                },
+                "required": ["id"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "description": {
+            "type": "string"
+        },
+        "enabled": {
+            "type": "boolean"
+        },
+        "model_configuration": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "model": {
+                            "description": "Provider model identifier to use for this tagger.",
+                            "maxLength": 100,
+                            "type": "string"
+                        },
+                        "provider": {
+                            "description": "LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax",
+                            "enum": [
+                                "openai",
+                                "anthropic",
+                                "gemini",
+                                "openrouter",
+                                "fireworks",
+                                "azure_openai",
+                                "together_ai",
+                                "minimax"
+                            ],
+                            "type": "string"
+                        },
+                        "provider_key_id": {
+                            "anyOf": [
+                                {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned."
+                        }
+                    },
+                    "required": ["provider", "model"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "name": {
+            "maxLength": 400,
+            "type": "string"
+        },
+        "tagger_config": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "max_tags": {
+                            "anyOf": [
+                                {
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Maximum number of tags to apply (null = no limit)"
+                        },
+                        "min_tags": {
+                            "default": 0,
+                            "description": "Minimum number of tags to apply",
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        "prompt": {
+                            "description": "Prompt instructing the LLM how to tag generations",
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "tags": {
+                            "description": "Available tags the LLM can assign",
+                            "items": {
+                                "properties": {
+                                    "description": {
+                                        "default": "",
+                                        "description": "Description to help the LLM classify",
+                                        "maxLength": 500,
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "description": "Tag identifier",
+                                        "maxLength": 100,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["name"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["prompt", "tags"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "source": {
+                            "description": "Hog source code to classify a generation into tags.",
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "tags": {
+                            "description": "Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.",
+                            "items": {
+                                "properties": {
+                                    "description": {
+                                        "default": "",
+                                        "description": "Description to help the LLM classify",
+                                        "maxLength": 500,
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "description": "Tag identifier",
+                                        "maxLength": 100,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["name"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["source"],
+                    "type": "object"
+                }
+            ],
+            "description": "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
+        },
+        "tagger_type": {
+            "default": "llm",
+            "description": "* `llm` - LLM\n* `hog` - Hog",
+            "enum": ["llm", "hog"],
+            "type": "string"
+        }
+    },
+    "required": ["name", "tagger_config"],
+    "type": "object"
+}

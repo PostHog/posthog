@@ -3,7 +3,7 @@
 # We do this to ensure our reference images for visual regression tests are the same during development and in CI.
 #
 
-FROM ghcr.io/posthog/playwright:v1.45.0
+FROM ghcr.io/posthog/playwright:v1.60.0
 
 WORKDIR /work
 
@@ -14,6 +14,4 @@ COPY patches/ patches/
 
 RUN pnpm install --frozen-lockfile
 
-COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json test-runner-jest.config.js test-runner-jest-environment.js ./
-
-COPY .storybook/ .storybook/
+COPY tsconfig.json ./

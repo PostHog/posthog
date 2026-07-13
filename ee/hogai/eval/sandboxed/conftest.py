@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import json
 import atexit
 import asyncio
 import logging
 import threading
 import subprocess
 from collections.abc import Generator
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -17,9 +19,12 @@ from temporalio.testing import WorkflowEnvironment
 
 from posthog.temporal.common.worker import create_worker
 
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
-from products.tasks.backend.services.local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
-from products.tasks.backend.temporal import (
+from products.tasks.backend.facade.agents import (
+    ENV_LOCAL_SKILLS_HOST_PATH,
+    CustomPromptSandboxContext,
+    LocalSkillsCache,
+)
+from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
@@ -71,7 +76,13 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
             if own_markers is not None:
                 node.own_markers = [marker for marker in own_markers if marker.name != "django_db"]
             node = node.parent
-        item.keywords.pop("django_db", None)
+        # NodeKeywords forbids __delitem__ in newer pytest — the own_markers
+        # mutation above is what actually strips the marker; this pop is a
+        # legacy belt-and-braces that's a no-op when not supported.
+        try:
+            item.keywords.pop("django_db", None)
+        except (ValueError, TypeError):
+            pass
 
 
 @pytest.fixture(scope="session")
@@ -83,7 +94,7 @@ def django_db_setup(
     django_db_keepdb: bool,
     django_db_createdb: bool,
     django_db_modify_db_settings: None,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Create the eval test DB even though eval items have no django_db marker."""
     from django.test.utils import setup_databases, teardown_databases
 
@@ -109,7 +120,7 @@ def django_db_setup(
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandboxed_eval_database_access(set_up_evals, django_db_blocker) -> Generator[None, None, None]:  # noqa: F811
+def _sandboxed_eval_database_access(set_up_evals, django_db_blocker) -> Generator[None]:  # noqa: F811
     """Use one committed eval database instead of per-test transactions."""
     django_db_blocker.unblock()
     yield
@@ -191,8 +202,15 @@ def _django_live_server(_sandboxed_eval_database_access):
     """
     from pytest_django.live_server_helper import LiveServer
 
-    server = LiveServer(f"localhost:{DJANGO_LIVE_PORT}")
-    logger.info("Django live server started at %s", server.url)
+    # Bind on all interfaces so the sandbox Docker container can reach the server
+    # via ``host.docker.internal`` (the docker bridge gateway). The socket binds
+    # at thread start using this host; we then re-point ``thread.host`` at
+    # localhost purely so ``server.url`` advertises a loopback address to
+    # host-side clients (MCP server, LLM gateway) — the already-bound 0.0.0.0
+    # socket still accepts both loopback and bridge connections.
+    server = LiveServer(f"0.0.0.0:{DJANGO_LIVE_PORT}")
+    server.thread.host = "127.0.0.1"
+    logger.info("Django live server started at %s (bound on 0.0.0.0)", server.url)
 
     yield server
 
@@ -201,7 +219,7 @@ def _django_live_server(_sandboxed_eval_database_access):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
+def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path]:
     """Build local skills once per session; bind-mount into every sandbox.
 
     Uses a content-hash cache so repeat runs skip the build when nothing has
@@ -227,7 +245,7 @@ def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _temporal_test_server() -> Generator[tuple[str, str, str], None, None]:
+def _temporal_test_server() -> Generator[tuple[str, str, str]]:
     """Start an isolated Temporal dev server for sandboxed eval workflows."""
     loop = asyncio.new_event_loop()
     temporal_namespace = settings.TEMPORAL_NAMESPACE
@@ -258,7 +276,7 @@ def _sandbox_settings(
     _django_live_server: object,
     _llm_gateway: object,
     _temporal_test_server: tuple[str, str, str],
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Configure Django settings required by the sandbox/temporal activities.
 
     All URLs use ``host.docker.internal`` so they're reachable from inside
@@ -270,7 +288,7 @@ def _sandbox_settings(
     tasks queue in the developer's environment.
 
     Also patches ``posthoganalytics.feature_enabled`` to return True for all
-    flags so permission checks (TasksAccessPermission) and workflow guards pass.
+    flags so workflow guards pass.
     """
     from unittest.mock import patch
 
@@ -287,6 +305,10 @@ def _sandbox_settings(
     with (
         override_settings(
             DEBUG=True,  # Required for sandbox URL validation to allow http://localhost
+            # The sandbox container reaches the Django live server with a
+            # ``Host: host.docker.internal`` header; allow it (test-only) so the
+            # agent's event-ingest stream isn't rejected with an invalid-host 400.
+            ALLOWED_HOSTS=["*"],
             SANDBOX_PROVIDER="docker",
             SANDBOX_API_URL=docker_api_url,
             SANDBOX_LLM_GATEWAY_URL=docker_llm_gateway_url,
@@ -503,6 +525,10 @@ def _mcp_server(_django_live_server, _sandbox_settings):
 
     Pointed at the in-process Django live server (which uses the test DB).
     Uses a non-default port to avoid conflicts with a running dev MCP server.
+
+    Runs the Node-native Hono server via ``pnpm dev:hono``. In production the
+    Cloudflare Worker is now a proxy that forwards to a regional Hono
+    deployment, so Hono is what real users hit.
     """
     mcp_dir = Path(settings.BASE_DIR) / "services" / "mcp"
     if not (mcp_dir / "node_modules").exists():
@@ -511,30 +537,33 @@ def _mcp_server(_django_live_server, _sandbox_settings):
 
     api_url = str(_django_live_server)
 
+    # The Hono server reads config directly from process env — no wrangler
+    # --var wiring needed. PORT picks the listen port; the dev:hono script
+    # bundles via esbuild then spawns Node on the bundle.
     env = {
         **os.environ,
         "POSTHOG_API_BASE_URL": api_url,
         "MCP_APPS_BASE_URL": f"http://localhost:{MCP_PORT}",
         "POSTHOG_MCP_APPS_ANALYTICS_BASE_URL": api_url,
         "NODE_ENV": "development",
+        "PORT": str(MCP_PORT),
+        "HOST": "0.0.0.0",
+        # The MCP server evaluates feature flags via posthog-node, which is disabled
+        # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
+        # Force flag-gated behavior on for evals via the dev/test-only override seam
+        # (honored only when NODE_ENV is explicitly development/test — set above).
+        # `mcp-render-ui` gates the render_ui umbrella tool — see eval_render_ui.py.
+        # `mcp-sql-schema-discovery` routes warehouse/system-table schema discovery
+        # through `system.information_schema.*` SQL instead of read-data-warehouse-schema
+        # — see eval_system_table_search.py.
+        "FEATURE_FLAG_OVERRIDES": json.dumps({"mcp-render-ui": True, "mcp-sql-schema-discovery": True}),
     }
 
-    # Wrangler's .dev.vars file (committed) overrides process env, so we must
-    # pass --var on the CLI to point the MCP at our in-process Django test DB.
-    wrangler_vars = [
-        f"POSTHOG_API_BASE_URL:{api_url}",
-        f"POSTHOG_MCP_APPS_ANALYTICS_BASE_URL:{api_url}",
-        f"MCP_APPS_BASE_URL:http://localhost:{MCP_PORT}",
-    ]
-    var_args: list[str] = []
-    for v in wrangler_vars:
-        var_args.extend(["--var", v])
-
-    logger.info("Starting MCP server on port %d (API: %s)", MCP_PORT, api_url)
+    logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)
     _, stop = _LONG_LIVED_SUBPROCESSES.start(
         name="MCP server",
         port=MCP_PORT,
-        cmd=["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args],
+        cmd=["pnpm", "dev:hono"],
         cwd=mcp_dir,
         env=env,
         log_prefix="mcp",
@@ -563,7 +592,10 @@ class SandboxedDemoData:
         self.agent_model = agent_model
 
     def make_context(self, case_label: str) -> CustomPromptSandboxContext:
-        from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
+        from django.apps import apps
+
+        CodeInvite = apps.get_model("tasks", "CodeInvite")
+        CodeInviteRedemption = apps.get_model("tasks", "CodeInviteRedemption")
 
         org, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
         create_core_memory(team, self._django_db_blocker)
@@ -579,6 +611,39 @@ class SandboxedDemoData:
         )
 
 
+# Event-level properties the error-tracking ``searchQuery`` test cases match on
+# (see ``products/error_tracking/backend/hogql_queries/error_tracking_query_runner_utils.py``).
+# These are stored as JSON arrays (``["TypeError"]``); without materialized
+# columns the bare ``properties.$exception_types`` lookup goes through
+# ``JSONExtractString`` which returns ``""`` for non-string JSON values, so
+# ``searchQuery`` filtering on these properties silently never matches anything.
+# Materializing and backfilling once per session makes the sandbox behave like
+# prod for error-tracking searchQuery, including reused local ClickHouse state
+# where the columns already exist but older demo rows still need values.
+_EVAL_MATERIALIZED_EVENT_PROPERTIES: tuple[str, ...] = (
+    "$exception_types",
+    "$exception_values",
+)
+
+
+def _ensure_event_search_columns_materialized(django_db_blocker) -> None:
+    from ee.clickhouse.materialized_columns.columns import (
+        backfill_materialized_columns,
+        get_materialized_columns,
+        materialize,
+    )
+
+    with django_db_blocker.unblock():
+        existing_columns = get_materialized_columns("events")
+        columns = []
+        for property_name in _EVAL_MATERIALIZED_EVENT_PROPERTIES:
+            column = existing_columns.get((property_name, "properties"))
+            if column is None:
+                column = materialize("events", property_name)
+            columns.append(column)
+        backfill_materialized_columns("events", columns, timedelta(days=180))
+
+
 @pytest.fixture(scope="session", autouse=True)
 def sandboxed_demo_data(
     set_up_evals,  # noqa: F811
@@ -589,6 +654,7 @@ def sandboxed_demo_data(
     from posthog.clickhouse.client import sync_execute
 
     master_team_id = ensure_master_demo_team(django_db_blocker)
+    _ensure_event_search_columns_materialized(django_db_blocker)
     with django_db_blocker.unblock():
         rows = sync_execute(
             "SELECT event, count() FROM events WHERE team_id = %(team_id)s GROUP BY event ORDER BY 2 DESC LIMIT 20",

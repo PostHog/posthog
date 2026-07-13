@@ -1,18 +1,21 @@
-use crate::error::ToUserError;
-use crate::extractor::{ExtractedPartData, PartExtractor};
-use anyhow::{Context, Error};
-use async_trait::async_trait;
-use aws_sdk_s3::Client as S3Client;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use anyhow::{Context, Error};
+use async_trait::async_trait;
+use aws_sdk_s3::Client as S3Client;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
-use tokio::{fs::File, io::AsyncReadExt, io::AsyncSeekExt, io::AsyncWriteExt};
+use tokio::{fs::File, io::AsyncWriteExt};
 use tracing::{debug, info, warn};
 
+use crate::error::ToUserError;
+use crate::extractor::PartExtractor;
+use crate::staging::StagingGuard;
+
 use super::s3::extract_user_friendly_error;
-use super::DataSource;
+use super::{read_prepared_chunk, remove_prepared_key, DataSource, PreparedPart};
 
 fn sanitize_key_for_path(key: &str) -> String {
     key.replace(['/', ':'], "_")
@@ -27,8 +30,10 @@ pub struct GzipS3Source {
     bucket: String,
     prefix: String,
     extractor: Arc<dyn PartExtractor>,
+    staging_dir: PathBuf,
+    staging_max_bytes: u64,
     temp_dir: Arc<Mutex<Option<TempDir>>>,
-    prepared_keys: Arc<Mutex<HashMap<String, ExtractedPartData>>>,
+    prepared_keys: Arc<Mutex<HashMap<String, PreparedPart>>>,
 }
 
 impl GzipS3Source {
@@ -37,12 +42,16 @@ impl GzipS3Source {
         bucket: String,
         prefix: String,
         extractor: Arc<dyn PartExtractor>,
+        staging_dir: PathBuf,
+        staging_max_bytes: u64,
     ) -> Self {
         Self {
             client,
             bucket,
             prefix,
             extractor,
+            staging_dir,
+            staging_max_bytes,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -63,48 +72,7 @@ impl GzipS3Source {
         offset: u64,
         size: u64,
     ) -> Result<Vec<u8>, Error> {
-        let extracted_part = {
-            let prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys
-                .get(key)
-                .ok_or_else(|| Error::msg(format!("Key not prepared: {key}")))?
-                .clone()
-        };
-
-        if extracted_part.data_file_size == 0 {
-            return Ok(Vec::new());
-        }
-
-        let total_size = extracted_part.data_file_size as u64;
-        if offset >= total_size {
-            return Ok(Vec::new());
-        }
-
-        let end_offset = std::cmp::min(offset + size, total_size);
-        let read_size = (end_offset - offset) as usize;
-
-        let mut file = File::open(&extracted_part.data_file_path)
-            .await
-            .with_context(|| format!("Failed to open extracted data file for key: {key}"))?;
-        file.seek(std::io::SeekFrom::Start(offset))
-            .await
-            .with_context(|| {
-                format!("Failed to seek to offset {offset} in extracted data file for key: {key}")
-            })?;
-        let mut buffer = vec![0u8; read_size];
-        file.read_exact(&mut buffer).await.with_context(|| {
-            format!(
-                "Failed to read exact {read_size} bytes from extracted data file for key: {key}"
-            )
-        })?;
-
-        if end_offset == total_size {
-            if let Err(e) = self.cleanup_key(key).await {
-                warn!("Failed to cleanup key {key}: {e:?}");
-            }
-        }
-
-        Ok(buffer)
+        read_prepared_chunk(&self.prepared_keys, key, offset, size).await
     }
 }
 
@@ -151,11 +119,7 @@ impl DataSource for GzipS3Source {
 
     async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
         let prepared_keys = self.prepared_keys.lock().await;
-        if let Some(extracted_part) = prepared_keys.get(key) {
-            Ok(Some(extracted_part.data_file_size as u64))
-        } else {
-            Ok(None)
-        }
+        Ok(prepared_keys.get(key).and_then(|part| part.total_size))
     }
 
     async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
@@ -163,8 +127,15 @@ impl DataSource for GzipS3Source {
     }
 
     async fn prepare_for_job(&self) -> Result<(), Error> {
-        let temp_dir =
-            tempfile::tempdir().with_context(|| "Failed to create temp directory for job")?;
+        let temp_dir = tempfile::Builder::new()
+            .prefix("job-")
+            .tempdir_in(&self.staging_dir)
+            .with_context(|| {
+                format!(
+                    "Failed to create temp directory in staging dir: {}",
+                    self.staging_dir.display()
+                )
+            })?;
         debug!("Created temp directory for job: {:?}", temp_dir.path());
 
         {
@@ -183,8 +154,12 @@ impl DataSource for GzipS3Source {
         {
             let mut temp_dir_guard = self.temp_dir.lock().await;
             if let Some(temp_dir) = temp_dir_guard.take() {
-                drop(temp_dir);
-                debug!("Cleaned up temp directory");
+                let path = temp_dir.path().to_path_buf();
+                if let Err(e) = temp_dir.close() {
+                    warn!("Failed to remove temp directory {}: {e}", path.display());
+                } else {
+                    debug!("Cleaned up temp directory: {}", path.display());
+                }
             }
         }
         debug!("Job cleanup complete");
@@ -213,89 +188,86 @@ impl DataSource for GzipS3Source {
                 Err(sdk_error).user_error(friendly_msg)
             })?;
 
-        let data = get.body.collect().await.with_context(|| {
-            format!(
-                "Failed to read body data from S3 object s3://{0}/{key}",
-                self.bucket,
-            )
-        })?;
-
-        let bytes = data.to_vec();
         let temp_dir = self.get_temp_dir_path().await?;
         let safe_key = sanitize_key_for_path(key);
 
-        if bytes.is_empty() {
-            let empty_data_file_path = temp_dir.join(format!("{}.data", safe_key));
-            let empty_file = File::create(&empty_data_file_path)
-                .await
-                .with_context(|| format!("Failed to create empty data file for key: {key}"))?;
-            empty_file.sync_all().await?;
-
-            let extracted_part = ExtractedPartData {
-                data_file_path: empty_data_file_path,
-                data_file_size: 0,
-            };
-            let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys.insert(key.to_string(), extracted_part);
-            info!("Prepared key {} (empty object)", key);
-            return Ok(());
-        }
+        // Pause the job if staging is already over budget before we add to it,
+        // and again as the `.raw` grows.
+        let mut guard = StagingGuard::new(self.staging_dir.clone(), self.staging_max_bytes);
+        guard.check().await?;
 
         let raw_file_path = temp_dir.join(format!("{}.raw", safe_key));
         let mut raw_file = File::create(&raw_file_path)
             .await
             .with_context(|| format!("Failed to create raw file: {}", raw_file_path.display()))?;
-        raw_file
-            .write_all(&bytes)
-            .await
-            .with_context(|| format!("Failed to write raw file: {}", raw_file_path.display()))?;
+
+        let mut stream = get.body;
+        let mut total_bytes: u64 = 0;
+        while let Some(chunk) = stream.try_next().await.with_context(|| {
+            format!(
+                "Failed to read body data from S3 object s3://{0}/{key}",
+                self.bucket,
+            )
+        })? {
+            raw_file.write_all(&chunk).await.with_context(|| {
+                format!("Failed to write raw file: {}", raw_file_path.display())
+            })?;
+            total_bytes += chunk.len() as u64;
+            guard.record(chunk.len() as u64).await?;
+        }
+
         raw_file
             .sync_all()
             .await
             .with_context(|| format!("Failed to sync raw file: {}", raw_file_path.display()))?;
         drop(raw_file);
 
-        let extracted_part = self
-            .extractor
-            .extract_compressed_to_seekable_file(&safe_key, &raw_file_path, &temp_dir)
-            .await
-            .with_context(|| {
-                format!("Failed to extract compressed to seekable file for key: {key}")
-            })?;
+        if total_bytes == 0 {
+            if let Err(e) = tokio::fs::remove_file(&raw_file_path).await {
+                warn!(
+                    "Failed to remove empty raw file {}: {e}",
+                    raw_file_path.display()
+                );
+            }
 
-        if let Err(e) = tokio::fs::remove_file(&raw_file_path).await {
-            warn!(
-                "Failed to remove raw file {}: {e:?}",
-                raw_file_path.display()
+            let mut prepared_keys = self.prepared_keys.lock().await;
+            prepared_keys.insert(key.to_string(), PreparedPart::empty());
+            info!("Prepared key {} (empty object)", key);
+            return Ok(());
+        }
+
+        // Final check once the whole `.raw` is on disk: the per-chunk `record` calls are
+        // throttled, so a part smaller than the check interval could otherwise exceed the
+        // limit without ever being measured. This enforces the limit at the part boundary.
+        guard.check().await?;
+
+        debug!(
+            "Streamed {total_bytes} compressed bytes to {} for key: {key}",
+            raw_file_path.display()
+        );
+
+        // Open a streaming decoder over the compressed file; we keep the `.raw`
+        // on disk and decompress on demand rather than materializing a `.data`
+        // copy, bounding disk usage to the compressed size.
+        let reader = self.extractor.open_reader(raw_file_path.clone());
+        {
+            let mut prepared_keys = self.prepared_keys.lock().await;
+            prepared_keys.insert(
+                key.to_string(),
+                PreparedPart::streaming(raw_file_path, reader),
             );
         }
 
-        {
-            let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys.insert(key.to_string(), extracted_part.clone());
-        }
-
         info!(
-            "Prepared key {} ({} bytes decompressed)",
-            key, extracted_part.data_file_size
+            "Prepared key {} ({total_bytes} compressed bytes, streaming decode)",
+            key
         );
 
         Ok(())
     }
 
     async fn cleanup_key(&self, key: &str) -> Result<(), Error> {
-        let extracted_part = {
-            let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys.remove(key)
-        };
-
-        if let Some(extracted_part) = extracted_part {
-            if let Err(e) = tokio::fs::remove_file(&extracted_part.data_file_path).await {
-                warn!("Failed to remove temp file for key {}: {}", key, e);
-            } else {
-                debug!("Cleaned up key: {}", key);
-            }
-        }
+        remove_prepared_key(&self.prepared_keys, key).await;
         Ok(())
     }
 }

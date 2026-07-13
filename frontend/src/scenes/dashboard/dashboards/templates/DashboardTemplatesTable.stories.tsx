@@ -11,8 +11,6 @@ import {
 import { Meta, StoryObj, type Decorator } from '@storybook/react'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -28,6 +26,7 @@ import {
     type UserType,
 } from '~/types'
 
+import __dashboard_template_schema from '../../__mocks__/dashboard_template_schema.json'
 import { DashboardTemplateModal } from './DashboardTemplateModal'
 import { dashboardTemplatesLogic } from './dashboardTemplatesLogic'
 import { DashboardTemplatesTable } from './DashboardTemplatesTable'
@@ -41,7 +40,7 @@ const meta: Meta<typeof DashboardTemplatesTable> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/dashboard_templates/json_schema/': require('../../__mocks__/dashboard_template_schema.json'),
+                '/api/projects/:team_id/dashboard_templates/json_schema/': __dashboard_template_schema as any,
             },
         }),
         (Story) => (
@@ -195,6 +194,7 @@ const storySecondProject: ProjectType = {
     name: storySecondTeam.name,
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: MOCK_DEFAULT_PROJECT.created_at,
+    is_pending_deletion: false,
 }
 
 const organizationWithMultipleProjects: OrganizationType = {
@@ -262,10 +262,6 @@ function DashboardTemplatesTableStory({
     organization?: OrganizationType
 }): JSX.Element {
     useEffect(() => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING], {
-            [FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING]: perspective === 'nonstaff',
-        })
         userLogic.mount()
         // `userLogic` afterMount fires `loadUser()` while Kea resets MSW; that fetch often wins before this story's
         // `worker.use` override is registered, leaving `is_staff: true`. Hydrate explicitly so viewer mode matches UI.

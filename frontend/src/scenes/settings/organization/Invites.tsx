@@ -151,7 +151,7 @@ export function Invites(): JSX.Element {
                 type="primary"
                 onClick={showInviteModal}
                 data-attr="invite-teammate-button"
-                disabledReason={userCannotInvite && "You don't have permissions to invite others."}
+                disabledReason={userCannotInvite && "You can't invite other members or view invites"}
             >
                 Invite team member
             </LemonButton>

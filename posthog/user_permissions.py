@@ -3,10 +3,11 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
-from posthog.models import Insight, Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 
 class UserPermissions:
@@ -375,3 +376,16 @@ class UserPermissionsSerializerMixin:
         if "user_permissions" in self.context:
             return self.context["user_permissions"]
         return self.context["view"].user_permissions
+
+
+def user_is_team_admin(user: User, team: Team | int) -> bool:
+    team_obj: Team
+    if isinstance(team, int):
+        try:
+            team_obj = Team.objects.get(id=team)
+        except Team.DoesNotExist:
+            return False
+    else:
+        team_obj = team
+    level = UserPermissions(user).team(team_obj).effective_membership_level
+    return level is not None and level >= OrganizationMembership.Level.ADMIN

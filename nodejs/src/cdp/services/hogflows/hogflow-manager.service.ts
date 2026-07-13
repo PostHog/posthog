@@ -1,9 +1,9 @@
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
 import { Team } from '~/types'
-import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
-import { LazyLoader } from '~/utils/lazy-loader'
-import { logger } from '~/utils/logger'
-import { PubSub } from '~/utils/pubsub'
 
 // TODO: Make sure we only have fields we truly need
 const HOG_FLOW_FIELDS = [
@@ -23,6 +23,7 @@ const HOG_FLOW_FIELDS = [
     'actions',
     'abort_action',
     'billable_action_types',
+    'variables',
 ]
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>

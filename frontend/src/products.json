@@ -1,6 +1,69 @@
 {
     "products": [
         {
+            "path": "AI gateway",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "ai_gateway",
+            "intents": ["ai_gateway"]
+        },
+        {
+            "path": "LLM analytics",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_analytics",
+            "intents": ["llm_analytics", "llm_evaluations", "llm_datasets", "llm_prompts", "llm_clusters"]
+        },
+        {
+            "path": "Playground",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_playground",
+            "intents": ["llm_analytics"]
+        },
+        {
+            "path": "Clusters",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_clusters",
+            "intents": ["llm_clusters"]
+        },
+        {
+            "path": "Datasets",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_datasets",
+            "intents": ["llm_datasets"]
+        },
+        {
+            "path": "Evaluations",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_evaluations",
+            "intents": ["llm_evaluations"]
+        },
+        {
+            "path": "Taggers",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_tags",
+            "intents": ["llm_analytics"]
+        },
+        {
+            "path": "Prompts",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_prompts",
+            "intents": ["llm_prompts"]
+        },
+        {
+            "path": "Business knowledge",
+            "category": "AI engineering",
+            "iconType": "conversations",
+            "type": null,
+            "intents": ["conversations"]
+        },
+        {
             "path": "Web scripts",
             "category": "Tools",
             "iconType": "data_pipeline",
@@ -43,13 +106,6 @@
             "intents": ["data_warehouse", "data_warehouse_saved_queries"]
         },
         {
-            "path": "Deployments",
-            "category": "Tools",
-            "iconType": null,
-            "type": "deployments",
-            "intents": ["deployments"]
-        },
-        {
             "path": "Early access features",
             "category": "Features",
             "iconType": null,
@@ -64,8 +120,15 @@
             "intents": ["endpoints"]
         },
         {
+            "path": "Engineering analytics",
+            "category": "Unreleased",
+            "iconType": null,
+            "type": "engineering_analytics",
+            "intents": ["engineering_analytics"]
+        },
+        {
             "path": "Error tracking",
-            "category": "Behavior",
+            "category": "App monitoring",
             "iconType": null,
             "type": "error_tracking",
             "intents": ["error_tracking"]
@@ -84,6 +147,13 @@
             "type": "feature_flag",
             "intents": ["feature_flags", "experiments", "early_access_features"]
         },
+        {
+            "path": "Identity matching",
+            "category": "Unreleased",
+            "iconType": "persons",
+            "type": null,
+            "intents": ["marketing_analytics"]
+        },
         { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
         {
             "path": "Live Debugger",
@@ -92,69 +162,20 @@
             "type": "live_debugger",
             "intents": ["live_debugger"]
         },
-        {
-            "path": "LLM analytics",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_analytics",
-            "intents": ["llm_analytics", "llm_evaluations", "llm_datasets", "llm_prompts", "llm_clusters"]
-        },
-        {
-            "path": "Playground",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_playground",
-            "intents": ["llm_analytics"]
-        },
-        {
-            "path": "Clusters",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_clusters",
-            "intents": ["llm_clusters"]
-        },
-        {
-            "path": "Datasets",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_datasets",
-            "intents": ["llm_datasets"]
-        },
-        {
-            "path": "Evaluations",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_evaluations",
-            "intents": ["llm_evaluations"]
-        },
-        {
-            "path": "Tags",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_tags",
-            "intents": ["llm_analytics"]
-        },
-        {
-            "path": "Prompts",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_prompts",
-            "intents": ["llm_prompts"]
-        },
-        {
-            "path": "Skills",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_skills",
-            "intents": ["llm_prompts"]
-        },
-        { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
+        { "path": "Logs", "category": "App monitoring", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",
             "category": "Analytics",
             "iconType": null,
             "type": null,
             "intents": ["marketing_analytics"]
+        },
+        {
+            "path": "MCP analytics",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "mcp_analytics",
+            "intents": ["llm_analytics"]
         },
         { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },
         {
@@ -200,9 +221,16 @@
             "type": "revenue",
             "intents": ["revenue_analytics"]
         },
+        { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["skills"] },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
-        { "path": "Tracing", "category": "Unreleased", "iconType": "tracing", "type": null, "intents": ["tracing"] },
+        {
+            "path": "Tracing",
+            "category": "App monitoring",
+            "iconType": "tracing",
+            "type": null,
+            "intents": ["tracing"]
+        },
         {
             "path": "User research",
             "category": "Unreleased",
@@ -243,6 +271,13 @@
             "category": "Pipeline",
             "iconType": "data_pipeline_metadata",
             "type": "hog_function/transformation",
+            "intents": []
+        },
+        {
+            "path": "Event ingestion filtering",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "event_filter",
             "intents": []
         },
         {

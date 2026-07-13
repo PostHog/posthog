@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react'
 
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
-import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
+import { DebugCHQueries } from 'lib/components/Shortcuts/utils/DebugCHQueries'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'

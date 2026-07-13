@@ -8,8 +8,9 @@ from django.test import override_settings
 
 from asgiref.sync import sync_to_async
 
-from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, Organization, Team
+from posthog.models import Organization, Team
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import delete_batch_export, sync_batch_export
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,

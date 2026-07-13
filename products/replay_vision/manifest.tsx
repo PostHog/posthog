@@ -10,16 +10,44 @@ export const manifest: ProductManifest = {
     scenes: {
         ReplayVision: {
             name: 'Replay vision',
-            import: () => import('./frontend/replay_lenses/ReplayLensesScene'),
+            import: () => import('./frontend/replay_scanners/ReplayScannersScene'),
             projectBased: true,
             description:
-                'Configure named lenses that PostHog applies to completed session recordings. Results land as queryable events.',
+                'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
             iconType: 'replay_vision',
             layout: 'app-container',
         },
-        ReplayVisionLens: {
-            name: 'Replay vision lens',
-            import: () => import('./frontend/replay_lenses/ReplayLens'),
+        ReplayVisionScanner: {
+            name: 'Replay vision scanner',
+            import: () => import('./frontend/replay_scanners/ReplayScanner'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
+        ReplayVisionScannerEditor: {
+            name: 'Replay vision scanner editor',
+            import: () => import('./frontend/replay_scanners/ScannerEditorScene'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
+        ReplayVisionObservation: {
+            name: 'Replay vision observation',
+            import: () => import('./frontend/observations/ReplayObservation'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
+        ReplayVisionAction: {
+            name: 'Replay vision action',
+            import: () => import('./frontend/replay_scanners/VisionActionScene'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
+        ReplayVisionActionRun: {
+            name: 'Replay vision action run',
+            import: () => import('./frontend/replay_scanners/VisionActionRunScene'),
             projectBased: true,
             iconType: 'replay_vision',
             layout: 'app-container',
@@ -27,13 +55,29 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/replay-vision': ['ReplayVision', 'replayVision'],
-        '/replay-vision/:id': ['ReplayVisionLens', 'replayVision'],
+        '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
+        '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
+        '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
+        '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+        '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
+        '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
+        '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     },
-    redirects: {},
+    redirects: {
+        '/replay-vision/templates': '/replay-vision/new/template',
+    },
     urls: {
         replayVision:
-            /** @param id A UUID or 'new'. Omit for the lens list page. */
+            /** @param id A UUID or 'new'. Omit for the scanner list page. */
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
+        replayVisionTemplates: (): string => '/replay-vision/new/template',
+        replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+        replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
+        replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
+        replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
+        replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
+        replayVisionActionRun: (actionId: string, runId: string): string =>
+            `/replay-vision/actions/${actionId}/runs/${runId}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -51,8 +95,9 @@ export const manifest: ProductManifest = {
             href: urls.replayVision(),
             tags: ['beta'],
             flag: FEATURE_FLAGS.REPLAY_VISION,
+            pinnedByDefault: true,
             sceneKey: 'ReplayVision',
-            sceneKeys: ['ReplayVision', 'ReplayVisionLens'],
+            sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
         },
     ],
 }

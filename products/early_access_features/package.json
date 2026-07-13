@@ -11,8 +11,8 @@
         "kea-subscriptions": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
-        "@storybook/react": "*",
+        "@posthog/icons": "catalog:",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "clsx": "*",
         "react": "*"

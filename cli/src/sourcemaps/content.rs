@@ -26,24 +26,40 @@ impl SourceMapContent {
     /// True when the sourcemap carries no symbolication payload — empty `mappings`,
     /// no `sources`, and no `names`. Such maps upload successfully but are useless
     /// for stack trace resolution, and usually indicate a bundler misconfiguration.
+    ///
+    /// Handles both source map flavors:
+    /// - Plain maps: checks `mappings`, `sources`, `names` directly.
+    /// - Indexed maps (Source Map Revision 3 "Index Map"): walks `sections[].map`
+    ///   and reports empty only if every nested section is itself empty. Turbopack,
+    ///   Metro, and webpack's ConcatSource all emit this format, and a shallow check
+    ///   would skip large, valid maps that happen to have empty top-level fields.
     pub fn is_empty(&self) -> bool {
-        let mappings_empty = self
-            .fields
-            .get("mappings")
-            .and_then(|v| v.as_str())
-            .is_none_or(str::is_empty);
-        let sources_empty = self
-            .fields
-            .get("sources")
-            .and_then(|v| v.as_array())
-            .is_none_or(Vec::is_empty);
-        let names_empty = self
-            .fields
-            .get("names")
-            .and_then(|v| v.as_array())
-            .is_none_or(Vec::is_empty);
-        mappings_empty && sources_empty && names_empty
+        let get = |k: &str| self.fields.get(k);
+        is_map_empty(get)
     }
+}
+
+fn is_map_empty<'a>(get: impl Fn(&str) -> Option<&'a Value>) -> bool {
+    let mappings_empty = get("mappings")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty);
+    let sources_empty = get("sources")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty);
+    let names_empty = get("names")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty);
+    let sections_empty = get("sections")
+        .and_then(Value::as_array)
+        .is_none_or(|s| s.iter().all(is_section_empty));
+    mappings_empty && sources_empty && names_empty && sections_empty
+}
+
+fn is_section_empty(section: &Value) -> bool {
+    let Some(map) = section.get("map").and_then(Value::as_object) else {
+        return true;
+    };
+    is_map_empty(|k| map.get(k))
 }
 
 #[derive(Debug)]
@@ -251,6 +267,14 @@ impl MinifiedSourceFile {
         Ok(Some(urlencoding::decode(&found)?.into_owned()))
     }
 
+    pub fn remove_sourcemap_reference(&mut self) -> bool {
+        let Some(range) = trailing_sourcemap_reference_range(&self.inner.content) else {
+            return false;
+        };
+        self.inner.content.replace_range(range, "");
+        true
+    }
+
     fn get_comment_value(&self, patterns: &[&str]) -> Option<String> {
         for line in self.inner.content.lines().rev() {
             if let Some(val) = patterns
@@ -314,6 +338,31 @@ impl MinifiedSourceFile {
     }
 }
 
+fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<usize>> {
+    let mut line_start = 0;
+    let mut lines = Vec::new();
+    for line in content.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        lines.push((line_start, line_end, line));
+        line_start = line_end;
+    }
+
+    for (line_start, line_end, line) in lines.into_iter().rev() {
+        let trimmed_line = line.trim();
+        if trimmed_line.is_empty() || trimmed_line.starts_with("//# chunkId=") {
+            continue;
+        }
+        if trimmed_line.starts_with("//# sourceMappingURL=")
+            || trimmed_line.starts_with("//@ sourceMappingURL=")
+        {
+            return Some(line_start..line_end);
+        }
+        return None;
+    }
+
+    None
+}
+
 impl TryInto<SymbolSetUpload> for SourceMapFile {
     type Error = anyhow::Error;
 
@@ -348,6 +397,12 @@ mod tests {
 
     fn content_from(value: Value) -> SourceMapContent {
         serde_json::from_value(value).expect("Failed to build SourceMapContent")
+    }
+
+    fn minified_source(content: &str) -> MinifiedSourceFile {
+        MinifiedSourceFile {
+            inner: SourceFile::new(PathBuf::from("chunk.js"), content.to_string()),
+        }
     }
 
     #[test]
@@ -403,5 +458,107 @@ mod tests {
             "sources": [],
         }));
         assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_true_for_indexed_map_with_empty_sections_array() {
+        // Turbopack emits this shape for thin App Router page wrappers.
+        let sm = content_from(json!({
+            "version": 3,
+            "sources": [],
+            "sections": [],
+        }));
+        assert!(sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_for_indexed_map_with_non_empty_section() {
+        // Turbopack's `[turbopack]_runtime.js.map` shape: top-level fields are
+        // empty/absent but real mappings live under `sections[].map`.
+        let sm = content_from(json!({
+            "version": 3,
+            "sources": [],
+            "sections": [
+                {
+                    "offset": { "line": 17, "column": 0 },
+                    "map": {
+                        "version": 3,
+                        "sources": ["turbopack:///[turbopack]/runtime-utils.ts"],
+                        "mappings": "AAAA,SAAS",
+                        "names": [],
+                    }
+                }
+            ],
+        }));
+        assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_true_when_every_section_is_empty() {
+        let sm = content_from(json!({
+            "version": 3,
+            "sections": [
+                { "offset": { "line": 0, "column": 0 }, "map": { "version": 3, "sources": [], "mappings": "", "names": [] } },
+                { "offset": { "line": 5, "column": 0 }, "map": { "version": 3, "sources": [], "mappings": "", "names": [] } },
+            ],
+        }));
+        assert!(sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_for_nested_indexed_map() {
+        // Indexed maps can technically contain indexed maps. Rare but legal.
+        let sm = content_from(json!({
+            "version": 3,
+            "sections": [
+                {
+                    "offset": { "line": 0, "column": 0 },
+                    "map": {
+                        "version": 3,
+                        "sections": [
+                            { "offset": { "line": 0, "column": 0 }, "map": {
+                                "version": 3, "sources": ["a.ts"], "mappings": "AAAA", "names": []
+                            }}
+                        ]
+                    }
+                }
+            ],
+        }));
+        assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_standard_comment() {
+        let mut source = minified_source("console.log(1);\n//# sourceMappingURL=chunk.js.map\n");
+
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, "console.log(1);\n");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_legacy_comment() {
+        let mut source = minified_source("console.log(1);\r\n//@ sourceMappingURL=chunk.js.map");
+
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, "console.log(1);\r\n");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_comment_with_injected_chunk_id() {
+        let mut source = minified_source(
+            "console.log(1);\n//# sourceMappingURL=chunk.js.map\n\n//# chunkId=00000",
+        );
+
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, "console.log(1);\n\n//# chunkId=00000");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_leaves_non_trailing_comment() {
+        let original = "console.log(1);\n//# sourceMappingURL=chunk.js.map\nconsole.log(2);\n";
+        let mut source = minified_source(original);
+
+        assert!(!source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, original);
     }
 }

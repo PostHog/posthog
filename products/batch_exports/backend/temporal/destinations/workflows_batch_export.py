@@ -475,6 +475,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                         transformer=transformer,
                         # the CDP API expects the JSON columns to be strings
                         json_columns=(),
+                        records_total=inputs.batch_export.records_total,
                     )
             # NOTE: Nothing inside the TaskGroup raises an ExceptionGroup, so it is
             # impossible for a nested ExceptionGroup to be captured by except*.

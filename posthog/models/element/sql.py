@@ -1,6 +1,6 @@
 GET_ELEMENTS = """
 SELECT
-    elements_chain, count() / %(sampling_factor)s as count, event as event_type
+    elements_chain, count() / %(sampling_factor)s as count, event as event_type, cityHash64(elements_chain) as chain_hash
 FROM events
 SAMPLE %(sampling_factor)s
 WHERE

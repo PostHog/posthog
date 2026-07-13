@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
@@ -23,7 +24,7 @@ import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPromp
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
 import { useOpenLogsSettingsPanel } from './hooks/useOpenLogsSettingsPanel'
-import { LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
+import { LOGS_SCENE_VIEWER_ID, LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
 
 export const LOGS_LOGIC_KEY = 'logs'
 
@@ -44,7 +45,6 @@ export function LogsScene(): JSX.Element {
 }
 
 const LogsSceneContent = (): JSX.Element => {
-    const { tabId } = useValues(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const openLogsSettings = useOpenLogsSettingsPanel()
 
@@ -80,7 +80,7 @@ const LogsSceneContent = (): JSX.Element => {
             )}
             <LogsSetupPrompt>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    <LogsViewer id={tabId} showSavedViewsButton />
+                    <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
                 </div>
             </LogsSetupPrompt>
         </>
@@ -88,7 +88,7 @@ const LogsSceneContent = (): JSX.Element => {
 }
 
 const LogsSceneTabbedContent = (): JSX.Element => {
-    const { tabId, activeTab } = useValues(logsSceneLogic)
+    const { activeTab } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
@@ -136,13 +136,16 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 tabs={tabs}
                 sceneInset
             />
-            {activeTab === 'viewer' && (
+            {/* Keep the viewer mounted across tab switches (just hidden when inactive) so its loaded
+                logs, scroll position, and virtualized-list state survive — switching away and back
+                should not replay the initial loading animation. */}
+            <div className={cn('flex flex-col flex-1 min-h-0', activeTab !== 'viewer' && 'hidden')}>
                 <LogsSetupPrompt>
                     <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                        <LogsViewer id={tabId} showSavedViewsButton />
+                        <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
                     </div>
                 </LogsSetupPrompt>
-            )}
+            </div>
             {activeTab === 'services' && showServicesView && (
                 <>
                     <LogsServices />
@@ -150,7 +153,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 </>
             )}
             {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
-            {activeTab === 'sql' && showSqlView && <LogsSqlEditor id={tabId} />}
+            {activeTab === 'sql' && showSqlView && <LogsSqlEditor id={LOGS_SCENE_VIEWER_ID} />}
             {activeTab === 'configuration' && (
                 <Settings logicKey={LOGS_LOGIC_KEY} sectionId="environment-logs" settingId="logs" handleLocally />
             )}

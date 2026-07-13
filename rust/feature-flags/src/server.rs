@@ -2,9 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::billing::{
-    BillingAggregator, BillingAggregatorConfig, FeatureFlagsLimiter, SessionReplayLimiter,
-};
+use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::membership::{
     CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
@@ -21,7 +19,7 @@ use crate::tokio_monitor::TokioRuntimeMonitor;
 use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
-use common_hypercache::{HyperCacheConfig, HyperCacheReader};
+use common_hypercache::{HyperCacheConfig, HyperCacheReader, S3Client};
 use common_redis::{
     Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig, RedisClient,
 };
@@ -110,6 +108,10 @@ pub async fn serve(
     listener: TcpListener,
     rayon_dispatcher: RayonDispatcher,
     handles: LifecycleHandles,
+    // Test-only override for the flags-with-cohorts reader's S3 client. `None` in
+    // production; tests inject a dummy so a cache miss classifies as CacheMiss without
+    // a real object store. Uses the `new_with_s3_client` testing seam on HyperCacheReader.
+    flags_with_cohorts_s3: Option<Arc<dyn S3Client + Send + Sync>>,
 ) {
     // Configure compression based on environment variable
     let compression_config = if *config.redis_compression_enabled {
@@ -351,23 +353,31 @@ pub async fn serve(
         flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
     }
 
-    let flags_with_cohorts_hypercache_reader =
-        match HyperCacheReader::new(flags_with_cohorts_redis_client, flags_with_cohorts_config)
-            .await
-        {
-            Ok(reader) => {
-                tracing::info!("Created HyperCacheReader for flags with cohorts");
-                Arc::new(reader)
+    let flags_with_cohorts_hypercache_reader = match flags_with_cohorts_s3 {
+        Some(s3) => Arc::new(HyperCacheReader::new_with_s3_client(
+            flags_with_cohorts_redis_client,
+            s3,
+            flags_with_cohorts_config,
+        )),
+        None => {
+            match HyperCacheReader::new(flags_with_cohorts_redis_client, flags_with_cohorts_config)
+                .await
+            {
+                Ok(reader) => {
+                    tracing::info!("Created HyperCacheReader for flags with cohorts");
+                    Arc::new(reader)
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create flags with cohorts HyperCacheReader: {:?}",
+                        e
+                    );
+                    handles.fail_init(format!("flags with cohorts hypercache init failed: {e:?}"));
+                    return;
+                }
             }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to create flags with cohorts HyperCacheReader: {:?}",
-                    e
-                );
-                handles.fail_init(format!("flags with cohorts hypercache init failed: {e:?}"));
-                return;
-            }
-        };
+        }
+    };
 
     // Create HyperCacheReader for remote config (array/config.json)
     // This reads the pre-computed config blob from Python's RemoteConfig.build_config()
@@ -500,21 +510,8 @@ pub async fn serve(
         tokio_monitor.start_monitoring(tokio_monitor_handle).await;
     });
 
-    let billing_aggregator: Option<Arc<BillingAggregator>> =
-        config.billing_aggregator_mode.into_runtime().map(|mode| {
-            BillingAggregator::start(
-                redis_client.clone(),
-                BillingAggregatorConfig {
-                    flush_interval: Duration::from_millis(config.billing_flush_interval_ms),
-                    max_pending_entries: config.billing_max_pending_entries,
-                    per_flush_batch_size: config.billing_per_flush_batch_size,
-                    shutdown_flush_timeout: Duration::from_millis(
-                        config.billing_shutdown_flush_timeout_ms,
-                    ),
-                },
-                mode,
-            )
-        });
+    let billing_aggregator: Arc<BillingAggregator> =
+        BillingAggregator::start(redis_client.clone(), config.get_billing_aggregator_config());
 
     let app = router::router(
         redis_client,
@@ -559,9 +556,7 @@ pub async fn serve(
 
     // Must run *after* `axum::serve(...).await` resolves so axum has drained
     // in-flight requests; flushing earlier would miss late-arriving records.
-    if let Some(ref aggregator) = billing_aggregator {
-        aggregator.shutdown().await;
-    }
+    billing_aggregator.shutdown().await;
 
     match serve_result {
         Ok(()) => http_handle.work_completed(),

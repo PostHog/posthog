@@ -44,6 +44,17 @@ fn build_test_manager(token: CancellationToken) -> Manager {
 
 impl ServerHandle {
     pub async fn for_config(config: Config) -> ServerHandle {
+        Self::for_config_with_s3(config, None).await
+    }
+
+    /// Like `for_config`, but injects an S3 client for the flags-with-cohorts reader.
+    /// Pass a dummy that returns NotFound to make a cache miss classify as CacheMiss
+    /// (the flags Rust test job has no object store, so real S3 reads error out).
+    #[allow(dead_code)]
+    pub async fn for_config_with_s3(
+        config: Config,
+        flags_with_cohorts_s3: Option<Arc<dyn common_hypercache::S3Client + Send + Sync>>,
+    ) -> ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let shutdown = CancellationToken::new();
@@ -53,7 +64,14 @@ impl ServerHandle {
 
         let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
-            serve(config, listener, rayon_dispatcher, handles).await;
+            serve(
+                config,
+                listener,
+                rayon_dispatcher,
+                handles,
+                flags_with_cohorts_s3,
+            )
+            .await;
             // Drain the lifecycle monitor after serve returns so the supervisor
             // thread exits cleanly. Any error is logged — a failing shutdown
             // shouldn't fail the test unless the test explicitly asserts on it.
@@ -370,22 +388,11 @@ impl ServerHandle {
                 feature_flags::flags::flag_definitions_cache::FlagDefinitionsCache::disabled(),
             );
 
-            // `for_tests()` skips the background flusher and the harness
-            // never exposes a handle, so pending counts populated here never
-            // reach mock Redis. The construction is intentional: it exercises
-            // the synchronous `record()` half of the dual-write
-            // (`handler::billing::record_billing_increment`) so mock-Redis
-            // coverage doesn't silently regress that codepath. End-to-end
-            // flush behavior lives in the real-Redis tests in `test_flags.rs`
-            // (`test_billing_increments_land_in_production_keyspace_per_mode`,
-            // `test_shutdown_flush_lands_aggregator_target_keyspace_in_redis`).
-            let billing_aggregator = config.billing_aggregator_mode.into_runtime().map(|mode| {
-                feature_flags::billing::BillingAggregator::for_tests_with_mode(
-                    redis_writer_client.clone(),
-                    feature_flags::billing::BillingAggregatorConfig::default(),
-                    mode,
-                )
-            });
+            let billing_aggregator = feature_flags::billing::BillingAggregator::start(
+                redis_writer_client.clone(),
+                config.get_billing_aggregator_config(),
+            );
+            let shutdown_for_test = billing_aggregator.clone();
 
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
@@ -425,13 +432,18 @@ impl ServerHandle {
                 config,
             );
 
-            axum::serve(
+            // Mirror `server::serve`: capture the serve result, then await the
+            // aggregator shutdown *unconditionally* before propagating any
+            // serve error. Otherwise a `.unwrap()` on a serve failure would
+            // panic the spawned task and leak the flusher into the next test.
+            let serve_result = axum::serve(
                 listener,
                 app.into_make_service_with_connect_info::<SocketAddr>(),
             )
             .with_graceful_shutdown(handles.http.shutdown_signal())
-            .await
-            .unwrap();
+            .await;
+            shutdown_for_test.shutdown().await;
+            serve_result.unwrap();
             handles.http.work_completed();
         });
 

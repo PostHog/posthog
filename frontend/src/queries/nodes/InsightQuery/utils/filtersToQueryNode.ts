@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
-import { isKeyOf, objectCleanWithEmpty } from 'lib/utils'
+import { isKeyOf } from 'lib/utils/guards'
+import { objectCleanWithEmpty } from 'lib/utils/objects'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
@@ -542,6 +543,8 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
         aggregationAxisPrefix: filters.aggregation_axis_prefix,
         aggregationAxisPostfix: filters.aggregation_axis_postfix,
         decimalPlaces: filters.decimal_places,
+        xAxisLabel: filters.x_axis_label,
+        yAxisLabel: filters.y_axis_label,
         formula: filters.formula,
         display: filters.display,
         showValuesOnSeries: filters.show_values_on_series,

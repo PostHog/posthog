@@ -28,13 +28,28 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    property_values:
+        description: 'Aggregate distinct property values for autocomplete'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     replay_storage:
         description: 'Session replay blob storage and capture'
         requires: [event_ingestion]
         docker_profiles: [replay]
 
+    browser_rendering:
+        description: 'Browserless container for heatmap screenshots and image exports'
+        requires: [core_infra]
+        docker_profiles: [browserless]
+
     error_symbolication:
         description: 'Error stack trace symbolication service'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    error_notifications:
+        description: 'Error tracking ingestion notifications consumer'
         requires: [event_ingestion]
         docker_profiles: []
 
@@ -78,6 +93,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    agent_proxy:
+        description: 'Agent proxy streaming service for live task-run streaming (Tasks product)'
+        requires: [core_infra]
+        docker_profiles: []
+
     ai_capture:
         description: 'AI event capture service'
         requires: [event_ingestion, llm_gateway]
@@ -94,7 +114,7 @@ capabilities:
         docker_profiles: [opensearch]
 
     llm_analytics_sentiment:
-        description: 'Sentiment classification model for LLM Analytics (installs torch, optimum ~2GB)'
+        description: 'Sentiment classification model for AI observability (installs torch, optimum ~2GB)'
         requires: [temporal_workflows]
         docker_profiles: []
         uv_groups: [sentiment]
@@ -107,6 +127,18 @@ capabilities:
     cyclotron:
         description: 'Cyclotron job queue infrastructure (includes shadow for testing)'
         requires: [core_infra]
+        docker_profiles: []
+
+    agent_runtime:
+        description: 'Agent platform runtime (products/agent_platform/services/agent-{ingress,runner,janitor})'
+        requires: [core_infra]
+        # SeaweedFS on :8333 — agent bundle + memory object storage (separate
+        # from the main `objectstorage` on :19000).
+        docker_profiles: [agents]
+
+    ai_gateway:
+        description: 'Local Go ai-gateway (sibling ~/Development/ai-gateway) - routes agent model calls'
+        requires: [agent_runtime]
         docker_profiles: []
 
     # Node.js capability groups - control which consumers run to reduce event loop contention
@@ -209,7 +241,7 @@ capabilities:
 intents:
     product_analytics:
         description: 'Core product analytics (insights, funnels, trends)'
-        capabilities: [event_ingestion, property_definitions, celery_workers, nodejs_cdp]
+        capabilities: [event_ingestion, property_definitions, property_values, celery_workers, nodejs_cdp]
 
     error_tracking:
         description: 'Track and analyze application errors'
@@ -217,8 +249,10 @@ intents:
             [
                 event_ingestion,
                 error_symbolication,
+                error_notifications,
                 embedding_service,
                 property_definitions,
+                property_values,
                 nodejs_cdp,
                 nodejs_error_tracking,
             ]
@@ -230,6 +264,7 @@ intents:
                 event_ingestion,
                 replay_storage,
                 property_definitions,
+                property_values,
                 celery_workers,
                 temporal_workflows,
                 nodejs_session_replay,
@@ -247,6 +282,7 @@ intents:
                 event_ingestion,
                 flag_evaluation,
                 property_definitions,
+                property_values,
                 celery_workers,
                 nodejs_feature_flags,
                 nodejs_cdp,
@@ -261,32 +297,64 @@ intents:
                 event_ingestion,
                 ai_capture,
                 llm_gateway,
+                embedding_service,
                 property_definitions,
+                property_values,
                 temporal_workflows,
                 llm_analytics_sentiment,
             ]
 
+    mcp_analytics:
+        description: 'MCP analytics intent clustering and session summarisation'
+        capabilities:
+            [event_ingestion, llm_gateway, embedding_service, property_definitions, property_values, temporal_workflows]
+
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
-        capabilities: [event_ingestion, replay_storage, property_definitions, livestream]
+        capabilities:
+            [event_ingestion, replay_storage, property_definitions, property_values, livestream, browser_rendering]
 
     surveys:
         description: 'User surveys and feedback collection'
-        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler, nodejs_cdp]
+        capabilities:
+            [event_ingestion, property_definitions, property_values, celery_workers, celery_scheduler, nodejs_cdp]
 
     data_warehouse:
         description: 'Data warehouse queries and saved queries'
         capabilities:
-            [event_ingestion, property_definitions, celery_workers, temporal_workflows, warehouse_webhook_sink]
+            [
+                event_ingestion,
+                property_definitions,
+                property_values,
+                celery_workers,
+                temporal_workflows,
+                warehouse_webhook_sink,
+            ]
 
     cohorts:
         description: 'User cohort management'
-        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler, nodejs_realtime_cohorts]
+        capabilities:
+            [
+                event_ingestion,
+                property_definitions,
+                property_values,
+                celery_workers,
+                celery_scheduler,
+                nodejs_realtime_cohorts,
+            ]
 
     pipelines:
         description: 'Data pipeline transformations and destinations'
         capabilities:
-            [event_ingestion, property_definitions, celery_workers, temporal_workflows, nodejs_cdp_workflows, cyclotron]
+            [
+                event_ingestion,
+                property_definitions,
+                property_values,
+                celery_workers,
+                temporal_workflows,
+                nodejs_cdp_workflows,
+                cyclotron,
+            ]
 
     ai_features:
         description: 'AI features'
@@ -297,20 +365,31 @@ intents:
                 embedding_service,
                 opensearch_search,
                 property_definitions,
+                property_values,
                 temporal_workflows,
+                agent_proxy,
             ]
 
     logs:
         description: 'Log aggregation and viewing'
-        capabilities: [event_ingestion, property_definitions, logs_ingestion, nodejs_logs, nodejs_traces]
+        capabilities:
+            [event_ingestion, property_definitions, property_values, logs_ingestion, nodejs_logs, nodejs_traces]
 
     metrics:
         description: 'Metric ingestion and viewing'
-        capabilities: [event_ingestion, property_definitions, logs_ingestion, nodejs_metrics]
+        capabilities: [event_ingestion, property_definitions, property_values, logs_ingestion, nodejs_metrics]
 
     workflows:
         description: 'Workflow automation and orchestration'
-        capabilities: [event_ingestion, property_definitions, temporal_workflows, nodejs_cdp_workflows, cyclotron]
+        capabilities:
+            [
+                event_ingestion,
+                property_definitions,
+                property_values,
+                temporal_workflows,
+                nodejs_cdp_workflows,
+                cyclotron,
+            ]
 
     tracing:
         description: 'OpenTelemetry tracing with Jaeger UI'
@@ -334,11 +413,17 @@ intents:
 
     endpoints:
         description: 'Endpoints (the product)'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, duckgres]
+        capabilities:
+            [event_ingestion, property_definitions, property_values, celery_workers, temporal_workflows, duckgres]
+
+    agents:
+        description: 'Agent platform — ingress, runner, janitor backed by the agent_runtime_queue DB, the MCP server for authoring agents through Claude, and the local ai-gateway the runner routes through'
+        capabilities: [agent_runtime, ai_gateway, mcp_server]
 
     revenue_analytics:
         description: 'Mock Stripe API with seed billing data for revenue analytics testing'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, stripe_mock]
+        capabilities:
+            [event_ingestion, property_definitions, property_values, celery_workers, temporal_workflows, stripe_mock]
 
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'

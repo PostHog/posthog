@@ -95,12 +95,10 @@ class ActivityLogTestHelper(APILicensedTest):
     # Group
     def create_group(self, group_type_index: int = 0, group_key: Optional[str] = None, **kwargs) -> dict[str, Any]:
         """Create a group via API."""
-        # First ensure group type exists
-        from posthog.models.group_type_mapping import GroupTypeMapping
+        # First ensure group type exists (seeds the personhog fake, no persons DB write)
+        from posthog.test.persons import create_group_type_mapping
 
-        GroupTypeMapping.objects.get_or_create(
-            team=self.team, group_type_index=group_type_index, defaults={"group_type": "organization"}
-        )
+        create_group_type_mapping(team=self.team, group_type_index=group_type_index, group_type="organization")
 
         if not group_key:
             group_key = f"org:{uuid4()}"
@@ -493,7 +491,7 @@ class ActivityLogTestHelper(APILicensedTest):
     # BatchExport
     def create_batch_export(self, name: str = "Test Export", **kwargs) -> dict[str, Any]:
         """Create a batch export via direct model creation (like the original tests)."""
-        from posthog.batch_exports.models import BatchExport, BatchExportDestination
+        from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 
         # Create destination first (like the original tests do)
         destination = BatchExportDestination.objects.create(
@@ -518,7 +516,7 @@ class ActivityLogTestHelper(APILicensedTest):
 
     def update_batch_export(self, export_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a batch export via direct model access (like the original tests)."""
-        from posthog.batch_exports.models import BatchExport
+        from products.batch_exports.backend.models.batch_export import BatchExport
 
         batch_export = BatchExport.objects.get(id=export_id)
         for field, value in updates.items():
@@ -852,12 +850,15 @@ class ActivityLogTestHelper(APILicensedTest):
 
         # Mock the Stripe validation to avoid needing real credentials
         with (
-            patch("posthog.temporal.data_imports.sources.stripe.stripe.validate_credentials", return_value=True),
             patch(
-                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.validate_credentials",
+                return_value=True,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
                 return_value=(True, None),
             ),
-            patch("products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"),
+            patch("products.data_warehouse.backend.logic.data_load.service.sync_external_data_job_workflow"),
         ):
             data = {
                 "source_type": source_type,

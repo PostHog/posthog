@@ -9,7 +9,7 @@ from typing import Any, cast
 import unittest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from hypothesis import (
     given,
@@ -22,15 +22,21 @@ from posthog.clickhouse.client import sync_execute
 from posthog.errors import QueryErrorCategory
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBucketedResult, BucketedCount
-from products.logs.backend.alert_state_machine import AlertState, NotificationAction
+from products.logs.backend.alert_signal_emitter import NotifiedAlert
+from products.logs.backend.alert_state_machine import AlertCheckOutcome, AlertState, CheckResult, NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import (
+    EmitAlertSignalsInput,
     _AlertCohort,
+    _AlertEvaluation,
+    _build_notified_from_saved,
     _derive_breaches,
     _dispatch_for_alert,
+    _DispatchedAlert,
     _evaluate_single_alert,
     _finalize_alert,
     _save_cohort_outcomes,
+    emit_alert_signals_activity,
 )
 
 
@@ -85,6 +91,104 @@ def _mock_batched_buckets(mock_run_batched: MagicMock, counts: list[int]) -> Non
         )
 
     mock_run_batched.side_effect = fake
+
+
+class TestNotifiedAlertCollection(APIBaseTest):
+    def _dispatched(
+        self,
+        alert: LogsAlertConfiguration,
+        notification: NotificationAction,
+        notification_failed: bool,
+    ) -> _DispatchedAlert:
+        evaluation = _AlertEvaluation(
+            alert=alert,
+            outcome=AlertCheckOutcome(
+                new_state=AlertState.FIRING,
+                notification=notification,
+                consecutive_failures=0,
+                update_last_notified_at=True,
+                error_message=None,
+            ),
+            check_result=CheckResult(result_count=250, threshold_breached=True),
+            date_from=datetime(2025, 1, 1, tzinfo=UTC),
+            date_to=datetime(2025, 1, 1, tzinfo=UTC),
+            state_before="not_firing",
+        )
+        return _DispatchedAlert(evaluation=evaluation, notification_failed=notification_failed)
+
+    def _make_alert(self) -> LogsAlertConfiguration:
+        return LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Checkout 5xx",
+            threshold_count=100,
+            window_minutes=5,
+            filters={"serviceNames": ["checkout"]},
+        )
+
+    def test_build_notified_from_saved_includes_fired_notification(self):
+        alert = self._make_alert()
+
+        notified = _build_notified_from_saved([self._dispatched(alert, NotificationAction.FIRE, False)])
+
+        assert len(notified) == 1
+        assert notified[0].action == "firing"
+        assert notified[0].alert_id == str(alert.id)
+        assert notified[0].team_id == self.team.id
+        assert notified[0].result_count == 250
+        assert notified[0].filters == {"serviceNames": ["checkout"]}
+
+    @parameterized.expand(
+        [
+            ("no_notification", NotificationAction.NONE, False),
+            ("not_signalable", NotificationAction.RESOLVE, False),
+            ("notification_failed", NotificationAction.FIRE, True),
+        ]
+    )
+    def test_build_notified_from_saved_excludes(self, _name, notification, notification_failed):
+        alert = self._make_alert()
+
+        notified = _build_notified_from_saved([self._dispatched(alert, notification, notification_failed)])
+
+        assert notified == []
+
+
+class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
+    def _notified(
+        self, alert_id: str, action: str, result_count: int | None, consecutive_failures: int
+    ) -> NotifiedAlert:
+        return NotifiedAlert(
+            alert_id=alert_id,
+            team_id=self.team.id,
+            alert_name="A",
+            action=action,
+            weight=1.0,
+            threshold_count=10,
+            threshold_operator="above",
+            window_minutes=5,
+            result_count=result_count,
+            consecutive_failures=consecutive_failures,
+            filters={},
+        )
+
+    def test_emits_one_signal_per_notified_alert(self):
+        notified = [
+            self._notified("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "firing", 99, 0),
+            self._notified("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "broken", None, 5),
+        ]
+
+        with patch("products.logs.backend.alert_signal_emitter.emit_signal", new=AsyncMock()) as mock_emit:
+            count = asyncio.run(emit_alert_signals_activity(EmitAlertSignalsInput(notified=notified)))
+
+        assert count == 2
+        assert mock_emit.await_count == 2
+        # Confirms _load_teams_for_signals resolved the real team across the thread boundary.
+        assert {c.kwargs["team"].id for c in mock_emit.call_args_list} == {self.team.id}
+        assert {c.kwargs["source_product"] for c in mock_emit.call_args_list} == {"logs"}
+        assert sorted(c.kwargs["weight"] for c in mock_emit.call_args_list) == [1.0, 1.0]
+
+    def test_empty_input_is_noop(self):
+        count = asyncio.run(emit_alert_signals_activity(EmitAlertSignalsInput(notified=[])))
+        assert count == 0
 
 
 class TestSaveCohortOutcomesFallback(APIBaseTest):

@@ -1,10 +1,16 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { IconCheck } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 
@@ -27,12 +33,23 @@ export function HogFlowFunctionConfiguration({
     errors?: Record<string, string>
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const template = hogFunctionTemplatesById[templateId]
+    const isEmailStep = templateId === 'template-email'
+    const engagementEventsAvailable = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ENGAGEMENT_EVENTS]
+    const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
-        if (template && Object.keys(inputs ?? {}).length === 0) {
-            setInputs(templateToConfiguration(template).inputs ?? {})
+        if (template) {
+            const defaults = templateToConfiguration(template).inputs ?? {}
+            const currentInputs = inputs ?? {}
+            const hasMissingDefaults = Object.keys(defaults).some((key) => !(key in currentInputs))
+            if (hasMissingDefaults) {
+                setInputs({ ...defaults, ...currentInputs })
+            }
         }
     }, [templateId])
 
@@ -45,7 +62,7 @@ export function HogFlowFunctionConfiguration({
     }
 
     if (!template) {
-        return <div>Template not found!</div>
+        return <TemplateNotFoundFallback templateId={templateId} />
     }
 
     const triggerType = workflow?.trigger?.type
@@ -120,6 +137,63 @@ export function HogFlowFunctionConfiguration({
                 sampleGlobalsWithInputs={sampleGlobals}
                 onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
             />
+            {isEmailStep && engagementEventsAvailable ? (
+                engagementEventsEnabled ? (
+                    <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-alt">
+                        <IconCheck className="text-success text-base" />
+                        <span>Email engagement is being captured as PostHog events.</span>
+                        <Link
+                            to={urls.settings('environment-workflows', 'workflows-engagement-events')}
+                            target="_blank"
+                        >
+                            Manage in settings
+                        </Link>
+                    </div>
+                ) : (
+                    <LemonBanner type="info" hideIcon className="mt-2">
+                        <div className="flex flex-col gap-2">
+                            <span className="text-xs">
+                                Email engagement (sends, opens, clicks, bounces) is recorded as workflow metrics. You
+                                can also capture these as standard PostHog events for use in insights and funnels. They
+                                count toward your event usage and are billed like any other event.
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <LemonButton
+                                    type="primary"
+                                    size="xsmall"
+                                    loading={currentTeamLoading}
+                                    onClick={() =>
+                                        updateCurrentTeam({
+                                            workflows_config: {
+                                                ...currentTeam?.workflows_config,
+                                                capture_workflows_engagement_events: true,
+                                            },
+                                        })
+                                    }
+                                >
+                                    Enable engagement events
+                                </LemonButton>
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    to={urls.settings('environment-workflows', 'workflows-engagement-events')}
+                                    targetBlank
+                                >
+                                    Manage in settings
+                                </LemonButton>
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    to="https://posthog.com/docs/workflows/engagement-events"
+                                    targetBlank
+                                >
+                                    Learn more
+                                </LemonButton>
+                            </div>
+                        </div>
+                    </LemonBanner>
+                )
+            ) : null}
             <HogFlowFunctionMappings
                 useMapping={Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0}
                 inputs={inputs}
@@ -130,4 +204,19 @@ export function HogFlowFunctionConfiguration({
             />
         </>
     )
+}
+
+// Reaching this fallback means the workflow editor finished loading the template list but the
+// referenced template was not in it — typically a server-side filter regression (see PR #61992)
+// or a workflow that points at a deleted/renamed template. Surfaces to error tracking so an
+// alert can fire before users start reporting it.
+function TemplateNotFoundFallback({ templateId }: { templateId: string }): JSX.Element {
+    useEffect(() => {
+        posthog.captureException(new Error('Workflow editor: hog function template not found'), {
+            severity: 'error',
+            tag: 'workflow_editor_template_not_found',
+            templateId,
+        })
+    }, [templateId])
+    return <div>Template not found!</div>
 }

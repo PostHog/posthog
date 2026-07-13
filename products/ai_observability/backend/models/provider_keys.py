@@ -1,0 +1,81 @@
+from typing import Any
+
+from django.db import models, transaction
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
+
+from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.models.utils import UUIDTModel
+from posthog.plugins.plugin_server_api import reload_provider_keys_on_workers
+
+
+class LLMProvider(models.TextChoices):
+    """Shared provider enum for all LLM-related models."""
+
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GEMINI = "gemini"
+    OPENROUTER = "openrouter"
+    FIREWORKS = "fireworks"
+    AZURE_OPENAI = "azure_openai", "Azure OpenAI"
+    TOGETHER_AI = "together_ai", "Together AI"
+    MINIMAX = "minimax", "MiniMax"
+
+
+class LLMProviderKey(UUIDTModel):
+    class State(models.TextChoices):
+        UNKNOWN = "unknown"
+        OK = "ok"
+        INVALID = "invalid"
+        ERROR = "error"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    provider = models.CharField(max_length=50, choices=LLMProvider)
+    name = models.CharField(max_length=255)
+    state = models.CharField(max_length=20, choices=State, default=State.UNKNOWN)
+    error_message = models.TextField(null=True, blank=True)
+    encrypted_config = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "llm_analytics_llmproviderkey"
+        indexes = [
+            models.Index(fields=["team", "provider"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.provider})"
+
+    def provider_extra_kwargs(self) -> dict[str, Any]:
+        """Return provider-specific kwargs from encrypted_config.
+
+        Used when calling ``Client.validate_key`` / ``Client.list_models`` to pass
+        extra config (e.g. Azure's ``azure_endpoint`` and ``api_version``). Most
+        providers return an empty dict.
+        """
+        if self.provider == LLMProvider.AZURE_OPENAI:
+            return {
+                "azure_endpoint": self.encrypted_config.get("azure_endpoint", ""),
+                "api_version": self.encrypted_config.get("api_version", ""),
+            }
+        return {}
+
+
+def _reload_provider_key_on_commit(team_id: int, provider_key_id: str) -> None:
+    transaction.on_commit(lambda: reload_provider_keys_on_workers(team_id=team_id, provider_key_ids=[provider_key_id]))
+
+
+@receiver(post_save, sender=LLMProviderKey)
+def provider_key_saved(sender, instance: LLMProviderKey, created: bool, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and set(update_fields).issubset({"last_used_at"}):
+        return
+
+    _reload_provider_key_on_commit(instance.team_id, str(instance.id))
+
+
+@receiver(post_delete, sender=LLMProviderKey)
+def provider_key_deleted(sender, instance: LLMProviderKey, **kwargs: Any) -> None:
+    _reload_provider_key_on_commit(instance.team_id, str(instance.id))

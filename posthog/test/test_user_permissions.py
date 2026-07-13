@@ -1,7 +1,6 @@
 from posthog.test.base import BaseTest
 
 from posthog.constants import AvailableFeature
-from posthog.models.insight import Insight
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -9,6 +8,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.models.dashboard_privilege import DashboardPrivilege
 

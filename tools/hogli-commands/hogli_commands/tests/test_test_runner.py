@@ -14,8 +14,8 @@ from hogli_commands.test_runner import (
     _batch_find_rs_cfg_test,
     _detect_all,
     _find_test_files_for_source,
+    _get_changed_files,
     _is_test_file,
-    _parse_porcelain_path,
     _resolve_to_repo_relative,
     _run_changed,
     _run_grouped,
@@ -74,6 +74,17 @@ class TestDetectTestType:
         config = detect_test_type(file_path)
         assert config.test_type == "jest"
         assert config.command == ["pnpm", f"--filter={expected_filter}", "exec", "jest", file_path]
+
+    @parameterized.expand(
+        [
+            "products/ai_observability/frontend/utils.test.ts",
+            "products/llm_analytics/frontend/scenes/Trace.test.tsx",
+        ]
+    )
+    def test_product_frontend_jest_routes_to_frontend(self, file_path: str) -> None:
+        config = detect_test_type(file_path)
+        assert config.test_type == "jest"
+        assert config.command == ["pnpm", "--filter=@posthog/frontend", "exec", "jest", file_path]
 
     def test_jest_node_id_adds_test_name_pattern(self) -> None:
         config = detect_test_type("frontend/src/lib/utils.test.ts::some test name")
@@ -324,20 +335,16 @@ class TestIsTestFile:
         assert not _is_test_file("rust/capture/src/api.rs", rs_cfg_test=set())
 
 
-class TestParsePorcelainPath:
-    @parameterized.expand(
-        [
-            (" M posthog/api/views.py", "posthog/api/views.py"),
-            ("?? posthog/new_file.py", "posthog/new_file.py"),
-            ("A  posthog/added.py", "posthog/added.py"),
-            ("R  old/test_foo.py -> new/test_foo.py", "new/test_foo.py"),
-            ("C  src/a.py -> src/b.py", "src/b.py"),
-            (' M "path with spaces/test_foo.py"', "path with spaces/test_foo.py"),
-            ('R  "old name.py" -> "new name.py"', "new name.py"),
+class TestGetChangedFiles:
+    @patch("hogli_commands.test_runner.changed_files")
+    @patch("hogli_commands.test_runner.subprocess.run")
+    def test_drops_paths_missing_from_disk(self, mock_run: MagicMock, mock_changed: MagicMock) -> None:
+        mock_run.return_value = MagicMock(stdout="feature-branch\n")
+        mock_changed.return_value = [
+            "tools/hogli-commands/hogli_commands/test_runner.py",
+            "renamed_away/test_gone.py",
         ]
-    )
-    def test_parse_porcelain_path(self, line: str, expected: str) -> None:
-        assert _parse_porcelain_path(line) == expected
+        assert _get_changed_files() == ["tools/hogli-commands/hogli_commands/test_runner.py"]
 
 
 class TestFindTestFilesForSource:

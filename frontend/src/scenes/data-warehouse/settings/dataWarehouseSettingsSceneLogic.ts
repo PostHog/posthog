@@ -1,7 +1,7 @@
-import { Monaco } from '@monaco-editor/react'
+import type { Monaco } from '@monaco-editor/react'
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import { editor } from 'monaco-editor'
+import type { editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -33,7 +33,15 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['database', 'posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
+            [
+                'database',
+                'posthogTables',
+                'dataWarehouseTables',
+                'externalDataSourceTables',
+                'databaseLoading',
+                'views',
+                'viewsMapById',
+            ],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
         ],

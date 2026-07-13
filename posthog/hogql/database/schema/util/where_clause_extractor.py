@@ -845,3 +845,384 @@ def is_not_truthy(value):
 
 def is_truthy(value):
     return not is_not_truthy(value)
+
+
+class _FieldNodeCollector(TraversingVisitor):
+    """Collects every Field node in an expression (used to inspect what a SELECT alias references)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fields: list[ast.Field] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.fields.append(node)
+        super().visit_field(node)
+
+
+# ClickHouse functions that emit more than one output row per input row. A predicate containing one of
+# these cannot be pushed into the events subquery: it would multiply rows in a different scope than the
+# same call in the outer SELECT/GROUP BY, changing the result set (the on-vs-off pushdown invariant).
+# `arrayJoin` is the only such function reachable inside a WHERE predicate: `untuple` expands a tuple into
+# columns (not rows), and the clause-level `ARRAY JOIN` lives on the SelectQuery, not in a predicate. Add
+# any future array-expanding function HogQL lowers into WHERE here.
+_ROW_MULTIPLYING_FUNCTIONS = {"arrayJoin"}
+
+
+class _RowMultiplyingFunctionFinder(TraversingVisitor):
+    """Detects any row-multiplying function call (e.g. arrayJoin) anywhere in an expression."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name in _ROW_MULTIPLYING_FUNCTIONS:
+            self.found = True
+        super().visit_call(node)
+
+
+def contains_row_multiplying_function(expr: ast.Expr) -> bool:
+    finder = _RowMultiplyingFunctionFinder()
+    finder.visit(expr)
+    return finder.found
+
+
+class _InCohortFinder(TraversingVisitor):
+    """Detects an unresolved IN COHORT / NOT IN COHORT comparison anywhere in an expression."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.found = True
+        super().visit_compare_operation(node)
+
+
+def contains_in_cohort(expr: ast.Expr) -> bool:
+    """An unresolved IN COHORT op (inCohortVia=LEFTJOIN) is rewritten to a cohort LEFT JOIN *after* pushdown
+    runs. Pushing it would move that join inside the synthetic events subquery; keep it out so the pushdown
+    declines. (inCohortVia=SUBQUERY resolves to `IN (subquery)` before pushdown, caught by contains_subquery.)
+    """
+    finder = _InCohortFinder()
+    finder.visit(expr)
+    return finder.found
+
+
+class _SubqueryFinder(TraversingVisitor):
+    """Detects a nested SELECT (e.g. an `IN (SELECT …)`) anywhere in an expression."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.found = True
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.found = True
+
+
+def contains_subquery(expr: ast.Expr) -> bool:
+    """A predicate with a nested SELECT (e.g. `person_id IN (SELECT … FROM cohortpeople)`, the inCohortVia=
+    SUBQUERY form of IN COHORT) is kept out of the events subquery: rebuilding the hand-typed subquery around
+    an already-resolved nested query is a correctness risk, and these are rare in pushable filters.
+    """
+    finder = _SubqueryFinder()
+    finder.visit(expr)
+    return finder.found
+
+
+class JoinedTableReferenceFinder(TraversingVisitor):
+    """Checks if an expression references fields that should not be pushed down into an events subquery.
+
+    Supports two modes:
+
+    Allowlist mode (when events_table_type is provided):
+        Only fields whose type resolves to the events table are pushable.
+        Untyped fields and fields resolving to non-events types are blocked.
+        This catches SELECT-level aliases like step_0 that expand to expressions
+        referencing the outer scope.
+
+    Blocklist mode (when events_table_type is None):
+        Fields are blocked only if they reference joined table aliases or have
+        lazy join / subquery types. Used in tests with untyped expressions.
+    """
+
+    def __init__(
+        self,
+        joined_table_aliases: set[str],
+        events_table_type: ast.TableType | ast.TableAliasType | None = None,
+        select_aliases: dict[str, ast.Expr] | None = None,
+    ):
+        super().__init__()
+        self.joined_table_aliases = joined_table_aliases
+        self.events_table_type = events_table_type
+        # Map of SELECT-list alias name -> its expression, used to classify a WHERE field that
+        # resolves to a SELECT alias by what the alias actually references (not just its name).
+        self.select_aliases = select_aliases or {}
+        self.found_joined_reference = False
+
+    def visit_field(self, node: ast.Field):
+        # Check 1: Field chain references a known joined table alias
+        if node.chain and len(node.chain) > 0:
+            first_part = node.chain[0]
+            if isinstance(first_part, str) and first_part in self.joined_table_aliases:
+                self.found_joined_reference = True
+                return
+
+        # Check 2: Type-based check
+        if self.events_table_type is not None:
+            # Allowlist mode: field must resolve to the events table
+            if node.type is None:
+                self.found_joined_reference = True
+                return
+            if not self._is_events_field(node.type):
+                self.found_joined_reference = True
+        else:
+            # Blocklist mode: check for lazy join/subquery types
+            if node.type is not None and self._type_references_lazy_join(node.type):
+                self.found_joined_reference = True
+
+    def _is_events_field(self, type_node: ast.Type) -> bool:
+        """Check if a type resolves to a field on the events table (allowlist check)."""
+        visited: set[int] = set()
+        alias_names: list[str] = []
+        to_check: list[ast.Type] = [type_node]
+
+        while to_check:
+            current = to_check.pop()
+            if current is None or id(current) in visited:
+                continue
+            visited.add(id(current))
+
+            if isinstance(current, ast.FieldAliasType):
+                alias_names.append(current.alias)
+                to_check.append(current.type)
+                continue
+            if isinstance(current, ast.PropertyType):
+                to_check.append(current.field_type)
+                continue
+
+            if isinstance(current, ast.FieldType):
+                if not self._table_type_matches_events(current.table_type):
+                    return False
+                # Reaching the events FieldType through an alias whose name isn't an events column means a
+                # SELECT-level alias (e.g. `events.$group_0 AS aggregation_target`) the subquery won't expose.
+                if any(not self._is_events_column_name(a) for a in alias_names):
+                    return False
+                return True
+
+            # Non-field type (e.g. a CallType from `toTimeZone(timestamp, 'UTC') AS timestamp`). Pushable only
+            # if the alias name is an events column AND the alias body is events-only (checked below). Trusting
+            # the name alone would wrongly push `f(session.x) AS event` or `'x' AS event`.
+            if alias_names and self._is_events_column_name(alias_names[0]):
+                alias_expr = self.select_aliases.get(alias_names[0])
+                if alias_expr is not None and self._alias_expr_only_events(alias_expr):
+                    return True
+
+            return False
+
+        return False
+
+    def _alias_expr_only_events(self, expr: ast.Expr) -> bool:
+        """A SELECT-alias expression is safe to push only if it references at least one events column
+        and no non-events (joined / other) column, so re-binding the alias name to the inner events
+        column is correct. The field's type alone is lossy for call expressions, so we walk the actual
+        expression and check each referenced field's table."""
+        # An arrayJoin hidden in the alias body can't be pushed: the WHERE field is the bare alias (so the
+        # top-level row-multiplying check misses it), but SelectAliasInliner later expands it into the
+        # subquery, multiplying rows in a scope independent of the outer SELECT's copy and changing results.
+        if contains_row_multiplying_function(expr):
+            return False
+        collector = _FieldNodeCollector()
+        collector.visit(expr)
+        if not collector.fields:
+            return False  # constant or no column reference -> re-binding the alias name would be wrong
+        return all(self._table_type_matches_events(self._field_table_type(f.type)) for f in collector.fields)
+
+    def _field_table_type(self, type_node: ast.Type | None) -> ast.Type | None:
+        """Unwrap FieldAliasType / PropertyType to the underlying field's table_type, or None for a
+        non-column expression (e.g. a nested CallType) which we treat conservatively as non-events."""
+        seen: set[int] = set()
+        current = type_node
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, ast.FieldType):
+                return current.table_type
+            if isinstance(current, ast.PropertyType):
+                current = current.field_type
+                continue
+            if isinstance(current, ast.FieldAliasType):
+                current = current.type
+                continue
+            return None
+        return None
+
+    def _is_events_column_name(self, name: str) -> bool:
+        """Check if a name matches a column on the events table."""
+        if self.events_table_type is None:
+            return False
+        target: ast.TableType | ast.TableAliasType | ast.LazyTableType = self.events_table_type
+        if isinstance(target, ast.TableAliasType):
+            target = target.table_type
+        if isinstance(target, ast.TableType) and hasattr(target.table, "fields"):
+            return name in target.table.fields
+        return False
+
+    def _table_type_matches_events(self, table_type: ast.Type | None) -> bool:
+        """Check if a table type matches the events table."""
+        if table_type is None or self.events_table_type is None:
+            return False
+
+        unwrapped: ast.Type = table_type
+        if isinstance(unwrapped, ast.TableAliasType):
+            unwrapped = unwrapped.table_type
+        if isinstance(unwrapped, ast.VirtualTableType):
+            unwrapped = unwrapped.table_type
+        if isinstance(unwrapped, ast.TableAliasType):
+            unwrapped = unwrapped.table_type
+
+        target: ast.Type = self.events_table_type
+        if isinstance(target, ast.TableAliasType):
+            target = target.table_type
+
+        if isinstance(unwrapped, ast.TableType) and isinstance(target, ast.TableType):
+            return unwrapped.table is target.table
+
+        return table_type is self.events_table_type
+
+    def _type_references_lazy_join(self, type_node) -> bool:
+        """Blocklist check: returns True if type resolves to a lazy join or subquery."""
+        visited: set[int] = set()
+        to_check = [type_node]
+
+        while to_check:
+            current = to_check.pop()
+            if current is None or id(current) in visited:
+                continue
+            visited.add(id(current))
+
+            if isinstance(current, ast.LazyJoinType):
+                return True
+            if isinstance(current, ast.SelectQueryAliasType):
+                return True
+
+            if isinstance(current, ast.FieldAliasType):
+                to_check.append(current.type)
+                continue
+            if isinstance(current, ast.VirtualTableType):
+                to_check.append(current.table_type)
+                continue
+            if isinstance(current, ast.TableAliasType):
+                to_check.append(current.table_type)
+                continue
+
+            if isinstance(current, ast.PropertyType):
+                to_check.append(current.field_type)
+            elif isinstance(current, ast.FieldType):
+                to_check.append(current.table_type)
+
+        return False
+
+
+def references_joined_table(
+    expr: ast.Expr,
+    joined_table_aliases: set[str],
+    events_table_type: ast.TableType | ast.TableAliasType | None = None,
+    select_aliases: dict[str, ast.Expr] | None = None,
+) -> bool:
+    """Check if an expression references any field that should not be pushed down."""
+    finder = JoinedTableReferenceFinder(joined_table_aliases, events_table_type, select_aliases)
+    finder.visit(expr)
+    return finder.found_joined_reference
+
+
+class EventsPredicatePushdownExtractor:
+    """
+    Extracts predicates from a WHERE clause that can be pushed down into an events subquery.
+
+    This class analyzes WHERE clauses and splits them into:
+    - inner_where: Predicates that only reference the events table (can be pushed down)
+    - outer_where: Predicates that reference joined tables (must stay in outer query)
+
+    The design is fail-safe: if we can't determine whether a predicate is pushable,
+    we keep it in the outer WHERE (may scan more data but never incorrect).
+    """
+
+    def __init__(
+        self,
+        joined_table_aliases: set[str],
+        events_table_type: ast.TableType | ast.TableAliasType | None = None,
+        select_aliases: dict[str, ast.Expr] | None = None,
+    ):
+        self.joined_table_aliases = joined_table_aliases
+        self.events_table_type = events_table_type
+        self.select_aliases = select_aliases or {}
+
+    def get_pushdown_predicates(self, where: ast.Expr) -> tuple[Optional[ast.Expr], Optional[ast.Expr]]:
+        """
+        Split a WHERE expression into inner (pushable) and outer (non-pushable) parts.
+
+        Returns:
+            (inner_where, outer_where) tuple where:
+            - inner_where: Predicates to push into events subquery (or None if none)
+            - outer_where: Predicates to keep in outer query (or None if none)
+        """
+        inner_exprs, outer_exprs = self._split_expression(where)
+
+        inner_where = self._combine_with_and(inner_exprs)
+        outer_where = self._combine_with_and(outer_exprs)
+
+        return (inner_where, outer_where)
+
+    def _split_expression(self, expr: ast.Expr) -> tuple[list[ast.Expr], list[ast.Expr]]:
+        """
+        Recursively split an expression into inner (pushable) and outer (non-pushable) parts.
+
+        Returns:
+            (inner_exprs, outer_exprs) - lists of expressions for inner and outer WHERE
+        """
+        if isinstance(expr, ast.And):
+            # For AND: we can split - pushable parts go inner, non-pushable stay outer
+            inner_exprs: list[ast.Expr] = []
+            outer_exprs: list[ast.Expr] = []
+            for sub_expr in flatten_ands(expr.exprs):
+                sub_inner, sub_outer = self._split_expression(sub_expr)
+                inner_exprs.extend(sub_inner)
+                outer_exprs.extend(sub_outer)
+            return (inner_exprs, outer_exprs)
+
+        elif isinstance(expr, ast.Call):
+            # Handle function calls like and(), or(), not(), equals(), etc.
+            if expr.name == "and":
+                return self._split_expression(ast.And(exprs=expr.args))
+            elif expr.name == "or":
+                return self._split_expression(ast.Or(exprs=expr.args))
+
+        cloned = clone_expr(expr, clear_types=False, clear_locations=True)
+        # Keep in the outer query (fail-safe), same as a joined-table reference, when the predicate:
+        # - contains a row-multiplying call (arrayJoin): pushing it would expand rows in a different scope
+        #   than the same call in the outer SELECT/GROUP BY, changing the result set;
+        # - contains an unresolved IN COHORT op (inCohortVia=LEFTJOIN): it becomes a cohort LEFT JOIN after
+        #   pushdown, which must not land inside the synthetic events subquery; or
+        # - contains a nested subquery (e.g. the inCohortVia=SUBQUERY `IN (SELECT …)` form, or any other
+        #   `x IN (SELECT …)`): rebuilding the hand-typed subquery around it is a correctness risk.
+        if (
+            references_joined_table(expr, self.joined_table_aliases, self.events_table_type, self.select_aliases)
+            or contains_row_multiplying_function(expr)
+            or contains_in_cohort(expr)
+            or contains_subquery(expr)
+        ):
+            return ([], [cloned])
+        return ([cloned], [])
+
+    def _combine_with_and(self, exprs: list[ast.Expr]) -> Optional[ast.Expr]:
+        """Combine a list of expressions with AND, or return None if empty."""
+        if len(exprs) == 0:
+            return None
+        elif len(exprs) == 1:
+            return exprs[0]
+        else:
+            return ast.And(exprs=exprs)

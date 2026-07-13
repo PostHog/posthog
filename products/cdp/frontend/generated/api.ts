@@ -19,10 +19,14 @@ import type {
     HogFunctionsLogsRetrieveParams,
     HogFunctionsMetricsRetrieveParams,
     HogFunctionsMetricsTotalsRetrieveParams,
+    HogInvocationRerunRequestApi,
+    HogInvocationRerunResponseApi,
     PaginatedHogFunctionMinimalListApi,
     PaginatedHogFunctionTemplateListApi,
+    PaginatedPluginLogEntryListApi,
     PatchedHogFunctionApi,
     PatchedHogFunctionRearrangeApi,
+    PluginConfigsLogsListParams,
     PublicHogFunctionTemplatesListParams,
 } from './api.schemas'
 
@@ -48,7 +52,7 @@ export const getHogFunctionTemplatesListUrl = (projectId: string, params?: HogFu
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -90,7 +94,7 @@ export const getHogFunctionsListUrl = (projectId: string, params?: HogFunctionsL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -239,7 +243,7 @@ export const getHogFunctionsLogsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -271,7 +275,7 @@ export const getHogFunctionsMetricsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -303,7 +307,7 @@ export const getHogFunctionsMetricsTotalsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -323,6 +327,42 @@ export const hogFunctionsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFunctionsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFunctionsRerunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/rerun/`
+}
+
+/**
+ * Rerun past invocations of this hog function from their stored payloads.
+ *
+ * The CDP worker reads matching rows from the `hog_invocation_results`
+ * ClickHouse table, rehydrates the invocation from the stored
+ * `invocation_globals`, and re-enqueues onto cyclotron. Each rerun
+ * run reuses the original `invocation_id` with `is_retry=1` set on the
+ * new lifecycle row so the UI can surface that it was a rerun.
+ *
+ * For source-webhook functions the worker strips `request.headers` from
+ * the rehydrated globals before re-enqueuing (see the rerun paginator):
+ * those headers carry the inbound sender's credentials, and replaying
+ * them through a reconfigured function would let a write-access user
+ * exfiltrate stored secrets.
+ *
+ * Because rerun replays historical event/person/group data, it requires
+ * `person:read` and `group:read` on top of `hog_function:write`.
+ */
+export const hogFunctionsRerunCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationRerunRequestApi: HogInvocationRerunRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationRerunResponseApi> => {
+    return apiMutator<HogInvocationRerunResponseApi>(getHogFunctionsRerunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationRerunRequestApi),
     })
 }
 
@@ -368,12 +408,44 @@ export const hogFunctionsRearrangePartialUpdate = async (
     })
 }
 
+export const getPluginConfigsLogsListUrl = (
+    projectId: string,
+    pluginConfigId: number,
+    params?: PluginConfigsLogsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/`
+}
+
+export const pluginConfigsLogsList = async (
+    projectId: string,
+    pluginConfigId: number,
+    params?: PluginConfigsLogsListParams,
+    options?: RequestInit
+): Promise<PaginatedPluginLogEntryListApi> => {
+    return apiMutator<PaginatedPluginLogEntryListApi>(getPluginConfigsLogsListUrl(projectId, pluginConfigId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getPublicHogFunctionTemplatesListUrl = (params?: PublicHogFunctionTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

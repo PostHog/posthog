@@ -3,9 +3,9 @@ import datetime as dt
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.models.utils import UUIDT
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.temporal.batch_exports import _dispatch_batch_export_failure_realtime
 
 

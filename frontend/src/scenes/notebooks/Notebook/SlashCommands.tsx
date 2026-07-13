@@ -14,10 +14,8 @@ import {
     IconHogQL,
     IconLifecycle,
     IconPeople,
-    IconPython,
     IconRetention,
     IconRewindPlay,
-    IconSquareRoot,
     IconStickiness,
     IconTrends,
     IconUpload,
@@ -31,9 +29,9 @@ import { IconBold, IconItalic, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isKeyOf } from 'lib/utils'
 import { selectFiles } from 'lib/utils/file-utils'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { isKeyOf } from 'lib/utils/guards'
 import { ValueOf } from 'lib/utils/types'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -43,6 +41,7 @@ import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPerio
 
 import { addExperimentsToNotebookModalLogic } from '../AddExperimentsToNotebookModal/addExperimentsToNotebookModalLogic'
 import { addInsightsToNotebookModalLogic } from '../AddInsightsToNotebookModal/addInsightsToNotebookModalLogic'
+import { NODE_ICONS } from '../nodeIcons'
 import { buildInsightVizQueryContent, buildNodeEmbed, buildNodeQueryContent } from '../Nodes/nodeBuilders'
 import { NotebookNodeType } from '../types'
 import NotebookIconHeading from './NotebookIconHeading'
@@ -307,7 +306,7 @@ order by count() desc
             {
                 title: 'SQL (DuckDB)',
                 search: 'duck sql',
-                icon: <IconHogQL color="currentColor" />,
+                icon: NODE_ICONS[NotebookNodeType.DuckSQL],
                 command: (chain, pos) =>
                     chain.insertContentAt(pos, {
                         type: NotebookNodeType.DuckSQL,
@@ -324,7 +323,7 @@ order by count() desc
             {
                 title: 'SQL (HogQL)',
                 search: 'hogql sql',
-                icon: <IconHogQL color="currentColor" />,
+                icon: NODE_ICONS[NotebookNodeType.HogQLSQL],
                 command: (chain, pos) =>
                     chain.insertContentAt(pos, {
                         type: NotebookNodeType.HogQLSQL,
@@ -341,7 +340,7 @@ order by count() desc
             {
                 title: 'Python',
                 search: 'python',
-                icon: <IconPython color="currentColor" />,
+                icon: NODE_ICONS[NotebookNodeType.Python],
                 command: (chain, pos) =>
                     chain.insertContentAt(pos, {
                         type: NotebookNodeType.Python,
@@ -493,7 +492,7 @@ order by count() desc
             {
                 title: 'LaTeX',
                 search: 'latex math formula equation',
-                icon: <IconSquareRoot color="currentColor" />,
+                icon: NODE_ICONS[NotebookNodeType.Latex],
                 command: (chain, pos) =>
                     chain.insertContentAt(pos, {
                         type: NotebookNodeType.Latex,

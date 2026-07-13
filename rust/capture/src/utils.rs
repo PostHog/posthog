@@ -1,9 +1,10 @@
 use axum::http::HeaderMap;
 use base64::Engine;
+use chrono::{DateTime, TimeZone};
 use common_types::RawEvent;
 use rand::RngCore;
 use std::collections::HashSet;
-use tracing::error;
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
@@ -58,12 +59,15 @@ const fn encode_unix_timestamp_millis(millis: u64, random_bytes: &[u8; 10]) -> U
     Uuid::from_fields(millis_high, millis_low, random_and_version, &d4)
 }
 
-pub fn uuid_v7() -> Uuid {
+/// Builds a UUIDv7 whose time component is the given Unix-ms timestamp.
+pub fn uuid_v7(unix_millis: u64) -> Uuid {
     let bytes = random_bytes();
-    let now = time::OffsetDateTime::now_utc();
-    let now_millis: u64 = now.unix_timestamp() as u64 * 1_000 + now.millisecond() as u64;
+    encode_unix_timestamp_millis(unix_millis, &bytes)
+}
 
-    encode_unix_timestamp_millis(now_millis, &bytes)
+/// Builds a UUIDv7 whose time component is the given instant. Pre-epoch datetimes are floored to the epoch, since the unsigned time field can't represent negatives.
+pub fn uuid_v7_from_datetime<Tz: TimeZone>(datetime: DateTime<Tz>) -> Uuid {
+    uuid_v7(datetime.timestamp_millis().max(0) as u64)
 }
 
 pub fn extract_lib_version(form: &EventFormData, params: &EventQuery) -> Option<String> {
@@ -149,7 +153,7 @@ pub fn decode_base64(payload: &[u8], location: &str) -> Result<Vec<u8>, CaptureE
             let max_chars = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
             let data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
-            error!(
+            debug!(
                 location = location,
                 data_snippet = data_snippet,
                 "decode_base64 failure: {}",
@@ -170,7 +174,7 @@ pub fn decode_form(payload: &[u8]) -> Result<EventFormData, CaptureError> {
             let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
             let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
-            error!(
+            debug!(
                 form_data = form_data_snippet,
                 "failed to decode urlencoded form body: {e:#}"
             );
@@ -190,7 +194,7 @@ pub fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureEr
             let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
             let payload_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
-            error!(
+            debug!(
                 payload_snippet = payload_snippet,
                 "decompress_lz64: failed decompress to UTF16"
             );
@@ -204,11 +208,7 @@ pub fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureEr
     // obtain the JSON event batch payload we've come to know and love
     let decompressed = match String::from_utf16(&decomp_utf16) {
         Ok(result) => result,
-        Err(e) => {
-            error!(
-                "decompress_lz64: failed UTF16 to UTF8 conversion, got: {}",
-                e
-            );
+        Err(_) => {
             return Err(CaptureError::RequestDecodingError(String::from(
                 "decompress_lz64: failed UTF16 to UTF8 conversion",
             )));
@@ -216,10 +216,6 @@ pub fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureEr
     };
 
     if decompressed.len() > limit {
-        error!(
-            "lz64 request payload size limit exceeded: {}",
-            decompressed.len()
-        );
         report_dropped_events("event_too_big", 1);
         return Err(CaptureError::EventTooBig(String::from(
             "lz64 request payload size limit exceeded",
@@ -265,5 +261,30 @@ pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
             _ => Err(CaptureError::NoTokenError),
         },
         _ => Err(CaptureError::MultipleTokensError),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
+    fn uuid_time_millis(uuid: Uuid) -> u128 {
+        uuid.as_u128() >> 80
+    }
+
+    #[test]
+    fn uuid_v7_from_datetime_encodes_the_instant() {
+        // A non-UTC offset still yields the same absolute instant in the UUID.
+        let ts = DateTime::parse_from_rfc3339("2020-06-15T00:00:00Z").unwrap();
+        let uuid = uuid_v7_from_datetime(ts);
+        assert_eq!(uuid_time_millis(uuid), ts.timestamp_millis() as u128);
+        assert_eq!(uuid.get_version_num(), 7);
+    }
+
+    #[test]
+    fn uuid_v7_from_datetime_floors_pre_epoch_to_zero() {
+        let ts = DateTime::parse_from_rfc3339("1969-06-15T00:00:00Z").unwrap();
+        assert_eq!(uuid_time_millis(uuid_v7_from_datetime(ts)), 0);
     }
 }

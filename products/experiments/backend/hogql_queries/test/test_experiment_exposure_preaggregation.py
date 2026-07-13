@@ -1,0 +1,755 @@
+from datetime import UTC, datetime
+from typing import cast
+
+from posthog.test.base import _create_event, _create_person
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
+
+from parameterized import parameterized
+
+from posthog.schema import (
+    EventsNode,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentMetricMathType,
+    ExperimentQuery,
+    ExperimentQueryResponse,
+    IntervalType,
+)
+
+from posthog.hogql.constants import get_default_hogql_global_settings
+
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationTable,
+    _get_insert_settings,
+    ensure_precomputed,
+)
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window
+from products.experiments.backend.hogql_queries.experiment_query_builder import (
+    ExperimentQueryBuilder,
+    get_exposure_config_params_for_builder,
+)
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
+    def _create_exposure_event(self, distinct_id, feature_flag, variant, timestamp):
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            properties={
+                f"$feature/{feature_flag.key}": variant,
+                "$feature_flag_response": variant,
+                "$feature_flag": feature_flag.key,
+            },
+        )
+
+    def _run_experiment(self, experiment, metric) -> ExperimentQueryResponse:
+        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        runner = ExperimentQueryRunner(query=query, team=self.team)
+        return cast(ExperimentQueryResponse, runner.calculate())
+
+    def _build_lazy_computation_builder(self, experiment, feature_flag, metric) -> ExperimentQueryBuilder:
+        exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
+            experiment.exposure_criteria
+        )
+        as_of = experiment.end_date or datetime.now(UTC)
+        date_range = experiment_window(experiment, self.team, as_of)
+        return ExperimentQueryBuilder(
+            team=self.team,
+            feature_flag_key=feature_flag.key,
+            exposure_config=exposure_config,
+            filter_test_accounts=filter_test_accounts,
+            multiple_variant_handling=multiple_variant_handling,
+            variants=[v["key"] for v in feature_flag.variants],
+            date_range_query=QueryDateRange(
+                date_range=date_range, team=self.team, interval=IntervalType.DAY, now=as_of
+            ),
+            entity_key=get_entity_key(feature_flag.filters.get("aggregation_group_type_index")),
+            metric=metric,
+        )
+
+    def _lazy_computed_and_compare(
+        self, experiment, feature_flag, metric
+    ) -> tuple[ExperimentQueryResponse, ExperimentQueryResponse]:
+        """Run the same experiment through both paths and assert identical results."""
+        # Path A: direct events scan
+        self._disable_precomputation()
+        experiment.save()
+        direct_result = self._run_experiment(experiment, metric)
+
+        # Lazy-compute exposures
+        builder = self._build_lazy_computation_builder(experiment, feature_flag, metric)
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
+        ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=experiment.start_date,
+            time_range_end=experiment.end_date,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+        # Path B: lazy-computed
+        self._enable_precomputation()
+        experiment.save()
+        lazy_result = self._run_experiment(experiment, metric)
+
+        assert direct_result.baseline is not None
+        assert lazy_result.baseline is not None
+        assert direct_result.baseline.key == lazy_result.baseline.key
+        assert direct_result.baseline.number_of_samples == lazy_result.baseline.number_of_samples
+        assert direct_result.baseline.sum == lazy_result.baseline.sum
+
+        assert direct_result.variant_results is not None
+        assert lazy_result.variant_results is not None
+        assert len(direct_result.variant_results) == len(lazy_result.variant_results)
+        for i in range(len(direct_result.variant_results)):
+            assert direct_result.variant_results[i].key == lazy_result.variant_results[i].key
+            assert (
+                direct_result.variant_results[i].number_of_samples == lazy_result.variant_results[i].number_of_samples
+            )
+            assert direct_result.variant_results[i].sum == lazy_result.variant_results[i].sum
+
+        return direct_result, lazy_result
+
+    def test_lazy_computed_results_match_direct_scan(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        for i in range(5):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"user_control_{i}", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_control_{i}",
+                timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "control"},
+            )
+
+        for i in range(7):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"user_test_{i}", feature_flag, "test", datetime(2024, 1, 2, 14, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_test_{i}",
+                timestamp=datetime(2024, 1, 2, 15, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "test"},
+            )
+
+        direct_result, lazy_result = self._lazy_computed_and_compare(experiment, feature_flag, metric)
+        assert direct_result.baseline is not None
+        assert direct_result.baseline.number_of_samples == 5
+        assert direct_result.variant_results is not None
+        assert direct_result.variant_results[0].number_of_samples == 7
+
+    def test_lazy_computed_results_match_direct_scan_multiple_jobs(self):
+        feature_flag = self.create_feature_flag(key="multi-job-test")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # 3 control users on Jan 2
+        for i in range(3):
+            _create_person(distinct_ids=[f"mj_control_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"mj_control_{i}", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"mj_control_{i}",
+                timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "control"},
+            )
+
+        # 3 test users on Jan 4
+        for i in range(3):
+            _create_person(distinct_ids=[f"mj_test_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"mj_test_{i}", feature_flag, "test", datetime(2024, 1, 4, 14, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"mj_test_{i}",
+                timestamp=datetime(2024, 1, 4, 15, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "test"},
+            )
+
+        # 1 user with exposures on BOTH Jan 2 and Jan 4 (spans two jobs)
+        _create_person(distinct_ids=["mj_both_days"], team_id=self.team.pk)
+        self._create_exposure_event("mj_both_days", feature_flag, "control", datetime(2024, 1, 2, 10, 0, 0, tzinfo=UTC))
+        self._create_exposure_event("mj_both_days", feature_flag, "control", datetime(2024, 1, 4, 10, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="mj_both_days",
+            timestamp=datetime(2024, 1, 2, 11, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # Lazy-computing in two phases forces multiple jobs
+        builder = self._build_lazy_computation_builder(experiment, feature_flag, metric)
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
+
+        # Phase 1: lazy-compute Jan 1-3
+        ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+        # Phase 2: lazy-compute Jan 1-5 (finds Jan 1-3 already covered, creates second job for Jan 3-5)
+        ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+        # Run through runner with lazy computation enabled
+        self._enable_precomputation()
+        experiment.save()
+        lazy_result = self._run_experiment(experiment, metric)
+
+        # Run through runner without lazy computation
+        self._disable_precomputation()
+        experiment.save()
+        direct_result = self._run_experiment(experiment, metric)
+
+        # Both paths should produce identical results
+        assert direct_result.baseline is not None
+        assert lazy_result.baseline is not None
+        assert direct_result.baseline.number_of_samples == lazy_result.baseline.number_of_samples
+        assert direct_result.baseline.sum == lazy_result.baseline.sum
+
+        assert direct_result.variant_results is not None
+        assert lazy_result.variant_results is not None
+        for i in range(len(direct_result.variant_results)):
+            assert (
+                direct_result.variant_results[i].number_of_samples == lazy_result.variant_results[i].number_of_samples
+            )
+            assert direct_result.variant_results[i].sum == lazy_result.variant_results[i].sum
+
+        # 4 control (3 + 1 both_days) and 3 test
+        assert direct_result.baseline.number_of_samples == 4
+        assert direct_result.variant_results[0].number_of_samples == 3
+
+    def test_multiple_variant_handling_exclude_tags_multi_variant_user(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        self._enable_precomputation()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # 1 user sees "control" on Jan 2, then "test" on Jan 4
+        _create_person(distinct_ids=["switcher"], team_id=self.team.pk)
+        self._create_exposure_event("switcher", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC))
+        self._create_exposure_event("switcher", feature_flag, "test", datetime(2024, 1, 4, 12, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="switcher",
+            timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # 1 normal control user
+        _create_person(distinct_ids=["normal_control"], team_id=self.team.pk)
+        self._create_exposure_event(
+            "normal_control", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_control",
+            timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # 1 normal test user
+        _create_person(distinct_ids=["normal_test"], team_id=self.team.pk)
+        self._create_exposure_event("normal_test", feature_flag, "test", datetime(2024, 1, 4, 12, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_test",
+            timestamp=datetime(2024, 1, 4, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "test"},
+        )
+
+        # Lazy-compute in two phases so "switcher" ends up in two separate jobs with different variants
+        builder = self._build_lazy_computation_builder(experiment, feature_flag, metric)
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
+
+        ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+        ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+        result = self._run_experiment(experiment, metric)
+
+        # Default handling is EXCLUDE: "switcher" is tagged $multiple and filtered out
+        # So we should see 1 control + 1 test
+        assert result.baseline is not None
+        assert result.baseline.number_of_samples == 1
+        assert result.variant_results is not None
+        assert result.variant_results[0].number_of_samples == 1
+
+    def test_multiple_variant_handling_first_seen_keeps_multi_variant_user(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        self._enable_precomputation()
+        experiment.exposure_criteria = {"multiple_variant_handling": "first_seen"}
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # 1 user sees "control" on Jan 2, then "test" on Jan 4
+        _create_person(distinct_ids=["switcher"], team_id=self.team.pk)
+        self._create_exposure_event("switcher", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC))
+        self._create_exposure_event("switcher", feature_flag, "test", datetime(2024, 1, 4, 12, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="switcher",
+            timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # 1 normal control user
+        _create_person(distinct_ids=["normal_control"], team_id=self.team.pk)
+        self._create_exposure_event(
+            "normal_control", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_control",
+            timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # 1 normal test user
+        _create_person(distinct_ids=["normal_test"], team_id=self.team.pk)
+        self._create_exposure_event("normal_test", feature_flag, "test", datetime(2024, 1, 4, 12, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_test",
+            timestamp=datetime(2024, 1, 4, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "test"},
+        )
+
+        # Lazy-compute in two phases so "switcher" ends up in two separate jobs with different variants
+        builder = self._build_lazy_computation_builder(experiment, feature_flag, metric)
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
+
+        ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+        ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+        result = self._run_experiment(experiment, metric)
+
+        # FIRST_SEEN: "switcher" keeps their first variant (control)
+        # So: 2 control (switcher + normal_control) + 1 test (normal_test)
+        assert result.baseline is not None
+        assert result.baseline.number_of_samples == 2
+        assert result.variant_results is not None
+        assert result.variant_results[0].number_of_samples == 1
+
+    def test_filters_exposures_by_experiment_date_range(self):
+        """Test that precomputed jobs covering broader time ranges are filtered to experiment dates."""
+        feature_flag = self.create_feature_flag(key="date-filter-test")
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create exposures before experiment starts (Jan 2-3)
+        for i in range(3):
+            _create_person(distinct_ids=[f"early_control_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"early_control_{i}", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"early_control_{i}",
+                timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "control"},
+            )
+
+        for i in range(4):
+            _create_person(distinct_ids=[f"early_test_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"early_test_{i}", feature_flag, "test", datetime(2024, 1, 3, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"early_test_{i}",
+                timestamp=datetime(2024, 1, 3, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "test"},
+            )
+
+        # Create exposures during experiment (Jan 6-7)
+        for i in range(2):
+            _create_person(distinct_ids=[f"valid_control_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"valid_control_{i}", feature_flag, "control", datetime(2024, 1, 6, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"valid_control_{i}",
+                timestamp=datetime(2024, 1, 6, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "control"},
+            )
+
+        for i in range(3):
+            _create_person(distinct_ids=[f"valid_test_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"valid_test_{i}", feature_flag, "test", datetime(2024, 1, 7, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"valid_test_{i}",
+                timestamp=datetime(2024, 1, 7, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "test"},
+            )
+
+        # Create experiment with narrow range (Jan 5-9)
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 5),
+            end_date=datetime(2024, 1, 9),
+        )
+
+        # Create precomputation job for BROAD range (Jan 1-10) - includes exposures before experiment
+        builder = self._build_lazy_computation_builder(experiment, feature_flag, metric)
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
+        ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 10, tzinfo=UTC),
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+        self._enable_precomputation()
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        lazy_result = self._run_experiment(experiment, metric)
+
+        # Should only count users exposed during experiment window (Jan 5-9): 2 control + 3 test
+        assert lazy_result.baseline is not None
+        assert lazy_result.baseline.number_of_samples == 2, "Should only count control users from Jan 6+"
+        assert lazy_result.variant_results is not None
+        assert lazy_result.variant_results[0].number_of_samples == 3, "Should only count test users from Jan 7+"
+
+    def test_insert_settings_match_hogql_defaults(self):
+        """The INSERT sync_execute must use the same ClickHouse settings as
+        regular HogQL queries (via execute_hogql_query), except for
+        INSERT-specific overrides like readonly, max_execution_time,
+        insert_quorum, and load_balancing."""
+        hogql_settings = get_default_hogql_global_settings(team_id=self.team.id).model_dump(exclude_none=True)
+        insert_settings = _get_insert_settings(self.team.id)
+
+        # These are intentionally different for INSERTs
+        intentional_overrides = {"readonly", "max_execution_time", "insert_quorum", "load_balancing"}
+
+        for key, hogql_value in hogql_settings.items():
+            if key in intentional_overrides:
+                continue
+            assert key in insert_settings, f"HogQL default setting '{key}' missing from INSERT settings"
+            assert insert_settings[key] == hogql_value, (
+                f"Setting '{key}' differs: HogQL={hogql_value}, INSERT={insert_settings[key]}"
+            )
+
+    def test_precomputed_not_in_filter_with_null_properties(self):
+        """NOT IN test-account filters must not drop users whose person property is
+        unset (NULL). The INSERT sync_execute must use transform_null_in=1 — the
+        same setting execute_hogql_query applies to all regular queries — so that
+        NULL NOT IN (...) evaluates to TRUE rather than NULL."""
+        feature_flag = self.create_feature_flag(key="null-prop-test")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Set up a NOT IN test account filter on a person property
+        self.team.test_account_filters = [
+            {"key": "environment", "value": ["staging", "dev"], "operator": "is_not", "type": "person"}
+        ]
+        self.team.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create users WITHOUT the "environment" property set (NULL)
+        for i in range(3):
+            _create_person(distinct_ids=[f"null_control_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"null_control_{i}", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"null_control_{i}",
+                timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "control"},
+            )
+
+        for i in range(4):
+            _create_person(distinct_ids=[f"null_test_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"null_test_{i}", feature_flag, "test", datetime(2024, 1, 2, 14, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"null_test_{i}",
+                timestamp=datetime(2024, 1, 2, 15, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "test"},
+            )
+
+        # The bug only triggers when test-account filters produce a NOT IN clause,
+        # which requires filterTestAccounts to be enabled on the experiment.
+        experiment.exposure_criteria = {"filterTestAccounts": True}
+        experiment.save()
+
+        self._lazy_computed_and_compare(experiment, feature_flag, metric)
+
+    def test_precomputed_variant_not_affected_by_wider_job_window(self):
+        """When an experiment starts mid-day, the job window extends to the
+        UTC-day boundary — earlier than the experiment start. Events in that
+        extra window must not affect variant assignment. Without the fix, a
+        user who had a different variant before the experiment would be
+        misclassified as $multiple."""
+        feature_flag = self.create_feature_flag(key="midday-start-test")
+        # Experiment starts at 14:00 UTC — job window will start at 00:00 UTC
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 2, 14, 0, 0),
+            end_date=datetime(2024, 1, 5),
+        )
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # User sees "test" BEFORE the experiment starts (at 06:00 UTC, within
+        # the wider job window but outside the experiment)
+        _create_person(distinct_ids=["switcher"], team_id=self.team.pk)
+        self._create_exposure_event("switcher", feature_flag, "test", datetime(2024, 1, 2, 6, 0, 0, tzinfo=UTC))
+        # Same user sees "control" DURING the experiment (at 15:00 UTC)
+        self._create_exposure_event("switcher", feature_flag, "control", datetime(2024, 1, 2, 15, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="switcher",
+            timestamp=datetime(2024, 1, 2, 16, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # Normal control user during the experiment
+        _create_person(distinct_ids=["normal_control"], team_id=self.team.pk)
+        self._create_exposure_event(
+            "normal_control", feature_flag, "control", datetime(2024, 1, 3, 12, 0, 0, tzinfo=UTC)
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_control",
+            timestamp=datetime(2024, 1, 3, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # Normal test user during the experiment
+        _create_person(distinct_ids=["normal_test"], team_id=self.team.pk)
+        self._create_exposure_event("normal_test", feature_flag, "test", datetime(2024, 1, 3, 14, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_test",
+            timestamp=datetime(2024, 1, 3, 15, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "test"},
+        )
+
+        # "switcher" should be counted as control (only saw control during the
+        # experiment), not $multiple. So: 2 control + 1 test.
+        direct_result, lazy_result = self._lazy_computed_and_compare(experiment, feature_flag, metric)
+        assert direct_result.baseline is not None
+        assert direct_result.baseline.number_of_samples == 2
+        assert direct_result.variant_results is not None
+        assert direct_result.variant_results[0].number_of_samples == 1
+
+    @parameterized.expand(
+        [
+            ("exposure", "_ensure_exposures_precomputed", "_ensure_metric_events_precomputed"),
+            ("metric_events", "_ensure_metric_events_precomputed", "_ensure_exposures_precomputed"),
+        ]
+    )
+    def test_falls_back_to_events_scan_on_lazy_computation_failure(self, expected_path, failing_method, other_method):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        self._enable_precomputation()
+
+        # An ordered funnel metric reaches both precomputation paths (exposures and metric events),
+        # so a single test body can cover either failure by parameterizing which one raises.
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"user_control_{i}", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_control_{i}",
+                timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "control"},
+            )
+
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"user_test_{i}", feature_flag, "test", datetime(2024, 1, 2, 14, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_test_{i}",
+                timestamp=datetime(2024, 1, 2, 15, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "test"},
+            )
+
+        with (
+            patch.object(ExperimentQueryRunner, failing_method, side_effect=Exception("boom")),
+            # The non-failing path returns "not ready" so it neither errors nor hits ClickHouse,
+            # keeping the assertion scoped to the single failure under test.
+            patch.object(ExperimentQueryRunner, other_method, return_value=MagicMock(ready=False)),
+            patch(
+                "products.experiments.backend.hogql_queries.experiment_query_runner.capture_exception"
+            ) as mock_capture,
+        ):
+            result = self._run_experiment(experiment, metric)
+
+        assert result.baseline is not None
+        assert result.baseline.number_of_samples == 3
+        assert result.variant_results is not None
+        assert result.variant_results[0].number_of_samples == 3
+
+        # The fallback keeps the query working, but the precomputation failure must still
+        # be surfaced to error tracking rather than silently masked.
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["additional_properties"]["precomputation_path"] == expected_path

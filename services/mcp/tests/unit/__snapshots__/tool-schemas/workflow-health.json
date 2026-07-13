@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "branch": {
+            "description": "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.",
+            "type": "string"
+        },
+        "date_from": {
+            "description": "Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Window end — relative or ISO8601. Defaults to now.",
+            "type": "string"
+        },
+        "source_id": {
+            "description": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

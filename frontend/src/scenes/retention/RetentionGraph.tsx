@@ -1,116 +1,25 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { TrendsFilter } from '~/queries/schema/schema-general'
-import { ChartDisplayType, GraphDataset, GraphType } from '~/types'
+import { ChartDisplayType } from '~/types'
 
-import { InsightEmptyState } from '../insights/EmptyStates'
-import { LineGraph } from '../insights/views/LineGraph/LineGraph'
+import { RetentionBarChart } from 'products/product_analytics/frontend/insights/retention/RetentionBarChart/RetentionBarChart'
+import { RetentionLineChart } from 'products/product_analytics/frontend/insights/retention/RetentionLineChart/RetentionLineChart'
+
 import { retentionGraphLogic } from './retentionGraphLogic'
-import { retentionModalLogic } from './retentionModalLogic'
 
 interface RetentionGraphProps {
     inSharedMode?: boolean
-    chartType?: 'line' | 'bar'
-}
-
-function displayTypeToGraphType(displayType: ChartDisplayType): GraphType {
-    switch (displayType) {
-        case ChartDisplayType.ActionsBar:
-            return GraphType.Bar
-        default:
-            return GraphType.Line
-    }
 }
 
 export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const {
-        hasValidBreakdown,
-        retentionFilter,
-        filteredTrendSeries,
-        incompletenessOffsetFromEnd,
-        labelGroupType,
-        shouldShowMeanPerBreakdown,
-        showTrendLines,
-        xAxisLabels,
-    } = useValues(retentionGraphLogic(insightProps))
-    const { openModal } = useActions(retentionModalLogic(insightProps))
+    const { retentionFilter } = useValues(retentionGraphLogic(insightProps))
 
-    const selectedInterval = retentionFilter?.selectedInterval ?? null
-
-    const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
-
-    if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
-        return (
-            <p className="w-full m-0 text-center text-sm text-gray-500">
-                Select a breakdown to see the retention graph
-            </p>
-        )
+    const isBarDisplay = retentionFilter?.display === ChartDisplayType.ActionsBar
+    if (isBarDisplay) {
+        return <RetentionBarChart inSharedMode={inSharedMode} />
     }
-
-    return filteredTrendSeries ? (
-        <LineGraph
-            data-attr="trend-line-graph"
-            type={displayTypeToGraphType(retentionFilter?.display || ChartDisplayType.ActionsLineGraph)}
-            datasets={filteredTrendSeries as GraphDataset[]}
-            labels={xAxisLabels}
-            isInProgress={incompletenessOffsetFromEnd < 0}
-            inSharedMode={!!inSharedMode}
-            showPersonsModal={false}
-            labelGroupType={labelGroupType}
-            // in retention graph, we want the bars side by side so it's easier
-            // to see the retention trend change for each cohort
-            isStacked={retentionFilter?.display !== ChartDisplayType.ActionsBar}
-            trendsFilter={{ aggregationAxisFormat: isPercentage ? 'percentage' : 'numeric' } as TrendsFilter}
-            tooltip={{
-                altTitle:
-                    selectedInterval !== null
-                        ? `${retentionFilter?.period} ${selectedInterval}`
-                        : (seriesData) => xAxisLabels[seriesData[0]?.dataIndex] ?? '',
-                renderSeries: function _renderCohortPrefix(value) {
-                    // If we're showing an interval view, show "Cohort: <date>"
-                    if (selectedInterval !== null) {
-                        return <>Cohort {value}</>
-                    }
-                    // If we're showing mean values per breakdown, show the breakdown value directly
-                    if (shouldShowMeanPerBreakdown) {
-                        return <>{value}</>
-                    }
-                    // Otherwise prefix with "Cohort" for normal cohort view
-                    return <>Cohort {value}</>
-                },
-                renderCount: (count) => {
-                    return isPercentage ? `${roundToDecimal(count)}%` : `${roundToDecimal(count)}`
-                },
-            }}
-            onClick={(payload) => {
-                // Only open the modal if we're not showing mean values (which don't map to specific cohorts)
-                if (shouldShowMeanPerBreakdown) {
-                    return
-                }
-
-                const { points } = payload
-                const referencePoint = points.clickedPointNotLine
-                    ? points.pointsIntersectingClick[0]
-                    : points.pointsIntersectingLine[0]
-
-                // In the interval view, each data point represents a different cohort at the same interval,
-                // so use the point index (cohort) rather than the dataset index (breakdown series)
-                const rowIndex = selectedInterval !== null ? referencePoint.index : referencePoint.dataset.index
-
-                // we should always have a rowIndex, but adding a guard nonetheless
-                if (rowIndex !== undefined) {
-                    openModal(rowIndex)
-                }
-            }}
-            incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
-            showTrendLines={showTrendLines}
-            goalLines={retentionFilter?.goalLines ?? []}
-        />
-    ) : (
-        <InsightEmptyState />
-    )
+    return <RetentionLineChart inSharedMode={inSharedMode} />
 }

@@ -2,6 +2,7 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -186,6 +187,11 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     })
                     await api.errorTracking.assignCohort(id, cohort.id)
                 })
+            },
+            mutationSuccess: ({ mutationName }) => {
+                if (mutationName === 'updateIssueAssignee' || mutationName === 'assignIssues') {
+                    tryShowMCPHint('error_tracking.assign')
+                }
             },
         }
     }),

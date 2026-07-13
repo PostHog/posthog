@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "pr_number": {
+            "description": "Pull request number to inspect.",
+            "type": "number"
+        },
+        "repo": {
+            "description": "'owner/name' repository the pull request belongs to.",
+            "type": "string"
+        },
+        "source_id": {
+            "description": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+            "type": "string"
+        }
+    },
+    "required": ["pr_number", "repo"],
+    "type": "object"
+}

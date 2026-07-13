@@ -1,8 +1,12 @@
+import hashlib
+import smtplib
 import datetime
 import dataclasses
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -10,18 +14,33 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
+from django.test import override_settings
 from django.utils import timezone
 
-from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
+from parameterized import parameterized
+from prometheus_client import REGISTRY
+
+from posthog.email import (
+    CUSTOMER_IO_TEMPLATE_ID_MAP,
+    EmailMessage,
+    _send_email,
+    _send_via_http,
+    _send_via_smtp,
+    sanitize_email_properties,
+)
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.messaging import MessagingRecord
+from posthog.models.messaging import MessagingRecord, get_email_hash, get_email_hashes
+from posthog.test.persons import (
+    add_distinct_id as add_test_distinct_id,
+    create_person as create_test_person,
+)
 
 
 class TestEmail(BaseTest):
     def create_person(self, team: Team, base_distinct_id: str = "") -> Person:
-        person = Person.objects.create(team=team)
-        person.add_distinct_id(base_distinct_id)
+        person = create_test_person(team=team)
+        add_test_distinct_id(person=person, distinct_id=base_distinct_id)
         return person
 
     @freeze_time("2020-09-21")
@@ -88,6 +107,158 @@ class TestEmail(BaseTest):
                 f"https://posthog.com/questions?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign={template}"
                 in message.html_body
             )
+
+    def test_smtp_send_increments_sent_metric(self) -> None:
+        # The charts alert reads posthog_email_send_total{outcome,transport}; this locks the
+        # name + label contract so a removed/mislabelled increment can't silently blind it.
+        labels = {"outcome": "sent", "transport": "smtp"}
+        before = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="metric_test_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("metric-test@posthog.com")
+            message.send(send_async=False)
+
+        self.assertEqual(len(mail.outbox), 1)
+        after = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    @parameterized.expand(
+        [
+            ("transient_disconnect", smtplib.SMTPServerDisconnected("dropped"), True),
+            ("transient_oserror", ConnectionResetError("reset"), True),
+            ("transient_timeout", TimeoutError("hung relay"), True),
+            # Send-path 4xx ("try again later") must re-raise so autoretry fires, not be swallowed.
+            ("transient_data_greylist", smtplib.SMTPDataError(451, b"greylisted, try later"), True),
+            ("transient_sender_421", smtplib.SMTPSenderRefused(421, b"service unavailable", "from@posthog.com"), True),
+            (
+                "transient_recipients_greylist",
+                smtplib.SMTPRecipientsRefused({"x@posthog.com": (450, b"greylisted")}),
+                True,
+            ),
+            ("permanent_auth", smtplib.SMTPAuthenticationError(535, b"bad creds"), False),
+            ("permanent_data_5xx", smtplib.SMTPDataError(554, b"transaction failed"), False),
+            ("permanent_recipients", smtplib.SMTPRecipientsRefused({}), False),
+            (
+                "permanent_recipients_5xx",
+                smtplib.SMTPRecipientsRefused({"x@posthog.com": (550, b"no such user")}),
+                False,
+            ),
+        ]
+    )
+    def test_smtp_error_retry_classification(self, name, exc, should_reraise) -> None:
+        # Transient errors (connection drops + send-path 4xx greylisting/421) re-raise so autoretry
+        # fires; auth/5xx/permanent stay swallowed (no retry-storm of the relay's per-IP limit).
+        # Both record one failed metric.
+        failed_labels = {"outcome": "failed", "transport": "smtp"}
+        before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            patch("django.core.mail.backends.locmem.EmailBackend.send_messages", side_effect=exc),
+        ):
+            kwargs: dict[str, Any] = {
+                "to": [{"raw_email": f"{name}@posthog.com", "recipient": f"{name}@posthog.com"}],
+                "campaign_key": f"retry_{name}",
+                "subject": "Subject",
+                "txt_body": "",
+                "html_body": "<p>hi</p>",
+                "headers": {},
+            }
+            if should_reraise:
+                with self.assertRaises(type(exc)):
+                    _send_via_smtp(**kwargs)
+            else:
+                _send_via_smtp(**kwargs)
+
+        after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_smtp_transient_failure_preserves_already_sent_recipients(self) -> None:
+        # A transient failure on a later recipient must not roll back the recipients already
+        # accepted by the relay — otherwise the task's autoretry re-sends the whole batch and
+        # duplicates the already-delivered emails. Each delivery commits its own `sent_at`.
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            patch(
+                "django.core.mail.backends.locmem.EmailBackend.send_messages",
+                side_effect=[1, smtplib.SMTPServerDisconnected("dropped mid-batch")],
+            ),
+        ):
+            kwargs: dict[str, Any] = {
+                "to": [
+                    {"raw_email": "first@posthog.com", "recipient": "first@posthog.com"},
+                    {"raw_email": "second@posthog.com", "recipient": "second@posthog.com"},
+                ],
+                "campaign_key": "batch_transient",
+                "subject": "Subject",
+                "txt_body": "",
+                "html_body": "<p>hi</p>",
+                "headers": {},
+            }
+            with self.assertRaises(smtplib.SMTPServerDisconnected):
+                _send_via_smtp(**kwargs)
+
+        first = MessagingRecord.objects.filter(
+            email_hash__in=get_email_hashes("first@posthog.com"), campaign_key="batch_transient"
+        ).first()
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(first.sent_at)  # committed before the failure → a retry skips it
+        second = MessagingRecord.objects.filter(
+            email_hash__in=get_email_hashes("second@posthog.com"), campaign_key="batch_transient"
+        ).first()
+        self.assertIsNone(second)  # its transaction rolled back → retried fresh, no half-written row
+
+    def test_smtp_connection_built_with_bounded_timeout(self) -> None:
+        # Without a socket timeout a silently-hung relay pins the worker forever and the new
+        # TimeoutError retry branch can never fire — so the backend must get a bounded timeout.
+        mock_backend_cls = MagicMock()
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            override_instance_config("EMAIL_TIMEOUT", 17),
+            patch("posthog.email.import_string", return_value=mock_backend_cls),
+            self.settings(EMAIL_BACKEND="some.smtp.Backend"),
+        ):
+            _send_via_smtp(
+                to=[{"raw_email": "t@posthog.com", "recipient": "t@posthog.com"}],
+                campaign_key="timeout_kwarg",
+                subject="Subject",
+                txt_body="",
+                html_body="<p>hi</p>",
+                headers={},
+            )
+
+        self.assertEqual(mock_backend_cls.call_args.kwargs.get("timeout"), 17)
+
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_failed_metric_counts_undelivered_recipients(self, mock_post) -> None:
+        # `failed` must count every recipient that didn't get through (the failing one + any not yet
+        # attempted), per recipient like `sent` — not once per batch — or the alertable failure rate
+        # under-reports multi-recipient batches.
+        ok = MagicMock(status_code=200)
+        ok.json.return_value = {}
+        bad = MagicMock(status_code=500, text="boom")
+        mock_post.side_effect = [ok, bad]
+
+        failed_labels = {"outcome": "failed", "transport": "http"}
+        before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            _send_via_http(
+                to=[
+                    {"raw_email": "a@posthog.com"},
+                    {"raw_email": "b@posthog.com"},
+                    {"raw_email": "c@posthog.com"},
+                ],
+                campaign_key="http_failcount",
+                template_name="2fa_enabled",
+                properties={},
+            )
+
+        after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+        self.assertEqual(after - before, 2.0)  # b failed + c never attempted; a succeeded
 
     @patch("posthoganalytics.capture")
     @patch("posthog.email.requests.post")
@@ -206,10 +377,11 @@ class TestEmail(BaseTest):
         self.assertEqual(sanitized["name"], "Test User&quot;&gt;&lt;img src=1 onerror=alert(1)&gt;")
         self.assertEqual(sanitized["project_name"], "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;")
 
-        # Check that nested dictionaries are sanitized
+        # Check that nested dictionaries are sanitized — `javascript:` is defanged so
+        # mail clients don't auto-link / treat it as a clickable scheme.
         self.assertEqual(
             sanitized["nested"]["html_content"],
-            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:alert(1)&quot;&gt;",
+            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:​alert(1)&quot;&gt;",
         )
 
         # Check that numbers and booleans are preserved
@@ -225,6 +397,75 @@ class TestEmail(BaseTest):
 
         # Check that utm_tags are not sanitized (to preserve valid URL query parameters)
         self.assertEqual(sanitized["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test")
+
+    def test_sanitize_email_properties_preserves_trusted_url_keys(self) -> None:
+        # Clean PostHog-built URLs survive sanitization unchanged: html.escape is a
+        # no-op on URL-shape characters (`:` `/` `.`), and trusted URL keys skip the
+        # defang step so the link stays clickable.
+        section: dict[str, str] = {"team_url": "https://app.posthog.com/project/3", "team_name": "Acme.com"}
+        properties: dict[str, Any] = {
+            "href": "http://localhost:8010/replay/test#panel=discussion",
+            "url": "https://app.posthog.com/project/1/insights",
+            "site_url": "https://app.posthog.com",
+            "link": "/reset/uuid/token",
+            "next_url": "https://app.posthog.com/dashboard",
+            "dashboard_url": "https://app.posthog.com/dashboard/2",
+            "error_tracking_url": "https://app.posthog.com/error_tracking",
+            "verify_link": "/verify/abc",
+            "section": section,
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        for key in [
+            "href",
+            "url",
+            "site_url",
+            "link",
+            "next_url",
+            "dashboard_url",
+            "error_tracking_url",
+            "verify_link",
+        ]:
+            self.assertEqual(sanitized[key], properties[key], f"trusted URL key {key} should pass through")
+        self.assertEqual(sanitized["section"]["team_url"], section["team_url"])
+        # ...but a user-controlled name nested under a non-URL key still gets defanged.
+        self.assertEqual(sanitized["section"]["team_name"], "Acme.​com")
+
+    def test_sanitize_email_properties_html_escapes_trusted_url_keys(self) -> None:
+        # When a user-controlled fragment leaks into a trusted URL key (e.g. the
+        # comment `slug` appended to settings.SITE_URL in build_comment_item_url),
+        # attribute-injection characters are still escaped — the link works, but
+        # the attacker can't break out of `<a href="...">`. URL-shape chars
+        # (`:` `/` `.`) survive because we don't defang trusted keys.
+        properties = {
+            "href": 'https://app.posthog.com/x"><script>alert(1)</script>',
+            "verify_link": "https://app.posthog.com/x?a=1&b=2",
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        self.assertEqual(
+            sanitized["href"],
+            "https://app.posthog.com/x&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;",
+        )
+        # `&` becomes `&amp;` — correct HTML attribute encoding for query strings.
+        self.assertEqual(sanitized["verify_link"], "https://app.posthog.com/x?a=1&amp;b=2")
+
+    def test_sanitize_email_properties_defangs_urls_embedded_in_user_content(self) -> None:
+        # Realistic phishing-by-display-name: attacker sets first_name to a URL.
+        # Mail clients should not auto-link this.
+        properties = {
+            "commenter": {"first_name": "Visit https://evil.com NOW"},
+            "team": {"name": "evil.com"},
+            "organization_name": "ｈｔｔｐ：／／phish.io",  # fullwidth bypass attempt
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        self.assertEqual(sanitized["commenter"]["first_name"], "Visit https:​//evil.​com NOW")
+        self.assertEqual(sanitized["team"]["name"], "evil.​com")
+        self.assertEqual(sanitized["organization_name"], "http:​//phish.​io")
 
     def test_sanitize_email_properties_handles_dataclasses(self) -> None:
         # Regression test: facade contracts (frozen dataclasses) used to raise TypeError,
@@ -371,3 +612,137 @@ class TestEmail(BaseTest):
             "the Customer.io transactional message ID, otherwise the sender will raise "
             "'Unknown template name' at runtime and capture_exception will swallow it.",
         )
+
+
+class TestMessagingHashSalt(BaseTest):
+    def test_get_email_hash_defaults_preserve_legacy_secret_key_hashes(self) -> None:
+        # MESSAGING_HASH_SALT defaults to SECRET_KEY, so hashes written before the salt
+        # was decoupled (SHA-256(SECRET_KEY + email)) stay valid. If this breaks, an
+        # upgrade would orphan every existing email_hash and re-send live campaigns.
+        with self.settings(MESSAGING_HASH_SALT=settings.SECRET_KEY, MESSAGING_HASH_SALT_FALLBACKS=[]):
+            legacy = hashlib.sha256(f"{settings.SECRET_KEY}_a@b.com".encode()).hexdigest()
+            self.assertEqual(get_email_hash("a@b.com"), legacy)
+            self.assertEqual(get_email_hashes("a@b.com"), [legacy])
+
+    def test_get_email_hashes_includes_primary_and_fallbacks_deduped(self) -> None:
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt", "new_salt"]):
+            primary = hashlib.sha256(b"new_salt_a@b.com").hexdigest()
+            fallback = hashlib.sha256(b"old_salt_a@b.com").hexdigest()
+            self.assertEqual(get_email_hash("a@b.com"), primary)
+            # both salts present and the duplicate "new_salt" collapsed; order is irrelevant
+            # since the result only feeds an `email_hash__in=` lookup
+            self.assertEqual(set(get_email_hashes("a@b.com")), {primary, fallback})
+
+    def test_unset_fallbacks_is_empty_list_not_blank_string(self) -> None:
+        # An unset env var yields [] (not [""]) — get_list("") returns [], and the
+        # settings parsing additionally strips any blanks. This is the invariant that
+        # keeps an empty salt from ever reaching the hash.
+        self.assertEqual(settings.MESSAGING_HASH_SALT_FALLBACKS, [])
+        self.assertNotIn("", settings.MESSAGING_HASH_SALT_FALLBACKS)
+
+    def test_get_email_hash_refuses_empty_primary_salt(self) -> None:
+        # Empty primary salt is a misconfiguration (would write a brute-forceable hash):
+        # the write path fails loud rather than silently degrade.
+        with self.settings(MESSAGING_HASH_SALT=""):
+            with self.assertRaises(ValueError):
+                get_email_hash("a@b.com")
+
+    def test_get_email_hashes_never_hashes_an_empty_salt(self) -> None:
+        # Even if a blank slips into the fallback list (e.g. a stray comma in the env
+        # var), it is skipped — the empty-salt hash is never produced.
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["", "old_salt"]):
+            primary = hashlib.sha256(b"new_salt_a@b.com").hexdigest()
+            fallback = hashlib.sha256(b"old_salt_a@b.com").hexdigest()
+            empty_salt_hash = hashlib.sha256(b"_a@b.com").hexdigest()
+            hashes = get_email_hashes("a@b.com")
+            self.assertEqual(set(hashes), {primary, fallback})
+            self.assertNotIn(empty_salt_hash, hashes)
+
+    def test_dedup_matches_record_written_under_fallback_salt(self) -> None:
+        # Record written before rotation, under the old salt.
+        with self.settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            MessagingRecord.objects.get_or_create(
+                raw_email="rotate@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+            )
+
+        # After rotation, with the old salt listed as a fallback, the existing record is
+        # found and reused — no duplicate row, no re-send.
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
+            record, created = MessagingRecord.objects.get_or_create(raw_email="rotate@posthog.com", campaign_key="c")
+            self.assertFalse(created)
+            self.assertIsNotNone(record.sent_at)
+            self.assertEqual(MessagingRecord.objects.filter(campaign_key="c").count(), 1)
+
+    def test_dedup_misses_after_rotation_without_fallback(self) -> None:
+        # Control for the test above: without the old salt as a fallback, the pre-rotation
+        # record is unreachable and a fresh row is created — proving the fallback is what
+        # bridges the rotation.
+        with self.settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            MessagingRecord.objects.get_or_create(
+                raw_email="rotate@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+            )
+
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            _, created = MessagingRecord.objects.get_or_create(raw_email="rotate@posthog.com", campaign_key="c")
+            self.assertTrue(created)
+            self.assertEqual(MessagingRecord.objects.filter(campaign_key="c").count(), 2)
+
+    def test_filter_by_raw_email_matches_across_salts(self) -> None:
+        with self.settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            MessagingRecord.objects.get_or_create(
+                raw_email="rotate@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+            )
+
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
+            self.assertTrue(
+                # django-stubs' mypy plugin resolves filter() kwargs against model fields
+                # and can't follow the manager's raw_email→email_hash__in remap.
+                MessagingRecord.objects.filter(  # type: ignore[misc]
+                    raw_email="rotate@posthog.com", campaign_key="c", sent_at__isnull=False
+                ).exists()
+            )
+
+
+# Async tests live as standalone functions — the async ORM (afirst/aget_or_create) can't
+# run inside BaseTest's wrapping transaction, so they need django_db(transaction=True).
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_reuses_record_written_under_fallback_salt() -> None:
+    with override_settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+        original, created = await MessagingRecord.objects.aget_or_create(
+            raw_email="async@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+        )
+        assert created
+
+    # After rotation the old salt is a fallback, so the read finds the existing record:
+    # no duplicate row, no re-send.
+    with override_settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
+        found, created = await MessagingRecord.objects.aget_or_create(raw_email="async@posthog.com", campaign_key="c")
+        assert not created
+        assert found.pk == original.pk
+        assert await MessagingRecord.objects.filter(campaign_key="c").acount() == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_writes_under_primary_salt_not_a_fallback() -> None:
+    with override_settings(MESSAGING_HASH_SALT="primary_salt", MESSAGING_HASH_SALT_FALLBACKS=["other_salt"]):
+        record, created = await MessagingRecord.objects.aget_or_create(raw_email="async@posthog.com", campaign_key="c")
+        assert created
+        assert record.email_hash == hashlib.sha256(b"primary_salt_async@posthog.com").hexdigest()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_without_fallback_creates_duplicate_after_rotation() -> None:
+    # Control: without the old salt as a fallback, the pre-rotation record is unreachable
+    # and a fresh row is created — proving the fallback is what bridges the rotation.
+    with override_settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+        await MessagingRecord.objects.aget_or_create(
+            raw_email="async@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+        )
+
+    with override_settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+        _, created = await MessagingRecord.objects.aget_or_create(raw_email="async@posthog.com", campaign_key="c")
+        assert created
+        assert await MessagingRecord.objects.filter(campaign_key="c").acount() == 2

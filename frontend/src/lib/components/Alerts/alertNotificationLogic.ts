@@ -5,13 +5,15 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
+    ALERT_NOTIFICATION_TYPE_DISCORD,
+    ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     AlertNotificationType,
     PendingAlertNotification,
     buildAlertFilterConfig,
     buildHogFunctionPayload,
-} from 'lib/utils/alertUtils'
+} from 'lib/utils/alerts'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -21,6 +23,8 @@ import type { alertNotificationLogicType } from './alertNotificationLogicType'
 
 export const ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: ALERT_NOTIFICATION_TYPE_SLACK },
+    { label: 'Discord', value: ALERT_NOTIFICATION_TYPE_DISCORD },
+    { label: 'Microsoft Teams', value: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS },
     { label: 'Webhook', value: ALERT_NOTIFICATION_TYPE_WEBHOOK },
 ]
 
@@ -64,12 +68,15 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             null as string | null,
             {
                 setSlackChannelValue: (_, { slackChannelValue }) => slackChannelValue,
+                // Reset the input when switching destination type so stale values don't carry over.
+                setSelectedType: () => null,
             },
         ],
         webhookUrl: [
             '' as string,
             {
                 setWebhookUrl: (_, { webhookUrl }) => webhookUrl,
+                setSelectedType: () => '',
             },
         ],
         selectedType: [
@@ -148,13 +155,30 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 })
             )
 
-            const failedNotifications = pending.filter((_, i) => results[i].status === 'rejected')
-
-            if (failedNotifications.length > 0) {
-                lemonToast.error(
-                    `Alert saved, but ${failedNotifications.length} notification(s) failed to create. Reopen the alert to add them again.`
+            const failures = results
+                .map((result, i) => ({ result, notification: pending[i] }))
+                .filter(
+                    (item): item is { result: PromiseRejectedResult; notification: PendingAlertNotification } =>
+                        item.result.status === 'rejected'
                 )
-                actions.setPendingNotifications(failedNotifications)
+
+            if (failures.length > 0) {
+                const labelForType = (type: AlertNotificationType): string =>
+                    ALERT_NOTIFICATION_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type
+                // Log each failure with its destination type + API error so the cause is diagnosable later.
+                failures.forEach(({ result, notification }) => {
+                    console.error(
+                        `Failed to create ${labelForType(notification.type)} alert notification`,
+                        result.reason
+                    )
+                })
+                const failedTypes = Array.from(
+                    new Set(failures.map(({ notification }) => labelForType(notification.type)))
+                )
+                lemonToast.error(
+                    `Alert saved, but failed to create: ${failedTypes.join(', ')}. Reopen the alert to add them again.`
+                )
+                actions.setPendingNotifications(failures.map(({ notification }) => notification))
             } else {
                 if (results.length > 0) {
                     lemonToast.success(`${results.length} notification destination(s) created.`)

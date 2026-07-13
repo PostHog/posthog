@@ -41,6 +41,9 @@ pub enum PropertyType {
     #[default]
     #[serde(rename = "person")]
     Person,
+    // Top-level columns on the persons table (e.g. created_at), not the JSON properties blob.
+    #[serde(rename = "person_metadata")]
+    PersonMetadata,
     #[serde(rename = "cohort")]
     Cohort,
     #[serde(rename = "group")]
@@ -86,6 +89,16 @@ pub struct PropertyFilter {
     /// `Some(InvalidPattern)` means the pattern failed to compile — returns false immediately.
     #[serde(skip)]
     pub compiled_regex: Option<CompiledRegex>,
+    /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
+    /// Without this, runtime annotations like `cohort_name` and `group_key_names`
+    /// would be silently dropped on round-trip and the Python `verify_flags_cache`
+    /// verifier would report spurious `FIELD_MISMATCH` against the Django JSONB
+    /// passthrough. Only unknown-key passthrough is guaranteed here — absent-vs-null
+    /// normalization for known optional fields is handled by the Python verifier's
+    /// `_strip_null_values` helper.
+    /// See plans/verify-flags-cache-loose-comparison.md.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[cfg(test)]

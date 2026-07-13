@@ -1,0 +1,664 @@
+import typing
+from abc import ABC
+from datetime import datetime, timedelta
+from math import ceil
+from time import perf_counter
+from typing import Optional, Union
+from zoneinfo import ZoneInfo
+
+from django.conf import settings
+from django.core.cache import cache
+
+import structlog
+from structlog.contextvars import bound_contextvars
+
+from posthog.schema import (
+    ActionConversionGoal,
+    CohortPropertyFilter,
+    CustomEventConversionGoal,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    SamplingRate,
+    SessionPropertyFilter,
+    WebExternalClicksTableQuery,
+    WebGoalsQuery,
+    WebNotableChangesQuery,
+    WebOverviewQuery,
+    WebPageURLSearchQuery,
+    WebStatsTableQuery,
+    WebVitalsPathBreakdownQuery,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
+from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models import User
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.utils import generate_cache_key, get_safe_cache
+
+from products.actions.backend.models.action import Action
+from products.web_analytics.backend.hogql_queries.metrics import (
+    WEB_ANALYTICS_QUERY_COUNTER,
+    WEB_ANALYTICS_QUERY_DURATION,
+    WEB_ANALYTICS_QUERY_ERRORS,
+)
+from products.web_analytics.backend.hogql_queries.traffic_type import get_traffic_category_expr, get_traffic_type_expr
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_filters_eligibility_hash
+
+logger = structlog.get_logger(__name__)
+
+WebQueryNode = Union[
+    WebOverviewQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebExternalClicksTableQuery,
+    WebVitalsPathBreakdownQuery,
+    WebPageURLSearchQuery,
+    WebNotableChangesQuery,
+]
+
+WAR = typing.TypeVar("WAR", bound=AnalyticsQueryResponseProtocol)
+
+
+class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
+    query: WebQueryNode
+    query_type: type[WebQueryNode]
+
+    def query_strategy(self) -> str | None:
+        return None
+
+    def clickhouse_query_type(self) -> str | None:
+        return None
+
+    def validate_query_runner_access(self, user: User) -> bool:
+        user_access_control = UserAccessControl(user=user, team=self.team)
+        return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
+
+    def calculate(self) -> WAR:
+        # `filters_eligibility_hash` is bound on structlog contextvars here so every
+        # structured log emitted inside this request — `web_analytics_query`,
+        # each lazy-precompute path's `*_rejected` / `*_eligible`, and the
+        # framework's `lazy_computation.executed` — automatically carries it
+        # via the `merge_contextvars` processor. Joining log streams by cache
+        # key needs no further plumbing. The body is inlined inside the
+        # contextvar block (rather than delegated to a helper) so existing
+        # tests that call `WebAnalyticsQueryRunner.calculate(<MagicMock>)`
+        # exercise it directly.
+        with bound_contextvars(filters_eligibility_hash=self.filters_eligibility_hash):
+            # Tag everything ClickHouse will see for this request in one call so
+            # every downstream `sync_execute` (live, preagg, lazy precompute)
+            # inherits a coherent `log_comment` payload.
+            #
+            # `product`/`feature` are required so DEBUG-mode `sync_execute` doesn't
+            # trip `UntaggedQueryError`. `query` is set here because the HTTP
+            # layer (`posthog/api/services/query.py`) tags only the wrapping
+            # payload — the weekly digest workflow (and any other non-HTTP
+            # caller) reaches the runner directly with `log_comment.query`
+            # empty, so each runner records its own payload.
+            #
+            # `filters_eligibility_hash` deliberately stays out of the tag
+            # payload: `system.query_log` retention is sub-day on prod ClickHouse,
+            # so the hash is only useful on a multi-day source. It lives on the
+            # structlog contextvar (Loki, ~14 d retention) only.
+            query_kind = getattr(self.query, "kind", "Unknown")
+            breakdown_value = getattr(self.query, "breakdownBy", None)
+            breakdown_label = breakdown_value.value if breakdown_value is not None else "none"
+            has_conversion_goal = "true" if getattr(self.query, "conversionGoal", None) else "false"
+
+            tag_kwargs: dict[str, object] = {
+                "product": Product.WEB_ANALYTICS,
+                "feature": Feature.QUERY,
+                "query": self.query.model_dump(mode="json"),
+            }
+            if breakdown_value is not None:
+                tag_kwargs["breakdown_by"] = [breakdown_value.value]
+            tag_queries(**tag_kwargs)
+
+            logger.info(
+                "web_analytics_query_started",
+                team_id=self.team.pk,
+                query_kind=query_kind,
+            )
+
+            start = perf_counter()
+            response: Optional[WAR] = None
+            error_type = ""
+            query_strategy: str | None = None
+            clickhouse_query_type: str | None = None
+
+            try:
+                response = super().calculate()
+                return response
+            except Exception as exc:
+                error_type = type(exc).__name__
+                raise
+            finally:
+                duration_s = perf_counter() - start
+
+                try:
+                    query_strategy = self.query_strategy()
+                    clickhouse_query_type = self.clickhouse_query_type()
+                except Exception:
+                    query_strategy = query_strategy or "strategy_resolution_failed"
+                    clickhouse_query_type = clickhouse_query_type or None
+
+                pre_compute_strategy_label = "unknown"
+                if response is not None:
+                    strategy = getattr(response, "preComputeStrategy", None)
+                    if strategy is not None:
+                        pre_compute_strategy_label = str(strategy)
+
+                query_strategy_label = query_strategy or "none"
+                metric_labels = {
+                    "query_kind": query_kind,
+                    "query_strategy": query_strategy_label,
+                    "pre_compute_strategy": pre_compute_strategy_label,
+                    "breakdown": breakdown_label,
+                    "has_conversion_goal": has_conversion_goal,
+                }
+                WEB_ANALYTICS_QUERY_DURATION.labels(**metric_labels).observe(duration_s)
+                WEB_ANALYTICS_QUERY_COUNTER.labels(**metric_labels).inc()
+
+                if error_type:
+                    WEB_ANALYTICS_QUERY_ERRORS.labels(
+                        query_kind=query_kind,
+                        query_strategy=query_strategy_label,
+                        breakdown=breakdown_label,
+                        error_type=error_type,
+                    ).inc()
+
+                sampling = getattr(self.query, "sampling", None)
+                logger.info(
+                    "web_analytics_query",
+                    team_id=self.team.pk,
+                    organization_id=str(self.team.organization_id),
+                    user_id=get_query_tag_value("user_id"),
+                    query_kind=query_kind,
+                    query_strategy=query_strategy,
+                    clickhouse_query_type=clickhouse_query_type,
+                    breakdown=breakdown_label,
+                    has_conversion_goal=has_conversion_goal,
+                    pre_compute_strategy=pre_compute_strategy_label,
+                    duration_s=round(duration_s, 4),
+                    error=bool(error_type),
+                    error_type=error_type or None,
+                    filter_count=len(self.query.properties),
+                    date_from=self.query_date_range.date_from_str,
+                    date_to=self.query_date_range.date_to_str,
+                    sampling_enabled=sampling.enabled if sampling else False,
+                )
+
+    @cached_property
+    def filters_eligibility_hash(self) -> Optional[str]:
+        """Stable hash of the user-facing query inputs that would fragment a
+        precompute cache key. Bound on the structlog contextvars in
+        `calculate()` so every log emitted inside the request — including the
+        framework's `lazy_computation.executed` — carries it automatically and
+        the log streams can be joined for queries-per-distinct-cache-key
+        analysis. See `compute_filters_eligibility_hash` for the exact field set."""
+        try:
+            return compute_filters_eligibility_hash(self.query, self.team.timezone)
+        except Exception:
+            return None
+
+    @cached_property
+    def _timezone_info(self) -> ZoneInfo:
+        # Respect the convertToProjectTimezone modifier for date range calculation
+        # When convertToProjectTimezone=False, use UTC for both date boundaries AND column conversion
+        if self.modifiers and not self.modifiers.convertToProjectTimezone:
+            return ZoneInfo("UTC")
+        return self.team.timezone_info
+
+    @cached_property
+    def query_date_range(self):
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            timezone_info=self._timezone_info,
+            interval=self.query.interval,
+            now=datetime.now(self._timezone_info),
+        )
+
+    @cached_property
+    def query_compare_to_date_range(self):
+        if self.query.compareFilter is not None:
+            if isinstance(self.query.compareFilter.compare_to, str):
+                return QueryCompareToDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=self.query.interval,
+                    now=datetime.now(self._timezone_info),
+                    timezone_info=self._timezone_info,
+                    compare_to=self.query.compareFilter.compare_to,
+                )
+            elif self.query.compareFilter.compare:
+                return QueryPreviousPeriodDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=self.query.interval,
+                    now=datetime.now(self._timezone_info),
+                    timezone_info=self._timezone_info,
+                )
+
+        return None
+
+    def _current_period_expression(self, field="start_timestamp"):
+        return ast.Call(
+            name="and",
+            args=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_date_range.date_from_as_hogql(),
+                    op=ast.CompareOperationOp.GtEq,
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_date_range.date_to_as_hogql(),
+                    op=ast.CompareOperationOp.LtEq,
+                ),
+            ],
+        )
+
+    def _previous_period_expression(self, field="start_timestamp"):
+        # NOTE: Returning `ast.Constant(value=None)` is painfully slow, make sure we return a boolean
+        if not self.query_compare_to_date_range:
+            return ast.Constant(value=False)
+
+        return ast.Call(
+            name="and",
+            args=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_compare_to_date_range.date_from_as_hogql(),
+                    op=ast.CompareOperationOp.GtEq,
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_compare_to_date_range.date_to_as_hogql(),
+                    op=ast.CompareOperationOp.LtEq,
+                ),
+            ],
+        )
+
+    def _periods_expression(self, field="timestamp"):
+        return ast.Call(
+            name="or",
+            args=[
+                self._current_period_expression(field),
+                self._previous_period_expression(field),
+            ],
+        )
+
+    @cached_property
+    def pathname_property_filter(self) -> Optional[EventPropertyFilter]:
+        for p in self.query.properties:
+            if isinstance(p, EventPropertyFilter) and p.key == "$pathname":
+                return p
+        return None
+
+    @cached_property
+    def property_filters_without_pathname(
+        self,
+    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, CohortPropertyFilter]]:
+        return [p for p in self.query.properties if p.key != "$pathname"]
+
+    @cached_property
+    def conversion_goal_expr(self) -> Optional[ast.Expr]:
+        if isinstance(self.query.conversionGoal, ActionConversionGoal):
+            try:
+                action = Action.objects.get(
+                    pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id
+                )
+            except Action.DoesNotExist:
+                raise QueryError(
+                    f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
+                )
+            return action_to_expr(action)
+        elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
+            return ast.CompareOperation(
+                left=ast.Field(chain=["events", "event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.query.conversionGoal.customEventName),
+            )
+        else:
+            return None
+
+    @cached_property
+    def conversion_count_expr(self) -> Optional[ast.Expr]:
+        if self.conversion_goal_expr:
+            return ast.Call(name="countIf", args=[self.conversion_goal_expr])
+        else:
+            return None
+
+    @cached_property
+    def conversion_person_id_expr(self) -> Optional[ast.Expr]:
+        if self.conversion_goal_expr:
+            return ast.Call(
+                name="any",
+                args=[
+                    ast.Call(
+                        name="if",
+                        args=[
+                            self.conversion_goal_expr,
+                            ast.Field(chain=["events", "person_id"]),
+                            ast.Constant(value=None),
+                        ],
+                    )
+                ],
+            )
+        else:
+            return None
+
+    @cached_property
+    def event_type_expr(self) -> ast.Expr:
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
+            ),
+        ]
+
+        if self.conversion_goal_expr:
+            exprs.append(self.conversion_goal_expr)
+
+        return ast.Or(exprs=exprs)
+
+    def period_aggregate(
+        self,
+        function_name: str,
+        column_name: str,
+        start: ast.Expr,
+        end: ast.Expr,
+        alias: Optional[str] = None,
+        params: Optional[list[ast.Expr]] = None,
+    ):
+        expr = ast.Call(
+            name=function_name + "If",
+            params=params,
+            args=[
+                ast.Field(chain=[column_name]),
+                ast.Call(
+                    name="and",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.GtEq,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=start,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.LtEq,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=end,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        if alias is not None:
+            return ast.Alias(alias=alias, expr=expr)
+
+        return expr
+
+    def session_where(self, include_previous_period: Optional[bool] = None):
+        properties = [
+            parse_expr(
+                "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
+                placeholders={
+                    "date_from": (
+                        self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql()
+                    ),
+                    "date_to": self.query_date_range.date_to_as_hogql(),
+                },
+            ),
+            *self.property_filters_without_pathname,
+            *self._test_account_filters,
+        ]
+        return property_to_expr(
+            properties,
+            self.team,
+        )
+
+    def session_having(self, include_previous_period: Optional[bool] = None):
+        properties: list[Union[ast.Expr, EventPropertyFilter]] = [
+            parse_expr(
+                "min_timestamp >= {date_from}",
+                placeholders={
+                    "date_from": (
+                        self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql()
+                    ),
+                },
+            )
+        ]
+        pathname = self.pathname_property_filter
+        if pathname:
+            properties.append(
+                EventPropertyFilter(
+                    key="session_initial_pathname",
+                    label=pathname.label,
+                    operator=pathname.operator,
+                    value=pathname.value,
+                )
+            )
+        return property_to_expr(
+            properties,
+            self.team,
+        )
+
+    def sessions_table_properties(self, include_previous_period: Optional[bool] = None):
+        properties = [
+            parse_expr(
+                "sessions.min_timestamp >= {date_from}",
+                placeholders={
+                    "date_from": (
+                        self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql()
+                    ),
+                },
+            )
+        ]
+        return property_to_expr(
+            properties,
+            self.team,
+        )
+
+    def events_where(self):
+        properties = [self.events_where_data_range(), self.query.properties, self._test_account_filters]
+
+        return property_to_expr(
+            properties,
+            self.team,
+        )
+
+    def events_where_data_range(self):
+        return property_to_expr(
+            [
+                parse_expr(
+                    "events.timestamp >= {date_from}",
+                    placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
+                ),
+                parse_expr(
+                    "events.timestamp <= {date_to}",
+                    placeholders={"date_to": self.query_date_range.date_to_as_hogql()},
+                ),
+            ],
+            self.team,
+        )
+
+    @cached_property
+    def _test_account_filters(self):
+        if not self.query.filterTestAccounts:
+            return []
+        if isinstance(self.team.test_account_filters, list) and len(self.team.test_account_filters) > 0:
+            return self.team.test_account_filters
+        else:
+            return []
+
+    def _refresh_frequency(self):
+        date_to = self.query_date_range.date_to()
+        date_from = self.query_date_range.date_from()
+        interval = self.query_date_range.interval_name
+
+        delta_days: Optional[int] = None
+        if date_from and date_to:
+            delta = date_to - date_from
+            delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
+
+        refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
+        if interval == "hour" or (delta_days is not None and delta_days <= 7):
+            # The interval is shorter for short-term insights
+            refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+
+        return refresh_frequency
+
+    def _sample_rate_cache_key(self) -> str:
+        return generate_cache_key(
+            self.team.pk,
+            f"web_analytics_sample_rate_{self.query.dateRange.model_dump_json() if self.query.dateRange else None}_{self.team.pk}_{self.team.timezone}",
+        )
+
+    def _get_or_calculate_sample_ratio(self) -> SamplingRate:
+        if not self.query.sampling or not self.query.sampling.enabled:
+            return SamplingRate(numerator=1)
+        if self.query.sampling.forceSamplingRate:
+            return self.query.sampling.forceSamplingRate
+
+        cache_key = self._sample_rate_cache_key()
+        cached_response = get_safe_cache(cache_key)
+        if cached_response:
+            return SamplingRate(**cached_response)
+
+        # To get the sample rate, we need to count how many page view events there were over the time period.
+        # This would be quite slow if there were a lot of events, so use sampling to calculate this!
+
+        with self.timings.measure("event_count_query"):
+            event_count = parse_select(
+                """
+SELECT
+    count() as count
+FROM
+    events
+SAMPLE 1/1000
+WHERE
+    {where}
+                """,
+                timings=self.timings,
+                placeholders={
+                    "where": self.events_where_data_range(),
+                },
+            )
+
+        with self.timings.measure("event_count_query_execute"):
+            response = execute_hogql_query(
+                query_type="event_count_query",
+                query=event_count,
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                limit_context=self.limit_context,
+            )
+
+        if not response.results or not response.results[0] or not response.results[0][0]:
+            return SamplingRate(numerator=1)
+
+        count = response.results[0][0] * 1000
+        fresh_sample_rate = _sample_rate_from_count(count)
+
+        cache.set(cache_key, fresh_sample_rate, settings.CACHED_RESULTS_TTL)
+
+        return fresh_sample_rate
+
+    @cached_property
+    def _sample_rate(self) -> SamplingRate:
+        return self._get_or_calculate_sample_ratio()
+
+    @cached_property
+    def _sample_ratio(self) -> ast.RatioExpr:
+        sample_rate = self._sample_rate
+        return ast.RatioExpr(
+            left=ast.Constant(value=sample_rate.numerator),
+            right=ast.Constant(value=sample_rate.denominator) if sample_rate.denominator else None,
+        )
+
+    def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
+        if not self.query.doPathCleaning:
+            return path_expr
+
+        return apply_path_cleaning(path_expr, self.team)
+
+    def _get_traffic_type_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+        return get_traffic_type_expr(user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]))
+
+    def _get_traffic_category_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+        return get_traffic_category_expr(
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"])
+        )
+
+    def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
+        if n is None:
+            return None
+
+        return (
+            n * self._sample_rate.denominator / self._sample_rate.numerator
+            if self._sample_rate.denominator
+            else n / self._sample_rate.numerator
+        )
+
+    def get_cache_key(self) -> str:
+        original = super().get_cache_key()
+        return f"{original}_{self.team.path_cleaning_filters}"
+
+    def _events_prefilter_date_bounds(self) -> tuple[str, str]:
+        lower = self.query_date_range.date_from()
+        upper = self.query_date_range.date_to()
+
+        if self.query_compare_to_date_range:
+            lower = min(lower, self.query_compare_to_date_range.date_from())
+            upper = max(upper, self.query_compare_to_date_range.date_to())
+
+        utc = ZoneInfo("UTC")
+        date_from = (lower.astimezone(utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        date_to = (upper.astimezone(utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        return date_from, date_to
+
+    @cached_property
+    def events_session_property(self):
+        # we should delete this once SessionsV2JoinMode is always uuid, eventually we will always use $session_id_uuid
+        if self.query.modifiers and self.query.modifiers.sessionsV2JoinMode == "uuid":
+            return parse_expr("events.$session_id_uuid")
+        else:
+            return parse_expr("events.$session_id")
+
+
+def _sample_rate_from_count(count: int) -> SamplingRate:
+    # Change the sample rate so that the query will sample about 100_000 to 1_000_000 events, but use defined steps of
+    # sample rate. These numbers are just a starting point, and we can tune as we get feedback.
+    sample_target = 10_000
+    sample_rate_steps = [1_000, 100, 10]
+
+    for step in sample_rate_steps:
+        if count / sample_target >= step:
+            return SamplingRate(numerator=1, denominator=step)
+    return SamplingRate(numerator=1)
+
+
+def map_columns(results, mapper: dict[int, typing.Callable]):
+    return [[mapper[i](data, row) if i in mapper else data for i, data in enumerate(row)] for row in results]

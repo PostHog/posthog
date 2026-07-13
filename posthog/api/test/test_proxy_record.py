@@ -167,6 +167,10 @@ class TestProxyRecordAPI(APIBaseTest):
         [
             ("erroring", ProxyRecord.Status.ERRORING, "Cloudflare API error"),
             ("timed_out", ProxyRecord.Status.TIMED_OUT, None),
+            # Settled non-error states are retryable too, so diagnostics that detect drift on a
+            # live proxy (e.g. the Cloudflare custom hostname went missing) can recover via Retry.
+            ("valid", ProxyRecord.Status.VALID, None),
+            ("warning", ProxyRecord.Status.WARNING, "Cloudflare custom hostname missing"),
         ]
     )
     @patch("posthog.api.proxy_record.sync_connect")
@@ -201,12 +205,10 @@ class TestProxyRecordAPI(APIBaseTest):
         [
             ("waiting", ProxyRecord.Status.WAITING),
             ("issuing", ProxyRecord.Status.ISSUING),
-            ("valid", ProxyRecord.Status.VALID),
-            ("warning", ProxyRecord.Status.WARNING),
             ("deleting", ProxyRecord.Status.DELETING),
         ]
     )
-    def test_cannot_retry_proxy_in_non_error_state(self, _name, initial_status):
+    def test_cannot_retry_proxy_in_transitional_state(self, _name, initial_status):
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,
@@ -502,3 +504,33 @@ class TestProxyRecordAPI(APIBaseTest):
 
         # Sanity: diagnose function only called once despite two requests.
         assert mock_diagnose.call_count == 1
+
+    @patch("posthog.api.proxy_record.diagnose_proxy_record")
+    def test_diagnose_returns_structured_error_on_unexpected_exception(self, mock_diagnose):
+        from django.core.cache import cache
+
+        cache.clear()
+        mock_diagnose.side_effect = RuntimeError("something broke")
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="failed-diagnose.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        with patch("posthog.api.proxy_record.capture_exception") as cap_mock:
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/",
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        body = response.json()
+        # Regression-pin: must not be DRF's default 500 message.
+        assert body["detail"] != "A server error occurred."
+        assert "try again" in body["detail"].lower()
+        assert "support" in body["detail"].lower()
+        cap_mock.assert_called_once()
+        _exc, props = cap_mock.call_args[0]
+        assert props["proxy_record_id"] == str(record.id)
+        assert props["domain"] == record.domain

@@ -1,0 +1,363 @@
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { combineUrl, router, urlToAction } from 'kea-router'
+
+import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
+import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
+import { evaluationErrorMessage } from './apiErrors'
+import { evaluationTypeCanBeCreated, evaluationTypeUsesProviderKey } from './evaluationCapabilities'
+import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
+import { EvaluationConfig } from './types'
+
+const INITIAL_DATE_FROM = '-24h' as string | null
+const INITIAL_DATE_TO = null as string | null
+
+export type LLMEvaluationsLogicProps = Record<string, never>
+
+function redirectToOnlineEvaluations(searchParams: Record<string, unknown>): void {
+    router.actions.replace(
+        combineUrl(urls.aiObservabilityEvaluations(), {
+            ...searchParams,
+            tab: undefined,
+            experiment: undefined,
+            offline_date_from: undefined,
+            offline_date_to: undefined,
+        }).url
+    )
+}
+
+export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
+    path(['products', 'ai_observability', 'evaluations', 'llmEvaluationsLogic']),
+    props({} as LLMEvaluationsLogicProps),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys', 'isTrialLimitReached']],
+        actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
+    })),
+
+    actions({
+        setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        loadEvaluations: true,
+        loadEvaluationsSuccess: (evaluations: EvaluationConfig[]) => ({ evaluations }),
+        createEvaluation: (evaluation: Partial<EvaluationConfig>) => ({ evaluation }),
+        createEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
+        updateEvaluation: (id: string, evaluation: Partial<EvaluationConfig>) => ({ id, evaluation }),
+        updateEvaluationSuccess: (id: string, evaluation: Partial<EvaluationConfig>) => ({ id, evaluation }),
+        deleteEvaluation: (id: string) => ({ id }),
+        deleteEvaluationSuccess: (id: string) => ({ id }),
+        duplicateEvaluation: (id: string) => ({ id }),
+        duplicateEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
+        toggleEvaluationEnabled: (id: string) => ({ id }),
+        toggleEvaluationEnabledSuccess: (id: string) => ({ id }),
+        toggleEvaluationEnabledFailure: (id: string, error: string) => ({ id, error }),
+        setEvaluationsFilter: (filter: string) => ({ filter }),
+    }),
+
+    reducers({
+        dateFilter: [
+            {
+                dateFrom: INITIAL_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+            },
+            {
+                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+            },
+        ],
+
+        evaluations: [
+            [] as EvaluationConfig[],
+            {
+                loadEvaluationsSuccess: (_, { evaluations }) => evaluations,
+                createEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
+                updateEvaluationSuccess: (state, { id, evaluation }) =>
+                    state.map((e: EvaluationConfig) =>
+                        e.id === id ? ({ ...e, ...evaluation } as EvaluationConfig) : e
+                    ),
+                deleteEvaluationSuccess: (state, { id }) => state.filter((e: EvaluationConfig) => e.id !== id),
+                duplicateEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
+                toggleEvaluationEnabledSuccess: (state, { id }) =>
+                    state.map((e: EvaluationConfig) =>
+                        e.id === id
+                            ? {
+                                  ...e,
+                                  enabled: !e.enabled,
+                                  // Keep status in sync so the list-column pill updates optimistically.
+                                  status: !e.enabled ? 'active' : 'paused',
+                                  status_reason: null,
+                                  status_reason_detail: null,
+                              }
+                            : e
+                    ),
+            },
+        ],
+        evaluationsLoading: [
+            false,
+            {
+                loadEvaluations: () => true,
+                loadEvaluationsSuccess: () => false,
+            },
+        ],
+        evaluationsFilter: [
+            '',
+            {
+                setEvaluationsFilter: (_, { filter }) => filter,
+            },
+        ],
+    }),
+
+    listeners(({ actions, values }) => ({
+        loadEvaluations: async () => {
+            try {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+
+                // nosemgrep: prefer-codegen-api
+                const response = await api.get(`/api/environments/${teamId}/evaluations/`)
+                actions.loadEvaluationsSuccess(response.results)
+            } catch (error) {
+                console.error('Failed to load evaluations:', error)
+                actions.loadEvaluationsSuccess([])
+            }
+        },
+
+        createEvaluation: async ({ evaluation }) => {
+            try {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+
+                // nosemgrep: prefer-codegen-api
+                const response = await api.create(`/api/environments/${teamId}/evaluations/`, evaluation)
+                actions.createEvaluationSuccess(response)
+
+                // Trigger global tracking stuff for quick start + intent
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
+                void actions.addProductIntent({
+                    product_type: ProductKey.LLM_EVALUATIONS,
+                    intent_context: ProductIntentContext.LLM_EVALUATION_CREATED,
+                })
+            } catch (error) {
+                console.error('Failed to create evaluation:', error)
+            }
+        },
+
+        updateEvaluation: async ({ id, evaluation }) => {
+            try {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+
+                // nosemgrep: prefer-codegen-api
+                const response = await api.update(`/api/environments/${teamId}/evaluations/${id}/`, evaluation)
+                actions.updateEvaluationSuccess(id, response)
+            } catch (error) {
+                console.error('Failed to update evaluation:', error)
+            }
+        },
+
+        deleteEvaluation: async ({ id }) => {
+            try {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+                // nosemgrep: prefer-codegen-api
+                await api.update(`/api/environments/${teamId}/evaluations/${id}/`, { deleted: true })
+                actions.deleteEvaluationSuccess(id)
+            } catch (error) {
+                console.error('Failed to delete evaluation:', error)
+            }
+        },
+
+        duplicateEvaluation: async ({ id }) => {
+            try {
+                const original = values.evaluations.find((e: EvaluationConfig) => e.id === id)
+                if (!original) {
+                    return
+                }
+                if (!evaluationTypeCanBeCreated(original.evaluation_type, values.featureFlags)) {
+                    lemonToast.error('Sentiment evaluations are not available for this project.')
+                    return
+                }
+
+                const duplicate = {
+                    name: `${original.name} (Copy)`,
+                    description: original.description,
+                    enabled: original.enabled,
+                    evaluation_type: original.evaluation_type,
+                    evaluation_config: original.evaluation_config,
+                    output_type: original.output_type,
+                    output_config: original.output_config,
+                    conditions: original.conditions,
+                }
+
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+
+                // nosemgrep: prefer-codegen-api
+                const response = await api.create(`/api/environments/${teamId}/evaluations/`, duplicate)
+                actions.duplicateEvaluationSuccess(response)
+            } catch (error) {
+                console.error('Failed to duplicate evaluation:', error)
+            }
+        },
+
+        toggleEvaluationEnabled: async ({ id }) => {
+            const evaluation = values.evaluations.find((e: EvaluationConfig) => e.id === id)
+            if (!evaluation) {
+                return
+            }
+
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.update(`/api/environments/${teamId}/evaluations/${id}/`, {
+                    enabled: !evaluation.enabled,
+                })
+                actions.toggleEvaluationEnabledSuccess(id)
+            } catch (error) {
+                const action = evaluation.enabled ? 'disable' : 'enable'
+                const message = evaluationErrorMessage(error, `Failed to ${action} evaluation`)
+                lemonToast.error(message)
+                actions.toggleEvaluationEnabledFailure(id, message)
+            }
+        },
+    })),
+
+    selectors({
+        filteredEvaluations: [
+            (s) => [s.evaluations, s.evaluationsFilter],
+            (evaluations: EvaluationConfig[], filter: string) => {
+                if (!filter) {
+                    return evaluations
+                }
+                return evaluations.filter(
+                    (e: EvaluationConfig) =>
+                        e.name.toLowerCase().includes(filter.toLowerCase()) ||
+                        e.description?.toLowerCase().includes(filter.toLowerCase()) ||
+                        ('prompt' in e.evaluation_config &&
+                            e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())) ||
+                        ('source' in e.evaluation_config &&
+                            e.evaluation_config.source.toLowerCase().includes(filter.toLowerCase()))
+                )
+            },
+        ],
+        canEnableEvaluation: [
+            (s) => [s.isTrialLimitReached],
+            (isTrialLimitReached: boolean) => {
+                return (evaluation: EvaluationConfig): boolean => {
+                    if (!isTrialLimitReached) {
+                        return true
+                    }
+                    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
+                        return true
+                    }
+                    return !!evaluation.model_configuration?.provider_key_id
+                }
+            },
+        ],
+
+        unhealthyProviderKeysUsedByEvaluations: [
+            (s) => [s.evaluations, s.providerKeys],
+            (evaluations: EvaluationConfig[], providerKeys: LLMProviderKey[]): LLMProviderKey[] => {
+                const seenKeyIds = new Set<string>()
+                const unhealthyProviderKeys: LLMProviderKey[] = []
+
+                for (const evaluation of evaluations) {
+                    const providerKeyId = evaluation.model_configuration?.provider_key_id
+                    if (!providerKeyId || seenKeyIds.has(providerKeyId)) {
+                        continue
+                    }
+
+                    const providerKey = getUnhealthyProviderKey(providerKeys, providerKeyId)
+                    if (!providerKey) {
+                        continue
+                    }
+
+                    seenKeyIds.add(providerKeyId)
+                    unhealthyProviderKeys.push(providerKey)
+                }
+
+                return unhealthyProviderKeys
+            },
+        ],
+    }),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.aiObservabilityEvaluations()]: (_, searchParams, __, { method }) => {
+            const showOfflineEvals = !!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
+
+            if (!showOfflineEvals && (searchParams.tab === 'offline' || searchParams.tab === 'offline-evals')) {
+                redirectToOnlineEvaluations(searchParams)
+                return
+            }
+
+            if (searchParams.tab === 'settings') {
+                router.actions.replace(urls.settings('project-ai-observability', 'ai-observability-byok'))
+                return
+            }
+
+            const dateFrom = (searchParams.date_from as string | null) || INITIAL_DATE_FROM
+            const dateTo = (searchParams.date_to as string | null) || INITIAL_DATE_TO
+
+            if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
+                actions.setDates(dateFrom, dateTo)
+            }
+
+            if (method !== 'REPLACE') {
+                actions.loadEvaluations()
+            }
+        },
+        [urls.aiObservabilityOfflineEvaluations()]: (_, searchParams) => {
+            const showOfflineEvals = !!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
+            if (showOfflineEvals) {
+                return
+            }
+
+            redirectToOnlineEvaluations(searchParams)
+        },
+        [urls.aiObservabilityOfflineEvaluationExperiment(':experimentId', false)]: (_, searchParams) => {
+            const showOfflineEvals = !!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
+            if (showOfflineEvals) {
+                return
+            }
+
+            redirectToOnlineEvaluations(searchParams)
+        },
+    })),
+
+    trackedActionToUrl(() => ({
+        setDates: ({ dateFrom, dateTo }) => [
+            urls.aiObservabilityEvaluations(),
+            {
+                ...router.values.searchParams,
+                date_from: dateFrom === INITIAL_DATE_FROM ? undefined : dateFrom || undefined,
+                date_to: dateTo || undefined,
+            },
+        ],
+    })),
+
+    afterMount(({ actions }) => {
+        actions.loadProviderKeys()
+        actions.loadEvaluations()
+    }),
+])

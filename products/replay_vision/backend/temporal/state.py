@@ -7,10 +7,13 @@ from typing import TypeVar
 from django.conf import settings
 
 import structlog
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from redis import asyncio as aioredis
+from temporalio.exceptions import ApplicationError
 
 from posthog.redis import get_async_client
+
+from products.replay_vision.backend.temporal.types import ScannerLlmInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -78,7 +81,14 @@ async def get_data_class_from_redis(
         return None
     try:
         return target_class.model_validate_json(data_str)
-    except Exception as err:
+    except ValidationError as err:
+        # Stale-schema payloads will never parse — fail-fast instead of retrying for the full Redis TTL.
         msg = f"Failed to parse Redis payload at {redis_key} into {target_class.__name__}: {err}"
         logger.exception(msg, redis_key=redis_key)
-        raise ValueError(msg) from err
+        raise ApplicationError(msg, non_retryable=True) from err
+
+
+async def load_scanner_llm_inputs(observation_id: str) -> ScannerLlmInputs | None:
+    """Read the ScannerLlmInputs a scan stashed under the SESSION_EVENTS key; None if absent (its TTL has lapsed)."""
+    redis_client, redis_key = get_redis_state_client(label=StateActivitiesEnum.SESSION_EVENTS, state_id=observation_id)
+    return await get_data_class_from_redis(redis_client, redis_key, target_class=ScannerLlmInputs)

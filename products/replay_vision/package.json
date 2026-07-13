@@ -4,17 +4,24 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
-        "kea-router": "catalog:"
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "lodash.uniqby": "^4.7.0"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
+        "clsx": "*",
+        "fast-deep-equal": "*",
         "react": "*",
         "typescript": "*"
     }

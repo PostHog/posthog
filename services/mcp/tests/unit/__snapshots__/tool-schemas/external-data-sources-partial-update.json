@@ -1,0 +1,57 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "account_id": {
+            "type": "string"
+        },
+        "client_secret": {
+            "type": "string"
+        },
+        "created_via": {
+            "anyOf": [
+                {
+                    "description": "* `web` - web\n* `api` - api\n* `mcp` - mcp",
+                    "enum": ["web", "api", "mcp"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp"
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "direct_query_enabled": {
+            "description": "Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "A UUID string identifying this external data source.",
+            "type": "string"
+        },
+        "job_inputs": {},
+        "prefix": {
+            "anyOf": [
+                {
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

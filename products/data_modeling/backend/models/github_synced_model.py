@@ -15,7 +15,7 @@ class GitHubSyncedModel(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     config_id: int
 
     saved_query = models.OneToOneField(
-        "data_warehouse.DataWarehouseSavedQuery",
+        "data_modeling.DataWarehouseSavedQuery",
         on_delete=models.CASCADE,
         related_name="github_synced_model",
     )

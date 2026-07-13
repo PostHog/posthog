@@ -1,3 +1,5 @@
+import pytest
+
 import pytest_asyncio
 
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
@@ -6,6 +8,16 @@ from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
     truncate_persons,
     truncate_sessions,
 )
+
+
+# Since we autouse the `clickhouse_db_setup` below we need every test in this
+# directory to have DB access, otherwise we can run into some strange errors
+# during test setup. Requesting pytest-django's `db` fixture from an autouse
+# fixture grants that access, and because this conftest is directory-scoped it
+# only applies to tests under this directory.
+@pytest.fixture(autouse=True)
+def _enable_db(db):
+    pass
 
 
 @pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="module")

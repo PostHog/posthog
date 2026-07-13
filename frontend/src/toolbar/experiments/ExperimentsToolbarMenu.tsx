@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -21,9 +22,11 @@ import { joinWithUiHost } from '~/toolbar/utils'
 const ExperimentsListToolbarMenu = (): JSX.Element => {
     const { searchTerm } = useValues(experimentsLogic)
     const { newExperiment } = useActions(experimentsTabLogic)
-    const { setSearchTerm } = useActions(experimentsLogic)
+    const { setSearchTerm, getExperiments } = useActions(experimentsLogic)
     const { allExperiments, sortedExperiments, allExperimentsLoading } = useValues(experimentsLogic)
     const { uiHost } = useValues(toolbarConfigLogic)
+
+    useOnMountEffect(getExperiments)
 
     const isWebExperimentsDisabled = Boolean(window?.parent?.posthog?.config?.disable_web_experiments)
 

@@ -51,7 +51,7 @@ root_files:
         required_lenient: true
         template: |
             {{
-                "name": "@posthog/products-{product}",
+                "name": "@posthog/products-{product_kebab}",
                 "scripts": {{
                     "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
                     "backend:contract-check": "echo 'Contract files unchanged'"
@@ -85,11 +85,16 @@ root_files:
             }}
 
 # Backend files (in backend/)
+#
+# We deliberately do not scaffold `__init__.py` files for `backend/`,
+# `backend/facade/`, `backend/presentation/`, or `backend/tasks/`. Python 3.3+
+# implicit namespace packages handle imports without them, and the convention
+# under products/ is to keep package surfaces intentional — either populate
+# `__init__.py` with explicit exports (rare) or omit it.
+# `tests/__init__.py` is the one exception: pytest's default `prepend` import
+# mode would collide on duplicate test filenames across products (11×
+# `test_models.py`, 11× `test_api.py`, etc.) without it.
 backend_files:
-    __init__.py:
-        required: true
-        template: ''
-
     apps.py:
         required: true
         template: |
@@ -166,10 +171,6 @@ backend_files:
                     return list(SplineReticulator.objects.all())
 
     tasks/:
-        __init__.py:
-            required: false
-            template: ''
-
         tasks.py:
             required: false
             template: |
@@ -189,10 +190,6 @@ backend_files:
                 # Define periodic task schedules here
 
     facade/:
-        __init__.py:
-            required: true
-            template: ''
-
         api.py:
             required: true
             template: |
@@ -284,10 +281,6 @@ backend_files:
                     RETICULATED = "reticulated"
 
     presentation/:
-        __init__.py:
-            required: true
-            template: ''
-
         serializers.py:
             required: true
             template: |

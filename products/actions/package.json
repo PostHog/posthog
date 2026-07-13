@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-actions",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",
@@ -11,8 +14,8 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
-        "@storybook/react": "*",
+        "@posthog/icons": "catalog:",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

@@ -30,17 +30,17 @@ from unittest.mock import MagicMock, patch
 
 import structlog
 
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.hubspot.hubspot import (
+from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
+
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
     PROPERTY_LENGTH_LIMIT,
     _backfill_missing_properties,
     _flatten_result,
     _get_properties_str,
     get_rows,
 )
-from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -123,7 +123,9 @@ async def test_hubspot_source_full_refresh(team, external_data_source, external_
 
 
 def test_hubspot_get_properties():
-    with patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_property_names:
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names"
+    ) as mock_get_property_names:
         mock_get_property_names.return_value = [
             "address",
             "email",
@@ -153,7 +155,9 @@ def test_hubspot_get_properties_without_custom_props():
 
 
 def test_hubspot_get_properties_when_no_custom_props_exist():
-    with patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_property_names:
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names"
+    ) as mock_get_property_names:
         mock_get_property_names.return_value = [
             "id",
             "name",
@@ -169,7 +173,9 @@ def test_hubspot_get_properties_when_no_custom_props_exist():
 
 
 def test_hubspot_get_properties_when_no_default_props_exist():
-    with patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_property_names:
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names"
+    ) as mock_get_property_names:
         mock_get_property_names.return_value = [
             "id",
             "name",
@@ -232,9 +238,11 @@ def test_get_rows_with_selected_properties_backfills_missing_columns():
     mock_rsm.can_resume.return_value = False
 
     with (
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
         patch(
-            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names"
+        ) as mock_get_props,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
             return_value=type("_S", (), {"get": staticmethod(lambda *a, **k: mock_response)})(),
         ),
     ):
@@ -279,9 +287,11 @@ def test_get_rows_with_selected_properties_filters_invalid():
     mock_rsm.can_resume.return_value = False
 
     with (
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
         patch(
-            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names"
+        ) as mock_get_props,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
             return_value=type("_S", (), {"get": staticmethod(lambda *a, **k: mock_response)})(),
         ),
         patch.object(logger, "warning") as mock_warning,
@@ -328,9 +338,11 @@ def test_get_rows_all_invalid_properties_falls_back_to_defaults():
     mock_rsm.can_resume.return_value = False
 
     with (
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
         patch(
-            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names"
+        ) as mock_get_props,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
             return_value=type("_S", (), {"get": staticmethod(lambda *a, **k: mock_response)})(),
         ),
     ):
@@ -373,9 +385,11 @@ def test_get_rows_without_selected_properties_uses_defaults():
     mock_rsm.can_resume.return_value = False
 
     with (
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
         patch(
-            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names"
+        ) as mock_get_props,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
             return_value=type("_S", (), {"get": staticmethod(lambda *a, **k: mock_response)})(),
         ),
     ):
@@ -401,7 +415,9 @@ def test_hubspot_get_properties_url_length_limit():
     # Create a list of property names that will exceed the URL length limit
     long_props = [f"custom_property_{i}" for i in range(1000)]
 
-    with patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_property_names:
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names"
+    ) as mock_get_property_names:
         mock_get_property_names.return_value = long_props
 
         # Capture the warning log
@@ -503,8 +519,12 @@ def test_get_rows_backfills_missing_properties():
     }
 
     with (
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_props,
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session") as mock_get,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names"
+        ) as mock_props,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session"
+        ) as mock_get,
     ):
         mock_props.return_value = ["createdate", "domain", "name", "custom_field"]
         mock_get.return_value.get.return_value = mock_response

@@ -5,6 +5,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
+    AccountsQuery,
     ActionsNode,
     ActorsQuery,
     AnyDataWarehouseNode,
@@ -74,7 +75,6 @@ import {
     WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTrendsQuery,
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
@@ -296,10 +296,6 @@ export function isWebNotableChangesQuery(node?: Record<string, any> | null): nod
     return node?.kind === NodeKind.WebNotableChangesQuery
 }
 
-export function isWebTrendsQuery(node?: Record<string, any> | null): node is WebTrendsQuery {
-    return node?.kind === NodeKind.WebTrendsQuery
-}
-
 export function isMarketingAnalyticsTableQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsTableQuery {
@@ -411,8 +407,14 @@ export function isInsightQueryWithBreakdown(
 
 export function isInsightQueryWithCompare(
     node?: Record<string, any> | null
-): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node) || isWebStatsTableQuery(node) || isWebOverviewQuery(node)
+): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery | FunnelsQuery {
+    return (
+        isTrendsQuery(node) ||
+        isStickinessQuery(node) ||
+        isWebStatsTableQuery(node) ||
+        isWebOverviewQuery(node) ||
+        isFunnelsQuery(node)
+    )
 }
 
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
@@ -566,6 +568,23 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
         return query.trendsFilter?.showLegend
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showLegend
+    }
+    return undefined
+}
+
+// Widened to `string` (not the literal union) to match getYAxisScaleType — kea-typegen can't
+// serialize an inline string-literal union and emits a broken type; consumers narrow as needed.
+export const getLegendPosition = (query: InsightQueryNode): string | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.legendPosition
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.legendPosition
+    } else if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.legendPosition
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.legendPosition
     }
     return undefined
 }
@@ -573,6 +592,15 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 export const getShowAlertThresholdLines = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showAlertThresholdLines
+    }
+    return undefined
+}
+
+export const getShowAnnotations = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showAnnotations
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showAnnotations
     }
     return undefined
 }
@@ -593,6 +621,13 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
         return query.trendsFilter?.showValuesOnSeries
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.showValuesOnSeries
+    }
+    return undefined
+}
+
+export const getShowPercentagesOnSeries = (query: InsightQueryNode): boolean | undefined => {
+    if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showPercentagesOnSeries
     }
     return undefined
 }
@@ -660,6 +695,12 @@ export const supportsPercentStackView = (q: InsightQueryNode | null | undefined)
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
     supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
+export const supportsBarValueStacking = (q: InsightQueryNode | null | undefined): boolean =>
+    isTrendsQuery(q) && getDisplay(q) === ChartDisplayType.ActionsBarValue && hasBreakdownFilter(getBreakdown(q))
+
+export const getStackBreakdownValues = (query: InsightQueryNode): boolean | undefined =>
+    supportsBarValueStacking(query) && (query as TrendsQuery)?.trendsFilter?.stackBreakdownValues
+
 export const nodeKindToFilterProperty: Record<ProductAnalyticsInsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
@@ -692,6 +733,19 @@ export function trimQuotes(identifier: string): string {
     return identifier
 }
 
+// Mirrors escape_chars_map in posthog/hogql/escape_sql.py: backslash and control chars must be escaped so a quoted identifier round-trips losslessly through the HogQL parser.
+const HOGQL_IDENTIFIER_ESCAPE_MAP: Record<string, string> = {
+    '\b': '\\b',
+    '\f': '\\f',
+    '\r': '\\r',
+    '\n': '\\n',
+    '\t': '\\t',
+    '\0': '\\0',
+    '\x07': '\\a',
+    '\v': '\\v',
+    '\\': '\\\\',
+}
+
 /** Make sure the property key is wrapped in quotes if it contains any special characters. */
 export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
@@ -701,7 +755,9 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (isQuoted(identifier)) {
         return identifier // This identifier is already quoted
     }
-    return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
+    // Escape backslashes and control chars, then wrap; double an inner backtick (the parser rejects a backslash-escaped delimiter). The double-quote path needs no quote escaping since it is only taken when the identifier has no `"`.
+    const escaped = Array.from(identifier, (c) => HOGQL_IDENTIFIER_ESCAPE_MAP[c] || c).join('')
+    return !identifier.includes('"') ? `"${escaped}"` : `\`${escaped.replaceAll('`', '``')}\``
 }
 
 /** Quote each segment of a dotted HogQL reference independently. */
@@ -902,6 +958,10 @@ export function isValidQueryForExperiment(query: Node): boolean {
 
 export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
     return node?.kind === NodeKind.GroupsQuery
+}
+
+export function isAccountsQuery(node?: Record<string, any> | null): node is AccountsQuery {
+    return node?.kind === NodeKind.AccountsQuery
 }
 
 export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])

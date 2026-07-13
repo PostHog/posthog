@@ -2,20 +2,31 @@ import dataclasses
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.db import transaction
+
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 
-from products.data_modeling.backend.models import Node
-from products.data_warehouse.backend.data_load.saved_query_service import pause_saved_query_schedule
-from products.data_warehouse.backend.models import DataModelingJob
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+    DataWarehouseSavedQuery,
+    Node,
+)
+from products.data_warehouse.backend.facade.api import pause_saved_query_schedule
 
-from .utils import strip_hostname_from_error, update_node_system_properties
+from ..metrics import get_node_suspended_metric
+from .utils import (
+    CONSECUTIVE_FAILURES_TO_SUSPEND,
+    maybe_suspend_node_for_engine,
+    strip_hostname_from_error,
+    update_node_system_properties,
+)
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -28,7 +39,7 @@ CONSECUTIVE_TIMEOUTS_TO_PAUSE = 5
 def _get_previous_jobs(saved_query_id: UUID, current_job_id: UUID, count: int) -> "QuerySet[DataModelingJob]":
     """Get the most recent jobs for a saved query, excluding the current job."""
     return (
-        DataModelingJob.objects.filter(saved_query_id=saved_query_id)
+        DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=DataModelingJobEngine.CLICKHOUSE)
         .exclude(id=current_job_id)
         .order_by("-created_at")[:count]
     )
@@ -63,22 +74,23 @@ class FailMaterializationInputs:
     update_node: bool = True
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     # strip hostnames from error for user-facing storage while preserving original for logging
     sanitized_error = strip_hostname_from_error(inputs.error)
 
     node = None
     if inputs.update_node:
-        node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
-        status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
-        update_node_system_properties(
-            node,
-            status=status,
-            job_id=inputs.job_id,
-            error=sanitized_error,
-        )
-        node.save()
+        with transaction.atomic():
+            node = Node.objects.select_for_update().get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+            status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
+            update_node_system_properties(
+                node,
+                status=status,
+                job_id=inputs.job_id,
+                error=sanitized_error,
+            )
+            node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
 
@@ -94,14 +106,14 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     return node, job
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_saved_query_for_job(job: DataModelingJob) -> DataWarehouseSavedQuery | None:
     if not job.saved_query_id:
         return None
     return DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(id=job.saved_query_id).first()
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _maybe_pause_schedule_on_timeout(job: DataModelingJob, saved_query: DataWarehouseSavedQuery) -> bool:
     """Pause the schedule only if the previous N jobs all failed due to timeouts.
 
@@ -120,7 +132,7 @@ def _maybe_pause_schedule_on_timeout(job: DataModelingJob, saved_query: DataWare
     return True
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _revert_materialization_on_unknown_table(job: DataModelingJob, saved_query: DataWarehouseSavedQuery) -> None:
     saved_query.revert_materialization()
     # we can use this specific language in the error to add these jobs to the daily email digest later
@@ -140,12 +152,10 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
         f"Failed materialization job: node={inputs.node_id} dag={inputs.dag_id} job={job.id} "
         f"workflow={job.workflow_id} workflow_run={job.workflow_run_id} error={inputs.error}"
     )
-    # error-specific recovery: pause schedule on timeout, revert materialization on unknown table
+    # error-specific recovery: pause schedule on timeout, revert on unknown table, else suspend after repeated failures
     if not inputs.update_node:
         return
     error = inputs.error
-    if "Timeout exceeded" not in error and "Unknown table" not in error:
-        return
     try:
         saved_query = await _get_saved_query_for_job(job)
         if saved_query is None:
@@ -166,6 +176,21 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
                 f"Reverting materialization for node {inputs.node_id} due to unknown table reference",
             )
             await _revert_materialization_on_unknown_table(job, saved_query)
+        else:
+            suspended = await maybe_suspend_node_for_engine(
+                node_id=inputs.node_id,
+                team_id=inputs.team_id,
+                dag_id=inputs.dag_id,
+                saved_query_id=saved_query.id,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+                reason=strip_hostname_from_error(error),
+                job_id=inputs.job_id,
+            )
+            if suspended:
+                get_node_suspended_metric(DataModelingJobEngine.CLICKHOUSE.value).add(1)
+                await logger.ainfo(
+                    f"Suspended node {inputs.node_id} (clickhouse) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
+                )
     except Exception as e:
         capture_exception(e)
         await logger.aexception(f"Failed to run error-specific recovery for node {inputs.node_id}: {str(e)}")

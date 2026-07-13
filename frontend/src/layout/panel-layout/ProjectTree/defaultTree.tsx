@@ -7,7 +7,6 @@ import {
     IconBug,
     IconCircleDashed,
     IconClock,
-    IconCloud,
     IconCode,
     IconEndpoints,
     IconEye,
@@ -31,6 +30,7 @@ import {
     IconListCheck,
     IconListTree,
     IconLive,
+    IconAIGateway,
     IconLlmAnalytics,
     IconLlmPromptManagement,
     IconMegaphone,
@@ -86,6 +86,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_analytics: {
         icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
+    },
+    ai_gateway: {
+        icon: <IconAIGateway />,
+        iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
     },
     product_analytics: {
         icon: <IconGraph />,
@@ -281,7 +285,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconNotification />,
         iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
-    apps: {
+    tools: {
         icon: <IconApps />,
     },
     live: {
@@ -315,7 +319,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     inbox: {
         icon: <IconNotification />,
     },
-    sdk_doctor: {
+    sdk_health: {
         icon: <IconCode />,
     },
     pipeline_status: {
@@ -350,10 +354,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     exports: {
         icon: <IconDownload />,
-    },
-    deployments: {
-        icon: <IconCloud />,
-        iconColor: ['var(--color-product-deployments-light)', 'var(--color-product-deployments-dark)'],
     },
 }
 

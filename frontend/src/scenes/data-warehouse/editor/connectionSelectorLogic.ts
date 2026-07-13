@@ -8,7 +8,9 @@ import type { ExternalDataSourceConnectionOption } from '~/types'
 
 import IconPostHog from 'public/posthog-icon.svg'
 import IconDuckDB from 'public/services/duckdb.svg'
+import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
+import IconSnowflake from 'public/services/snowflake.png'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
@@ -17,22 +19,45 @@ import type { connectionSelectorLogicType } from './connectionSelectorLogicType'
 export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
+export const ADD_MYSQL_DIRECT_CONNECTION = '__add_mysql_direct_connection__'
+export const ADD_SNOWFLAKE_DIRECT_CONNECTION = '__add_snowflake_direct_connection__'
 export const CONFIGURE_SOURCES = '__configure_sources__'
 
 export interface ConnectionSelectOption {
-    value: string
+    // A leaf carries a `value`; a node carries nested `options` and renders as a submenu.
+    value?: string
     label: string
     disabled?: boolean
     iconSrc?: string
     managementUrl?: string
+    options?: ConnectionSelectOption[]
 }
 
 export interface ConnectionSelectOptionGroup {
     options: ConnectionSelectOption[]
 }
 
-function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOption, 'engine'>): 'duckdb' | 'postgres' {
-    return source.engine === 'duckdb' ? 'duckdb' : 'postgres'
+type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake'
+
+const ENGINE_LABELS: Record<ConnectionEngine, string> = {
+    duckdb: 'DuckDB',
+    postgres: 'Postgres',
+    mysql: 'MySQL',
+    snowflake: 'Snowflake',
+}
+
+const ENGINE_ICONS: Record<ConnectionEngine, string> = {
+    duckdb: IconDuckDB,
+    postgres: IconPostgres,
+    mysql: IconMySQL,
+    snowflake: IconSnowflake,
+}
+
+function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOption, 'engine'>): ConnectionEngine {
+    if (source.engine === 'duckdb' || source.engine === 'mysql' || source.engine === 'snowflake') {
+        return source.engine
+    }
+    return 'postgres'
 }
 
 export function getConnectionSelectorValue(
@@ -88,8 +113,8 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
 
                           return {
                               value: source.id,
-                              label: `${source.prefix ? source.prefix : source.id} (${engine === 'duckdb' ? 'DuckDB' : 'Postgres'})`,
-                              iconSrc: engine === 'duckdb' ? IconDuckDB : IconPostgres,
+                              label: `${source.prefix ? source.prefix : source.id} (${ENGINE_LABELS[engine]})`,
+                              iconSrc: ENGINE_ICONS[engine],
                               managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
                           }
                       })
@@ -108,7 +133,22 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                     {
                         options: [
                             { value: CONFIGURE_SOURCES, label: 'Configure sources' },
-                            { value: ADD_POSTGRES_DIRECT_CONNECTION, label: '+ Add postgres direct connection' },
+                            {
+                                label: 'Add direct connection',
+                                options: [
+                                    {
+                                        value: ADD_POSTGRES_DIRECT_CONNECTION,
+                                        label: 'Postgres',
+                                        iconSrc: IconPostgres,
+                                    },
+                                    { value: ADD_MYSQL_DIRECT_CONNECTION, label: 'MySQL', iconSrc: IconMySQL },
+                                    {
+                                        value: ADD_SNOWFLAKE_DIRECT_CONNECTION,
+                                        label: 'Snowflake',
+                                        iconSrc: IconSnowflake,
+                                    },
+                                ],
+                            },
                         ],
                     },
                 ]

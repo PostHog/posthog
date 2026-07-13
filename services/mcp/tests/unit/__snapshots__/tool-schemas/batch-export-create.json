@@ -1,0 +1,409 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request body for create/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.",
+    "properties": {
+        "destination": {
+            "anyOf": [
+                {
+                    "description": "Request shape for creating or updating a Databricks batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for a Databricks batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "catalog": {
+                                    "description": "Unity Catalog name.",
+                                    "type": "string"
+                                },
+                                "http_path": {
+                                    "description": "Databricks SQL warehouse HTTP path.",
+                                    "type": "string"
+                                },
+                                "schema": {
+                                    "description": "Schema (database) name inside the catalog.",
+                                    "type": "string"
+                                },
+                                "table_name": {
+                                    "description": "Destination table name.",
+                                    "type": "string"
+                                },
+                                "use_automatic_schema_evolution": {
+                                    "default": true,
+                                    "description": "Whether to let Databricks evolve the destination table schema automatically.",
+                                    "type": "boolean"
+                                },
+                                "use_variant_type": {
+                                    "default": true,
+                                    "description": "Whether to use the Databricks VARIANT type for JSON-like columns.",
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": ["http_path", "catalog", "schema", "table_name"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of a databricks-kind Integration. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["Databricks"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "integration_id", "config"],
+                    "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating an Azure Blob Storage batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "compression": {
+                                    "anyOf": [
+                                        {
+                                            "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
+                                            "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd"
+                                },
+                                "container_name": {
+                                    "description": "Azure Blob Storage container name.",
+                                    "type": "string"
+                                },
+                                "file_format": {
+                                    "default": "JSONLines",
+                                    "description": "File format used for exported objects.\n\n* `JSONLines` - JSONLines\n* `Parquet` - Parquet",
+                                    "enum": ["Parquet", "JSONLines"],
+                                    "type": "string"
+                                },
+                                "max_file_size_mb": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB."
+                                },
+                                "prefix": {
+                                    "default": "",
+                                    "description": "Object key prefix applied to every exported file.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["container_name"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of an azure-blob-kind Integration. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["AzureBlob"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "integration_id", "config"],
+                    "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating a BigQuery batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "dataset_id": {
+                                    "description": "BigQuery dataset ID to write to.",
+                                    "type": "string"
+                                },
+                                "table_id": {
+                                    "default": "events",
+                                    "description": "BigQuery table ID inside the dataset.",
+                                    "type": "string"
+                                },
+                                "use_json_type": {
+                                    "default": false,
+                                    "description": "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created.",
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": ["dataset_id"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["BigQuery"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "integration_id", "config"],
+                    "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating a PostgreSQL batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "database": {
+                                    "description": "PostgreSQL database name to connect to.",
+                                    "type": "string"
+                                },
+                                "has_self_signed_cert": {
+                                    "default": false,
+                                    "description": "Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.",
+                                    "type": "boolean"
+                                },
+                                "schema": {
+                                    "default": "public",
+                                    "description": "PostgreSQL schema name containing the destination table.",
+                                    "type": "string"
+                                },
+                                "table_name": {
+                                    "default": "events",
+                                    "description": "PostgreSQL table name to write exported rows into.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["database"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["Postgres"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "integration_id", "config"],
+                    "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating an AWS S3 batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for an AWS S3 batch-export destination.\n\nAWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of\n`AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "bucket_name": {
+                                    "description": "Name of the destination bucket.",
+                                    "type": "string"
+                                },
+                                "compression": {
+                                    "anyOf": [
+                                        {
+                                            "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
+                                            "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd"
+                                },
+                                "encryption": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms')."
+                                },
+                                "file_format": {
+                                    "default": "JSONLines",
+                                    "description": "File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+                                    "enum": ["Parquet", "JSONLines"],
+                                    "type": "string"
+                                },
+                                "kms_key_id": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "KMS key ID to use when encryption is 'aws:kms'."
+                                },
+                                "max_file_size_mb": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB."
+                                },
+                                "prefix": {
+                                    "description": "Object key prefix applied to every exported file.",
+                                    "type": "string"
+                                },
+                                "region": {
+                                    "description": "Region the bucket is in (e.g. 'us-east-1').",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["bucket_name", "region", "prefix"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["AwsS3"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "config"],
+                    "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating an S3-compatible batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "bucket_name": {
+                                    "description": "Name of the destination bucket.",
+                                    "type": "string"
+                                },
+                                "compression": {
+                                    "anyOf": [
+                                        {
+                                            "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
+                                            "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd"
+                                },
+                                "file_format": {
+                                    "default": "JSONLines",
+                                    "description": "File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+                                    "enum": ["Parquet", "JSONLines"],
+                                    "type": "string"
+                                },
+                                "max_file_size_mb": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB."
+                                },
+                                "prefix": {
+                                    "description": "Object key prefix applied to every exported file.",
+                                    "type": "string"
+                                },
+                                "region": {
+                                    "description": "Region the bucket is in (e.g. 'us-east-1').",
+                                    "type": "string"
+                                },
+                                "use_virtual_style_addressing": {
+                                    "default": false,
+                                    "description": "Use virtual-hosted-style addressing rather than path-style.",
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": ["bucket_name", "region", "prefix"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["S3Compatible"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "config"],
+                    "type": "object"
+                }
+            ],
+            "description": "Destination configuration. Required integration_id is enforced per destination type."
+        },
+        "interval": {
+            "description": "How often the batch export should run.\n\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes",
+            "enum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
+            "type": "string"
+        },
+        "model": {
+            "description": "Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions",
+            "enum": ["events", "persons", "sessions"],
+            "type": "string"
+        },
+        "name": {
+            "description": "Human-readable name for the batch export.",
+            "type": "string"
+        },
+        "offset_day": {
+            "anyOf": [
+                {
+                    "maximum": 6,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday)."
+        },
+        "offset_hour": {
+            "anyOf": [
+                {
+                    "maximum": 23,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Hour-of-day offset (0-23) for daily and weekly intervals."
+        },
+        "paused": {
+            "description": "Whether the batch export is paused.",
+            "type": "boolean"
+        },
+        "timezone": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries."
+        }
+    },
+    "required": ["name", "destination", "interval"],
+    "type": "object"
+}

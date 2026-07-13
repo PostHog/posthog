@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import functools
 import subprocess
 import configparser
 from pathlib import Path
@@ -18,9 +19,119 @@ from typing import Any
 
 from hogli.hooks import register_telemetry_properties
 from hogli.manifest import REPO_ROOT
-from hogli.telemetry import _load_config, _save_config
+from hogli.telemetry import _load_config, _save_config, is_ci
 
 _POSTHOG_DEV_CACHE_TTL_SECONDS = 30 * 86400  # 30 days
+
+
+# Created by hogland's guest overlay (hog-env-materialise) on every hogbox
+# boot; the guest exposes no ambient env var, so this path is the marker.
+# Prefer baking HOGLI_ENVIRONMENT=hogland into the guest image -- this is the
+# fallback until that ships.
+_HOGLAND_MARKER = Path("/var/lib/hog")
+
+# Coder sets these inside every workspace, which is what our devboxes run on.
+_DEVBOX_ENV_MARKERS = ("CODER", "CODER_WORKSPACE_NAME")
+
+# Ambient markers set by agent harnesses in the shells they spawn. Ordered
+# most-specific first: posthog-code drives claude/codex under the hood, so its
+# marker must win over theirs. Harnesses without an ambient marker (e.g.
+# non-sandboxed codex) can self-declare via HOGLI_AGENT instead.
+_AGENT_ENV_MARKERS = (
+    ("POSTHOG_CODE_VERSION", "posthog-code"),
+    ("CLAUDECODE", "claude-code"),
+    ("CODEX_SANDBOX", "codex"),
+)
+
+
+def _declared(var: str) -> str:
+    """Self-declared label from *var*, normalized so a sloppy export ('Sandbox ')
+    can't fragment the telemetry dimension."""
+    return os.environ.get(var, "").strip().lower()[:64]
+
+
+def _detect_environment() -> str:
+    """Classify where hogli is running: ci, devbox, hogland, local, or a self-declared value.
+
+    Environments without an ambient marker (e.g. agent sandboxes) should export
+    ``HOGLI_ENVIRONMENT`` in their bootstrap to self-declare.
+    """
+    declared = _declared("HOGLI_ENVIRONMENT")
+    if declared:
+        return declared
+    # Unreachable while the CI gate disables telemetry entirely; kept so the
+    # label can never diverge from the gate (same rationale as the is_ci prop).
+    if is_ci():
+        return "ci"
+    # Checked before the hogland marker so Coder-on-hogland reads as a devbox.
+    if any(os.environ.get(var) for var in _DEVBOX_ENV_MARKERS):
+        return "devbox"
+    if _HOGLAND_MARKER.exists():
+        return "hogland"
+    return "local"
+
+
+def _detect_agent() -> str | None:
+    """Name of the agent harness driving this invocation, or None for a human."""
+    declared = _declared("HOGLI_AGENT")
+    if declared:
+        return declared
+    for var, agent in _AGENT_ENV_MARKERS:
+        if os.environ.get(var):
+            return agent
+    return None
+
+
+@functools.cache
+def _repo_commit() -> tuple[str, str] | None:
+    """Short SHA and committer date of HEAD, identifying the checkout's vintage.
+
+    --no-show-signature keeps gpg verification lines (log.showSignature=true)
+    out of stdout, which would otherwise corrupt the parse.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "log", "-1", "--no-show-signature", "--format=%h %cI"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode != 0:
+            return None
+        sha, _, commit_date = result.stdout.strip().partition(" ")
+        if not sha or not commit_date:
+            return None
+        return sha, commit_date
+    except Exception:
+        return None
+
+
+def _repo_commit_properties() -> dict[str, str]:
+    commit = _repo_commit()
+    if commit is None:
+        return {}
+    return {"repo_sha": commit[0], "repo_commit_date": commit[1]}
+
+
+@functools.cache
+def _git_branch() -> str | None:
+    """Current branch name — the join key from a hogli run back to its PR.
+
+    "HEAD" (detached) and failures collapse to None so they don't pollute the
+    dimension. Cached per process: hogli commands are short-lived, so the branch
+    can't change mid-run.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return None
+    branch = result.stdout.strip()
+    return branch if result.returncode == 0 and branch and branch != "HEAD" else None
 
 
 def _infer_process_manager(command: str | None) -> str | None:
@@ -80,12 +191,20 @@ def _is_posthog_dev() -> bool:
 
 
 def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
+    # Agent-driven traffic (e.g. skills running metabase:query) otherwise
+    # swamps human usage stats.
+    agent = _detect_agent()
     return {
+        "agent": agent,
+        "environment": _detect_environment(),
         "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
         "in_flox": os.environ.get("FLOX_ENV") is not None,
+        "is_agent": agent is not None,
         "is_worktree": (REPO_ROOT / ".git").is_file(),
         "is_posthog_dev": _is_posthog_dev(),
         "process_manager": _infer_process_manager(command),
+        "git_branch": _git_branch(),
+        **_repo_commit_properties(),
     }
 
 

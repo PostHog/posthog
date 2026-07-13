@@ -11,5 +11,84 @@ export DEBUG=0
 # Auto-accept corepack download prompts (hangs in non-interactive contexts)
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
+# The Vite dev server listens on a fixed port the rest of the app expects.
+VITE_PORT=8234
+
+# Print the PID(s) currently listening on $VITE_PORT, or nothing if the port is
+# free (or no probing tool is available). Single source of truth so detection
+# stays consistent between the initial check and the post-kill poll.
+vite_port_listeners() {
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -ti "tcp:$VITE_PORT" -sTCP:LISTEN 2>/dev/null
+    elif command -v fuser >/dev/null 2>&1; then
+        fuser "$VITE_PORT/tcp" 2>/dev/null
+    fi
+    # lsof/fuser exit nonzero when nothing matches; force success so the caller's
+    # `pids=$(...)` doesn't abort the script under `set -e` when the port is free.
+    return 0
+}
+
+# If a stale process from a previous session is still squatting on $VITE_PORT,
+# the app — which hardcodes $VITE_PORT everywhere — fails to load. Reclaim the
+# port up front so we always come up where we're expected; Vite's strictPort
+# turns any reclaim failure into a loud startup error instead of a silent
+# fallback to the next free port.
+free_vite_port() {
+    local pids
+    pids=$(vite_port_listeners)
+    [ -z "$pids" ] && return 0
+    echo "Port $VITE_PORT is in use by stale process(es): $pids — killing them"
+    # shellcheck disable=SC2086
+    kill -TERM $pids 2>/dev/null || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        pids=$(vite_port_listeners)
+        [ -z "$pids" ] && return 0
+        sleep 0.3
+    done
+    # shellcheck disable=SC2086
+    kill -KILL $pids 2>/dev/null || true
+}
+free_vite_port
+
+# Recursively collect every descendant PID of the given pid, deepest first.
+# turbo's launcher re-parents the vite subtree into its own process group, so the
+# sibling `kill -- -$$` process-group idiom (start-go-service/start-rust-service)
+# misses it — we have to walk the tree by PID instead.
+collect_descendants() {
+    local parent=$1 child
+    for child in $(pgrep -P "$parent" 2>/dev/null); do
+        collect_descendants "$child"
+        echo "$child"
+    done
+}
+
+# When the process manager stops us (q / SIGTERM / SIGINT) bash would otherwise
+# exit without forwarding the signal to turbo, orphaning the whole
+# turbo → concurrently → vite (+ toolbar esbuild) subtree — leaving vite
+# squatting port 8234 across sessions. Tear the entire descendant tree down.
+shutdown() {
+    trap - INT TERM EXIT
+    local pids
+    pids=$(collect_descendants $$)
+    # shellcheck disable=SC2086
+    kill -TERM $pids 2>/dev/null || true
+    # Give the tree a moment to exit gracefully, then force-kill survivors.
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        pids=$(collect_descendants $$)
+        [ -z "$pids" ] && break
+        sleep 0.3
+    done
+    # shellcheck disable=SC2086
+    kill -KILL $pids 2>/dev/null || true
+}
+trap shutdown INT TERM EXIT
+
 pnpm --filter=@posthog/frontend... install
-bin/turbo --filter=@posthog/frontend start-vite
+
+# Run turbo in the background and wait on it so the trap above can fire while
+# turbo is running (a foreground child would keep bash blocked in turbo's own
+# wait, delaying signal handling). `wait` returns when turbo exits or when a
+# trapped signal interrupts it, at which point shutdown() reaps the subtree.
+bin/turbo --filter=@posthog/frontend start-vite &
+turbo_pid=$!
+wait "$turbo_pid"

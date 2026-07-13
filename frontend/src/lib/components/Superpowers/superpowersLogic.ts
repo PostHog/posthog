@@ -1,5 +1,6 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
+import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 // eslint-disable-next-line import/no-cycle
 import { userLogic } from 'scenes/userLogic'
@@ -12,7 +13,15 @@ export type FakeBillingAlert = 'none' | 'info' | 'warning' | 'error'
 export const superpowersLogic = kea<superpowersLogicType>([
     path(['lib', 'components', 'Superpowers', 'superpowersLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], preflightLogic, ['preflight']],
+        values: [
+            userLogic,
+            ['user'],
+            preflightLogic,
+            ['preflight'],
+            mcpHintLogic,
+            ['dismissedSurfaces', 'effectiveOptOut'],
+        ],
+        actions: [mcpHintLogic, ['reenable as reenableMCPHints']],
     })),
     actions({
         openSuperpowers: true,
@@ -45,13 +54,13 @@ export const superpowersLogic = kea<superpowersLogicType>([
         superpowersEnabled: [
             (s) => [s.user, s.preflight],
             (user, preflight) => {
-                return (
-                    user?.is_staff ||
-                    user?.is_impersonated ||
-                    preflight?.is_debug ||
-                    preflight?.instance_preferences?.debug_queries
-                )
+                return user?.is_staff || preflight?.is_debug || preflight?.instance_preferences?.debug_queries
             },
+        ],
+        mcpHintsDismissed: [
+            (s) => [s.dismissedSurfaces, s.effectiveOptOut],
+            (dismissedSurfaces: Record<string, true>, effectiveOptOut: boolean): boolean =>
+                effectiveOptOut || Object.keys(dismissedSurfaces).length > 0,
         ],
     }),
 ])

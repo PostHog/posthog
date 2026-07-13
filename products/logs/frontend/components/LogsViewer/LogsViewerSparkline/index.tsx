@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -6,10 +7,12 @@ import { LemonButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { shortTimeZone } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { shortTimeZone } from 'lib/utils/timezones'
 
 import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
+
+import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 
 export interface LogsSparklineData {
     data: {
@@ -30,6 +33,7 @@ interface LogsViewerSparklineProps {
     onBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
     collapsed?: boolean
     onToggleCollapse?: () => void
+    incompleteBarIndices?: number[]
 }
 
 const BREAKDOWN_OPTIONS: { value: LogsSparklineBreakdownBy; label: string }[] = [
@@ -46,6 +50,7 @@ export function LogsSparkline({
     onBreakdownByChange,
     collapsed = false,
     onToggleCollapse,
+    incompleteBarIndices,
 }: LogsViewerSparklineProps): JSX.Element | null {
     const showServiceBreakdown = useFeatureFlag('LOGS_SPARKLINE_SERVICE_BREAKDOWN')
 
@@ -106,6 +111,23 @@ export function LogsSparkline({
         return sparklineData.dates.map((date) => dayjs(date).toISOString())
     }, [sparklineData.dates])
 
+    const { visibleRowDateRange } = useValues(logsViewerLogic)
+
+    const highlightedRange = useMemo(() => {
+        if (!visibleRowDateRange || sparklineData.dates.length === 0) {
+            return null
+        }
+        const firstMs = dayjs(sparklineData.dates[0]).valueOf()
+        const lastMs = dayjs(sparklineData.dates[sparklineData.dates.length - 1]).valueOf()
+        const clamp = (ms: number): number => Math.min(Math.max(ms, firstMs), lastMs)
+        const xMin = clamp(dayjs(visibleRowDateRange.date_from).valueOf())
+        const xMax = clamp(dayjs(visibleRowDateRange.date_to).valueOf())
+        if (xMax <= xMin) {
+            return null
+        }
+        return { xMin, xMax }
+    }, [visibleRowDateRange, sparklineData.dates])
+
     const onSelectionChange = useCallback(
         (selection: { startIndex: number; endIndex: number }): void => {
             const dates = sparklineData.dates
@@ -159,6 +181,8 @@ export function LogsSparkline({
                             tooltipRowCutoff={100}
                             hideZerosInTooltip
                             sortTooltipByCount
+                            highlightedRange={highlightedRange}
+                            incompleteBars={incompleteBarIndices?.length ? { indices: incompleteBarIndices } : null}
                         />
                     ) : !sparklineLoading ? (
                         <div className="h-full text-muted flex items-center justify-center">

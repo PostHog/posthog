@@ -1,12 +1,14 @@
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context;
 use axum::Router;
 use common_redis::RedisClient;
 use tracing::{info, warn};
 
 use crate::ai_s3::AiBlobStorage;
-use crate::config::{CaptureMode, Config};
+use crate::config::{AiRouting, AiSinkMode, CaptureMode, Config, KafkaConfig};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::{
@@ -20,6 +22,7 @@ use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
+use crate::sinks::split::SplitKafkaSink;
 use crate::sinks::Event;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
@@ -30,11 +33,24 @@ pub struct LifecycleHandles {
     pub sink: Option<lifecycle::Handle>,
     pub advisory: Option<lifecycle::Handle>,
     pub event_restrictions: Option<lifecycle::Handle>,
+    pub v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
     pub readiness: lifecycle::ReadinessHandler,
     pub liveness: lifecycle::LivenessHandler,
 }
 
 pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) -> LifecycleHandles {
+    // S3 fallback and AI secondary routing both contend for the single gating
+    // sink handle, and only one can own it. Enabling both leaves one cluster's
+    // producer unmonitored while the pod's liveness gates on an idle sink — refuse
+    // to start rather than silently watch the wrong cluster.
+    let ai_secondary_routing =
+        config.capture_mode == CaptureMode::Ai && config.ai_sink_mode != AiSinkMode::Primary;
+    assert!(
+        !(config.s3_fallback_enabled && ai_secondary_routing),
+        "invalid configuration: S3_FALLBACK_ENABLED cannot be combined with AI secondary routing (AI_SINK_MODE={:?}); enable at most one",
+        config.ai_sink_mode,
+    );
+
     let server = manager.register(
         "server",
         lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(60)),
@@ -47,10 +63,13 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         (None, None)
     } else if config.s3_fallback_enabled {
         let kafka = manager.register("kafka-sink", sink_opts.clone().is_advisory(true));
-        let s3 = manager.register("s3-sink", sink_opts);
+        let s3 = manager.register("s3-sink", sink_opts.clone());
         (Some(s3), Some(kafka))
     } else {
-        (Some(manager.register("kafka-sink", sink_opts)), None)
+        (
+            Some(manager.register("kafka-sink", sink_opts.clone())),
+            None,
+        )
     };
 
     let event_restrictions =
@@ -58,6 +77,27 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
             Some(manager.register("event-restrictions", lifecycle::ComponentOptions::new()))
         } else {
             None
+        };
+
+    let v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> =
+        if !config.capture_v1_sinks.is_empty() {
+            crate::v1::sinks::parse_sink_names(&config.capture_v1_sinks)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "fatal: failed to parse CAPTURE_V1_SINKS='{}': {e:#}",
+                        config.capture_v1_sinks
+                    )
+                })
+                .into_iter()
+                .map(|name| {
+                    (
+                        name,
+                        manager.register(name.lifecycle_tag(), sink_opts.clone()),
+                    )
+                })
+                .collect()
+        } else {
+            HashMap::new()
         };
 
     let readiness = manager.readiness_handler();
@@ -68,6 +108,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         sink,
         advisory,
         event_restrictions,
+        v1_sinks,
         readiness,
         liveness,
     }
@@ -77,15 +118,21 @@ pub struct CaptureComponents {
     pub app: Router,
     pub server_handle: lifecycle::Handle,
     pub sink: Arc<dyn Event + Send + Sync>,
+    pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub http1_header_read_timeout_ms: Option<u64>,
 }
 
-pub async fn build_components(config: Config, handles: LifecycleHandles) -> CaptureComponents {
+pub async fn build_components(
+    config: Config,
+    sink_env: HashMap<String, String>,
+    handles: LifecycleHandles,
+) -> CaptureComponents {
     let LifecycleHandles {
         server,
         sink: sink_handle,
         advisory: advisory_handle,
         event_restrictions: event_restrictions_handle,
+        v1_sinks: v1_sink_handles,
         readiness,
         liveness,
     } = handles;
@@ -195,11 +242,57 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         _ => None,
     };
 
-    let sink: Arc<dyn Event + Send + Sync> = Arc::from(
-        create_sink(&config, sink_handle, advisory_handle)
+    // The capture sink is a single lifecycle component: `register_components`
+    // mints exactly one gating sink handle. When AI secondary routing is on we
+    // wrap the primary in a `SplitKafkaSink` that diverts events (all, or an
+    // allowlisted subset) to a second producer pointing at the secondary cluster
+    // (e.g. WarpStream). The KafkaSink layer is unchanged, so overflow/DLQ/redirect
+    // stamping applies on either cluster.
+    let build_secondary =
+        config.capture_mode == CaptureMode::Ai && config.ai_sink_mode != AiSinkMode::Primary;
+
+    // Decide which producer carries the single gating handle so the right
+    // cluster's health gates the pod: the secondary when it is the sole
+    // destination (full `Secondary` cutover), the primary otherwise. The
+    // non-gating producer is built with no handle — it still produces and emits
+    // metrics, it just doesn't drive a manager component. S3 fallback keeps the
+    // handle on the primary path (it owns its own advisory wiring).
+    let secondary_owns_liveness = build_secondary
+        && config.ai_sink_mode == AiSinkMode::Secondary
+        && !config.s3_fallback_enabled;
+    let (primary_handle, secondary_handle) = if secondary_owns_liveness {
+        (None, sink_handle)
+    } else {
+        (sink_handle, None)
+    };
+
+    let primary_sink: Arc<dyn Event + Send + Sync> = Arc::from(
+        create_sink(&config, primary_handle, advisory_handle)
             .await
             .expect("failed to create sink"),
     );
+
+    let sink: Arc<dyn Event + Send + Sync> = if build_secondary {
+        let secondary: Arc<dyn Event + Send + Sync> = Arc::new(
+            KafkaSink::new(build_ai_secondary_kafka_config(&config), secondary_handle)
+                .await
+                .expect("failed to start AI secondary Kafka sink"),
+        );
+        let routing = if config.ai_sink_mode == AiSinkMode::SecondaryAllowlist {
+            let allowlist = config
+                .ai_secondary_allowlist_tokens
+                .as_deref()
+                .map(parse_token_allowlist)
+                .unwrap_or_default();
+            AiRouting::SecondaryAllowlist(allowlist)
+        } else {
+            AiRouting::Secondary
+        };
+        info!(mode = ?config.ai_sink_mode, "AI secondary sink enabled");
+        Arc::new(SplitKafkaSink::new(primary_sink, secondary, routing))
+    } else {
+        primary_sink
+    };
     let sink_for_flush = sink.clone();
 
     // Create AI blob storage if S3 is configured
@@ -255,6 +348,15 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         None
     };
 
+    let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
+        Some(
+            create_v1_sink_router(&config, &sink_env, v1_sink_handles)
+                .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}")),
+        )
+    } else {
+        None
+    };
+
     let app = router::router(
         crate::time::SystemTime {},
         readiness,
@@ -276,13 +378,15 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
         ai_blob_storage,
-        config.request_timeout_seconds,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
         config.capture_v1_max_compressed_body_bytes,
         config.capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         replay_overflow_limiter,
+        v1_sink_router.clone(),
+        config.capture_v1_scatter_gather_min_batch,
+        config.ai_gateway_signing_secret.clone(),
     );
 
     info!(
@@ -294,8 +398,89 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         app,
         server_handle: server,
         sink: sink_for_flush,
+        v1_sink_router,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
     }
+}
+
+/// Build the secondary AI Kafka config by inheriting all producer tuning from
+/// the primary `kafka` config and overriding only the destination cluster and
+/// main topic. Panics with a clear message if the required secondary
+/// connection settings are missing — callers only invoke this when the AI sink
+/// mode requires a secondary, so missing config is a fatal misconfiguration.
+fn build_ai_secondary_kafka_config(config: &Config) -> KafkaConfig {
+    let mut kafka = config.kafka.clone();
+    kafka.kafka_hosts = config
+        .ai_secondary_kafka_hosts
+        .clone()
+        .filter(|h| !h.is_empty())
+        .expect("AI_SECONDARY_KAFKA_HOSTS is required when AI_SINK_MODE != primary");
+    kafka.kafka_topic = config
+        .ai_secondary_kafka_topic
+        .clone()
+        .filter(|t| !t.is_empty())
+        .expect("AI_SECONDARY_KAFKA_TOPIC is required when AI_SINK_MODE != primary");
+    kafka.kafka_tls = config.ai_secondary_kafka_tls;
+    if !config.ai_secondary_kafka_client_id.is_empty() {
+        kafka.kafka_client_id = config.ai_secondary_kafka_client_id.clone();
+    }
+    kafka
+}
+
+/// Parse a comma-separated token allowlist into a set, trimming whitespace and
+/// dropping empty entries.
+fn parse_token_allowlist(csv: &str) -> HashSet<String> {
+    csv.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+fn create_v1_sink_router(
+    config: &Config,
+    sink_env: &HashMap<String, String>,
+    handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
+) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
+    let sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
+        .context("failed to parse CAPTURE_V1_SINKS")?;
+    sinks_cfg
+        .validate()
+        .context("v1 sink config validation failed")?;
+
+    let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
+        HashMap::new();
+
+    for (name, cfg) in sinks_cfg.configs {
+        let handle = handles
+            .get(&name)
+            .cloned()
+            .with_context(|| format!("missing lifecycle handle for v1 sink '{name}'"))?;
+
+        let producer = crate::v1::sinks::kafka::producer::KafkaProducer::new(
+            name,
+            &cfg.kafka,
+            handle.clone(),
+            config.capture_mode.as_tag(),
+        )
+        .with_context(|| format!("failed to create v1 kafka producer for sink '{name}'"))?;
+
+        let kafka_sink = crate::v1::sinks::kafka::sink::KafkaSink::new(
+            name,
+            Arc::new(producer),
+            cfg,
+            config.capture_mode,
+            handle,
+        );
+        sink_map.insert(name, Box::new(kafka_sink));
+    }
+
+    let router = crate::v1::sinks::Router::new(sinks_cfg.default, sink_map);
+    info!(
+        sinks = config.capture_v1_sinks.as_str(),
+        "V1 sink router initialized"
+    );
+    Ok(Arc::new(router))
 }
 
 async fn create_sink(
@@ -308,42 +493,39 @@ async fn create_sink(
     } else if config.noop_sink {
         info!("NoOpSink enabled, events will be silently dropped");
         Ok(Box::new(NoOpSink::new()))
-    } else {
-        let sink_handle = sink_handle.expect("sink lifecycle handle required for Kafka/S3 sinks");
+    } else if config.s3_fallback_enabled {
+        let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
+        let kafka_handle = advisory_handle.expect("kafka advisory handle required for fallback");
 
-        if config.s3_fallback_enabled {
-            let kafka_handle =
-                advisory_handle.expect("kafka advisory handle required for fallback");
-            let s3_handle = sink_handle;
-
-            let kafka_sink = KafkaSink::new(config.kafka.clone(), kafka_handle.clone())
-                .await
-                .expect("failed to start Kafka sink");
-
-            let s3_sink = S3Sink::new(
-                config
-                    .s3_fallback_bucket
-                    .clone()
-                    .expect("S3 bucket required when fallback enabled"),
-                config.s3_fallback_prefix.clone(),
-                config.s3_fallback_endpoint.clone(),
-                s3_handle,
-            )
+        let kafka_sink = KafkaSink::new(config.kafka.clone(), Some(kafka_handle.clone()))
             .await
-            .expect("failed to create S3 sink");
+            .expect("failed to start Kafka sink");
 
-            Ok(Box::new(FallbackSink::new_with_advisory(
-                kafka_sink,
-                s3_sink,
-                kafka_handle,
-            )))
-        } else {
-            let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
-                .await
-                .expect("failed to start Kafka sink");
+        let s3_sink = S3Sink::new(
+            config
+                .s3_fallback_bucket
+                .clone()
+                .expect("S3 bucket required when fallback enabled"),
+            config.s3_fallback_prefix.clone(),
+            config.s3_fallback_endpoint.clone(),
+            s3_handle,
+        )
+        .await
+        .expect("failed to create S3 sink");
 
-            Ok(Box::new(kafka_sink))
-        }
+        Ok(Box::new(FallbackSink::new_with_advisory(
+            kafka_sink,
+            s3_sink,
+            kafka_handle,
+        )))
+    } else {
+        // `sink_handle` is `None` for a primary that must not gate the pod (a
+        // full `Secondary` cutover hands the gating handle to the secondary).
+        let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
+            .await
+            .expect("failed to start Kafka sink");
+
+        Ok(Box::new(kafka_sink))
     }
 }
 
@@ -414,4 +596,89 @@ fn create_event_restriction_service(
     );
 
     Some(service)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn create_v1_sink_router_fails_on_invalid_config() {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("CAPTURE_V1_SINKS", "msk"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        let handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> =
+            crate::v1::sinks::parse_sink_names(&config.capture_v1_sinks)
+                .unwrap()
+                .into_iter()
+                .map(|name| {
+                    (
+                        name,
+                        manager.register(name.lifecycle_tag(), lifecycle::ComponentOptions::new()),
+                    )
+                })
+                .collect();
+
+        let err = create_v1_sink_router(&config, &HashMap::new(), handles)
+            .err()
+            .expect("should fail with invalid config");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("msk"),
+            "error should name the failing sink: {msg}"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "S3_FALLBACK_ENABLED cannot be combined with AI secondary routing")]
+    fn register_components_rejects_s3_fallback_with_ai_secondary() {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "ai"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("S3_FALLBACK_ENABLED", "true"),
+            ("AI_SINK_MODE", "secondary"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        register_components(&mut manager, &config);
+    }
+
+    #[test]
+    fn parse_token_allowlist_trims_and_drops_empties() {
+        // A stray space or trailing/double comma in AI_SECONDARY_ALLOWLIST_TOKENS
+        // must not produce a mismatched or empty token that breaks routing.
+        let set = super::parse_token_allowlist(" tok_a , tok_b ,,tok_c, ");
+        assert_eq!(set.len(), 3);
+        assert!(set.contains("tok_a"));
+        assert!(set.contains("tok_b"));
+        assert!(set.contains("tok_c"));
+        assert!(!set.contains(""));
+
+        assert!(super::parse_token_allowlist("  ,  , ").is_empty());
+    }
 }

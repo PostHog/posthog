@@ -2,15 +2,14 @@ use crate::{
     api::{
         auth,
         errors::{ClientFacingError, FlagError},
+        instance_setting::{constance_key, fetch_instance_setting_raw_value},
     },
-    flags::{
-        flag_analytics::is_billable_flag_key, flag_request::FlagRequestType,
-        flag_service::FlagService,
-    },
-    handler::{billing::record_billing_increment, types::Library},
+    flags::{flag_analytics::is_billable_flag_key, flag_request::FlagRequestType},
+    handler::types::Library,
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
+        FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
     },
     router::State as AppState,
     team::team_models::Team,
@@ -24,15 +23,23 @@ use axum::{
 use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
 use common_types::TeamId;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
-const CONSTANCE_KEY: &str = "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS";
+
+/// Redis sorted set holding team IDs whose flag-definitions cache is missing and
+/// needs a rebuild. A Celery worker drains it (member = team_id, score = enqueue
+/// time in epoch millis). Must stay in sync with `REBUILD_REQUESTS_ZSET` in
+/// `products/feature_flags/backend/rebuild_queue.py` (pinned by the Python test
+/// `test_request_zset_key_matches_rust_contract`).
+const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
+static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
 
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
 /// Matches Django's `get_team_allow_list(round(time.time() / 60))` pattern.
@@ -66,30 +73,15 @@ async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
 }
 
 /// Query the posthog_instancesetting table for the rate limit allowlist.
-/// The key is stored with the constance prefix: "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS"
 /// Returns None if the row doesn't exist (env var default should be kept),
 /// Some(set) if the row exists (overrides the env var).
 pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<TeamId>>, String> {
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT raw_value FROM posthog_instancesetting WHERE key = $1")
-            .bind(CONSTANCE_KEY)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| format!("DB query failed: {e}"))?;
-
-    let raw_value = match row {
-        Some((val,)) => val,
+    let raw = match fetch_instance_setting_raw_value(pool, &CONSTANCE_KEY).await? {
+        Some(v) => v,
         None => return Ok(None),
     };
 
-    // Match Django's InstanceSetting.value: try json.loads first, fall back to raw string.
-    // Handles JSON strings ("\"23047,12345\""), null, and bare strings ("23047,12345").
-    let value = match serde_json::from_str::<serde_json::Value>(&raw_value) {
-        Ok(serde_json::Value::String(s)) => s,
-        Ok(serde_json::Value::Null) => return Ok(Some(HashSet::new())),
-        _ => raw_value, // non-string JSON or invalid JSON, treat as bare string (like Django)
-    };
-    let value = value.trim();
+    let value = raw.trim();
     if value.is_empty() {
         return Ok(Some(HashSet::new()));
     }
@@ -235,14 +227,9 @@ pub async fn flags_definitions(
     // matching Django's /local_evaluation behavior.
     if !*state.config.skip_writes && has_billable_flags(&cached_response) {
         let library = Library::from_headers(&headers);
-        record_billing_increment(
-            state.redis_client.clone(),
-            state.billing_aggregator.as_ref(),
-            team.id,
-            FlagRequestType::FlagDefinitions,
-            library,
-        )
-        .await;
+        state
+            .billing_aggregator
+            .record(team.id, FlagRequestType::FlagDefinitions, Some(library));
     }
 
     Ok(ok_response_with_etag(
@@ -351,7 +338,7 @@ async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<Str
 }
 
 /// Handles non-GET HTTP methods (HEAD, OPTIONS, and unsupported methods)
-fn handle_non_get_method(method: &Method) -> Response {
+pub(crate) fn handle_non_get_method(method: &Method) -> Response {
     match *method {
         Method::HEAD => (
             StatusCode::OK,
@@ -370,22 +357,10 @@ fn handle_non_get_method(method: &Method) -> Response {
     }
 }
 
-fn flag_service(state: &AppState) -> FlagService {
-    FlagService::new(
-        state.redis_client.clone(),
-        state.database_pools.non_persons_reader.clone(),
-        state.team_hypercache_reader.clone(),
-        state.flags_hypercache_reader.clone(),
-        state.flag_definitions_cache.clone(),
-        state.team_negative_cache.clone(),
-        *state.config.skip_pg_team_fallback,
-    )
-}
-
 /// Fetches a team by its API token, delegating to FlagService for consistent
 /// negative caching, metrics, and error handling across all endpoints.
 async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
-    flag_service(state).verify_token_and_get_team(token).await
+    state.flag_service().verify_token_and_get_team(token).await
 }
 
 /// Resolves a team from the Authorization header when no `?token=` param is provided.
@@ -411,7 +386,7 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
 
         // Prefer HyperCache via api_token (new cache entries include it).
         // Fall back to PG for old cache entries that predate the field.
-        let svc = flag_service(state);
+        let svc = state.flag_service();
         return match api_token {
             Some(t) => svc.verify_token_and_get_team(&t).await,
             None => svc.get_team_by_id(team_id).await,
@@ -483,9 +458,48 @@ async fn get_from_cache(
                 error = %e,
                 "Flag definitions cache miss"
             );
+            // Self-heal: a genuinely empty cache (not a transient redis/s3/parse
+            // error) has no DB fallback here, so it would 503 until something
+            // rewrites it. Enqueue a debounced rebuild request for a Celery worker.
+            if reason == "cache_miss" && *state.config.flag_definitions_self_heal_enabled {
+                enqueue_flag_definitions_rebuild(state, team_id);
+            }
             Err(FlagError::from(e))
         }
     }
+}
+
+/// Fire-and-forget enqueue of a flag-definitions rebuild request on cache miss.
+///
+/// Writes to a Redis sorted set on `state.redis_client` — the same shared client
+/// the flags-with-cohorts HyperCacheReader is built from (see `server.rs`), so the
+/// queue can never point at a different Redis than the one the cache lives in.
+/// Re-enqueuing a team only updates its score, so a client polling a missing team
+/// every ~30s occupies a single slot. Spawned so it never adds latency to (or
+/// changes) the failing response.
+fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32) {
+    let redis = state.redis_client.clone();
+    tokio::spawn(async move {
+        let score = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let result = redis
+            .zadd(
+                FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
+                team_id.to_string(),
+                score,
+            )
+            .await;
+        inc(
+            FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
+            &[(
+                "result".to_string(),
+                if result.is_ok() { "ok" } else { "error" }.to_string(),
+            )],
+            1,
+        );
+    });
 }
 
 /// Authenticates flag definitions requests using team secret API tokens or personal API keys
@@ -532,18 +546,8 @@ async fn authenticate_flag_definitions(
             1,
         );
 
-        if !*state.config.skip_writes {
-            // Use shared Redis, not the dedicated flags cache client —
-            // PAK last_used_at tracking is advisory and shouldn't steal
-            // capacity from the critical path.
-            let redis = state.redis_client.clone();
-            let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
-                state.database_pools.non_persons_writer.clone();
-            // Redis SET NX EX is sub-millisecond, so we check inline to avoid
-            // spawning a background task on every request. Only the DB write
-            // (triggered when the key is newly set) runs in a spawned task.
-            drop(super::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
-        }
+        // PAK last_used_at tracking is advisory; shared with remote_config via the State helper.
+        state.record_pak_last_used(pak_id).await;
 
         return Ok(());
     }

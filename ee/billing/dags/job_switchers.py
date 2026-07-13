@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 import dagster
@@ -112,7 +112,7 @@ def get_prior_hashes_from_metadata(
     domain_hashes_meta = metadata.get("domain_hashes")
 
     if domain_hashes_meta and isinstance(domain_hashes_meta, JsonMetadataValue):
-        return domain_hashes_meta.value or {}
+        return cast(dict[str, str], domain_hashes_meta.value) or {}
 
     return {}
 
@@ -147,6 +147,8 @@ def job_switchers_to_clay(
         team=team,
         query_type="job_switchers_query",
         limit_context=LimitContext.SAVED_QUERY,
+        # Internal billing DAG runs without a user; bypass warehouse ACL for this trusted ETL read.
+        bypass_warehouse_access_control=True,
     )
     results = response.results
 

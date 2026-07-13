@@ -2,9 +2,14 @@ import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
 import { StoryContext } from '@storybook/csf'
 import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
+import { fileURLToPath } from 'node:url'
 import path from 'path'
 
 import type { Mocks } from '~/mocks/utils'
+
+// Storybook 10 loads this config as a native ES module, where `__dirname` is
+// not defined — derive it from the module URL instead.
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
@@ -21,7 +26,7 @@ type SupportedBrowserName = 'chromium' | 'webkit'
 type SnapshotTheme = 'light' | 'dark'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
-declare module '@storybook/types' {
+declare module 'storybook/internal/types' {
     interface Parameters {
         options?: any
         /** @default 'padded' */
@@ -68,6 +73,12 @@ declare module '@storybook/types' {
              * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
              */
             skipDarkMode?: boolean
+            /**
+             * Suppress quill-charts canvas painting for this story's snapshot, avoiding flake from
+             * the charts' async paint. Handled by the `withChartCanvasSnapshot` decorator.
+             * @default false
+             */
+            skipCanvasDraw?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -83,6 +94,7 @@ declare module '@storybook/types' {
 const RETRY_TIMES = 2
 const LOADER_SELECTORS = [
     '.Spinner',
+    '.quill-spinner', // Quill's <Spinner /> — rotates while present, so it must settle before we snapshot
     '.LemonSkeleton',
     '.LemonTableLoader',
     '.Toastify__toast',
@@ -102,7 +114,15 @@ const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 
-module.exports = {
+// Sharing/embed stories render a preview iframe pointing at the shared/embedded URL, which Storybook
+// can't serve, so it 404s to a browser error page whose rendering is browser-version-dependent (and so
+// produces noisy, non-deterministic snapshots). Stub those navigations with a fixed page.
+// Yellow background with default black text keeps the stub legible and obviously intentional in both
+// light and dark snapshot themes; color-scheme:light stops the browser dark-inverting the page.
+const EMBED_STUB_HTML =
+    '<!doctype html><meta charset="utf-8"><title>mock iframe</title><body style="color-scheme:light;background:#ffeb3b;margin:0">mock iframe</body>'
+
+export default {
     setup() {
         expect.extend({ toMatchImageSnapshot })
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
@@ -110,6 +130,9 @@ module.exports = {
     },
 
     async preVisit(page, context) {
+        await page.route(/\/(embedded|shared)\//, (route) =>
+            route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
+        )
         const storyContext = await getStoryContext(page, context)
         const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
         applyStoryTimeouts(page, viewportWidths)

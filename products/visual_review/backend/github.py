@@ -10,7 +10,11 @@ from __future__ import annotations
 import requests
 import structlog
 
-from posthog.models.integration import GITHUB_API_VERSION, GitHubRateLimitError, raise_if_github_rate_limited
+from posthog.egress.github.transport import (
+    GitHubRateLimitError,
+    github_request as _egress_github_request,
+    raise_if_github_rate_limited,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -19,21 +23,27 @@ def github_request(
     method: str,
     url: str,
     access_token: str,
+    *,
+    installation_id: str | None = None,
     **kwargs,
 ) -> requests.Response:
     """Make a GitHub API request with standard headers, rate limit logging, and rate limit detection.
 
+    Pass ``installation_id`` (the GitHub App installation id) so egress telemetry records the shared
+    rate-limit gauges, not just request volume.
+
     Raises GitHubRateLimitError on 403/429 when the rate limit is exhausted.
     """
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {access_token}",
-        "X-GitHub-Api-Version": GITHUB_API_VERSION,
-        **(kwargs.pop("headers", {})),
-    }
-
-    response = requests.request(method, url, headers=headers, **kwargs)
-
+    # Gated + recorded by the shared egress client; visual review keeps only its own rate-limit
+    # response handling (the structlog low-remaining alerts + raising GitHubRateLimitError on 403/429).
+    response = _egress_github_request(
+        method,
+        url,
+        source="visual_review",
+        headers={"Authorization": f"Bearer {access_token}", **(kwargs.pop("headers", {}))},
+        installation_id=installation_id,
+        **kwargs,
+    )
     _log_rate_limit_headers(response, method, url)
     _check_rate_limit_response(response, method, url)
 

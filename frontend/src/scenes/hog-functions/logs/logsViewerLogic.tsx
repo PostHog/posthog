@@ -33,7 +33,7 @@ export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
 
 export type LogsViewerLogicProps = {
     logicKey?: string
-    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs' | 'data_modeling_run'
+    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs' | 'data_modeling_run' | 'endpoints'
     sourceId: string
     groupByInstanceId?: boolean
     searchGroups?: string[]
@@ -66,7 +66,7 @@ export type GroupedLogEntry = {
 }
 
 export type LogEntryParams = {
-    sourceType: 'hog_function' | 'hog_flow' | 'data_modeling_run'
+    sourceType: LogsViewerLogicProps['sourceType']
     sourceId: string
     levels: LogEntryLevel[]
     searchGroups: string[]
@@ -89,18 +89,26 @@ export const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
     return timestamp.tz(teamTimezone).format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
+// An empty `levels` selection means "all levels" in the picker (it renders as
+// "All levels"), so omit the predicate entirely. Emitting `lower(level) IN ()`
+// is invalid HogQL ("empty parentheses are not a valid expression") and fails
+// the whole query — which surfaced as a toast when deselecting the last level
+// or paging older entries. Values come from a fixed enum, so raw is safe here.
+const levelInClause = (levels: LogEntryLevel[]): string =>
+    levels.length > 0 ? `AND lower(level) IN (${levels.map((level) => `'${level.toLowerCase()}'`).join(',')})` : ''
+
 const buildBoundaryFilters = (request: LogEntryParams): string => {
     return hogql`
         AND log_source = ${request.sourceType}
         AND log_source_id = ${request.sourceId}
         AND timestamp > {filters.dateRange.from}
         AND timestamp < {filters.dateRange.to}
-        AND lower(level) IN (${hogql.raw(request.levels.map((level) => `'${level.toLowerCase()}'`).join(','))})
+        ${hogql.raw(levelInClause(request.levels))}
     `
 }
 
 const buildSearchFilters = ({ searchGroups, levels, instanceId }: LogEntryParams): string => {
-    let query = hogql`\nAND lower(level) IN (${hogql.raw(levels.map((level) => `'${level.toLowerCase()}'`).join(','))})`
+    let query = hogql`\n${hogql.raw(levelInClause(levels))}`
 
     searchGroups.forEach((search) => {
         query = (query +
@@ -147,11 +155,17 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
     )
 }
 
-const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: string[]): Promise<LogEntry[]> => {
-    const excludeFilter =
-        excludeInstanceIds && excludeInstanceIds.length > 0 ? hogql`AND instance_id NOT IN ${excludeInstanceIds}` : ''
-
-    const query = hogql`
+// Grouped pagination keyset-pages over instance groups by offsetting the group subquery, ordered by
+// most recent activity. We deliberately do NOT paginate with a `timestamp < cursor` boundary: batch
+// workflows emit hundreds of instances within the same millisecond, so a timestamp cursor (truncated
+// to ms) excludes every remaining group at once and the viewer falsely reports "No older entries".
+// The instance_id tiebreaker keeps the ordering stable across pages.
+export const buildGroupedLogsQuery = (
+    request: LogEntryParams,
+    groupLimit: number,
+    groupOffset: number = 0
+): HogQLQueryString => {
+    return hogql`
         SELECT instance_id, timestamp, level, message
         FROM log_entries
         WHERE 1=1
@@ -162,13 +176,21 @@ const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: str
             WHERE 1=1
             ${hogql.raw(buildBoundaryFilters(request))}
             ${hogql.raw(buildSearchFilters(request))}
-            ${hogql.raw(excludeFilter as string)}
             GROUP BY instance_id
-            ORDER BY max(timestamp) ${hogql.raw(request.order)}
-            LIMIT ${LOG_GROUP_LIMIT}
+            ORDER BY max(timestamp) ${hogql.raw(request.order)}, instance_id DESC
+            LIMIT ${groupLimit}
+            OFFSET ${groupOffset}
         )
         ORDER BY timestamp DESC
         LIMIT ${LOG_GROUP_TOTAL_LOGS_LIMIT}`
+}
+
+const loadGroupedLogs = async (
+    request: LogEntryParams,
+    groupLimit: number = LOG_GROUP_LIMIT,
+    groupOffset: number = 0
+): Promise<LogEntry[]> => {
+    const query = buildGroupedLogsQuery(request, groupLimit, groupOffset)
 
     const response = await api.queryHogQL(
         query,
@@ -345,16 +367,11 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     return groupLogs(results)
                 },
                 loadMoreGroupedLogs: async () => {
-                    if (!values.oldestLogTimestamp) {
-                        return values.groupedLogs
-                    }
-                    const logParams: LogEntryParams = {
-                        ...values.logEntryParams,
-                        dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
-                    }
-
-                    const existingInstanceIds = values.groupedLogs.map((group) => group.instanceId)
-                    const results = await loadGroupedLogs(logParams, existingInstanceIds)
+                    const results = await loadGroupedLogs(
+                        values.logEntryParams,
+                        LOG_GROUP_LIMIT,
+                        values.groupedLogs.length
+                    )
 
                     if (!results.length) {
                         actions.markLogsEnd()

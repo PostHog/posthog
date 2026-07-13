@@ -9,19 +9,6 @@ export type CyclotronV2PoolConfig = {
     idleTimeoutMs?: number
 }
 
-// `id` and `functionId` use PostHog's UUIDT-style identifiers which don't set
-// valid UUID version bits, so we only validate them as non-empty strings here.
-// `personId` comes from posthog_person.uuid (a real UUID v4/v7) for person-based
-// blast radius, but group-based blast radius returns group keys (non-UUID strings).
-// We coerce non-UUID values to null so the postgres UUID column accepts them
-// rather than failing the whole batch insert.
-const personIdSchema = z.preprocess((val) => {
-    if (typeof val === 'string' && !z.uuid().safeParse(val).success) {
-        return null
-    }
-    return val
-}, z.uuid().nullish())
-
 export const CyclotronV2JobInitSchema = z.object({
     id: z.string().min(1).optional(),
     teamId: z.number().int(),
@@ -32,8 +19,14 @@ export const CyclotronV2JobInitSchema = z.object({
     parentRunId: z.string().nullish(),
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
-    personId: personIdSchema,
+    personId: z.string().nullish(),
     actionId: z.string().nullish(),
+    // When `true`, the insert uses ON CONFLICT (id) DO UPDATE — the existing
+    // row's status is reset to 'available', the lock is cleared, and state is
+    // replaced. Used by the rerun path so a re-execution can reuse the
+    // original `invocation_id` (so lifecycle rows collapse under one
+    // ReplacingMergeTree key) without colliding on the cyclotron_jobs PK.
+    overwriteExisting: z.boolean().optional(),
 })
 
 export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
@@ -42,11 +35,35 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
-    personId: personIdSchema,
+    personId: z.string().nullish(),
     actionId: z.string().nullish(),
+    queueName: z.string().optional(),
 })
 
 export type CyclotronV2RescheduleOptions = z.infer<typeof CyclotronV2RescheduleOptionsSchema>
+
+/**
+ * Atomic enqueue-and-check-in primitive for fan-out workflows.
+ *
+ * Produces N new jobs AND re-queues (or terminates) the current worker's job
+ * in a single Postgres transaction. Used by the batch resolver: each page
+ * inserts ~500 child workflow invocations AND advances its own cursor state
+ * atomically — so a worker crash between the two writes can't leak partial
+ * progress (children enqueued but cursor not advanced).
+ *
+ * `selfDisposition`:
+ *   - `{ kind: 'reschedule', scheduledAt?, state? }` → re-queue self (status
+ *     back to 'available') for the next page.
+ *   - `{ kind: 'ack' }` → terminal success (completed).
+ *   - `{ kind: 'fail' }` → terminal failure.
+ */
+export interface CyclotronV2BulkCreateAndCheckInInput {
+    newJobs: CyclotronV2JobInit[]
+    selfDisposition:
+        | { kind: 'reschedule'; scheduledAt?: Date; state?: Buffer | null }
+        | { kind: 'ack' }
+        | { kind: 'fail' }
+}
 
 export interface CyclotronV2DequeuedJob {
     readonly id: string
@@ -68,6 +85,7 @@ export interface CyclotronV2DequeuedJob {
     reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
+    bulkCreateAndCheckIn(input: CyclotronV2BulkCreateAndCheckInInput): Promise<{ newJobIds: string[] }>
 }
 
 export type CyclotronV2ManagerConfig = {
@@ -75,6 +93,24 @@ export type CyclotronV2ManagerConfig = {
     depthLimit?: number
     depthCheckIntervalMs?: number
 }
+
+/**
+ * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
+ * on the interface (testable, mockable) without pulling the full manager
+ * implementation. Add methods here as new producers need them.
+ */
+export interface CyclotronV2JobProducer {
+    createJob(input: CyclotronV2JobInit): Promise<string>
+    disconnect(): Promise<void>
+}
+
+/**
+ * Per-poll decision returned by a rate-limited worker's hook.
+ *   `{ limit: 0, sleepMs }` → skip the dequeue and sleep.
+ *   `{ limit: N }`          → dequeue up to `min(N, batchMaxSize)` rows.
+ *   `undefined`             → fall back to the static `batchMaxSize`.
+ */
+export type CyclotronV2BatchLimit = { limit: number; sleepMs?: number }
 
 export type CyclotronV2WorkerConfig = {
     pool: CyclotronV2PoolConfig

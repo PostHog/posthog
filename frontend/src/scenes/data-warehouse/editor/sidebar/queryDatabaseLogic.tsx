@@ -12,9 +12,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -104,7 +104,11 @@ const getSavedQuerySchemaTable = (
 }
 
 const FUSE_OPTIONS: IFuseOptions<any> = {
-    keys: [{ name: 'name', weight: 2 }],
+    keys: [
+        { name: 'name', weight: 2 },
+        // Warehouse tables are queryable by alternate names (e.g. the flat underscore form) too
+        { name: 'search_aliases', weight: 1 },
+    ],
     ignoreLocation: true,
     includeMatches: true,
 }
@@ -1007,6 +1011,21 @@ const createSourceFolderNode = (
         ? `search-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
         : `source-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
 
+    // Distinct ExternalDataSources behind this type folder, so it can link each to its edit page.
+    // A type can have several sources (e.g. two Postgres connections), distinguished by prefix.
+    const sourceTables = isSearch ? matches.map(([table]) => table) : tables
+    const sources: { id: string; label: string }[] = []
+    const seenSourceIds = new Set<string>()
+    sourceTables.forEach((table) => {
+        const source = (table as DatabaseSchemaDataWarehouseTable).source
+        if (source?.id && !seenSourceIds.has(source.id)) {
+            seenSourceIds.add(source.id)
+            // Prefixes are stored with a trailing underscore (e.g. "stripe_"); strip it for display.
+            const label = source.prefix?.trim().replace(/_+$/, '') || source.source_type
+            sources.push({ id: source.id, label })
+        }
+    })
+
     return {
         id: sourceFolderId,
         name: sourceType,
@@ -1029,6 +1048,7 @@ const createSourceFolderNode = (
         record: {
             type: 'source-folder',
             sourceType,
+            sources,
         },
         children: sourceChildren,
     }
@@ -1567,7 +1587,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
     })),
-    selectors(({ actions }) => ({
+    selectors(({ actions, cache }) => ({
         hasNonPosthogSources: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): boolean => {
@@ -1940,10 +1960,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('drafts', draftsChildren, true))
                 }
 
+                // Auto-expand matching groups once per search term, so the user can freely collapse
+                // them afterwards without the selector immediately re-expanding them.
                 const expandedIdSet = new Set(expandedSearchFolders)
                 const missingRequiredExpansion = expandedIds.some((id) => !expandedIdSet.has(id))
 
-                if (missingRequiredExpansion) {
+                if (missingRequiredExpansion && cache.lastAutoExpandedSearchTerm !== searchTerm) {
+                    cache.lastAutoExpandedSearchTerm = searchTerm
                     // Auto-expand only parent folders, not the matching nodes themselves.
                     setTimeout(() => {
                         actions.setExpandedSearchFolders(
@@ -2456,11 +2479,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         },
         openUnsavedQuery: ({ record }) => {
             if (record.insight) {
-                sceneLogic.actions.newTab(urls.sqlEditor({ insightShortId: record.insight.short_id }))
+                newInternalTab(urls.sqlEditor({ insightShortId: record.insight.short_id }))
             } else if (record.view) {
-                sceneLogic.actions.newTab(urls.sqlEditor({ view_id: record.view.id }))
+                newInternalTab(urls.sqlEditor({ view_id: record.view.id }))
             } else {
-                sceneLogic.actions.newTab(urls.sqlEditor({ query: record.query }))
+                newInternalTab(urls.sqlEditor({ query: record.query }))
             }
         },
     })),

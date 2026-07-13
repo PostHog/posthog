@@ -1,0 +1,1021 @@
+from typing import cast
+
+import pytest
+
+from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
+    EventsNode,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentMetricMathType,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+    ExperimentStatsBase,
+    ExperimentStatsBaseValidated,
+    ExperimentStatsValidationFailure,
+    FunnelConversionWindowTimeUnit,
+    StartHandling,
+)
+
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
+
+from products.experiments.backend.hogql_queries.utils import (
+    aggregate_variants_across_breakdowns,
+    get_experiment_query_debug,
+    get_variant_result,
+    get_variant_results,
+    metric_variant_to_statistic,
+    validate_variant_result,
+)
+from products.experiments.stats.shared.statistics import ProportionStatistic, SampleMeanStatistic
+
+
+def _columns_for(
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    *,
+    cuped: bool = False,
+) -> list[str]:
+    """
+    Mirror the column aliases that experiment_query_builder.py SELECTs produce.
+
+    This helper documents the SQL contract on the test side. If the production query
+    builder ever changes which aliases it emits, tests using this helper will need to
+    be updated alongside _ALIAS_TO_STATS_FIELD in utils.py.
+    """
+    cols = ["variant"]
+
+    breakdowns = metric.breakdownFilter.breakdowns if metric.breakdownFilter else None
+    if breakdowns:
+        cols.extend(f"breakdown_value_{i + 1}" for i in range(len(breakdowns)))
+
+    cols.extend(["num_users", "total_sum", "total_sum_of_squares"])
+
+    if isinstance(metric, ExperimentMeanMetric) and cuped:
+        cols.extend(["covariate_sum", "covariate_sum_squares", "covariate_sum_product"])
+
+    if isinstance(metric, ExperimentFunnelMetric):
+        cols.append("step_counts")
+
+    if isinstance(metric, (ExperimentRatioMetric, ExperimentRetentionMetric)):
+        cols.extend(["denominator_sum", "denominator_sum_squares", "numerator_denominator_sum_product"])
+
+    return cols
+
+
+class TestGetVariantResult:
+    """Tests for get_variant_result() which parses query result tuples into structured variant results."""
+
+    # Helper to create metrics for testing
+    @staticmethod
+    def create_mean_metric():
+        return ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+        )
+
+    @staticmethod
+    def create_funnel_metric():
+        return ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview", name="$pageview"),
+                EventsNode(event="purchase", name="purchase"),
+            ],
+        )
+
+    @staticmethod
+    def create_ratio_metric():
+        return ExperimentRatioMetric(
+            numerator=EventsNode(event="purchase"),
+            denominator=EventsNode(event="$pageview"),
+        )
+
+    # Mean Metric Tests
+    def test_mean_metric_without_breakdown(self):
+        metric = self.create_mean_metric()
+        result = ("control", 100, 250.5, 750.25)
+
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_value is None
+        assert stats.key == "control"
+        assert stats.number_of_samples == 100
+        assert stats.sum == 250.5
+        assert stats.sum_squares == 750.25
+        assert stats.step_counts is None
+        assert stats.denominator_sum is None
+
+    def test_mean_metric_with_breakdown(self):
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        result = ("test", "Chrome", 150, 400.0, 1200.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("Chrome",)
+        assert stats.key == "test"
+        assert stats.number_of_samples == 150
+        assert stats.sum == 400.0
+        assert stats.sum_squares == 1200.0
+        assert stats.step_counts is None
+        assert stats.denominator_sum is None
+
+    def test_mean_metric_with_cuped(self):
+        metric = self.create_mean_metric()
+        # variant, num_users, total_sum, total_sum_of_squares, covariate_sum, covariate_sum_squares, covariate_sum_product
+        result = ("control", 100, 250.5, 750.25, 90.0, 270.0, 220.0)
+
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric, cuped=True))
+
+        assert breakdown_value is None
+        assert stats.key == "control"
+        assert stats.number_of_samples == 100
+        assert stats.sum == 250.5
+        assert stats.sum_squares == 750.25
+        assert stats.covariate_sum == 90.0
+        assert stats.covariate_sum_squares == 270.0
+        assert stats.covariate_sum_product == 220.0
+
+    def test_mean_metric_with_cuped_and_breakdown(self):
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        # variant, breakdown, num_users, total_sum, total_sum_of_squares, covariate_sum, covariate_sum_squares, covariate_sum_product
+        result = ("test", "Chrome", 150, 400.0, 1200.0, 130.0, 380.0, 310.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric, cuped=True))
+
+        assert breakdown_tuple == ("Chrome",)
+        assert stats.number_of_samples == 150
+        assert stats.sum == 400.0
+        assert stats.covariate_sum == 130.0
+        assert stats.covariate_sum_squares == 380.0
+        assert stats.covariate_sum_product == 310.0
+
+    # Funnel Metric Tests
+    def test_funnel_metric_without_breakdown_no_sessions(self):
+        metric = self.create_funnel_metric()
+        result = ("control", 100, 80.0, 80.0, [100, 80])
+
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_value is None
+        assert stats.key == "control"
+        assert stats.number_of_samples == 100
+        assert stats.sum == 80.0
+        assert stats.sum_squares == 80.0
+        assert stats.step_counts == [100, 80]
+        assert stats.step_sessions is None
+        assert stats.denominator_sum is None
+
+    def test_funnel_metric_with_breakdown_no_sessions(self):
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview", name="$pageview"),
+                EventsNode(event="purchase", name="purchase"),
+            ],
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        result = ("test", "Safari", 120, 90.0, 90.0, [120, 90])
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("Safari",)
+        assert stats.key == "test"
+        assert stats.number_of_samples == 120
+        assert stats.sum == 90.0
+        assert stats.sum_squares == 90.0
+        assert stats.step_counts == [120, 90]
+        assert stats.step_sessions is None
+
+    # Ratio Metric Tests
+    def test_ratio_metric_without_breakdown(self):
+        metric = self.create_ratio_metric()
+        result = ("control", 100, 50.0, 75.0, 200.0, 500.0, 120.0)
+
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_value is None
+        assert stats.key == "control"
+        assert stats.number_of_samples == 100
+        assert stats.sum == 50.0  # numerator sum
+        assert stats.sum_squares == 75.0  # numerator sum_squares
+        assert stats.denominator_sum == 200.0
+        assert stats.denominator_sum_squares == 500.0
+        assert stats.numerator_denominator_sum_product == 120.0
+        assert stats.step_counts is None
+
+    def test_ratio_metric_with_breakdown(self):
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(event="purchase"),
+            denominator=EventsNode(event="$pageview"),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        result = ("test", "Firefox", 150, 75.0, 120.0, 300.0, 800.0, 200.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("Firefox",)
+        assert stats.key == "test"
+        assert stats.number_of_samples == 150
+        assert stats.sum == 75.0
+        assert stats.sum_squares == 120.0
+        assert stats.denominator_sum == 300.0
+        assert stats.denominator_sum_squares == 800.0
+        assert stats.numerator_denominator_sum_product == 200.0
+
+    # Edge Cases
+    def test_breakdown_detection_numeric_second_field(self):
+        """When second field is numeric, should NOT be treated as breakdown."""
+        metric = self.create_mean_metric()
+        result = ("control", 100, 250.5, 750.25)  # Second field is numeric
+
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_value is None  # Should NOT detect breakdown
+        assert stats.number_of_samples == 100
+
+    def test_breakdown_detection_string_second_field(self):
+        """When breakdownFilter has breakdowns, should parse breakdown values."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        result = ("control", "Chrome", 100, 250.5, 750.25)  # Second field is breakdown value
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("Chrome",)  # Should parse breakdown
+        assert stats.number_of_samples == 100
+
+    @pytest.mark.parametrize(
+        "variant_key,expected_key",
+        [
+            ("control", "control"),
+            ("test", "test"),
+            ("test-2", "test-2"),
+            ("holdout-123", "holdout-123"),
+        ],
+    )
+    def test_different_variant_keys(self, variant_key, expected_key):
+        """Test that various variant key formats are preserved correctly."""
+        metric = self.create_mean_metric()
+        result = (variant_key, 100, 250.5, 750.25)
+
+        breakdown_value, stats = get_variant_result(result, _columns_for(metric))
+
+        assert stats.key == expected_key
+
+    # Multiple Breakdown Tests
+    def test_mean_metric_with_two_breakdowns(self):
+        """Test parsing mean metric with 2 breakdowns."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$os"),
+                    Breakdown(property="$browser"),
+                ]
+            ),
+        )
+        # Result: variant, os, browser, samples, sum, sum_squares
+        result = ("test", "MacOS", "Chrome", 150, 400.0, 1200.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("MacOS", "Chrome")
+        assert stats.key == "test"
+        assert stats.number_of_samples == 150
+        assert stats.sum == 400.0
+        assert stats.sum_squares == 1200.0
+
+    def test_funnel_metric_with_three_breakdowns(self):
+        """Test parsing funnel metric with 3 breakdowns (max supported)."""
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview", name="$pageview"),
+                EventsNode(event="purchase", name="purchase"),
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$os"),
+                    Breakdown(property="$browser"),
+                    Breakdown(property="$device_type"),
+                ]
+            ),
+        )
+        # Result: variant, os, browser, device_type, samples, sum, sum_squares, step_counts
+        result = ("control", "MacOS", "Chrome", "Desktop", 100, 80.0, 80.0, [100, 80])
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("MacOS", "Chrome", "Desktop")
+        assert stats.key == "control"
+        assert stats.number_of_samples == 100
+        assert stats.step_counts == [100, 80]
+
+    def test_ratio_metric_with_numeric_breakdown(self):
+        """Test that numeric breakdown values are converted to strings."""
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(event="purchase"),
+            denominator=EventsNode(event="$pageview"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="$screen_width")],  # Numeric property
+            ),
+        )
+        # Result with numeric breakdown value
+        result = ("test", 1920, 150, 75.0, 120.0, 300.0, 800.0, 200.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("1920",)  # Converted to string
+        assert stats.number_of_samples == 150
+
+    def test_multiple_breakdowns_with_mixed_types(self):
+        """Test multiple breakdowns with mixed string/numeric values."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$os"),
+                    Breakdown(property="$screen_width"),  # Numeric
+                ]
+            ),
+        )
+        # Result: variant, os (string), screen_width (numeric), samples, sum, sum_squares
+        result = ("control", "MacOS", 1920, 100, 250.0, 750.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("MacOS", "1920")  # Both as strings
+        assert stats.number_of_samples == 100
+
+    def test_ratio_metric_with_multiple_breakdowns(self):
+        """Test ratio metric with multiple breakdowns."""
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(event="purchase"),
+            denominator=EventsNode(event="$pageview"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$os"),
+                    Breakdown(property="$browser"),
+                ]
+            ),
+        )
+        # Result: variant, os, browser, samples, num_sum, num_sum_sq, denom_sum, denom_sum_sq, product
+        result = ("test", "MacOS", "Safari", 150, 75.0, 120.0, 300.0, 800.0, 200.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("MacOS", "Safari")
+        assert stats.key == "test"
+        assert stats.number_of_samples == 150
+        assert stats.sum == 75.0
+        assert stats.denominator_sum == 300.0
+        assert stats.denominator_sum_squares == 800.0
+        assert stats.numerator_denominator_sum_product == 200.0
+
+    def test_breakdown_with_none_value(self):
+        """Test that None breakdown values are converted to string 'None'."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        result = ("control", None, 100, 250.0, 750.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("None",)
+        assert stats.number_of_samples == 100
+
+    def test_breakdown_with_posthog_null_label(self):
+        """Test that the special PostHog NULL label is preserved."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        # SQL queries use coalesce() to convert NULL to this special label
+        result = ("control", BREAKDOWN_NULL_STRING_LABEL, 100, 250.0, 750.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == (BREAKDOWN_NULL_STRING_LABEL,)
+        assert stats.number_of_samples == 100
+
+    def test_breakdown_with_empty_string(self):
+        """Test that empty string breakdown values are preserved."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        result = ("control", "", 100, 250.0, 750.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("",)
+        assert stats.number_of_samples == 100
+
+    def test_zero_samples(self):
+        """Test handling of zero samples."""
+        metric = self.create_mean_metric()
+        result = ("control", 0, 0.0, 0.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple is None
+        assert stats.key == "control"
+        assert stats.number_of_samples == 0
+        assert stats.sum == 0.0
+        assert stats.sum_squares == 0.0
+
+    def test_funnel_with_empty_step_counts(self):
+        """Test funnel metric with empty step counts."""
+        metric = self.create_funnel_metric()
+        result: tuple[str, int, float, float, list[int]] = ("control", 0, 0.0, 0.0, [])
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple is None
+        assert stats.key == "control"
+        assert stats.step_counts == []
+
+    def test_breakdown_with_special_characters(self):
+        """Test breakdown values with special characters."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        # Test with newlines, tabs, quotes
+        result = ("control", 'Chrome\n"Mobile"', 100, 250.0, 750.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ('Chrome\n"Mobile"',)
+        assert stats.number_of_samples == 100
+
+    def test_breakdown_with_unicode(self):
+        """Test breakdown values with unicode characters."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$city")]),
+        )
+        result = ("test", "東京", 150, 400.0, 1200.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("東京",)
+        assert stats.number_of_samples == 150
+
+    def test_empty_breakdown_list(self):
+        """Test metric with breakdownFilter but empty breakdowns list."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[]),
+        )
+        result = ("control", 100, 250.0, 750.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple is None  # Empty list means no breakdown
+        assert stats.number_of_samples == 100
+
+    def test_ratio_metric_with_three_breakdowns(self):
+        """Test ratio metric with maximum breakdowns (3)."""
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(event="purchase"),
+            denominator=EventsNode(event="$pageview"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$os"),
+                    Breakdown(property="$browser"),
+                    Breakdown(property="$device_type"),
+                ]
+            ),
+        )
+        # Result: variant, os, browser, device, samples, num_sum, num_sum_sq, denom_sum, denom_sum_sq, product
+        result = ("test", "MacOS", "Safari", "Desktop", 150, 75.0, 120.0, 300.0, 800.0, 200.0)
+
+        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric))
+
+        assert breakdown_tuple == ("MacOS", "Safari", "Desktop")
+        assert stats.key == "test"
+        assert stats.denominator_sum == 300.0
+
+
+class TestGetVariantResults:
+    """Tests for get_variant_results() wrapper which processes multiple result rows."""
+
+    def test_multiple_results_without_breakdown(self):
+        """Test processing multiple results without breakdowns."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+        )
+        results = [
+            ("control", 100, 250.5, 750.25),
+            ("test", 150, 400.0, 1200.0),
+        ]
+
+        variant_results = get_variant_results(results, _columns_for(metric))
+
+        assert len(variant_results) == 2
+        assert variant_results[0][0] is None  # No breakdown
+        assert variant_results[0][1].key == "control"
+        assert variant_results[0][1].number_of_samples == 100
+        assert variant_results[1][0] is None  # No breakdown
+        assert variant_results[1][1].key == "test"
+        assert variant_results[1][1].number_of_samples == 150
+
+    def test_multiple_results_with_breakdown(self):
+        """Test processing multiple results with single breakdown."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        results = [
+            ("control", "Chrome", 100, 250.5, 750.25),
+            ("control", "Safari", 80, 200.0, 600.0),
+            ("test", "Chrome", 150, 400.0, 1200.0),
+            ("test", "Safari", 120, 300.0, 900.0),
+        ]
+
+        variant_results = get_variant_results(results, _columns_for(metric))
+
+        assert len(variant_results) == 4
+        assert variant_results[0][0] == ("Chrome",)
+        assert variant_results[0][1].key == "control"
+        assert variant_results[1][0] == ("Safari",)
+        assert variant_results[1][1].key == "control"
+        assert variant_results[2][0] == ("Chrome",)
+        assert variant_results[2][1].key == "test"
+        assert variant_results[3][0] == ("Safari",)
+        assert variant_results[3][1].key == "test"
+
+    def test_empty_results_list(self):
+        """Test processing empty results list."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+        )
+        results: list[tuple] = []
+
+        variant_results = get_variant_results(results, _columns_for(metric))
+
+        assert len(variant_results) == 0
+
+
+class TestAggregateVariantsAcrossBreakdowns:
+    """Tests for aggregate_variants_across_breakdowns() which aggregates per-breakdown stats into global stats."""
+
+    def test_aggregate_mean_metrics_multiple_breakdowns(self):
+        """Test aggregating mean metrics across multiple breakdown values."""
+        variants = [
+            (("Chrome",), ExperimentStatsBase(key="control", number_of_samples=100, sum=250.0, sum_squares=750.0)),
+            (("Chrome",), ExperimentStatsBase(key="test", number_of_samples=120, sum=300.0, sum_squares=900.0)),
+            (("Safari",), ExperimentStatsBase(key="control", number_of_samples=80, sum=200.0, sum_squares=600.0)),
+            (("Safari",), ExperimentStatsBase(key="test", number_of_samples=90, sum=220.0, sum_squares=700.0)),
+        ]
+
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
+
+        # Should have 2 variants: control and test
+        assert len(aggregated) == 2
+
+        # Find control variant
+        control = next(v for v in aggregated if v.key == "control")
+        assert control.number_of_samples == 180  # 100 + 80
+        assert control.sum == 450.0  # 250 + 200
+        assert control.sum_squares == 1350.0  # 750 + 600
+
+        # Find test variant
+        test = next(v for v in aggregated if v.key == "test")
+        assert test.number_of_samples == 210  # 120 + 90
+        assert test.sum == 520.0  # 300 + 220
+        assert test.sum_squares == 1600.0  # 900 + 700
+
+    def test_aggregate_funnel_metrics_step_counts(self):
+        """Test that funnel step_counts are aggregated element-wise."""
+        variants = [
+            (
+                ("Chrome",),
+                ExperimentStatsBase(
+                    key="control", number_of_samples=100, sum=80.0, sum_squares=80.0, step_counts=[100, 85, 80]
+                ),
+            ),
+            (
+                ("Safari",),
+                ExperimentStatsBase(
+                    key="control", number_of_samples=80, sum=60.0, sum_squares=60.0, step_counts=[80, 70, 60]
+                ),
+            ),
+        ]
+
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
+
+        assert len(aggregated) == 1
+        control = aggregated[0]
+        assert control.key == "control"
+        assert control.number_of_samples == 180  # 100 + 80
+        assert control.sum == 140.0  # 80 + 60
+        assert control.step_counts == [180, 155, 140]  # Element-wise sum
+
+    def test_aggregate_ratio_metrics_denominator_fields(self):
+        """Test that ratio metric denominator fields are aggregated correctly."""
+        variants = [
+            (
+                ("Chrome",),
+                ExperimentStatsBase(
+                    key="control",
+                    number_of_samples=100,
+                    sum=50.0,
+                    sum_squares=75.0,
+                    denominator_sum=200.0,
+                    denominator_sum_squares=500.0,
+                    numerator_denominator_sum_product=120.0,
+                ),
+            ),
+            (
+                ("Safari",),
+                ExperimentStatsBase(
+                    key="control",
+                    number_of_samples=80,
+                    sum=40.0,
+                    sum_squares=60.0,
+                    denominator_sum=150.0,
+                    denominator_sum_squares=400.0,
+                    numerator_denominator_sum_product=90.0,
+                ),
+            ),
+        ]
+
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
+
+        assert len(aggregated) == 1
+        control = aggregated[0]
+        assert control.key == "control"
+        assert control.number_of_samples == 180
+        assert control.sum == 90.0  # 50 + 40
+        assert control.sum_squares == 135.0  # 75 + 60
+        assert control.denominator_sum == 350.0  # 200 + 150
+        assert control.denominator_sum_squares == 900.0  # 500 + 400
+        assert control.numerator_denominator_sum_product == 210.0  # 120 + 90
+
+    def test_aggregate_multiple_variants_multiple_breakdowns(self):
+        """Test aggregating multiple variants across multiple breakdowns."""
+        variants = [
+            (("Chrome",), ExperimentStatsBase(key="control", number_of_samples=100, sum=250.0, sum_squares=750.0)),
+            (("Chrome",), ExperimentStatsBase(key="test", number_of_samples=120, sum=300.0, sum_squares=900.0)),
+            (("Chrome",), ExperimentStatsBase(key="test-2", number_of_samples=110, sum=280.0, sum_squares=850.0)),
+            (("Safari",), ExperimentStatsBase(key="control", number_of_samples=80, sum=200.0, sum_squares=600.0)),
+            (("Safari",), ExperimentStatsBase(key="test", number_of_samples=90, sum=220.0, sum_squares=700.0)),
+            (("Safari",), ExperimentStatsBase(key="test-2", number_of_samples=85, sum=210.0, sum_squares=650.0)),
+        ]
+
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
+
+        # Should have 3 variants
+        assert len(aggregated) == 3
+
+        # Verify each variant is aggregated correctly
+        control = next(v for v in aggregated if v.key == "control")
+        assert control.number_of_samples == 180
+        assert control.sum == 450.0
+
+        test = next(v for v in aggregated if v.key == "test")
+        assert test.number_of_samples == 210
+        assert test.sum == 520.0
+
+        test_2 = next(v for v in aggregated if v.key == "test-2")
+        assert test_2.number_of_samples == 195
+        assert test_2.sum == 490.0
+
+    def test_single_breakdown_no_aggregation_needed(self):
+        """Test that single breakdown still works (no actual aggregation)."""
+        variants = [
+            (("Chrome",), ExperimentStatsBase(key="control", number_of_samples=100, sum=250.0, sum_squares=750.0)),
+            (("Chrome",), ExperimentStatsBase(key="test", number_of_samples=120, sum=300.0, sum_squares=900.0)),
+        ]
+
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
+
+        assert len(aggregated) == 2
+        control = next(v for v in aggregated if v.key == "control")
+        assert control.number_of_samples == 100
+        assert control.sum == 250.0
+
+    def test_empty_variants_list(self):
+        """Test that empty variants list returns empty aggregation."""
+        variants: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]] = []
+
+        aggregated = aggregate_variants_across_breakdowns(variants)
+
+        assert len(aggregated) == 0
+
+    def test_none_breakdown_values_ignored_in_grouping(self):
+        """Test that None breakdown values are handled correctly."""
+        variants = [
+            (None, ExperimentStatsBase(key="control", number_of_samples=100, sum=250.0, sum_squares=750.0)),
+            (None, ExperimentStatsBase(key="test", number_of_samples=120, sum=300.0, sum_squares=900.0)),
+        ]
+
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
+
+        # Should still aggregate by variant key
+        assert len(aggregated) == 2
+        control = next(v for v in aggregated if v.key == "control")
+        assert control.number_of_samples == 100
+
+    def test_preserves_variant_key_grouping(self):
+        """Test that aggregation groups by variant key correctly."""
+        # Same variant key across different breakdowns should be aggregated
+        variants = [
+            (("Chrome",), ExperimentStatsBase(key="control", number_of_samples=50, sum=100.0, sum_squares=200.0)),
+            (("Safari",), ExperimentStatsBase(key="control", number_of_samples=50, sum=100.0, sum_squares=200.0)),
+            (("Firefox",), ExperimentStatsBase(key="control", number_of_samples=50, sum=100.0, sum_squares=200.0)),
+        ]
+
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
+
+        # Should have only 1 variant (all have key="control")
+        assert len(aggregated) == 1
+        control = aggregated[0]
+        assert control.key == "control"
+        assert control.number_of_samples == 150  # 50 + 50 + 50
+        assert control.sum == 300.0  # 100 + 100 + 100
+
+    def test_aggregate_multiple_breakdown_dimensions(self):
+        """Test aggregating across multiple breakdown dimensions (e.g., os + browser)."""
+        variants = [
+            (
+                ("MacOS", "Chrome"),
+                ExperimentStatsBase(key="control", number_of_samples=50, sum=100.0, sum_squares=200.0),
+            ),
+            (
+                ("MacOS", "Safari"),
+                ExperimentStatsBase(key="control", number_of_samples=40, sum=80.0, sum_squares=160.0),
+            ),
+            (
+                ("Windows", "Chrome"),
+                ExperimentStatsBase(key="control", number_of_samples=60, sum=120.0, sum_squares=240.0),
+            ),
+            (
+                ("Windows", "Firefox"),
+                ExperimentStatsBase(key="control", number_of_samples=30, sum=60.0, sum_squares=120.0),
+            ),
+        ]
+
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
+
+        # All have same variant key, should aggregate into one
+        assert len(aggregated) == 1
+        control = aggregated[0]
+        assert control.key == "control"
+        assert control.number_of_samples == 180  # 50+40+60+30
+        assert control.sum == 360.0  # 100+80+120+60
+        assert control.sum_squares == 720.0  # 200+160+240+120
+
+
+class TestValidateVariantResult:
+    """Tests for validate_variant_result() validation logic."""
+
+    def test_retention_metric_with_insufficient_successes(self):
+        """Test that retention metrics with < 5 successes get NOT_ENOUGH_METRIC_DATA validation failure."""
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(event="signup", math=ExperimentMetricMathType.TOTAL),
+            completion_event=EventsNode(event="login", math=ExperimentMetricMathType.TOTAL),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        # Create variant with 100 samples but only 4 successes (< 5)
+        variant = ExperimentStatsBase(
+            key="test",
+            number_of_samples=100,
+            sum=4,  # Only 4 retained users
+            sum_squares=4,
+        )
+
+        result = validate_variant_result(variant, metric, is_baseline=False)
+
+        # Should have NOT_ENOUGH_METRIC_DATA validation failure
+        assert result.validation_failures is not None
+        assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in result.validation_failures
+
+    def test_retention_metric_with_sufficient_successes(self):
+        """Test that retention metrics with >= 5 successes pass validation."""
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(event="signup", math=ExperimentMetricMathType.TOTAL),
+            completion_event=EventsNode(event="login", math=ExperimentMetricMathType.TOTAL),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        # Create variant with 100 samples and 5 successes (>= 5)
+        variant = ExperimentStatsBase(
+            key="test",
+            number_of_samples=100,
+            sum=5,  # 5 retained users
+            sum_squares=5,
+        )
+
+        result = validate_variant_result(variant, metric, is_baseline=False)
+
+        # Should NOT have NOT_ENOUGH_METRIC_DATA validation failure
+        assert result.validation_failures is not None
+        assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA not in result.validation_failures
+
+    def test_funnel_metric_with_insufficient_successes(self):
+        """Test that funnel metrics with < 5 successes get NOT_ENOUGH_METRIC_DATA validation failure."""
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+                EventsNode(event="signup", math=ExperimentMetricMathType.TOTAL),
+            ]
+        )
+
+        # Create variant with 100 samples but only 3 conversions (< 5)
+        variant = ExperimentStatsBase(
+            key="test",
+            number_of_samples=100,
+            sum=3,  # Only 3 conversions
+            sum_squares=3,
+        )
+
+        result = validate_variant_result(variant, metric, is_baseline=False)
+
+        # Should have NOT_ENOUGH_METRIC_DATA validation failure
+        assert result.validation_failures is not None
+        assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in result.validation_failures
+
+    def test_mean_metric_no_minimum_success_validation(self):
+        """Test that mean metrics don't require minimum successes (continuous metrics)."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
+        )
+
+        # Create variant with low sum (< 5) - should NOT trigger validation failure
+        variant = ExperimentStatsBase(
+            key="test",
+            number_of_samples=100,
+            sum=2.5,  # Low sum, but this is continuous data
+            sum_squares=10.0,
+        )
+
+        result = validate_variant_result(variant, metric, is_baseline=False)
+
+        # Mean metrics should NOT have NOT_ENOUGH_METRIC_DATA validation failure
+        assert result.validation_failures is not None
+        assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA not in result.validation_failures
+
+    def test_validation_not_enough_exposures(self):
+        """Test that all metrics trigger NOT_ENOUGH_EXPOSURES with < 50 samples."""
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(event="signup", math=ExperimentMetricMathType.TOTAL),
+            completion_event=EventsNode(event="login", math=ExperimentMetricMathType.TOTAL),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        # Create variant with only 30 samples (< 50)
+        variant = ExperimentStatsBase(
+            key="test",
+            number_of_samples=30,
+            sum=20,
+            sum_squares=20,
+        )
+
+        result = validate_variant_result(variant, metric, is_baseline=False)
+
+        # Should have NOT_ENOUGH_EXPOSURES validation failure
+        assert result.validation_failures is not None
+        assert ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES in result.validation_failures
+
+
+class TestGetExperimentQueryDebug:
+    """Tests for get_experiment_query_debug() which generates debug SQL."""
+
+    @pytest.mark.django_db
+    def test_generates_hogql_and_clickhouse_sql(self, team):
+        """Test that function generates both HogQL and ClickHouse SQL."""
+        from posthog.hogql import ast
+
+        # Create a simple query with a table that would use sensitive params
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+            ),
+        )
+
+        hogql, clickhouse_sql = get_experiment_query_debug(select_query, team)
+
+        # HogQL should be generated
+        assert hogql is not None
+        assert len(hogql) > 0
+
+        # ClickHouse SQL should be generated
+        assert clickhouse_sql is not None
+        assert len(clickhouse_sql) > 0
+
+        # Basic sanity check - should contain SQL keywords
+        assert "SELECT" in clickhouse_sql
+
+    @pytest.mark.django_db
+    def test_masks_sensitive_parameters(self, team):
+        """Test that parameters marked _sensitive are masked as [HIDDEN] in output."""
+        from unittest.mock import MagicMock, patch
+
+        from posthog.hogql import ast
+        from posthog.hogql.context import HogQLContext
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+            ),
+        )
+
+        # Mock the executor's generate_clickhouse_sql to return params with _sensitive suffix
+        with patch("products.experiments.backend.hogql_queries.utils.HogQLQueryExecutor") as mock_executor_class:
+            mock_executor = MagicMock()
+            mock_executor_class.return_value = mock_executor
+            mock_executor.hogql = "SELECT 1"
+
+            # Simulate query with sensitive parameters
+            mock_context = HogQLContext()
+            mock_context.values = {
+                "hogql_val_0": "s3://bucket/path",
+                "hogql_val_1_sensitive": "SECRETKEY123",
+                "hogql_val_2_sensitive": "SECRETTOKEN456",
+            }
+            mock_executor.generate_clickhouse_sql.return_value = (
+                "SELECT * FROM s3(%(hogql_val_0)s, %(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s)",
+                mock_context,
+            )
+
+            hogql, clickhouse_sql = get_experiment_query_debug(select_query, team)
+
+            # Verify URL is visible
+            assert "s3://bucket/path" in clickhouse_sql
+            # Verify secrets are hidden
+            assert "SECRETKEY123" not in clickhouse_sql
+            assert "SECRETTOKEN456" not in clickhouse_sql
+            assert clickhouse_sql.count("[HIDDEN]") == 2
+
+
+class TestMetricVariantToStatistic:
+    def _validated(self, *, n: int = 10, sum: float = 4, sum_squares: float = 4) -> ExperimentStatsBaseValidated:
+        return ExperimentStatsBaseValidated(key="test", number_of_samples=n, sum=sum, sum_squares=sum_squares)
+
+    def test_mean_without_threshold_maps_to_sample_mean(self) -> None:
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+        )
+        stat = metric_variant_to_statistic(metric, self._validated(sum=60, sum_squares=400))
+        assert isinstance(stat, SampleMeanStatistic)
+        assert stat.sum == 60
+        assert stat.sum_squares == 400
+
+    def test_mean_with_threshold_maps_to_proportion(self) -> None:
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+            threshold=100,
+        )
+        stat = metric_variant_to_statistic(metric, self._validated(n=10, sum=4))
+        assert isinstance(stat, ProportionStatistic)
+        # sum is the count of users who crossed the threshold
+        assert stat.n == 10
+        assert stat.sum == 4
+
+    def test_threshold_proportion_coerces_sum_to_int(self) -> None:
+        """ClickHouse may return total_sum as a float; ProportionStatistic.sum must be an int count."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+            threshold=100,
+        )
+        stat = metric_variant_to_statistic(metric, self._validated(n=10, sum=4.0))
+        assert isinstance(stat, ProportionStatistic)
+        assert isinstance(stat.sum, int)
+        assert stat.sum == 4

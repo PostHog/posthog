@@ -16,6 +16,10 @@ from posthog.models.user import User
 logger = structlog.get_logger(__name__)
 
 
+TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS = 24
+TWO_FACTOR_RESET_TOKEN_TIMEOUT_SECONDS = TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS * 60 * 60
+
+
 class TwoFactorResetTokenGenerator(PasswordResetTokenGenerator):
     """
     Token generator for 2FA reset requests initiated by admins.
@@ -53,14 +57,13 @@ class TwoFactorResetTokenGenerator(PasswordResetTokenGenerator):
             )
             return False
 
-        # Check 24-hour timeout (86400 seconds)
         token_age_seconds = self._num_seconds(self._now()) - ts
-        if token_age_seconds > 86400:
+        if token_age_seconds > TWO_FACTOR_RESET_TOKEN_TIMEOUT_SECONDS:
             logger.warning(
                 "2FA reset token check failed: token expired",
                 user_id=user.pk,
                 token_age_seconds=token_age_seconds,
-                max_age_seconds=86400,
+                max_age_seconds=TWO_FACTOR_RESET_TOKEN_TIMEOUT_SECONDS,
             )
             return False
 
@@ -145,8 +148,7 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
             return None, "You must log in with your credentials first."
 
         # Use 24 hour timeout for reset flow (matches the reset token expiration)
-        reset_session_timeout = 86400  # 24 hours
-        expiration_time = auth_time + reset_session_timeout
+        expiration_time = auth_time + TWO_FACTOR_RESET_TOKEN_TIMEOUT_SECONDS
         if int(time.time()) > expiration_time:
             return None, "Your login session has expired. Please log in again."
 
@@ -210,6 +212,7 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
         from django_otp.plugins.otp_totp.models import TOTPDevice
 
         from posthog.api.two_factor_reset import TwoFactorResetVerifier
+        from posthog.session.activity import revoke_other_sessions_for_request
         from posthog.tasks.email import send_two_factor_auth_disabled_email
 
         token = request.data.get("token")
@@ -273,5 +276,9 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
 
         # Send notification email
         send_two_factor_auth_disabled_email.delay(link_user.pk)
+
+        # 2FA reset is an account-recovery action — revoke the user's other sessions, keeping the
+        # one driving the reset.
+        revoke_other_sessions_for_request(request, link_user)
 
         return Response({"success": True})

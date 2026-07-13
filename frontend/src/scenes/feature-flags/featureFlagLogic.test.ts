@@ -1,16 +1,27 @@
-import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    FeatureFlagGroupType,
+    FeatureFlagType,
+    PropertyFilterType,
+    PropertyOperator,
+    ScheduledChangeModels,
+    ScheduledChangeOperationType,
+    ScheduledChangeType,
+} from '~/types'
 import { FeatureFlagFilters } from '~/types'
 
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
+import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
@@ -157,10 +168,6 @@ describe('featureFlagLogic', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(async () => {
-        initKeaTests()
-        logic = featureFlagLogic({ id: 1 })
-        logic.mount()
-
         useMocks({
             get: {
                 [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
@@ -173,6 +180,10 @@ describe('featureFlagLogic', () => {
                 ],
             },
         })
+
+        initKeaTests()
+        logic = featureFlagLogic({ id: 1 })
+        logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
     })
@@ -338,6 +349,24 @@ describe('featureFlagLogic', () => {
             }
         )
 
+        it('prepends org default groups ahead of template groups when default conditions are enabled', async () => {
+            const DEFAULT_GROUP = { properties: [], rollout_percentage: 10, variant: null }
+            // The shared singleton is warmed to a disabled value on mount, so seed its cache with
+            // enabled defaults before applyTemplate reads it.
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+                enabled: true,
+                default_groups: [DEFAULT_GROUP],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.applyTemplate('targeted')
+            }).toDispatchActions(['applyTemplate', 'setFeatureFlag'])
+
+            const groups = logic.values.featureFlag.filters.groups
+            expect(groups[0]).toMatchObject(DEFAULT_GROUP)
+            expect(groups.length).toBeGreaterThan(1)
+        })
+
         it('preserves variant payloads when applying a template to a non-encrypted flag', async () => {
             const MOCK_NON_ENCRYPTED_FLAG: FeatureFlagType = {
                 ...logic.values.featureFlag,
@@ -435,6 +464,58 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('setFeatureFlagFilters', () => {
+        it.each([
+            ['an empty payload snapshot', {}],
+            ['a stale payload snapshot', { true: '{"enabled":false}' }],
+        ])('preserves boolean payloads when release conditions update from %s', async (_, incomingPayloads) => {
+            const payload = '{"enabled":true}'
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { true: payload },
+                })
+            }).toMatchValues({
+                featureFlag: partial({
+                    filters: partial({
+                        payloads: { true: payload },
+                    }),
+                }),
+            })
+
+            const updatedConditionFilters: FeatureFlagFilters = {
+                ...logic.values.featureFlag.filters,
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: '$browser',
+                                value: 'Chrome',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 42,
+                        variant: null,
+                    },
+                ],
+                payloads: incomingPayloads,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagFilters(updatedConditionFilters, {})
+            }).toMatchValues({
+                featureFlag: partial({
+                    filters: partial({
+                        groups: updatedConditionFilters.groups,
+                        payloads: { true: payload },
+                    }),
+                }),
+            })
+        })
+    })
+
     describe('change detection', () => {
         it('detects active status changes', () => {
             const originalFlag = { ...MOCK_FEATURE_FLAG, active: false }
@@ -460,6 +541,29 @@ describe('featureFlagLogic', () => {
 
             const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
             expect(changes).toContain('Release condition rollout percentage changed')
+        })
+
+        it('does not throw and detects changes when a filter value is a bigint', () => {
+            // Property values can be bigint (PropertyFilterBaseValue); raw JSON.stringify throws on them.
+            const filtersWithBigIntId = (value: bigint): FeatureFlagFilters => ({
+                groups: [
+                    {
+                        properties: [
+                            { key: 'id', value, type: PropertyFilterType.Person, operator: PropertyOperator.Exact },
+                        ],
+                        rollout_percentage: 100,
+                        variant: null,
+                    },
+                ],
+            })
+            const originalFlag = { ...MOCK_FEATURE_FLAG, filters: filtersWithBigIntId(BigInt('9007199254740993')) }
+            const changedFlag = { ...MOCK_FEATURE_FLAG, filters: filtersWithBigIntId(BigInt('9007199254740994')) }
+
+            let changes: string[] = []
+            expect(() => {
+                changes = detectFeatureFlagChanges(originalFlag, changedFlag)
+            }).not.toThrow()
+            expect(changes).toContain('Release conditions changed')
         })
 
         it('returns no changes for new flags', () => {
@@ -531,17 +635,142 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('urlToAction preserves in-progress edits', () => {
+        // Regression for https://github.com/PostHog/posthog/issues/58656 — when the user
+        // dismisses the beforeUnload prompt, urlToAction must not silently reload the
+        // flag and wipe their in-progress edits. The guard must sit *above* the
+        // editFeatureFlag dispatch, because its listener also calls loadFeatureFlag()
+        // whenever editing === true.
+
+        it('preserves an in-progress edit on a PUSH navigation when the form is dirty', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'Edited but not saved')
+            }).toMatchValues({ hasUnsavedChanges: true, isFormDirty: true })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlag(1))
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['editFeatureFlag'])
+
+            expect(logic.values.featureFlag.name).toBe('Edited but not saved')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('preserves an in-progress edit on a PUSH to the same URL with ?edit=true', async () => {
+            // Realistic visibilitychange / re-push path: the user is already in edit mode,
+            // so the URL carries `?edit=true`. Without the early-return above editFeatureFlag,
+            // its listener (`if (editing) loadFeatureFlag()`) would still wipe the form.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'Edited with edit=true in url')
+            }).toMatchValues({ hasUnsavedChanges: true, isFormDirty: true })
+
+            await expectLogic(logic, () => {
+                router.actions.push(`${urls.featureFlag(1)}?edit=true`)
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['editFeatureFlag'])
+
+            expect(logic.values.featureFlag.name).toBe('Edited with edit=true in url')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it.each([
+            ['sourceId=42', `${urls.featureFlag('new')}?sourceId=42`],
+            ['type=multivariate', `${urls.featureFlag('new')}?type=multivariate`],
+            ['template=experiment', `${urls.featureFlag('new')}?template=experiment`],
+            ['intent=remote-config', `${urls.featureFlag('new')}?intent=remote-config`],
+        ])('skips the new-flag template re-load on a dirty PUSH carrying %s', async (_label, targetUrl) => {
+            // Pin that the dirty guard also short-circuits the special new-flag
+            // re-load branches (sourceId / type / template / intent) inside `urlToAction`.
+            // Park the router at a non-matching path first so the `new`-keyed logic's
+            // afterMount doesn't see those query params at mount time and prefetch.
+            router.actions.push('/')
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toFinishAllListeners()
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setFeatureFlagValue('name', 'Draft new flag')
+            }).toMatchValues({ isFormDirty: true })
+
+            await expectLogic(newLogic, () => {
+                router.actions.push(targetUrl)
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['editFeatureFlag'])
+
+            expect(newLogic.values.featureFlag.name).toBe('Draft new flag')
+            newLogic.unmount()
+        })
+
+        it('still reloads the flag on a PUSH navigation when the form is clean', async () => {
+            await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlag(1))
+            }).toDispatchActions(['loadFeatureFlag'])
+        })
+    })
+
+    describe('default release conditions on new flags', () => {
+        const groupDefault: FeatureFlagGroupType = {
+            properties: [
+                {
+                    key: 'is_dev',
+                    type: PropertyFilterType.Group,
+                    value: ['true'],
+                    operator: PropertyOperator.Exact,
+                    group_type_index: 1,
+                },
+            ],
+            rollout_percentage: 100,
+            variant: null,
+            aggregation_group_type_index: 1,
+        }
+
+        async function mountNewFlag(defaultConditions: {
+            enabled: boolean
+            default_groups: FeatureFlagGroupType[]
+        }): Promise<ReturnType<typeof featureFlagLogic.build>> {
+            // Seed the shared singleton's cache before the new-flag loader reads it; useMocks lands
+            // too late since the logic is warmed to a disabled value on mount in beforeEach.
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess(defaultConditions)
+            // Park at a non-matching path so the `new`-keyed logic doesn't prefetch off stale params.
+            router.actions.push('/')
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toFinishAllListeners()
+            return newLogic
+        }
+
+        it('applies an enabled group-targeted default and mirrors the aggregation onto the new flag', async () => {
+            const newLogic = await mountNewFlag({ enabled: true, default_groups: [groupDefault] })
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual([groupDefault])
+            expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBe(1)
+            newLogic.unmount()
+        })
+
+        it('leaves a new flag on user targeting when the default config is disabled', async () => {
+            const newLogic = await mountNewFlag({ enabled: false, default_groups: [groupDefault] })
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual([
+                { properties: [], rollout_percentage: 0, variant: null },
+            ])
+            expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBeUndefined()
+            newLogic.unmount()
+        })
+    })
+
     describe('experiment loading', () => {
         it('loads experiment data when feature flag has an experiment linked', async () => {
             const flagWithExperiment = {
                 ...MOCK_FEATURE_FLAG,
                 id: 2,
                 experiment_set: [MOCK_EXPERIMENT.id],
-                experiment_set_metadata: [{ id: MOCK_EXPERIMENT.id, name: MOCK_EXPERIMENT.name }],
+                experiment_set_metadata: [{ id: MOCK_EXPERIMENT.id, name: MOCK_EXPERIMENT.name, is_running: true }],
             }
-
-            const experimentLogic = featureFlagLogic({ id: 2 })
-            experimentLogic.mount()
 
             useMocks({
                 get: {
@@ -560,10 +789,13 @@ describe('featureFlagLogic', () => {
                 },
             })
 
-            await expectLogic(experimentLogic, () => {
-                experimentLogic.actions.loadFeatureFlag()
-            })
-                .toDispatchActions(['loadFeatureFlagSuccess', 'loadExperimentSuccess'])
+            const experimentLogic = featureFlagLogic({ id: 2 })
+            experimentLogic.mount()
+
+            // The loader awaits the experiment inline before returning the flag,
+            // so loadExperimentSuccess lands before loadFeatureFlagSuccess.
+            await expectLogic(experimentLogic)
+                .toDispatchActions(['loadFeatureFlag', 'loadExperimentSuccess', 'loadFeatureFlagSuccess'])
                 .toMatchValues({
                     featureFlag: partial({
                         id: flagWithExperiment.id,
@@ -732,6 +964,194 @@ describe('featureFlagLogic', () => {
                 .toMatchValues({ dependentFlags: [], dependentFlagsLoading: false })
 
             testLogic.unmount()
+        })
+    })
+
+    describe('schedule ordering', () => {
+        const makeScheduledChange = (overrides: Partial<ScheduledChangeType>): ScheduledChangeType => ({
+            id: 1,
+            team_id: MOCK_DEFAULT_PROJECT.id,
+            record_id: MOCK_FEATURE_FLAG.id,
+            model_name: ScheduledChangeModels.FeatureFlag,
+            payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: true },
+            scheduled_at: '2026-01-01T00:00:00Z',
+            executed_at: null,
+            failure_reason: null,
+            created_at: '2026-01-01T00:00:00Z',
+            created_by: MOCK_DEFAULT_BASIC_USER,
+            is_recurring: false,
+            recurrence_interval: null,
+            cron_expression: null,
+            last_executed_at: null,
+            end_date: null,
+            ...overrides,
+        })
+
+        const schedulesUrl = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/scheduled_changes`
+
+        it.each([
+            {
+                // Mirrors the issue: a recurring change created first must not float above sooner one-time changes.
+                desc: 'interleaves recurring and one-time changes by next firing time, soonest first',
+                results: [
+                    makeScheduledChange({ id: 1, scheduled_at: '2026-05-02T15:00:00Z', is_recurring: true }),
+                    makeScheduledChange({ id: 2, scheduled_at: '2026-05-01T14:00:00Z' }),
+                    makeScheduledChange({ id: 3, scheduled_at: '2026-07-04T14:58:00Z' }),
+                    makeScheduledChange({ id: 4, scheduled_at: '2026-06-13T18:59:00Z' }),
+                ],
+                expectedIds: [2, 1, 4, 3],
+            },
+            {
+                desc: 'breaks ties by id when scheduled_at is equal',
+                results: [
+                    makeScheduledChange({ id: 7, scheduled_at: '2026-05-01T00:00:00Z' }),
+                    makeScheduledChange({ id: 3, scheduled_at: '2026-05-01T00:00:00Z' }),
+                    makeScheduledChange({ id: 5, scheduled_at: '2026-05-01T00:00:00Z' }),
+                ],
+                expectedIds: [3, 5, 7],
+            },
+            {
+                desc: 'excludes executed changes',
+                results: [
+                    makeScheduledChange({ id: 1, scheduled_at: '2026-05-01T00:00:00Z' }),
+                    makeScheduledChange({
+                        id: 2,
+                        scheduled_at: '2026-04-01T00:00:00Z',
+                        executed_at: '2026-04-01T00:00:00Z',
+                    }),
+                ],
+                expectedIds: [1],
+            },
+        ])('$desc', async ({ results, expectedIds }) => {
+            useMocks({ get: { [schedulesUrl]: () => [200, { results }] } })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                activeSchedules: expectedIds.map((id) => partial({ id })),
+            })
+        })
+
+        it('orders completed changes most-recent first', async () => {
+            useMocks({
+                get: {
+                    [schedulesUrl]: () => [
+                        200,
+                        {
+                            results: [
+                                makeScheduledChange({
+                                    id: 1,
+                                    scheduled_at: '2026-05-01T00:00:00Z',
+                                    executed_at: '2026-05-01T00:00:00Z',
+                                }),
+                                makeScheduledChange({
+                                    id: 2,
+                                    scheduled_at: '2026-07-01T00:00:00Z',
+                                    executed_at: '2026-07-01T00:00:00Z',
+                                }),
+                                makeScheduledChange({
+                                    id: 3,
+                                    scheduled_at: '2026-06-01T00:00:00Z',
+                                    executed_at: '2026-06-01T00:00:00Z',
+                                }),
+                            ],
+                        },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                completedSchedules: [partial({ id: 2 }), partial({ id: 3 }), partial({ id: 1 })],
+            })
+        })
+
+        it('orders completed changes by execution time, not scheduled time', async () => {
+            useMocks({
+                get: {
+                    [schedulesUrl]: () => [
+                        200,
+                        {
+                            results: [
+                                // Scheduled first but, after a delay, executed last.
+                                makeScheduledChange({
+                                    id: 1,
+                                    scheduled_at: '2026-05-01T00:00:00Z',
+                                    executed_at: '2026-05-03T00:00:00Z',
+                                }),
+                                makeScheduledChange({
+                                    id: 2,
+                                    scheduled_at: '2026-05-02T00:00:00Z',
+                                    executed_at: '2026-05-02T00:00:00Z',
+                                }),
+                            ],
+                        },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                completedSchedules: [partial({ id: 1 }), partial({ id: 2 })],
+            })
+        })
+    })
+
+    describe('default release conditions', () => {
+        const conditionsUrl = `/api/environments/${MOCK_DEFAULT_PROJECT.id}/default_release_conditions/`
+
+        it('applies org default groups to a new flag when default conditions are enabled', async () => {
+            const DEFAULT_GROUP = { properties: [], rollout_percentage: 30, variant: null }
+            // Seed the shared singleton's cache with enabled defaults before the new-flag loader reads it
+            // (it's warmed to a disabled value on mount).
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+                enabled: true,
+                default_groups: [DEFAULT_GROUP],
+            })
+
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toDispatchActions(['loadFeatureFlagSuccess'])
+
+            const groups = newLogic.values.featureFlag.filters.groups
+            expect(groups[0]).toMatchObject(DEFAULT_GROUP)
+            expect(groups.length).toBe(1)
+
+            newLogic.unmount()
+        })
+
+        describe('resolveDefaultReleaseConditions', () => {
+            it('returns the cached value without fetching when one is already loaded', async () => {
+                const cached = {
+                    enabled: true,
+                    default_groups: [{ properties: [], rollout_percentage: 25, variant: null }],
+                }
+                // toBe asserts the same object reference, so a fetched copy would fail the assertion.
+                await expect(resolveDefaultReleaseConditions(cached, MOCK_DEFAULT_PROJECT.id)).resolves.toBe(cached)
+            })
+
+            it('fetches directly when the cache is empty', async () => {
+                const fetched = {
+                    enabled: true,
+                    default_groups: [{ properties: [], rollout_percentage: 10, variant: null }],
+                }
+                useMocks({ get: { [conditionsUrl]: () => [200, fetched] } })
+                await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toEqual(fetched)
+            })
+
+            it('returns null without fetching when no team is available', async () => {
+                await expect(resolveDefaultReleaseConditions(null, undefined)).resolves.toBeNull()
+            })
+
+            it('returns null when the fetch fails so new flag creation is not blocked', async () => {
+                useMocks({ get: { [conditionsUrl]: () => [500, {}] } })
+                await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toBeNull()
+            })
         })
     })
 })

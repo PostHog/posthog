@@ -89,6 +89,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         maskAllInputs: true,
     },
     session_recording_retention_period: '30d',
+    event_retention_months: 84,
+    events_retention_enforced: false,
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
@@ -205,6 +207,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         subscription_event: {},
         payment_event: {},
     } as CustomerAnalyticsConfig,
+    workflows_config: {
+        capture_workflows_engagement_events: false,
+    },
     base_currency: CurrencyCode.USD,
     default_evaluation_contexts_enabled: false,
     managed_viewsets: { revenue_analytics: true },
@@ -220,6 +225,7 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     name: 'MockHog App + Marketing',
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: '2020-06-30T09:53:35.932534Z',
+    is_pending_deletion: false,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {

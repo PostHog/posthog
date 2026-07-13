@@ -6,7 +6,8 @@ import { LemonBanner, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDiff, humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyDiff } from 'lib/utils/durations'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {
     CachedNewExperimentQueryResponse,
@@ -16,8 +17,8 @@ import {
 import { ResultsTag } from '~/scenes/experiments/components/ResultsTag'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { getExperimentStatus } from '~/scenes/experiments/experimentsLogic'
-import { StatusTag } from '~/scenes/experiments/ExperimentView/components'
 import { MicroChart } from '~/scenes/experiments/ExperimentView/Exposures'
+import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
 import { getChanceToWin, isBayesianResult } from '~/scenes/experiments/MetricsView/shared/utils'
 import { isLegacyExperiment } from '~/scenes/experiments/utils'
 

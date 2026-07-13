@@ -17,14 +17,15 @@ from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 
-from posthog.models.insight_variable import InsightVariable
-
-from products.data_warehouse.backend.models import ExternalDataSource
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.table import DataWarehouseTable
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):

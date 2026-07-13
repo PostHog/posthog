@@ -31,7 +31,7 @@ use crate::{
     },
     prometheus::report_dropped_events,
     sinks,
-    utils::uuid_v7,
+    utils::uuid_v7_from_datetime,
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
@@ -209,7 +209,9 @@ pub async fn process_replay_events(
     let mut events_iter = events.into_iter();
     let mut first_event = events_iter.next().ok_or(CaptureError::EmptyBatch)?;
 
-    let uuid = first_event.uuid.unwrap_or_else(uuid_v7);
+    let uuid = first_event
+        .uuid
+        .unwrap_or_else(|| uuid_v7_from_datetime(computed_timestamp));
     let distinct_id = first_event
         .extract_distinct_id()
         .ok_or(CaptureError::MissingDistinctId)?;
@@ -360,6 +362,7 @@ pub async fn process_replay_events(
         skip_person_processing: applied.skip_person_processing(),
         redirect_to_dlq: applied.redirect_to_dlq(),
         redirect_to_topic: applied.redirect_to_topic().map(|s| s.to_string()),
+        skip_heatmap_processing: false,
         overflow_reason,
     };
 

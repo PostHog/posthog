@@ -2,6 +2,7 @@ from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
+from posthog.hogql.database.lazy_join_tags import PERSONS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     FieldOrTable,
@@ -13,17 +14,24 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
-from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.hogql.errors import ResolutionError
 
 PERSON_DISTINCT_IDS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
-    "person_id": StringDatabaseField(name="person_id", nullable=False),
+    "distinct_id": StringDatabaseField(
+        name="distinct_id",
+        nullable=False,
+        description="Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
+    ),
+    "person_id": StringDatabaseField(
+        name="person_id",
+        nullable=False,
+        description="Resolved person this distinct_id belongs to; matches `persons.id`.",
+    ),
     "person": LazyJoin(
         from_field=["person_id"],
         join_table="persons",
-        join_function=join_with_persons_table,
+        resolver=PERSONS,
     ),
 }
 
@@ -67,6 +75,10 @@ def join_with_person_distinct_ids_table(
 
 
 class RawPersonDistinctIdsTable(Table):
+    description: str = (
+        "Raw, un-deduplicated distinct_id-to-person mappings (one per version). Query `person_distinct_ids` "
+        "instead unless you need to resolve the latest version yourself via `is_deleted`/`version`."
+    )
     fields: dict[str, FieldOrTable] = {
         **PERSON_DISTINCT_IDS_FIELDS,
         "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
@@ -81,6 +93,10 @@ class RawPersonDistinctIdsTable(Table):
 
 
 class PersonDistinctIdsTable(LazyTable):
+    description: str = (
+        "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; "
+        "join to `persons` via the `person` field or `person_id`."
+    )
     fields: dict[str, FieldOrTable] = PERSON_DISTINCT_IDS_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

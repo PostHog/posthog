@@ -1,17 +1,37 @@
+import annotationPlugin from 'chartjs-plugin-annotation'
 import clsx from 'clsx'
 import { useMemo, useRef, useState } from 'react'
 
+import { IconWarning } from '@posthog/icons'
 import { Popover } from '@posthog/lemon-ui'
 
-import { ScaleOptions, TooltipModel } from 'lib/Chart'
+import { Chart, ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { humanFriendlyNumber } from 'lib/utils'
+import { hexToRGBA } from 'lib/utils/colors'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
+
+// Register once at module load. Chart.register is idempotent so re-registers (eg. by
+// AlertHistoryChart, which also uses the annotation plugin) are safe.
+Chart.register(annotationPlugin)
+
+const HIGHLIGHT_COLOR = '#8f8f8f'
+
+export interface SparklineReferenceLine {
+    /** Y-axis value the dashed line is drawn at, in the same units as the series data. */
+    value: number
+    /** Color name from `vars.scss` (e.g. 'danger'). @default 'danger' */
+    color?: string
+    /** Optional label to anchor at the end of the line (shown only when provided). */
+    label?: string
+    /** Where to anchor the optional label. @default 'end' */
+    labelPosition?: 'start' | 'center' | 'end'
+}
 
 export interface SparklineTimeSeries {
     name: string
@@ -54,6 +74,54 @@ export interface SparklineProps {
     hideZerosInTooltip?: boolean
     /** Sort tooltip items by count (descending). @default false */
     sortTooltipByCount?: boolean
+    /** Optional horizontal dashed reference lines (thresholds, goals, limits). */
+    referenceLines?: SparklineReferenceLine[]
+    /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
+    renderTooltipValue?: (value: number) => string
+    /**
+     * X-axis value range to highlight as a translucent box behind the bars. Values are
+     * in the x-axis's own units: epoch ms for a time scale (positioned with sub-bar
+     * precision), or a label for a category scale. Used to mirror an external selection
+     * (e.g. the rows currently visible in a paired virtualized list) onto the chart.
+     * Callers pass an already-ordered `xMin <= xMax`; pass `null`/`undefined` to clear.
+     */
+    highlightedRange?: { xMin: number | string; xMax: number | string } | null
+    /**
+     * Bar indices that are still being ingested (incomplete). Those bars render with a faded
+     * diagonal-hatch fill, and hovering one adds `tooltip` to the hover tooltip. Used to flag the
+     * most recent bucket(s) when ingestion hasn't caught up. Pass `null`/`undefined` or an empty
+     * `indices` array to clear.
+     */
+    incompleteBars?: { indices: number[]; tooltip?: string } | null
+}
+
+/**
+ * Build a faded diagonal-hatch CanvasPattern for an incomplete bar: a translucent fill of the series
+ * colour overlaid with hatch lines, so the bar reads as "still loading" while keeping its colour.
+ */
+function createHashedPattern(color: string): CanvasPattern | string {
+    const size = 6
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+        return color
+    }
+    ctx.fillStyle = hexToRGBA(color, 0.25)
+    ctx.fillRect(0, 0, size, size)
+    ctx.strokeStyle = hexToRGBA(color, 0.6)
+    ctx.lineWidth = 1
+    // Three offset diagonals so the hatch tiles seamlessly across the bar.
+    ctx.beginPath()
+    ctx.moveTo(0, size)
+    ctx.lineTo(size, 0)
+    ctx.moveTo(-1, 1)
+    ctx.lineTo(1, -1)
+    ctx.moveTo(size - 1, size + 1)
+    ctx.lineTo(size + 1, size - 1)
+    ctx.stroke()
+    return ctx.createPattern(canvas, 'repeat') ?? color
 }
 
 export function Sparkline({
@@ -74,12 +142,18 @@ export function Sparkline({
     tooltipRowCutoff,
     hideZerosInTooltip = false,
     sortTooltipByCount = false,
+    referenceLines,
+    renderTooltipValue,
+    highlightedRange,
+    incompleteBars,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
     const [tooltip, setTooltip] = useState<TooltipModel<'bar'> | null>(null)
     const dragStartRef = useRef<{ index: number; x: number } | null>(null)
     const [isDragging, setIsDragging] = useState(false)
+
+    const incompleteBarSet = useMemo(() => new Set(incompleteBars?.indices ?? []), [incompleteBars])
 
     const adjustedData: SparklineTimeSeries[] = useMemo(() => {
         const arrayData = Array.isArray(data)
@@ -137,12 +211,19 @@ export function Sparkline({
                 alignToPixels: true,
             }
 
+            // Make sure reference lines always fit on the chart — Chart.js would otherwise
+            // auto-scale to the data only and a threshold above the peak would be clipped.
+            const referenceLineMax =
+                referenceLines && referenceLines.length > 0 ? Math.max(...referenceLines.map((l) => l.value)) : 0
+
             const defaultYScale: AnyScaleOptions = {
                 // We use the Y axis for the maximum indicator
                 display: maximumIndicator,
                 bounds: 'data',
                 min: 0, // Always starting at 0
-                suggestedMax: 1,
+                // Headroom above whichever is taller — data or a reference line — so a threshold
+                // sitting near the chart top still has room for its label without clipping.
+                suggestedMax: referenceLineMax > 0 ? referenceLineMax * 1.2 : 1,
                 stacked: true,
                 ticks: {
                     includeBounds: true,
@@ -182,13 +263,22 @@ export function Sparkline({
                     datasets: adjustedData.map((timeseries) => {
                         const seriesColor = getColorVar(timeseries.color || 'muted')
                         const hoverColor = getColorVar(timeseries.hoverColor || timeseries.color || 'muted')
+                        // Incomplete (still-ingesting) bars get a faded hatch of the series colour so
+                        // they read as "not final" without losing which series they belong to.
+                        const hatched = incompleteBarSet.size > 0 ? createHashedPattern(seriesColor) : null
+                        const fillFor = (
+                            base: string
+                        ): typeof base | CanvasPattern | ((ctx: { dataIndex: number }) => string | CanvasPattern) =>
+                            hatched
+                                ? (ctx: { dataIndex: number }) => (incompleteBarSet.has(ctx.dataIndex) ? hatched : base)
+                                : base
                         return {
                             label: timeseries.name,
                             data: timeseries.values,
                             minBarLength: 0,
                             categoryPercentage: 0.9, // Slightly tighter bar spacing than the default 0.8
-                            backgroundColor: seriesColor,
-                            hoverBackgroundColor: hoverColor,
+                            backgroundColor: fillFor(seriesColor),
+                            hoverBackgroundColor: fillFor(hoverColor),
                             borderColor: seriesColor,
                             borderWidth: type === 'line' ? 2 : 0,
                             pointRadius: 0,
@@ -213,6 +303,54 @@ export function Sparkline({
                                 setTooltip({ ...tooltip } as TooltipModel<'bar'>)
                             },
                         },
+                        ...(() => {
+                            const annotations: Record<string, any> = {}
+
+                            if (referenceLines && referenceLines.length > 0) {
+                                referenceLines.forEach((line, i) => {
+                                    const lineColor = getColorVar(line.color || 'danger')
+                                    annotations[`referenceLine${i}`] = {
+                                        type: 'line',
+                                        yMin: line.value,
+                                        yMax: line.value,
+                                        borderColor: lineColor,
+                                        borderWidth: 1.5,
+                                        borderDash: [5, 4],
+                                        ...(line.label
+                                            ? {
+                                                  label: {
+                                                      display: true,
+                                                      content: line.label,
+                                                      position: line.labelPosition || 'end',
+                                                      font: { size: 9 },
+                                                      color: lineColor,
+                                                      backgroundColor: 'transparent',
+                                                      // Sit the label just above the line so it doesn't render on top of it.
+                                                      // The 20% y-axis headroom set above guarantees it stays inside the chart.
+                                                      yAdjust: -8,
+                                                  },
+                                              }
+                                            : {}),
+                                    }
+                                })
+                            }
+
+                            if (highlightedRange && labels && labels.length > 0) {
+                                annotations.highlightedRange = {
+                                    type: 'box',
+                                    xMin: highlightedRange.xMin,
+                                    xMax: highlightedRange.xMax,
+                                    // Drawn under the bars so the data stays legible.
+                                    drawTime: 'beforeDatasetsDraw',
+                                    // Faint fill with a stronger border to mark the window edges.
+                                    backgroundColor: hexToRGBA(HIGHLIGHT_COLOR, 0.1),
+                                    borderColor: hexToRGBA(HIGHLIGHT_COLOR, 0.8),
+                                    borderWidth: 1,
+                                }
+                            }
+
+                            return Object.keys(annotations).length > 0 ? { annotation: { annotations } } : {}
+                        })(),
                     },
                     maintainAspectRatio: false,
                     interaction: {
@@ -223,11 +361,24 @@ export function Sparkline({
                 },
             }
         },
-        deps: [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type],
+        deps: [
+            labels,
+            adjustedData,
+            withXScale,
+            withYScale,
+            renderLabel,
+            data,
+            maximumIndicator,
+            type,
+            referenceLines,
+            highlightedRange,
+            incompleteBars,
+        ],
     })
 
     const dataPointCount = adjustedData[0]?.values?.length || 0
     const finalClassName = clsx(
+        'relative',
         dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
         className
     )
@@ -323,33 +474,41 @@ export function Sparkline({
                 <Popover
                     visible={tooltipVisible}
                     overlay={
-                        <InsightTooltip
-                            embedded
-                            hideInspectActorsSection
-                            showHeader={!!labels}
-                            altTitle={
-                                toolTipDataPoints.length > 0
-                                    ? renderLabel
-                                        ? renderLabel(toolTipDataPoints[0].label)
-                                        : toolTipDataPoints[0].label
-                                    : ''
-                            }
-                            seriesData={toolTipDataPoints
-                                .map((dp, i) => ({
-                                    id: i,
-                                    dataIndex: 0,
-                                    datasetIndex: 0,
-                                    order: i,
-                                    label: dp.dataset.label,
-                                    color: dp.dataset.borderColor as string,
-                                    count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
-                                }))
-                                .filter((item) => !hideZerosInTooltip || item.count > 0)
-                                .sort((a, b) => (sortTooltipByCount ? b.count - a.count : a.order - b.order))}
-                            renderSeries={(value) => value}
-                            renderCount={(count) => humanFriendlyNumber(count)}
-                            rowCutoff={tooltipRowCutoff}
-                        />
+                        <>
+                            {incompleteBarSet.has(toolTipDataPoints[0]?.dataIndex) && (
+                                <div className="flex items-center gap-1 px-2 pt-1 text-xs text-warning">
+                                    <IconWarning className="shrink-0" />
+                                    {incompleteBars?.tooltip ?? 'Some logs are still processing'}
+                                </div>
+                            )}
+                            <InsightTooltip
+                                embedded
+                                hideInspectActorsSection
+                                showHeader={!!labels}
+                                altTitle={
+                                    toolTipDataPoints.length > 0
+                                        ? renderLabel
+                                            ? renderLabel(toolTipDataPoints[0].label)
+                                            : toolTipDataPoints[0].label
+                                        : ''
+                                }
+                                seriesData={toolTipDataPoints
+                                    .map((dp, i) => ({
+                                        id: i,
+                                        dataIndex: 0,
+                                        datasetIndex: 0,
+                                        order: i,
+                                        label: dp.dataset.label,
+                                        color: dp.dataset.borderColor as string,
+                                        count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
+                                    }))
+                                    .filter((item) => !hideZerosInTooltip || item.count > 0)
+                                    .sort((a, b) => (sortTooltipByCount ? b.count - a.count : a.order - b.order))}
+                                renderSeries={(value) => value}
+                                renderCount={(count) => (renderTooltipValue ?? humanFriendlyNumber)(count)}
+                                rowCutoff={tooltipRowCutoff}
+                            />
+                        </>
                     }
                     placement="bottom-start"
                     padded={false}

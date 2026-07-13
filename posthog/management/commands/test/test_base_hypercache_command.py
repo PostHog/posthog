@@ -968,7 +968,8 @@ class TestFlagVerifyCommandScoping(BaseTest):
     def test_includes_teams_with_only_soft_deleted_flags(self):
         """Teams where all flags are soft-deleted are still included in scope."""
         from posthog.management.commands.verify_flags_cache import Command as VerifyFlagsCommand
-        from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -998,7 +999,8 @@ class TestFlagVerifyCommandScoping(BaseTest):
         """verify_flag_definitions_cache uses identical scoping logic."""
         from posthog.management.commands.verify_flag_definitions_cache import Command as VerifyFlagDefinitionsCommand
         from posthog.models import Team as TeamModel
-        from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         team_with_flag = TeamModel.objects.create(organization=self.organization, name="Has Flag")
         team_no_flags = TeamModel.objects.create(organization=self.organization, name="No Flags")

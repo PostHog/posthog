@@ -7,9 +7,10 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.property import action_to_expr
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.action import Action
-from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.test.test_event_model import filter_by_actions_factory
+
+from products.actions.backend.models.action import Action
+from products.actions.backend.models.util import filter_event, format_action_filter
 
 from common.hogvm.python.operation import (
     HOGQL_BYTECODE_IDENTIFIER as _H,

@@ -22,6 +22,7 @@ from posthog.clickhouse.cluster import (
     RetryPolicy,
     T,
     get_cluster,
+    redact_sql_secrets,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
@@ -136,6 +137,14 @@ def wait_and_check_mutations_on_shards(
 def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
+
+    # Start from a clean table. This table is shared and ClickHouse writes are not
+    # rolled back per test, so sibling tests on the same shard leave rows behind.
+    # The mutation below updates every row (WHERE 1 = 1), so leftover rows would
+    # inflate the post-mutation count and break the exact-count assertion. Normally
+    # masked because these tests scatter across shards; file-level sharding runs the
+    # whole file together.
+    cluster.map_all_hosts(Query(f"TRUNCATE TABLE {table}")).result()
 
     # make sure there is some data to play with first
     cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
@@ -377,7 +386,7 @@ def test_map_hosts_by_role() -> None:
         ("host1", "9000", "1", "1", "online", "data"),
         ("host2", "9000", "1", "2", "online", "data"),
         ("host3", "9000", "1", "3", "offline", "data"),
-        ("host4", "9000", "1", "4", "online", "coordinator"),
+        ("host4", "9000", "1", "4", "online", "endpoints"),
     ]
 
     cluster = ClickhouseCluster(bootstrap_client_mock)
@@ -387,41 +396,41 @@ def test_map_hosts_by_role() -> None:
     def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         if host.host_cluster_role == NodeRole.DATA.value.lower():
             times_called[NodeRole.DATA] += 1
-        elif host.host_cluster_role == NodeRole.COORDINATOR.value.lower():
-            times_called[NodeRole.COORDINATOR] += 1
+        elif host.host_cluster_role == NodeRole.ENDPOINTS.value.lower():
+            times_called[NodeRole.ENDPOINTS] += 1
         return lambda: fn(Mock())
 
     with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.DATA).result()
         assert times_called[NodeRole.DATA] == 3
-        assert times_called[NodeRole.COORDINATOR] == 0
+        assert times_called[NodeRole.ENDPOINTS] == 0
         times_called.clear()
 
-        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.COORDINATOR).result()
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ENDPOINTS).result()
         assert times_called[NodeRole.DATA] == 0
-        assert times_called[NodeRole.COORDINATOR] == 1
+        assert times_called[NodeRole.ENDPOINTS] == 1
         times_called.clear()
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
         assert times_called[NodeRole.DATA] == 3
-        assert times_called[NodeRole.COORDINATOR] == 1
+        assert times_called[NodeRole.ENDPOINTS] == 1
         times_called.clear()
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL, workload=Workload.OFFLINE).result()
         assert times_called[NodeRole.DATA] == 1
-        assert times_called[NodeRole.COORDINATOR] == 0
+        assert times_called[NodeRole.ENDPOINTS] == 0
         times_called.clear()
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.DATA, workload=Workload.ONLINE).result()
         assert times_called[NodeRole.DATA] == 2
-        assert times_called[NodeRole.COORDINATOR] == 0
+        assert times_called[NodeRole.ENDPOINTS] == 0
         times_called.clear()
 
 
 def test_map_hosts_with_satellite_clusters() -> None:
     main_cluster_hosts = [
         ("host1", "9000", "1", "1", "online", "data"),
-        ("host2", "9000", "1", "2", "online", "coordinator"),
+        ("host2", "9000", "1", "2", "online", "endpoints"),
     ]
     aux_cluster_hosts = [
         ("aux-host1", "9000", "1", "1", "online", "aux"),
@@ -470,7 +479,7 @@ def test_map_hosts_with_satellite_clusters() -> None:
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
         assert times_called["data"] == 1
-        assert times_called["coordinator"] == 1
+        assert times_called["endpoints"] == 1
         assert times_called["aux"] == 2
         assert times_called["sessions"] == 1
         times_called.clear()
@@ -511,7 +520,7 @@ def test_data_cluster_overrides_migrations_cluster_data_nodes() -> None:
     # posthog_migrations has incomplete DATA — only 1 shard
     migrations_cluster_hosts = [
         ("data-partial", "9000", "1", "1", "online", "data"),
-        ("coordinator-1", "9000", "1", "2", "online", "coordinator"),
+        ("endpoints-1", "9000", "1", "2", "online", "endpoints"),
     ]
     # posthog has the full topology — 3 shards
     data_cluster_hosts = [
@@ -540,7 +549,7 @@ def test_data_cluster_overrides_migrations_cluster_data_nodes() -> None:
     # Should have 3 shards from posthog, not 1 from posthog_migrations
     assert cluster.num_shards == 3
 
-    # Coordinator from posthog_migrations should still be in extra_hosts
+    # Host only present in posthog_migrations should still be in extra_hosts
     executed_roles: list[str] = []
 
     def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
@@ -552,8 +561,8 @@ def test_data_cluster_overrides_migrations_cluster_data_nodes() -> None:
         assert executed_roles.count("data") == 4  # all 4 DATA nodes from posthog
         executed_roles.clear()
 
-        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.COORDINATOR).result()
-        assert executed_roles.count("coordinator") == 1  # still from posthog_migrations
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ENDPOINTS).result()
+        assert executed_roles.count("endpoints") == 1  # still from posthog_migrations
 
 
 def test_data_cluster_same_as_migrations_cluster_is_noop() -> None:
@@ -714,3 +723,45 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     # Should have more mutations after using force=True
     for host in mutations_count_before:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
+
+
+@pytest.mark.parametrize(
+    "sql,expected",
+    [
+        (
+            "SOURCE(CLICKHOUSE(TABLE 'web_bot_definition' USER 'default' PASSWORD 'sup3r-s3cret'))",
+            "SOURCE(CLICKHOUSE(TABLE 'web_bot_definition' USER 'default' PASSWORD '[REDACTED]'))",
+        ),
+        # case-insensitive keyword
+        ("source(clickhouse(password 'pw'))", "source(clickhouse(password '[REDACTED]'))"),
+        # CREATE USER
+        ("CREATE USER bob IDENTIFIED BY 'hunter2'", "CREATE USER bob IDENTIFIED BY '[REDACTED]'"),
+        (
+            "CREATE USER bob IDENTIFIED WITH sha256_password BY 'hunter2'",
+            "CREATE USER bob IDENTIFIED WITH sha256_password BY '[REDACTED]'",
+        ),
+        # no secret -> unchanged
+        ("SELECT * FROM events WHERE name = 'password'", "SELECT * FROM events WHERE name = 'password'"),
+    ],
+)
+def test_redact_sql_secrets(sql, expected):
+    assert redact_sql_secrets(sql) == expected
+
+
+def test_query_repr_redacts_inline_password():
+    rendered = repr(Query("SOURCE(CLICKHOUSE(TABLE 't' PASSWORD 'sup3r-s3cret'))"))
+    assert "sup3r-s3cret" not in rendered
+    assert "[REDACTED]" in rendered
+
+
+def test_query_repr_redacts_password_parameter():
+    rendered = repr(Query("SOURCE(CLICKHOUSE(DB %(db)s PASSWORD %(password)s))", {"db": "posthog", "password": "pw"}))
+    assert "pw" not in rendered
+    assert "'db': 'posthog'" in rendered
+    assert "'password': '[REDACTED]'" in rendered
+
+
+def test_query_repr_redacts_password_in_list_parameters():
+    rendered = repr(Query("INSERT INTO t VALUES", [{"db": "posthog", "password": "pw"}]))
+    assert "pw" not in rendered
+    assert "'password': '[REDACTED]'" in rendered

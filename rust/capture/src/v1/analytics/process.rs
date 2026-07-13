@@ -1,27 +1,41 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use chrono::{DateTime, Utc};
+use metrics::histogram;
 use uuid::Uuid;
 
 use super::constants::{
     CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
-    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
-    CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP,
+    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_EVENTS_RESTRICTED,
+    CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
+    CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
+    CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS,
     DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
-use super::response::Response;
-use super::types::{Batch, Event, EventResult, WrappedEvent};
+use super::response::BatchResponse;
+use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use crate::v0_request::DataType;
+use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
+use super::context::Context;
 use crate::router;
-use crate::v1::context::Context;
-use crate::v1::sinks::Destination;
+use crate::v1::context::RequestContext;
+use crate::v1::sinks::event::Event as SinkEvent;
+use crate::v1::sinks::types::SinkResult;
+use crate::v1::sinks::{serialize_batch, Destination};
 use crate::v1::Error;
 
 /// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
+///
+/// Unlike legacy capture, v1 does NOT split heatmap/scroll-depth properties out of
+/// non-$$heatmap events (e.g. $pageview) into a synthetic redirect. We keep properties
+/// as opaque RawValue to avoid deserialization. The Node.js events subpipeline
+/// (extractHeatmapDataStep) handles extraction when `skip_heatmap_processing` is unset
+/// in Kafka headers — removing that fallback would break scroll-depth heatmaps for v1.
 fn destination_for_event_name(name: &str) -> Destination {
     match name {
         "$exception" => Destination::ExceptionErrorTracking,
@@ -35,13 +49,23 @@ pub async fn process_batch(
     state: &router::State,
     context: &mut Context,
     batch: Batch,
-) -> Result<Response, Error> {
+) -> Result<BatchResponse, Error> {
+    let processing_start = Instant::now();
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
     validate_batch(&batch)?;
     context.set_batch_metadata(&batch);
 
     let mut events = validate_events(context, batch)?;
+
+    // Nothing left to process — return 200 with per-event drops.
+    if events.iter().all(|ev| ev.result != EventResult::Ok) {
+        return Ok(BatchResponse::build(context, &events));
+    }
+
+    // Verify gateway provenance before the quota limiter so verified events can
+    // be exempted from the llm_events meter (they're wallet-billed, not AIO).
+    apply_gateway_provenance(state, context, &mut events);
 
     crate::v1::quota_limiter_shim::apply_quota_limits(
         &state.quota_limiter,
@@ -62,72 +86,305 @@ pub async fn process_batch(
 
     apply_historical_rerouting(&state.historical_cfg, context, &mut events);
 
+    // Overflow and global rate limit are independent checks on different axes:
+    // overflow reroutes bursting keys; global rate limit disables person processing.
+    if let Some(ref limiter) = state.overflow_limiter {
+        apply_overflow_stamping(limiter, context, &mut events);
+    }
+
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
         apply_token_distinct_id_limits(limiter, context, &mut events).await;
     }
 
-    // TODO: publish to v1::Sink, collect results, format + return response
-    Err(Error::ServiceUnavailable("not yet implemented".into()))
+    histogram!(
+        CAPTURE_V1_PROCESSING_DURATION_SECONDS,
+        "path" => context.path,
+    )
+    .record(processing_start.elapsed().as_secs_f64());
+
+    // Serialize (hoisted out of the sink; parallel for large batches), then
+    // publish and merge results before building the response.
+    let sink_router = state
+        .v1_sink_router
+        .as_ref()
+        .ok_or_else(|| Error::ServiceUnavailable("v1 sink router not configured".into()))?;
+
+    // serialize_batch consumes the events and hands them back, so we can keep
+    // correlating results to them and build the response.
+    let (mut events, serialized) =
+        serialize_batch(events, context, state.capture_v1_scatter_gather_min_batch).await;
+
+    let sink_results = sink_router
+        .publish_batch(sink_router.default_sink(), context, &serialized.prepared)
+        .await
+        .map_err(|e| Error::InternalError(e.to_string()))?;
+
+    // Serialize-step failures and sink results are both per-event SinkResults;
+    // merge them together so serialization drops surface in the response.
+    let mut all_results = serialized.failures;
+    all_results.extend(sink_results);
+    merge_sink_results(&mut events, &all_results);
+
+    Ok(BatchResponse::build(context, &events))
+}
+
+// Verify gateway provenance on each `$ai_*` event: a fresh, valid signature stamps
+// the trusted marker and exempts it from the llm_events meter; anything else has its
+// `$ai_gateway*` props stripped. The strip path skips the parse unless the raw bytes
+// plausibly carry a gateway key, so ordinary traffic stays off the hot path.
+fn apply_gateway_provenance(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
+    use crate::v1::gateway_provenance as gp;
+
+    let secret = state
+        .ai_gateway_signing_secret
+        .as_deref()
+        .filter(|s| !s.is_empty());
+    let now = context.server_received_at;
+
+    for ev in events.iter_mut() {
+        if ev.result != EventResult::Ok || !ev.event.event.starts_with("$ai_") {
+            continue;
+        }
+
+        let sig = context.gateway_signature.as_ref();
+        let outcome = match (secret, sig) {
+            (Some(secret), Some(sig)) => gp::verify(
+                secret.as_bytes(),
+                &context.api_token,
+                &ev.event.distinct_id,
+                sig,
+                now,
+            ),
+            // No secret or no signature — nothing to trust.
+            _ => gp::Provenance::Invalid,
+        };
+
+        // Trust needs a non-empty request_id — billing dedups exemptions by it.
+        let request_id = sig.map(|s| s.request_id.as_str()).unwrap_or_default();
+        let trusted = outcome == gp::Provenance::Verified && !request_id.is_empty();
+
+        if trusted {
+            match gp::stamp_verified_raw(&ev.event.properties, request_id) {
+                gp::StampOutcome::Stamped(props) => {
+                    ev.event.properties = props;
+                    ev.is_gateway_verified = true;
+                    metrics::counter!(gp::PROVENANCE_METRIC, "reason" => "verified").increment(1);
+                }
+                gp::StampOutcome::Unparseable => drop_unparseable_gateway_props(ev),
+            }
+        } else if gp::has_gateway_props(&ev.event.properties) {
+            match gp::strip_gateway_raw(&ev.event.properties) {
+                gp::StripOutcome::Stripped { props, forged } => {
+                    ev.event.properties = props;
+                    let reason = if forged {
+                        // A client-supplied $ai_gateway_verified — a real forgery.
+                        "forged"
+                    } else if outcome == gp::Provenance::Stale {
+                        "stale" // valid HMAC, outside the window — clock skew
+                    } else {
+                        "stripped" // leftover $ai_gateway* prop, no marker — benign
+                    };
+                    metrics::counter!(gp::PROVENANCE_METRIC, "reason" => reason).increment(1);
+                }
+                gp::StripOutcome::Unchanged => {}
+                gp::StripOutcome::Unparseable => drop_unparseable_gateway_props(ev),
+            }
+        }
+    }
+}
+
+/// Drop a `$ai_*` event whose properties carry a gateway key but can't be parsed to
+/// strip or stamp it. `RawValue` and ClickHouse accept JSON the typed parse rejects,
+/// so a forged marker we can't remove would otherwise survive to billing — fail closed.
+fn drop_unparseable_gateway_props(ev: &mut WrappedEvent) {
+    ev.result = EventResult::Drop;
+    ev.destination = Destination::Drop;
+    ev.details = Some("gateway_props_unparseable");
+    metrics::counter!(
+        crate::v1::gateway_provenance::PROVENANCE_METRIC,
+        "reason" => "dropped_unparseable"
+    )
+    .increment(1);
+}
+
+// ---------------------------------------------------------------------------
+// SinkResult → WrappedEvent merge
+// ---------------------------------------------------------------------------
+
+/// Correlate per-event `SinkResult`s back to the batch of `WrappedEvent`s by UUID.
+///
+/// Events that were not published (`should_publish() == false`) are untouched.
+/// Published events receive updated `result` and `details` based on the sink outcome:
+/// - `Outcome::Success` → keep existing result (Ok or Warning)
+/// - `Outcome::RetriableError` | `Outcome::Timeout` → `EventResult::Retry`
+/// - `Outcome::FatalError` → `EventResult::Drop`
+pub fn merge_sink_results(events: &mut [WrappedEvent], sink_results: &[Box<dyn SinkResult>]) {
+    use crate::v1::sinks::types::Outcome;
+
+    let results_by_uuid: HashMap<Uuid, &dyn SinkResult> =
+        sink_results.iter().map(|r| (r.key(), r.as_ref())).collect();
+
+    for event in events.iter_mut() {
+        if !event.should_publish() {
+            continue;
+        }
+
+        let Some(result) = results_by_uuid.get(&event.uuid) else {
+            continue;
+        };
+
+        match result.outcome() {
+            Outcome::Success => {
+                // Leave event.result as-is (Ok or Warning from upstream processing)
+            }
+            Outcome::RetriableError | Outcome::Timeout => {
+                event.result = EventResult::Retry;
+                event.details = Some("not_persisted");
+            }
+            Outcome::FatalError => {
+                event.result = EventResult::Drop;
+                let cause = result.cause().unwrap_or("rejected");
+                event.details = Some(match cause {
+                    "serialization_failed" | "event_too_big" => cause,
+                    _ => "rejected",
+                });
+            }
+        }
+    }
+}
+
+/// Records a whole-batch validation abort. These errors reject the batch as a
+/// unit, so every event in it is dropped — but the request only ever ticks one
+/// `capture_v1_analytics_error`, leaving the event count invisible. Charge the
+/// full batch length to `capture_v1_events_dropped` so dup/oversize/invalid-uuid
+/// rejections show real per-event loss. Returns `err` for use at the call site.
+fn count_validation_abort(err: Error, batch_len: usize) -> Error {
+    metrics::counter!(
+        CAPTURE_V1_EVENTS_DROPPED,
+        "reason" => err.tag(),
+        "stage" => "validation_abort",
+    )
+    .increment(batch_len as u64);
+    err
 }
 
 fn validate_batch(batch: &Batch) -> Result<(), Error> {
+    let batch_len = batch.batch.len();
     if batch.batch.is_empty() {
-        return Err(Error::EmptyBatch);
+        return Err(count_validation_abort(Error::EmptyBatch, batch_len));
     }
 
     DateTime::parse_from_rfc3339(&batch.created_at).map_err(|_| {
-        Error::InvalidBatch(format!(
-            "created_at is not valid RFC 3339: {}",
-            batch.created_at
-        ))
+        count_validation_abort(
+            Error::InvalidBatch(format!(
+                "created_at is not valid RFC 3339: {}",
+                batch.created_at
+            )),
+            batch_len,
+        )
     })?;
 
     Ok(())
 }
 
-fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
-    let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch.batch.len());
-    let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
+fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
+    let batch_len = batch.batch.len();
+    let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch_len);
+    let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch_len);
+    let mut illegal_distinct_id_count: u64 = 0;
 
     for event in batch.batch.into_iter() {
-        let uuid_str = event.uuid();
-        if uuid_str.is_empty() {
-            return Err(Error::MissingEventUuid);
+        if event.uuid.is_empty() {
+            return Err(count_validation_abort(Error::MissingEventUuid, batch_len));
         }
-        let uuid =
-            Uuid::parse_str(uuid_str).map_err(|_| Error::InvalidEventUuid(uuid_str.to_owned()))?;
+        let uuid = Uuid::parse_str(&event.uuid).map_err(|_| {
+            count_validation_abort(Error::InvalidEventUuid(event.uuid.clone()), batch_len)
+        })?;
         if !seen.insert(uuid) {
-            return Err(Error::DuplicateEventUuid(event.uuid().to_owned()));
+            return Err(count_validation_abort(
+                Error::DuplicateEventUuid(event.uuid.clone()),
+                batch_len,
+            ));
         }
 
         let destination = destination_for_event_name(&event.event);
 
         match validate_event(&event) {
             Ok(raw_ts) => {
+                // Options validation: coerce known fields or drop the event.
+                // The malformed-event metric (CAPTURE_V1_PARSED_EVENTS{malformed})
+                // is emitted uniformly by observe_malformed_events, matching the
+                // other validate-stage drops. Per-field detail is deferred to the
+                // sampled verbose-logging mode rather than logged per-event here.
+                let options = match event.options.validate() {
+                    Ok(opts) => opts,
+                    Err(_) => {
+                        events.push(WrappedEvent {
+                            event,
+                            uuid,
+                            options: Options::default(),
+                            adjusted_timestamp: None,
+                            result: EventResult::Drop,
+                            details: Some(DETAIL_INVALID_OPTIONS),
+                            destination,
+                            force_disable_person_processing: false,
+                            is_gateway_verified: false,
+                        });
+                        continue;
+                    }
+                };
+
                 metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "valid").increment(1);
-                let adjusted = normalize_timestamp(context, &event, raw_ts);
+                let adjusted = normalize_timestamp(
+                    context,
+                    options.disable_skew_correction.unwrap_or(false),
+                    raw_ts,
+                );
+                let illegal = is_distinct_id_illegal(&event.distinct_id);
+                if illegal {
+                    illegal_distinct_id_count += 1;
+                }
                 events.push(WrappedEvent {
                     event,
                     uuid,
+                    options,
                     adjusted_timestamp: Some(adjusted),
                     result: EventResult::Ok,
-                    details: None,
+                    details: if illegal {
+                        Some(DETAIL_PERSON_PROCESSING_DISABLED)
+                    } else {
+                        None
+                    },
                     destination,
-                    force_disable_person_processing: false,
+                    force_disable_person_processing: illegal,
+                    is_gateway_verified: false,
                 });
             }
             Err(err) => {
                 events.push(WrappedEvent {
                     event,
                     uuid,
+                    options: Options::default(),
                     adjusted_timestamp: None,
                     result: EventResult::Drop,
                     details: Some(err.tag()),
                     destination,
                     force_disable_person_processing: false,
+                    is_gateway_verified: false,
                 });
             }
         }
+    }
+
+    if illegal_distinct_id_count > 0 {
+        metrics::counter!(CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, "reason" => "person_processing_disabled")
+            .increment(illegal_distinct_id_count);
+        crate::ctx_log!(
+            Level::INFO,
+            context,
+            count = illegal_distinct_id_count,
+            "events with illegal distinct_id -- person processing disabled"
+        );
     }
 
     if events.iter().any(|e| e.result != EventResult::Ok) {
@@ -137,15 +394,13 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
     Ok(events)
 }
 
-fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
+fn observe_malformed_events(context: &RequestContext, events: &[WrappedEvent]) {
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
-    let mut illegal_distinct_ids: HashSet<&str> = HashSet::new();
 
     for event in events.iter() {
-        if let Some(tag) = event.details {
-            *malformed.entry(tag).or_insert(0) += 1;
-            if tag == "invalid_distinct_id" {
-                illegal_distinct_ids.insert(&event.event.distinct_id);
+        if event.result != EventResult::Ok {
+            if let Some(tag) = event.details {
+                *malformed.entry(tag).or_insert(0) += 1;
             }
         }
     }
@@ -161,22 +416,15 @@ fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
         .collect::<Vec<_>>()
         .join(", ");
 
-    let illegal_ids_csv: String = illegal_distinct_ids
-        .into_iter()
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    crate::ctx_log!(Level::WARN, context,
-        illegal_distinct_ids = %illegal_ids_csv,
-        "malformed events: {summary}"
-    );
+    crate::ctx_log!(Level::WARN, context, "malformed events: {summary}");
 }
 
+/// Expects a pre-trimmed distinct_id (`Event.distinct_id` is trimmed at
+/// deserialization).
 fn is_distinct_id_illegal(distinct_id: &str) -> bool {
-    let trimmed = distinct_id.trim();
     ILLEGAL_DISTINCT_IDS
         .iter()
-        .any(|id| trimmed.eq_ignore_ascii_case(id))
+        .any(|id| distinct_id.eq_ignore_ascii_case(id))
 }
 
 fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
@@ -195,9 +443,6 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
     if event.distinct_id.len() > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
         return Err(Error::DistinctIdTooLarge);
     }
-    if is_distinct_id_illegal(&event.distinct_id) {
-        return Err(Error::InvalidDistinctId(event.distinct_id.clone()));
-    }
 
     let ts = DateTime::parse_from_rfc3339(&event.timestamp)
         .map(|dt| dt.with_timezone(&Utc))
@@ -211,17 +456,19 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
 }
 
 fn normalize_timestamp(
-    context: &Context,
-    event: &Event,
+    context: &RequestContext,
+    disable_skew_correction: bool,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    if event.options.disable_skew_correction.unwrap_or(false) {
+    if disable_skew_correction {
         return raw_event_ts;
     }
 
     let adjusted = raw_event_ts - context.clock_skew();
     let now = context.server_received_at;
     if adjusted.signed_duration_since(now).num_milliseconds() > FUTURE_EVENT_HOURS_CUTOFF_MS {
+        metrics::counter!(CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, "reason" => "future_timestamp_clamp")
+            .increment(1);
         return now;
     }
     adjusted
@@ -229,7 +476,7 @@ fn normalize_timestamp(
 
 fn apply_historical_rerouting(
     cfg: &router::HistoricalConfig,
-    context: &Context,
+    context: &RequestContext,
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
@@ -259,6 +506,43 @@ fn apply_historical_rerouting(
     }
 }
 
+fn apply_overflow_stamping(
+    limiter: &OverflowLimiter,
+    ctx: &RequestContext,
+    events: &mut [WrappedEvent],
+) {
+    for event in events.iter_mut() {
+        if event.destination != Destination::AnalyticsMain {
+            continue;
+        }
+        if event.result == EventResult::Drop {
+            continue;
+        }
+
+        let key = event.partition_key(ctx);
+
+        match limiter.is_limited(&key) {
+            OverflowLimiterResult::ForceLimited => {
+                event.destination = Destination::Overflow;
+                // Disables person processing AND nulls partition key at sink.
+                event.force_disable_person_processing = true;
+                metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "force_limited")
+                    .increment(1);
+            }
+            OverflowLimiterResult::Limited => {
+                event.destination = Destination::Overflow;
+                if !limiter.should_preserve_locality() {
+                    // Nulls partition key at sink -- spreads across partitions.
+                    event.force_disable_person_processing = true;
+                }
+                metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "rate_limited")
+                    .increment(1);
+            }
+            OverflowLimiterResult::NotLimited => {}
+        }
+    }
+}
+
 async fn apply_restrictions(
     service: &EventRestrictionService,
     token: &str,
@@ -266,14 +550,14 @@ async fn apply_restrictions(
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok || !event.destination.is_analytics_pipeline() {
+        if event.result != EventResult::Ok {
             continue;
         }
 
-        // v1 hasn't classified events into `DataType` yet, so derive the
-        // pipeline directly from the event name. `historical_migration` is
-        // irrelevant for pipeline lookup — `AnalyticsMain` and
-        // `AnalyticsHistorical` both map to `Pipeline::Analytics`.
+        // Derive the pipeline from the event name so each event is matched
+        // against the correct restriction slice (Analytics vs ErrorTracking).
+        // `pipeline() == None` for heatmaps / ingestion warnings / snapshots
+        // → they pass through unrestricted, exactly as v0 does.
         let Some(pipeline) = DataType::from_event_name(&event.event.event, false).pipeline() else {
             continue;
         };
@@ -282,7 +566,7 @@ async fn apply_restrictions(
             distinct_id: Some(&event.event.distinct_id),
             session_id: event.event.session_id.as_deref(),
             event_name: Some(&event.event.event),
-            event_uuid: Some(event.event.uuid()),
+            event_uuid: Some(&event.event.uuid),
             now_ts,
         };
 
@@ -298,41 +582,62 @@ async fn apply_restrictions(
         }
 
         // Priority: overflow < custom topic < DLQ (DLQ wins, applied last)
-        if applied.force_overflow() {
+        // Overflow only applies to AnalyticsMain: AnalyticsHistorical must never
+        // overflow (legacy sink invariant). Today this stage runs before
+        // historical rerouting so the destination is always AnalyticsMain here;
+        // the explicit guard makes the invariant ordering-independent.
+        if applied.force_overflow() && event.destination == Destination::AnalyticsMain {
             event.destination = Destination::Overflow;
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "force_overflow")
+                .increment(1);
         }
         if let Some(topic) = applied.redirect_to_topic() {
             event.destination = Destination::Custom(topic.to_string());
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "redirect_to_topic")
+                .increment(1);
         }
         if applied.redirect_to_dlq() {
             event.destination = Destination::Dlq;
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "redirect_to_dlq")
+                .increment(1);
         }
 
         if applied.skip_person_processing() {
             event.force_disable_person_processing = true;
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "skip_person_processing")
+                .increment(1);
         }
     }
 }
 
 async fn apply_token_distinct_id_limits(
     limiter: &GlobalRateLimiter,
-    context: &Context,
+    context: &RequestContext,
     events: &mut [WrappedEvent],
 ) {
     let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
     let mut allowed_count: u64 = 0;
 
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok {
+        if event.result != EventResult::Ok || event.force_disable_person_processing {
             continue;
         }
         let cache_key =
             GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
                 .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
-            event.result = EventResult::Limited;
+            event.result = EventResult::Warning;
+            // Disables person processing -- sink will null partition key for Main/Overflow.
             event.force_disable_person_processing = true;
             event.details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
+            // Reroute to overflow to spread a hot token:distinct_id across
+            // partitions. Gated to AnalyticsMain only: this stage runs after
+            // historical rerouting, and AnalyticsHistorical must never overflow
+            // (matches the legacy sink invariant). Other lanes (exceptions,
+            // heatmaps, etc.) keep their own destination.
+            if event.destination == Destination::AnalyticsMain {
+                event.destination = Destination::Overflow;
+            }
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
         } else {
             allowed_count += 1;
@@ -383,8 +688,9 @@ mod tests {
     use crate::event_restrictions::{
         Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
-    use crate::v1::analytics::types::{Batch, Event, Options};
-    use crate::v1::sinks::Destination;
+    use crate::v1::analytics::constants::CAPTURE_V1_PATH;
+    use crate::v1::analytics::types::{Batch, Event};
+    use crate::v1::sinks::{Destination, DEFAULT_SCATTER_GATHER_MIN_BATCH};
     use crate::v1::test_utils::{
         self, find_by_did, malformed_wrapped_event, raw_obj, valid_event, wrapped_event,
         wrapped_event_at,
@@ -398,6 +704,49 @@ mod tests {
             capture_internal: None,
             batch: events,
         }
+    }
+
+    /// Build an Event through serde — the production entry point — so the
+    /// trim-at-deserialization invariant on uuid/distinct_id applies.
+    fn deserialized_event(uuid: &str, distinct_id: &str) -> Event {
+        let json = serde_json::json!({
+            "event": "$pageview",
+            "uuid": uuid,
+            "distinct_id": distinct_id,
+            "timestamp": "2026-03-19T14:29:58.123Z",
+        });
+        serde_json::from_str(&json.to_string()).unwrap()
+    }
+
+    /// Runs `f` under a local metrics recorder and returns the recorded
+    /// `capture_v1_events_dropped` counter for the given `reason`+`stage` labels,
+    /// so whole-batch-abort tests can assert the exact per-event drop count.
+    fn dropped_count(reason: &str, stage: &str, f: impl FnOnce()) -> Option<u64> {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        f();
+
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| {
+                if key.key().name() != CAPTURE_V1_EVENTS_DROPPED {
+                    return None;
+                }
+                let labels: std::collections::HashMap<&str, &str> =
+                    key.key().labels().map(|l| (l.key(), l.value())).collect();
+                if labels.get("reason") != Some(&reason) || labels.get("stage") != Some(&stage) {
+                    return None;
+                }
+                match value {
+                    DebugValue::Counter(v) => Some(v),
+                    _ => None,
+                }
+            })
     }
 
     // --- validate_batch ---
@@ -497,7 +846,43 @@ mod tests {
     }
 
     #[test]
-    fn event_illegal_distinct_ids_rejected() {
+    fn event_whitespace_only_distinct_id_rejected() {
+        let event = deserialized_event(&Uuid::new_v4().to_string(), "   ");
+        assert_eq!(event.distinct_id, "");
+        assert!(matches!(
+            validate_event(&event),
+            Err(Error::MissingDistinctId)
+        ));
+    }
+
+    #[test]
+    fn event_padded_distinct_id_ok() {
+        let event = deserialized_event(&Uuid::new_v4().to_string(), "  user-42  ");
+        assert_eq!(event.distinct_id, "user-42");
+        assert!(validate_event(&event).is_ok());
+    }
+
+    #[test]
+    fn event_distinct_id_length_checked_after_trim() {
+        let uuid = Uuid::new_v4().to_string();
+        let event = deserialized_event(
+            &uuid,
+            &format!("  {}  ", "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE)),
+        );
+        assert!(validate_event(&event).is_ok());
+
+        let event = deserialized_event(
+            &uuid,
+            &format!("  {}  ", "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE + 1)),
+        );
+        assert!(matches!(
+            validate_event(&event),
+            Err(Error::DistinctIdTooLarge)
+        ));
+    }
+
+    #[test]
+    fn event_illegal_distinct_ids_pass_validation() {
         let illegal_ids = [
             "anonymous",
             "ANONYMOUS",
@@ -517,11 +902,10 @@ mod tests {
             "not_authenticated",
         ];
         for id in illegal_ids {
-            let mut event = valid_event();
-            event.distinct_id = id.to_string();
+            let event = deserialized_event(&Uuid::new_v4().to_string(), id);
             assert!(
-                matches!(validate_event(&event), Err(Error::InvalidDistinctId(_))),
-                "expected InvalidDistinctId for distinct_id={id:?}"
+                validate_event(&event).is_ok(),
+                "expected Ok for illegal distinct_id={id:?} (flagging happens in validate_events)"
             );
         }
     }
@@ -594,9 +978,9 @@ mod tests {
             event: "$performance_event".to_string(),
             ..valid_event()
         };
-        let perf_uuid = Uuid::parse_str(perf.uuid()).unwrap();
+        let perf_uuid = Uuid::parse_str(&perf.uuid).unwrap();
         let normal = valid_event();
-        let normal_uuid = Uuid::parse_str(normal.uuid()).unwrap();
+        let normal_uuid = Uuid::parse_str(&normal.uuid).unwrap();
         let batch = valid_batch(vec![perf, normal]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
@@ -627,6 +1011,58 @@ mod tests {
         for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
             assert_eq!(ev.details, Some("dropped_performance_event"));
+        }
+    }
+
+    #[test]
+    fn validate_events_illegal_distinct_id_flags_person_processing_disabled() {
+        for id in ILLEGAL_DISTINCT_IDS {
+            let ctx = test_utils::test_context();
+            let mut illegal_event = valid_event();
+            illegal_event.distinct_id = id.to_string();
+            let legal_event = valid_event();
+            let batch = valid_batch(vec![illegal_event, legal_event]);
+            let events = validate_events(&ctx, batch).unwrap();
+            assert_eq!(events.len(), 2, "id={id:?}");
+
+            let flagged = &events[0];
+            assert_eq!(flagged.result, EventResult::Ok, "id={id:?}");
+            assert!(flagged.force_disable_person_processing, "id={id:?}");
+            assert_eq!(
+                flagged.details,
+                Some(DETAIL_PERSON_PROCESSING_DISABLED),
+                "id={id:?}"
+            );
+            assert_ne!(flagged.destination, Destination::Drop, "id={id:?}");
+
+            let normal = &events[1];
+            assert_eq!(normal.result, EventResult::Ok, "id={id:?}");
+            assert!(!normal.force_disable_person_processing, "id={id:?}");
+            assert!(normal.details.is_none(), "id={id:?}");
+        }
+    }
+
+    #[test]
+    fn validate_events_padded_illegal_distinct_id_still_flagged() {
+        let ctx = test_utils::test_context();
+        let event = deserialized_event(&Uuid::new_v4().to_string(), "  NULL  ");
+        let batch = valid_batch(vec![event]);
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(events[0].force_disable_person_processing);
+        assert_eq!(events[0].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
+    }
+
+    #[test]
+    fn validate_events_illegal_distinct_id_still_publishable() {
+        for id in ILLEGAL_DISTINCT_IDS {
+            let ctx = test_utils::test_context();
+            let mut illegal_event = valid_event();
+            illegal_event.distinct_id = id.to_string();
+            let batch = valid_batch(vec![illegal_event]);
+            let events = validate_events(&ctx, batch).unwrap();
+            assert_eq!(events.len(), 1, "id={id:?}");
+            assert!(events[0].should_publish(), "id={id:?}");
         }
     }
 
@@ -687,6 +1123,129 @@ mod tests {
         assert!(matches!(err, Error::MissingEventUuid));
     }
 
+    // --- whole-batch abort drop counting ---
+    // Each abort rejects the entire batch, so the dropped-events counter must be
+    // charged the FULL batch length (not 1, and not just the events seen before
+    // the bad one) — that is the per-event loss the single request-level
+    // capture_v1_analytics_error tick can't show.
+
+    #[test]
+    fn duplicate_uuid_abort_counts_whole_batch() {
+        let ctx = test_utils::test_context();
+        let shared = Uuid::new_v4().to_string();
+        // dup is only detected at index 2, but all 3 events are lost.
+        let batch = valid_batch(vec![
+            Event {
+                uuid: shared.clone(),
+                ..valid_event()
+            },
+            Event {
+                uuid: Uuid::new_v4().to_string(),
+                ..valid_event()
+            },
+            Event {
+                uuid: shared,
+                ..valid_event()
+            },
+        ]);
+
+        let count = dropped_count("duplicate_event_uuid", "validation_abort", || {
+            assert!(matches!(
+                validate_events(&ctx, batch).unwrap_err(),
+                Error::DuplicateEventUuid(_)
+            ));
+        });
+        assert_eq!(count, Some(3));
+    }
+
+    #[test]
+    fn invalid_uuid_abort_counts_whole_batch() {
+        let ctx = test_utils::test_context();
+        // bad uuid at index 0; the 2 trailing valid events are lost too.
+        let batch = valid_batch(vec![
+            Event {
+                uuid: "not-a-uuid".to_string(),
+                ..valid_event()
+            },
+            valid_event(),
+            valid_event(),
+        ]);
+
+        let count = dropped_count("invalid_event_uuid", "validation_abort", || {
+            assert!(matches!(
+                validate_events(&ctx, batch).unwrap_err(),
+                Error::InvalidEventUuid(_)
+            ));
+        });
+        assert_eq!(count, Some(3));
+    }
+
+    #[test]
+    fn missing_uuid_abort_counts_whole_batch() {
+        let ctx = test_utils::test_context();
+        let batch = valid_batch(vec![
+            Event {
+                uuid: String::new(),
+                ..valid_event()
+            },
+            valid_event(),
+        ]);
+
+        let count = dropped_count("missing_event_uuid", "validation_abort", || {
+            assert!(matches!(
+                validate_events(&ctx, batch).unwrap_err(),
+                Error::MissingEventUuid
+            ));
+        });
+        assert_eq!(count, Some(2));
+    }
+
+    #[test]
+    fn invalid_batch_abort_counts_whole_batch() {
+        let batch = Batch {
+            created_at: "not-a-timestamp".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![valid_event(), valid_event(), valid_event()],
+        };
+
+        let count = dropped_count("invalid_batch", "validation_abort", || {
+            assert!(matches!(
+                validate_batch(&batch).unwrap_err(),
+                Error::InvalidBatch(_)
+            ));
+        });
+        assert_eq!(count, Some(3));
+    }
+
+    #[test]
+    fn empty_batch_abort_counts_zero() {
+        // An empty batch loses no events, so the drop counter must not be
+        // inflated (0, whether the series is registered or absent).
+        let batch = valid_batch(vec![]);
+
+        let count = dropped_count("empty_batch", "validation_abort", || {
+            assert!(matches!(
+                validate_batch(&batch).unwrap_err(),
+                Error::EmptyBatch
+            ));
+        });
+        assert_eq!(count.unwrap_or(0), 0);
+    }
+
+    #[test]
+    fn validate_events_uuid_with_whitespace_trimmed_successfully() {
+        let ctx = test_utils::test_context();
+        let inner_uuid = Uuid::new_v4();
+        let padded_uuid = format!("  {}  ", inner_uuid);
+        let event = deserialized_event(&padded_uuid, "user-42");
+        assert_eq!(event.uuid, inner_uuid.to_string());
+        let batch = valid_batch(vec![event]);
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].uuid, inner_uuid);
+    }
+
     #[test]
     fn validate_events_malformed_properties() {
         let ctx = test_utils::test_context();
@@ -694,7 +1253,7 @@ mod tests {
             properties: raw_obj("[1,2,3]"),
             ..valid_event()
         };
-        let uuid = Uuid::parse_str(bad_event.uuid()).unwrap();
+        let uuid = Uuid::parse_str(&bad_event.uuid).unwrap();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
             historical_migration: false,
@@ -709,14 +1268,112 @@ mod tests {
         assert_eq!(event.details, Some("malformed_event_properties"));
     }
 
+    #[test]
+    fn validate_events_invalid_options_drops_single_event() {
+        use crate::v1::analytics::types::RawOptions;
+
+        let ctx = test_utils::test_context();
+        let mut good = valid_event();
+        good.uuid = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d".to_string();
+
+        let mut bad = valid_event();
+        bad.uuid = "b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5e".to_string();
+        bad.options = RawOptions(serde_json::json!({"cookieless_mode": [1, 2, 3]}));
+
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![good, bad],
+        };
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events.len(), 2);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].details, None);
+
+        assert_eq!(events[1].result, EventResult::Drop);
+        assert_eq!(events[1].details, Some("invalid_options"));
+    }
+
+    #[test]
+    fn validate_events_invalid_options_does_not_fail_batch() {
+        use crate::v1::analytics::types::RawOptions;
+
+        let ctx = test_utils::test_context();
+        let mut ev1 = valid_event();
+        ev1.uuid = "c1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5f".to_string();
+        ev1.options = RawOptions(serde_json::json!({"disable_skew_correction": "not_a_bool"}));
+
+        let mut ev2 = valid_event();
+        ev2.uuid = "d1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c60".to_string();
+        ev2.options = RawOptions(serde_json::json!({"disable_skew_correction": true}));
+
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![ev1, ev2],
+        };
+        let result = validate_events(&ctx, batch);
+        assert!(result.is_ok());
+        let events = result.unwrap();
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[1].result, EventResult::Ok);
+    }
+
+    #[test]
+    fn validate_events_coerced_options_used_for_skew_correction() {
+        use crate::v1::analytics::types::RawOptions;
+
+        let ctx = test_utils::test_context();
+        let mut ev = valid_event();
+        ev.uuid = "e1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c61".to_string();
+        ev.options = RawOptions(serde_json::json!({"disable_skew_correction": 1}));
+
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![ev],
+        };
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].options.disable_skew_correction, Some(true));
+    }
+
+    #[test]
+    fn validate_events_structural_error_takes_precedence_over_invalid_options() {
+        use crate::v1::analytics::types::RawOptions;
+
+        // An event with BOTH a structural error (empty event name) and
+        // uncoercible options must drop for the structural reason: options
+        // validation only runs after validate_event() passes.
+        let ctx = test_utils::test_context();
+        let mut ev = valid_event();
+        ev.uuid = "f1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c62".to_string();
+        ev.event = String::new();
+        ev.options = RawOptions(serde_json::json!({"cookieless_mode": [1, 2, 3]}));
+
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![ev],
+        };
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("missing_event_name"));
+    }
+
     // --- normalize_timestamp ---
 
     fn dt(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
-    fn ctx_with_skew(server_received_at: DateTime<Utc>, skew: Duration) -> Context {
-        Context {
+    fn ctx_with_skew(server_received_at: DateTime<Utc>, skew: Duration) -> RequestContext {
+        RequestContext {
             api_token: "phc_test".to_string(),
             user_agent: "test/1.0".to_string(),
             content_type: "application/json".to_string(),
@@ -726,31 +1383,14 @@ mod tests {
             request_id: Uuid::new_v4(),
             client_timestamp: server_received_at + skew,
             client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-            query: crate::v1::analytics::query::Query::default(),
+            raw_query: None,
             method: axum::http::Method::POST,
-            path: "/i/v1/general/events".to_string(),
+            path: CAPTURE_V1_PATH,
             server_received_at,
             created_at: None,
             capture_internal: false,
             historical_migration: false,
-        }
-    }
-
-    fn event_with_disable_skew_correction(disable: bool) -> Event {
-        Event {
-            event: "$pageview".to_string(),
-            uuid: Uuid::new_v4().to_string(),
-            distinct_id: "user-1".to_string(),
-            timestamp: "2026-03-19T11:00:00Z".to_string(),
-            session_id: None,
-            window_id: None,
-            options: Options {
-                cookieless_mode: None,
-                disable_skew_correction: Some(disable),
-                product_tour_id: None,
-                process_person_profile: None,
-            },
-            properties: raw_obj("{}"),
+            gateway_signature: None,
         }
     }
 
@@ -758,9 +1398,8 @@ mod tests {
     fn normalize_no_skew() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::zero());
-        let event = valid_event();
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, event_ts);
     }
 
@@ -768,9 +1407,8 @@ mod tests {
     fn normalize_positive_skew_client_ahead() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = valid_event();
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, dt("2026-03-19T10:59:50Z"));
     }
 
@@ -778,9 +1416,8 @@ mod tests {
     fn normalize_negative_skew_client_behind() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(-10));
-        let event = valid_event();
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, dt("2026-03-19T11:00:10Z"));
     }
 
@@ -788,9 +1425,8 @@ mod tests {
     fn normalize_clamps_far_future() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::zero());
-        let event = valid_event();
         let event_ts = dt("2026-03-21T12:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, now);
     }
 
@@ -798,9 +1434,8 @@ mod tests {
     fn normalize_allows_near_future() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::zero());
-        let event = valid_event();
         let event_ts = dt("2026-03-20T10:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, event_ts);
     }
 
@@ -808,9 +1443,8 @@ mod tests {
     fn normalize_disable_skew_correction_skips_adjustment() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_disable_skew_correction(true);
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, true, event_ts);
         assert_eq!(result, event_ts);
     }
 
@@ -818,9 +1452,8 @@ mod tests {
     fn normalize_disable_skew_correction_false_still_adjusts() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_disable_skew_correction(false);
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, dt("2026-03-19T10:59:50Z"));
     }
 
@@ -830,10 +1463,18 @@ mod tests {
         token: &str,
         restrictions: Vec<Restriction>,
     ) -> EventRestrictionService {
-        let service =
-            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
+        restriction_service_for_pipeline(Pipeline::Analytics, token, restrictions).await
+    }
+
+    async fn restriction_service_for_pipeline(
+        pipeline: Pipeline,
+        token: &str,
+        restrictions: Vec<Restriction>,
+    ) -> EventRestrictionService {
+        let pipelines = Pipeline::for_capture_mode(crate::config::CaptureMode::Events);
+        let service = EventRestrictionService::new(pipelines, StdDuration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.insert_restrictions(Pipeline::Analytics, token, restrictions);
+        manager.insert_restrictions(pipeline, token, restrictions);
         service.update(manager).await;
         service
     }
@@ -1071,14 +1712,16 @@ mod tests {
         assert_eq!(destination_for_event_name(event_name), expected);
     }
 
-    // --- restrictions bypass non-analytics events ---
+    // --- restrictions bypass pipeline-less events ---
+    // Events whose name maps to DataType::pipeline() == None (heatmaps,
+    // ingestion warnings) pass through unrestricted regardless of what
+    // restrictions are configured.
 
     #[rstest::rstest]
-    #[case("$exception", Destination::ExceptionErrorTracking)]
     #[case("$$heatmap", Destination::HeatmapMain)]
     #[case("$$client_ingestion_warning", Destination::ClientIngestionWarning)]
     #[tokio::test]
-    async fn restrictions_skip_non_analytics_events(
+    async fn restrictions_skip_pipeline_less_events(
         #[case] event_name: &str,
         #[case] expected_dest: Destination,
     ) {
@@ -1099,13 +1742,14 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        // Non-analytics events are untouched by restrictions
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, expected_dest);
     }
 
+    // --- pipeline isolation: analytics drop doesn't cross into errortracking ---
+
     #[tokio::test]
-    async fn restrictions_still_apply_to_analytics_events() {
+    async fn restrictions_analytics_drop_does_not_cross_into_errortracking() {
         let service = restriction_service(
             "phc_token",
             vec![Restriction {
@@ -1120,18 +1764,184 @@ mod tests {
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$exception", "user-2"),
         ];
-        // Simulate what validate_events does
         events[1].destination = Destination::ExceptionErrorTracking;
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        // Analytics event gets dropped by restriction
+        // Analytics event gets dropped by analytics-pipeline restriction
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].destination, Destination::Drop);
-        // Non-analytics event bypasses restriction
+        // Exception event is untouched — it's on the ErrorTracking pipeline,
+        // which has no restrictions configured here.
         assert_eq!(events[1].result, EventResult::Ok);
         assert_eq!(events[1].destination, Destination::ExceptionErrorTracking);
+    }
+
+    // --- errortracking pipeline restrictions ---
+    // Mirrors v0's test_process_events_errortracking_drop_only_affects_exceptions
+    // and _analytics_drop_does_not_cross_into_errortracking.
+
+    #[tokio::test]
+    async fn restrictions_errortracking_drop_only_affects_exceptions() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![
+            wrapped_event("$exception", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(
+            events[0].result,
+            EventResult::Drop,
+            "exception should be dropped"
+        );
+        assert_eq!(events[0].destination, Destination::Drop);
+        assert_eq!(events[1].result, EventResult::Ok, "pageview should be kept");
+        assert_eq!(events[1].destination, Destination::AnalyticsMain);
+    }
+
+    #[tokio::test]
+    async fn restrictions_exception_force_overflow_ignored() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::ForceOverflow,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$exception", "user-1")];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(
+            events[0].destination,
+            Destination::ExceptionErrorTracking,
+            "ForceOverflow is gated to AnalyticsMain; exception stays on its own lane"
+        );
+    }
+
+    #[tokio::test]
+    async fn restrictions_exception_skip_person_processing() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::SkipPersonProcessing,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$exception", "user-1")];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].destination, Destination::ExceptionErrorTracking);
+        assert!(events[0].force_disable_person_processing);
+    }
+
+    #[tokio::test]
+    async fn restrictions_exception_redirect_to_dlq() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::RedirectToDlq,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$exception", "user-1")];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].destination, Destination::Dlq);
+    }
+
+    #[tokio::test]
+    async fn restrictions_exception_redirect_to_custom_topic() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::RedirectToTopic,
+                scope: RestrictionScope::AllEvents,
+                args: Some(serde_json::json!({"topic": "custom_exceptions"})),
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$exception", "user-1")];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(
+            events[0].destination,
+            Destination::Custom("custom_exceptions".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn restrictions_exception_dlq_wins_over_custom_topic() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![
+                Restriction {
+                    restriction_type: RestrictionType::RedirectToTopic,
+                    scope: RestrictionScope::AllEvents,
+                    args: Some(serde_json::json!({"topic": "custom_exceptions"})),
+                },
+                Restriction {
+                    restriction_type: RestrictionType::RedirectToDlq,
+                    scope: RestrictionScope::AllEvents,
+                    args: None,
+                },
+            ],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$exception", "user-1")];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].destination, Destination::Dlq);
     }
 
     // --- apply_token_distinct_id_limits ---
@@ -1195,7 +2005,7 @@ mod tests {
         GlobalRateLimiter::new_with(MockLimiter::new(keys))
     }
 
-    fn td_context() -> Context {
+    fn td_context() -> RequestContext {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_tok".to_string();
         ctx
@@ -1235,8 +2045,9 @@ mod tests {
         assert_eq!(ok_ev.destination, Destination::AnalyticsMain);
         assert!(ok_ev.details.is_none());
         let limited_ev = find_by_did(&events, "user-2");
-        assert_eq!(limited_ev.result, EventResult::Limited);
-        assert_eq!(limited_ev.destination, Destination::AnalyticsMain);
+        assert_eq!(limited_ev.result, EventResult::Warning);
+        // AnalyticsMain event over the limit is rerouted to overflow.
+        assert_eq!(limited_ev.destination, Destination::Overflow);
         assert!(limited_ev.force_disable_person_processing);
         assert_eq!(limited_ev.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
@@ -1268,11 +2079,11 @@ mod tests {
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
         for ev in &events {
-            assert_eq!(ev.result, EventResult::Limited, "should be Limited");
+            assert_eq!(ev.result, EventResult::Warning, "should be Warning");
             assert_eq!(
                 ev.destination,
-                Destination::AnalyticsMain,
-                "should stay on main topic"
+                Destination::Overflow,
+                "should be rerouted to overflow"
             );
             assert!(
                 ev.force_disable_person_processing,
@@ -1304,12 +2115,63 @@ mod tests {
         let dropped = find_by_did(&events, "user-1");
         assert_eq!(dropped.result, EventResult::Drop);
         assert_eq!(dropped.destination, Destination::Drop);
-        // Other event rate-limited (person processing disabled, stays on main topic)
+        // Other event rate-limited (person processing disabled, rerouted to overflow)
         let limited = find_by_did(&events, "user-2");
-        assert_eq!(limited.result, EventResult::Limited);
-        assert_eq!(limited.destination, Destination::AnalyticsMain);
+        assert_eq!(limited.result, EventResult::Warning);
+        assert_eq!(limited.destination, Destination::Overflow);
         assert!(limited.force_disable_person_processing);
         assert_eq!(limited.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
+    }
+
+    #[tokio::test]
+    async fn td_limits_skips_events_already_flagged_force_disable_pp() {
+        let limiter = mock_limiter(vec!["phc_tok:user-1"]);
+        let ctx = td_context();
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+        ];
+        // Simulate illegal distinct_id flagging from validate_events
+        events[0].force_disable_person_processing = true;
+        events[0].details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
+
+        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+
+        // Already-flagged event not re-evaluated: result stays Ok, details unchanged
+        let flagged = find_by_did(&events, "user-1");
+        assert_eq!(flagged.result, EventResult::Ok);
+        assert!(flagged.force_disable_person_processing);
+        assert_eq!(flagged.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
+        // Unflagged event passes (not in limiter's limited keys)
+        let normal = find_by_did(&events, "user-2");
+        assert_eq!(normal.result, EventResult::Ok);
+        assert!(!normal.force_disable_person_processing);
+        assert!(normal.details.is_none());
+    }
+
+    #[tokio::test]
+    async fn td_limits_historical_event_not_rerouted_to_overflow() {
+        // Invariant: AnalyticsHistorical must never be rerouted to Overflow.
+        // A globally rate-limited historical event still gets person processing
+        // disabled, but stays on the historical lane (matches the legacy sink,
+        // where the AnalyticsHistorical arm never overflows).
+        let limiter = mock_limiter(vec!["phc_tok:user-1"]);
+        let ctx = td_context();
+        let mut events =
+            vec![wrapped_event("$pageview", "user-1")
+                .with_destination(Destination::AnalyticsHistorical)];
+
+        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+
+        let ev = find_by_did(&events, "user-1");
+        assert_eq!(ev.result, EventResult::Warning);
+        assert_eq!(
+            ev.destination,
+            Destination::AnalyticsHistorical,
+            "historical events must not be rerouted to overflow"
+        );
+        assert!(ev.force_disable_person_processing);
+        assert_eq!(ev.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
     // --- apply_historical_rerouting ---
@@ -1600,14 +2462,19 @@ mod tests {
             ],
         );
         assert!(!events[0].force_disable_person_processing);
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
         assert!(events[1].force_disable_person_processing);
-        assert_eq!(events[1].result, EventResult::Limited);
+        assert_eq!(events[1].result, EventResult::Warning);
+        assert_eq!(events[1].destination, Destination::Overflow);
         assert_eq!(events[1].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[2].force_disable_person_processing);
+        assert_eq!(events[2].destination, Destination::AnalyticsMain);
         assert!(events[3].force_disable_person_processing);
-        assert_eq!(events[3].result, EventResult::Limited);
+        assert_eq!(events[3].result, EventResult::Warning);
+        assert_eq!(events[3].destination, Destination::Overflow);
         assert_eq!(events[3].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[4].force_disable_person_processing);
+        assert_eq!(events[4].destination, Destination::AnalyticsMain);
     }
 
     #[tokio::test]
@@ -1657,5 +2524,905 @@ mod tests {
             expected,
             "order changed after apply_token_distinct_id_limits",
         );
+    }
+
+    // --- apply_overflow_stamping ---
+
+    fn overflow_limiter(per_second: u32, burst: u32, force_keys: Option<&str>) -> OverflowLimiter {
+        use std::num::NonZeroU32;
+        OverflowLimiter::new(
+            NonZeroU32::new(per_second).unwrap(),
+            NonZeroU32::new(burst).unwrap(),
+            force_keys.map(String::from),
+            false,
+        )
+    }
+
+    fn overflow_limiter_preserving(per_second: u32, burst: u32) -> OverflowLimiter {
+        use std::num::NonZeroU32;
+        OverflowLimiter::new(
+            NonZeroU32::new(per_second).unwrap(),
+            NonZeroU32::new(burst).unwrap(),
+            None,
+            true,
+        )
+    }
+
+    #[test]
+    fn overflow_not_limited() {
+        let ctx = test_utils::test_context();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let limiter = overflow_limiter(100, 100, None);
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert!(!events[0].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_force_limited_by_full_key() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let limiter = overflow_limiter(100, 100, Some("phc_tok:user-1"));
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::Overflow);
+        assert!(events[0].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_force_limited_by_token_only() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let limiter = overflow_limiter(100, 100, Some("phc_tok"));
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::Overflow);
+        assert!(events[0].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_rate_limited_disables_person_processing() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        // burst=1 means only 1 event allowed, the second will be limited
+        let limiter = overflow_limiter(1, 1, None);
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-1"),
+        ];
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert!(!events[0].force_disable_person_processing);
+        assert_eq!(events[1].destination, Destination::Overflow);
+        assert!(events[1].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_rate_limited_preserves_locality_when_configured() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let limiter = overflow_limiter_preserving(1, 1);
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-1"),
+        ];
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[1].destination, Destination::Overflow);
+        assert!(
+            !events[1].force_disable_person_processing,
+            "preserve_locality=true means person processing stays enabled"
+        );
+    }
+
+    #[test]
+    fn overflow_skips_non_analytics_main() {
+        let ctx = test_utils::test_context();
+        let limiter = overflow_limiter(100, 100, Some("phc_test_token:user-1"));
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].destination = Destination::AnalyticsHistorical;
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(
+            events[0].destination,
+            Destination::AnalyticsHistorical,
+            "non-AnalyticsMain events are not overflow-checked"
+        );
+    }
+
+    #[test]
+    fn overflow_skips_dropped_events() {
+        let ctx = test_utils::test_context();
+        let limiter = overflow_limiter(100, 100, Some("phc_test_token:user-1"));
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].result = EventResult::Drop;
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+    }
+    // =========================================================================
+    // apply_gateway_provenance tests — the verify→billing wiring
+    // =========================================================================
+
+    use crate::v1::gateway_provenance::{sign_for_test, GatewaySignature};
+    use crate::v1::test_utils::TestStateBuilder;
+
+    const GW_SECRET: &str = "test-signing-secret";
+
+    /// Analytics context with `now` as the capture time, an api_token, and an
+    /// optional gateway signature — the inputs `apply_gateway_provenance` reads.
+    fn gateway_context(token: &str, now: DateTime<Utc>, sig: Option<GatewaySignature>) -> Context {
+        let mut ctx = test_utils::test_analytics_context();
+        ctx.req.api_token = token.to_string();
+        ctx.req.server_received_at = now;
+        ctx.req.gateway_signature = sig;
+        ctx
+    }
+
+    fn ai_event(distinct_id: &str, properties: &str) -> WrappedEvent {
+        wrapped_event("$ai_generation", distinct_id).with_properties(properties)
+    }
+
+    #[tokio::test]
+    async fn gateway_provenance_leaves_non_ai_events_untouched() {
+        let token = "phc_test_token";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        let signed_at = now.to_rfc3339();
+        let sig = GatewaySignature {
+            signature: sign_for_test(GW_SECRET.as_bytes(), token, "user-1", "req-1", &signed_at),
+            signed_at,
+            request_id: "req-1".to_string(),
+        };
+        let ctx = gateway_context(token, now, Some(sig));
+
+        // A valid signature is present, but a non-$ai_ event must be skipped: its
+        // client `$ai_gateway*` props are neither stamped nor stripped.
+        let mut events =
+            vec![wrapped_event("$pageview", "user-1").with_properties(r#"{"$ai_gateway": true}"#)];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert!(!events[0].is_gateway_verified);
+        assert!(events[0].event.properties.get().contains("$ai_gateway"));
+    }
+
+    #[tokio::test]
+    async fn gateway_provenance_verifies_and_stamps_a_valid_signature() {
+        let token = "phc_test_token";
+        let distinct_id = "user-1";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        let signed_at = now.to_rfc3339();
+        let sig = GatewaySignature {
+            signature: sign_for_test(
+                GW_SECRET.as_bytes(),
+                token,
+                distinct_id,
+                "req-1",
+                &signed_at,
+            ),
+            signed_at,
+            request_id: "req-1".to_string(),
+        };
+        let ctx = gateway_context(token, now, Some(sig));
+
+        // Client supplies its own request_id — the signed one must win.
+        let mut events = vec![ai_event(
+            distinct_id,
+            r#"{"$ai_model": "claude", "$ai_gateway_request_id": "client-fake"}"#,
+        )];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert!(events[0].is_gateway_verified);
+        let props: serde_json::Value =
+            serde_json::from_str(events[0].event.properties.get()).unwrap();
+        assert_eq!(props["$ai_gateway_verified"], serde_json::Value::Bool(true));
+        assert_eq!(
+            props["$ai_gateway_request_id"],
+            serde_json::Value::String("req-1".to_string()),
+            "the signed request_id must overwrite the client value"
+        );
+    }
+
+    #[tokio::test]
+    async fn gateway_provenance_strips_forged_props_and_does_not_verify() {
+        let token = "phc_test_token";
+        let distinct_id = "user-1";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        // No signature on the request: a client-set `$ai_gateway_verified` must be
+        // stripped and the event must not be marked verified.
+        let ctx = gateway_context(token, now, None);
+
+        let mut events = vec![ai_event(
+            distinct_id,
+            r#"{"$ai_gateway_verified": true, "$ai_gateway": "forged", "$ai_model": "claude"}"#,
+        )];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert!(!events[0].is_gateway_verified);
+        let raw = events[0].event.properties.get();
+        assert!(
+            !raw.contains("$ai_gateway"),
+            "gateway props must be stripped"
+        );
+        assert!(raw.contains("$ai_model"), "non-gateway props must survive");
+    }
+
+    /// The signature binds `distinct_id`, so in a batch where it's signed for only
+    /// one event, only that event is verified — the other's forged marker is
+    /// stripped, even sharing one request-level signature.
+    #[tokio::test]
+    async fn gateway_provenance_verifies_only_the_signed_distinct_id_in_a_batch() {
+        let token = "phc_test_token";
+        let signed_id = "user-signed";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        let signed_at = now.to_rfc3339();
+        let sig = GatewaySignature {
+            signature: sign_for_test(GW_SECRET.as_bytes(), token, signed_id, "req-1", &signed_at),
+            signed_at,
+            request_id: "req-1".to_string(),
+        };
+        let ctx = gateway_context(token, now, Some(sig));
+
+        let mut events = vec![
+            ai_event(signed_id, r#"{"$ai_model": "claude"}"#),
+            // Different distinct_id, riding the same request signature, with a
+            // forged marker — must not verify against a sig bound to `signed_id`.
+            ai_event(
+                "user-other",
+                r#"{"$ai_gateway_verified": true, "$ai_model": "gpt"}"#,
+            ),
+        ];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert!(events[0].is_gateway_verified, "signed distinct_id verifies");
+        assert!(
+            !events[1].is_gateway_verified,
+            "unsigned distinct_id must not verify"
+        );
+        assert!(
+            !events[1].event.properties.get().contains("$ai_gateway"),
+            "the other event's forged marker must be stripped"
+        );
+    }
+
+    /// Fail closed: an unverified event whose props carry a forged marker but can't
+    /// be parsed to strip it (RawValue accepts an out-of-range number serde rejects)
+    /// is dropped, so the marker can't reach billing via ClickHouse's lenient reader.
+    #[tokio::test]
+    async fn gateway_provenance_drops_event_with_unparseable_forged_props() {
+        let token = "phc_test_token";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        let ctx = gateway_context(token, now, None);
+
+        let mut events = vec![ai_event(
+            "user-1",
+            r#"{"$ai_gateway_verified": true, "x": 1e500}"#,
+        )];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("gateway_props_unparseable"));
+        assert!(!events[0].is_gateway_verified);
+    }
+
+    /// Fail closed on the verified path too: a valid signature can't excuse props we
+    /// can't parse to stamp, since a forged marker hidden in them would survive.
+    #[tokio::test]
+    async fn gateway_provenance_drops_verified_event_with_unparseable_props() {
+        let token = "phc_test_token";
+        let distinct_id = "user-1";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        let signed_at = now.to_rfc3339();
+        let sig = GatewaySignature {
+            signature: sign_for_test(
+                GW_SECRET.as_bytes(),
+                token,
+                distinct_id,
+                "req-1",
+                &signed_at,
+            ),
+            signed_at,
+            request_id: "req-1".to_string(),
+        };
+        let ctx = gateway_context(token, now, Some(sig));
+
+        let mut events = vec![ai_event(distinct_id, r#"{"$ai_model": "x", "y": 1e500}"#)];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("gateway_props_unparseable"));
+        assert!(!events[0].is_gateway_verified);
+    }
+
+    /// process_batch wiring: a valid signature is verified ahead of the limiter
+    /// and the trusted marker survives serialization into the published payload.
+    #[tokio::test]
+    async fn process_batch_stamps_verified_gateway_event_into_published_payload() {
+        let token = "phc_test_token";
+        let distinct_id = "user-1";
+        let now = Utc::now();
+        let ts = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build();
+        let signed_at = now.to_rfc3339();
+        let sig = GatewaySignature {
+            signature: sign_for_test(
+                GW_SECRET.as_bytes(),
+                token,
+                distinct_id,
+                "req-1",
+                &signed_at,
+            ),
+            signed_at,
+            request_id: "req-1".to_string(),
+        };
+        let mut ctx = gateway_context(token, now, Some(sig));
+        let batch = valid_batch(vec![Event {
+            event: "$ai_generation".to_string(),
+            distinct_id: distinct_id.to_string(),
+            properties: test_utils::raw_obj(r#"{"$ai_model":"claude"}"#),
+            ..valid_event()
+        }]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        ts.mock_producer.with_records(|records| {
+            assert_eq!(records.len(), 1, "the verified event must be published");
+            assert!(
+                records[0].payload.contains("$ai_gateway_verified"),
+                "verified marker must reach the published payload"
+            );
+        });
+    }
+
+    /// process_batch wiring: a client-set marker with no signature is stripped
+    /// before the event is serialized, so it never reaches the meter as trusted.
+    #[tokio::test]
+    async fn process_batch_strips_forged_gateway_marker_from_published_payload() {
+        let token = "phc_test_token";
+        let now = Utc::now();
+        let ts = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build();
+        let mut ctx = gateway_context(token, now, None);
+        let batch = valid_batch(vec![Event {
+            event: "$ai_generation".to_string(),
+            distinct_id: "user-1".to_string(),
+            properties: test_utils::raw_obj(
+                r#"{"$ai_gateway_verified":true,"$ai_model":"claude"}"#,
+            ),
+            ..valid_event()
+        }]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        ts.mock_producer.with_records(|records| {
+            assert_eq!(
+                records.len(),
+                1,
+                "the event is still published, just untrusted"
+            );
+            assert!(
+                !records[0].payload.contains("$ai_gateway"),
+                "forged marker must be stripped before publish"
+            );
+            assert!(records[0].payload.contains("$ai_model"));
+        });
+    }
+
+    // =========================================================================
+    // merge_sink_results tests
+    // =========================================================================
+
+    use crate::v1::test_utils::MockSinkResult;
+
+    fn mock_result(uuid: Uuid, outcome: &str, cause: &'static str) -> Box<dyn SinkResult> {
+        match outcome {
+            "success" => MockSinkResult::success(uuid),
+            "retriable" => MockSinkResult::retriable(uuid, cause),
+            "timeout" => MockSinkResult::timeout(uuid),
+            "fatal" => MockSinkResult::fatal(uuid, cause),
+            "fatal_no_cause" => MockSinkResult::fatal_no_cause(uuid),
+            _ => panic!("unknown outcome: {outcome}"),
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::success("success", "", EventResult::Ok, None)]
+    #[case::retriable("retriable", "queue_full", EventResult::Retry, Some("not_persisted"))]
+    #[case::timeout("timeout", "", EventResult::Retry, Some("not_persisted"))]
+    #[case::fatal_serialization(
+        "fatal",
+        "serialization_failed",
+        EventResult::Drop,
+        Some("serialization_failed")
+    )]
+    #[case::fatal_event_too_big("fatal", "event_too_big", EventResult::Drop, Some("event_too_big"))]
+    #[case::fatal_generic("fatal", "rdkafka_other", EventResult::Drop, Some("rejected"))]
+    #[case::fatal_no_cause("fatal_no_cause", "", EventResult::Drop, Some("rejected"))]
+    fn merge_single_outcome(
+        #[case] outcome: &str,
+        #[case] cause: &'static str,
+        #[case] expected_result: EventResult,
+        #[case] expected_details: Option<&'static str>,
+    ) {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let results: Vec<Box<dyn SinkResult>> = vec![mock_result(events[0].uuid, outcome, cause)];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(
+            events[0].result, expected_result,
+            "result for {outcome}:{cause}"
+        );
+        assert_eq!(
+            events[0].details, expected_details,
+            "details for {outcome}:{cause}"
+        );
+    }
+
+    #[test]
+    fn merge_preserves_warning_result_on_success() {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].result = EventResult::Warning;
+        events[0].details = Some("person_processing_disabled");
+
+        let results: Vec<Box<dyn SinkResult>> = vec![MockSinkResult::success(events[0].uuid)];
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Warning);
+        assert_eq!(events[0].details, Some("person_processing_disabled"));
+    }
+
+    #[test]
+    fn merge_skips_events_not_published() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+        events[0].result = EventResult::Drop;
+        events[0].details = Some("billing_limit_exceeded");
+        events[0].destination = Destination::Drop;
+
+        // Only one sink result (for the published event)
+        let results: Vec<Box<dyn SinkResult>> = vec![MockSinkResult::success(events[1].uuid)];
+
+        merge_sink_results(&mut events, &results);
+
+        // Dropped event unchanged
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("billing_limit_exceeded"));
+        // Published event left alone
+        assert_eq!(events[1].result, EventResult::Ok);
+        assert!(events[1].details.is_none());
+    }
+
+    #[test]
+    fn merge_mixed_outcomes() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+            wrapped_event("custom", "user-3"),
+        ];
+
+        let results: Vec<Box<dyn SinkResult>> = vec![
+            MockSinkResult::success(events[0].uuid),
+            MockSinkResult::retriable(events[1].uuid, "queue_full"),
+            MockSinkResult::fatal(events[2].uuid, "serialization_error"),
+        ];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(events[0].details.is_none());
+        assert_eq!(events[1].result, EventResult::Retry);
+        assert_eq!(events[1].details, Some("not_persisted"));
+        assert_eq!(events[2].result, EventResult::Drop);
+        assert_eq!(events[2].details, Some("rejected"));
+    }
+
+    #[test]
+    fn merge_uuid_correlation_no_crosstalk() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+
+        // Deliberately swap: result for event[1] is retriable, event[0] is success
+        let results: Vec<Box<dyn SinkResult>> = vec![
+            MockSinkResult::retriable(events[1].uuid, "queue_full"),
+            MockSinkResult::success(events[0].uuid),
+        ];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(events[0].details.is_none());
+        assert_eq!(events[1].result, EventResult::Retry);
+        assert_eq!(events[1].details, Some("not_persisted"));
+    }
+
+    #[test]
+    fn merge_empty_sink_results_leaves_all_intact() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+        // All events published but no sink results (edge case - shouldn't
+        // happen in practice but should be safe)
+        let results: Vec<Box<dyn SinkResult>> = vec![];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[1].result, EventResult::Ok);
+    }
+
+    #[test]
+    fn merge_pre_drop_not_mutated_even_if_result_present() {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].result = EventResult::Drop;
+        events[0].details = Some("missing_event_name");
+
+        // Should be unreachable in practice (dropped events aren't published
+        // so they won't have a SinkResult), but even if a result exists for
+        // this UUID, the event shouldn't be touched because should_publish is false
+        let results: Vec<Box<dyn SinkResult>> =
+            vec![MockSinkResult::retriable(events[0].uuid, "queue_full")];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("missing_event_name"));
+    }
+
+    #[tokio::test]
+    async fn process_batch_returns_service_unavailable_when_no_sink_router() {
+        let test_state = crate::v1::test_utils::TestStateBuilder::new().build();
+        let mut state = test_state.state;
+        state.v1_sink_router = None;
+
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![valid_event()]);
+
+        let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
+        assert!(
+            matches!(err, Error::ServiceUnavailable(_)),
+            "expected ServiceUnavailable, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn process_batch_all_validation_dropped_returns_200_not_402() {
+        let test_state = crate::v1::test_utils::TestStateBuilder::new().build();
+        let state = test_state.state;
+
+        let mut ctx = test_utils::test_analytics_context();
+        // Every event is invalid — empty name, empty distinct_id, bad timestamp.
+        let batch = valid_batch(vec![
+            Event {
+                event: String::new(),
+                ..valid_event()
+            },
+            Event {
+                distinct_id: String::new(),
+                ..valid_event()
+            },
+            Event {
+                timestamp: "not-a-date".to_string(),
+                ..valid_event()
+            },
+        ]);
+
+        let resp = process_batch(&state, &mut ctx, batch).await.unwrap();
+        assert_eq!(resp.entries().len(), 3);
+        for (_, entry) in resp.entries() {
+            assert_eq!(
+                entry.result,
+                EventResult::Drop,
+                "all-invalid batch must return 200 with per-event drops, not 402"
+            );
+        }
+    }
+
+    // =========================================================================
+    // Integration-style tests: publish → merge → response flow
+    // =========================================================================
+    // These tests exercise the same code path as the wired process_batch, but
+    // call the sink router directly rather than constructing a full State.
+
+    use std::collections::HashMap as StdHashMap;
+    use std::sync::Arc;
+
+    use crate::config::CaptureMode;
+    use crate::v1::sinks::kafka::mock::MockProducer;
+    use crate::v1::sinks::kafka::sink::KafkaSink;
+    use crate::v1::sinks::router::Router as SinkRouter;
+    use crate::v1::sinks::sink::Sink;
+    use crate::v1::sinks::{Config as SinkConfig, SinkName};
+
+    use super::BatchResponse;
+    use crate::v1::test_utils::{
+        batch_payload, event_with_all_options, event_with_empty_options, WrappedEventMut,
+    };
+
+    fn test_sink_router() -> (SinkRouter, lifecycle::Handle, lifecycle::MonitorGuard) {
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        let handle = manager.register("process_integ", lifecycle::ComponentOptions::new());
+        handle.report_healthy();
+        let monitor = manager.monitor_background();
+
+        let producer = Arc::new(MockProducer::new(SinkName::Msk, handle.clone()));
+        let config = SinkConfig {
+            produce_timeout: StdDuration::from_secs(30),
+            kafka: test_utils::test_kafka_config(),
+        };
+        let sink: Box<dyn Sink> = Box::new(KafkaSink::new(
+            SinkName::Msk,
+            producer,
+            config,
+            CaptureMode::Events,
+            handle.clone(),
+        ));
+        let sinks: StdHashMap<SinkName, Box<dyn Sink>> =
+            [(SinkName::Msk, sink)].into_iter().collect();
+        let router = SinkRouter::new(SinkName::Msk, sinks);
+        (router, handle, monitor)
+    }
+
+    #[tokio::test]
+    async fn integration_happy_path_all_ok() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+            wrapped_event("button_clicked", "user-3"),
+        ];
+
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
+            .await
+            .unwrap();
+
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries().len(), 3);
+        for (_, status) in resp.entries() {
+            assert_eq!(status.result, EventResult::Ok);
+            assert!(status.details.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn integration_mixed_pre_drop_and_publish() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2")
+                .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
+            wrapped_event("$pageview", "user-3")
+                .with_result(EventResult::Warning, Some("person_processing_disabled")),
+        ];
+
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
+
+        assert_eq!(serialized.prepared.len(), 2); // only Ok + Warning are published
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
+            .await
+            .unwrap();
+
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries().len(), 3);
+        assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
+        assert_eq!(resp.entries()[1].1.result, EventResult::Drop);
+        assert_eq!(resp.entries()[1].1.details, Some("billing_limit_exceeded"));
+        assert_eq!(resp.entries()[2].1.result, EventResult::Warning);
+        assert_eq!(
+            resp.entries()[2].1.details,
+            Some("person_processing_disabled")
+        );
+    }
+
+    #[tokio::test]
+    async fn integration_all_events_pre_dropped_empty_publish() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let events = vec![
+            wrapped_event("$pageview", "user-1")
+                .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
+            wrapped_event("$pageview", "user-2")
+                .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
+        ];
+
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
+
+        assert!(serialized.prepared.is_empty());
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
+            .await
+            .unwrap();
+
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries().len(), 2);
+        assert_eq!(resp.entries()[0].1.result, EventResult::Drop);
+        assert_eq!(resp.entries()[1].1.result, EventResult::Drop);
+    }
+
+    #[tokio::test]
+    async fn integration_overflow_destination_published_ok() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let events =
+            vec![wrapped_event("$pageview", "user-1").with_destination(Destination::Overflow)];
+
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
+            .await
+            .unwrap();
+
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
+    }
+
+    #[test]
+    fn integration_payload_round_trip_empty_options() {
+        let events = vec![event_with_empty_options()];
+        let payload = batch_payload(&events);
+        let batch: Batch = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(batch.batch.len(), 1);
+        let opts = batch.batch[0].options.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, None);
+        assert_eq!(opts.disable_skew_correction, None);
+        assert_eq!(opts.product_tour_id, None);
+        assert_eq!(opts.process_person_profile, None);
+    }
+
+    #[test]
+    fn integration_payload_round_trip_all_options() {
+        let events = vec![event_with_all_options()];
+        let payload = batch_payload(&events);
+        let batch: Batch = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(batch.batch.len(), 1);
+        let opts = batch.batch[0].options.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, Some(true));
+        assert_eq!(opts.disable_skew_correction, Some(true));
+        assert_eq!(opts.product_tour_id.as_deref(), Some("tour-v2"));
+        assert_eq!(opts.process_person_profile, Some(false));
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_gzip() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "gzip");
+        assert!(compressed.len() < raw.len());
+        // Decompress and verify
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(decompressed, raw);
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_zstd() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "zstd");
+        assert!(compressed.len() < raw.len());
+        let decompressed = zstd::decode_all(std::io::Cursor::new(&compressed)).unwrap();
+        assert_eq!(decompressed, raw);
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_deflate() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "deflate");
+        assert!(compressed.len() < raw.len());
+        use flate2::read::DeflateDecoder;
+        use std::io::Read;
+        let mut decoder = DeflateDecoder::new(compressed.as_slice());
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(decompressed, raw);
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_brotli() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "br");
+        assert!(!compressed.is_empty());
+        let mut decompressed = Vec::new();
+        brotli::BrotliDecompress(&mut std::io::Cursor::new(&compressed), &mut decompressed)
+            .unwrap();
+        assert_eq!(decompressed, raw);
     }
 }

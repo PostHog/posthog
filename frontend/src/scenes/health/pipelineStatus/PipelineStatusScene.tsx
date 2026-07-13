@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconBell, IconRefresh } from '@posthog/icons'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -38,15 +40,31 @@ export function PipelineStatusScene(): JSX.Element {
                     type: 'pipeline_status',
                 }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconRefresh className="size-4" />}
-                        disabledReason={healthIssuesLoading ? 'Refreshing...' : undefined}
-                        onClick={() => loadHealthIssues()}
-                    >
-                        {healthIssuesLoading ? 'Refreshing...' : 'Refresh'}
-                    </LemonButton>
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconBell className="size-4" />}
+                            to={urls.healthAlerts(['external_data_failure', 'materialized_view_failure'])}
+                            onClick={() => {
+                                posthog.capture('health_alerts_entry_point_clicked', {
+                                    source: 'pipeline_status',
+                                })
+                            }}
+                            tooltip="Subscribe to alerts when a pipeline fails"
+                        >
+                            Alerts
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconRefresh className="size-4" />}
+                            disabledReason={healthIssuesLoading ? 'Refreshing...' : undefined}
+                            onClick={() => loadHealthIssues()}
+                        >
+                            {healthIssuesLoading ? 'Refreshing...' : 'Refresh'}
+                        </LemonButton>
+                    </>
                 }
             />
 

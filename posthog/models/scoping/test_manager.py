@@ -1,10 +1,11 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.scoping import team_scope, unscoped
 from posthog.models.scoping.manager import TeamScopedManager, TeamScopeError
 from posthog.models.team import Team
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestTeamScopedManager(BaseTest):

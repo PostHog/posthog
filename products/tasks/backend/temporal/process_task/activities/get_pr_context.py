@@ -10,8 +10,8 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 
+from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.temporal.exceptions import TaskInvalidStateError
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities import TaskProcessingContext
 

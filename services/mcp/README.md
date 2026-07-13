@@ -233,7 +233,7 @@ Available features:
 | `hog_functions`          | [CDP function management](https://posthog.com/docs/cdp)                                                   |
 | `hog_function_templates` | CDP function template browsing                                                                            |
 | `insights`               | [Analytics insights](https://posthog.com/docs/product-analytics/insights)                                 |
-| `llm_analytics`          | [LLM analytics evaluations](https://posthog.com/docs/ai-engineering)                                      |
+| `llm_analytics`          | [AI observability evaluations](https://posthog.com/docs/ai-engineering)                                   |
 | `prompts`                | [LLM prompt management](https://posthog.com/docs/ai-engineering)                                          |
 | `logs`                   | [Log querying](https://posthog.com/docs/ai-engineering/observability)                                     |
 | `notebooks`              | [Notebook management](https://posthog.com/docs/notebooks)                                                 |
@@ -327,7 +327,7 @@ Alongside the Cloudflare Workers entry point, the same MCP code runs on Node via
 pnpm run dev:hono
 ```
 
-Defaults to port **3030**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects a local Redis on port `6379` (used in place of Durable Objects for session state) for local development; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint. Same routes as the CF server — point your client at `http://localhost:3030/mcp`.
+Defaults to port **8787**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects a local Redis on port `6379` (used in place of Durable Objects for session state) for local development; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint. Same routes as the CF server — point your client at `http://localhost:8787/mcp`.
 
 `bin/start-mcp-server` runs the Wrangler/CF version by default; set `MCP_RUNTIME=hono` to start the Hono runtime instead.
 
@@ -416,6 +416,6 @@ Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Code 
 
 ### Data handling
 
-The MCP server acts as a proxy to your PostHog instance. It does not store your analytics data - all queries are executed against your PostHog project and results are returned directly to your AI client. Session state (active project/organization) is cached temporarily using Cloudflare Durable Objects tied to your API key hash.
+The MCP server acts as a proxy to your PostHog instance. It does not store your analytics data - all queries are executed against your PostHog project and results are returned directly to your AI client. Session state (active project/organization) is cached temporarily, keyed by your API key hash.
 
 For EU users, use the `mcp-eu.posthog.com` endpoint to ensure OAuth flows route to the EU PostHog instance.

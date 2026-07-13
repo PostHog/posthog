@@ -1,0 +1,45 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "conclusion": {
+            "anyOf": [
+                {
+                    "description": "* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+                    "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid"
+        },
+        "conclusion_comment": {
+            "anyOf": [
+                {
+                    "maxLength": 4000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional comment about the experiment conclusion."
+        },
+        "id": {
+            "description": "A unique integer value identifying this experiment.",
+            "type": "number"
+        },
+        "release_to_everyone": {
+            "default": false,
+            "description": "If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them.",
+            "type": "boolean"
+        },
+        "variant_key": {
+            "description": "The key of the variant to ship.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "variant_key"],
+    "type": "object"
+}

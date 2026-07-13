@@ -1,12 +1,10 @@
-# ruff: noqa: T201 allow print statements
-
-import sys
 import html
 import uuid
+import smtplib
 import datetime
 import dataclasses
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -20,15 +18,20 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 
 import requests
+import structlog
 import css_inline
 import posthoganalytics
 from celery import shared_task
 from lxml import html as lxml_html
+from prometheus_client import Counter
 
+from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
-from posthog.tasks.utils import CeleryQueue
+
+logger = structlog.get_logger(__name__)
 
 
 def inline_css(value: str) -> str:
@@ -88,6 +91,24 @@ EMAIL_TASK_KWARGS = {
     "retry_backoff": True,
 }
 
+# Failure rate as an alertable time series. Labelled only by outcome+transport to bound
+# cardinality (per-team volume lives in MessagingRecord); scraped via prometheus multiprocess.
+EMAIL_SEND_COUNTER = Counter(
+    "posthog_email_send_total",
+    "Email send attempts by outcome (sent|failed) and transport (smtp|http).",
+    labelnames=["outcome", "transport"],
+)
+
+# Retryable connection/network errors only. NOT bare OSError: every smtplib exception subclasses
+# it, so OSError would also retry auth/recipient failures and re-hammer the relay's per-IP limit.
+_TRANSIENT_SMTP_ERRORS = (
+    smtplib.SMTPServerDisconnected,
+    smtplib.SMTPConnectError,
+    smtplib.SMTPHeloError,
+    TimeoutError,  # socket timeouts
+    ConnectionError,  # reset / refused / aborted
+)
+
 CUSTOMER_IO_TEMPLATE_ID_MAP = {
     # Set up in customer.io
     "2fa_enabled": "31",
@@ -120,6 +141,9 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "proxy_provisioned": "64",
     "delegation_invite": "66",
     "provisioning_welcome": "67",
+    "baa_signed_ai_disabled": "68",
+    "integration_access_requested": "70",
+    "posthog_ai_access_requested": "72",
 }
 
 
@@ -150,6 +174,8 @@ def _send_via_http(
         "Authorization": f"Bearer {customerio_api_key}",
     }
 
+    sent_count = 0
+    already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
     try:
         for dest in to:
             with transaction.atomic():
@@ -159,6 +185,7 @@ def _send_via_http(
 
                 record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
                 if record.sent_at:
+                    already_sent_count += 1
                     continue
 
                 identifiers: dict[str, str] = {"email": dest["raw_email"]}
@@ -193,9 +220,14 @@ def _send_via_http(
                 record.sent_at = timezone.now()
                 record.save()
 
+                EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
+                sent_count += 1
+
     except Exception as err:
-        print("Could not send email via http:", err, file=sys.stderr)
-        capture_exception(err)
+        capture_exception(err)  # already logs the traceback via logger.exception
+        # Count every recipient that did not get through (the failing one + any not yet attempted),
+        # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(len(to) - already_sent_count - sent_count)
 
 
 def _send_via_smtp(
@@ -208,70 +240,130 @@ def _send_via_smtp(
     reply_to: Optional[str] = None,
 ) -> None:
     """Sends emails using SMTP"""
-    messages: list = []
-    records: list = []
+    connection = None
+    try:
+        klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
+        connection = klass(
+            host=get_instance_setting("EMAIL_HOST"),
+            port=get_instance_setting("EMAIL_PORT"),
+            username=get_instance_setting("EMAIL_HOST_USER"),
+            password=get_instance_setting("EMAIL_HOST_PASSWORD"),
+            use_tls=get_instance_setting("EMAIL_USE_TLS"),
+            use_ssl=get_instance_setting("EMAIL_USE_SSL"),
+            # Bound the socket so a relay that goes silent mid-conversation raises TimeoutError
+            # (retried below) instead of pinning the worker forever — the silent-hang case.
+            timeout=get_instance_setting("EMAIL_TIMEOUT"),
+        )
+        connection.open()
 
-    with transaction.atomic():
         for dest in to:
-            record, _ = MessagingRecord.objects.get_or_create(raw_email=dest["raw_email"], campaign_key=campaign_key)
+            # Per-recipient transaction so each delivery's `sent_at` commits before the next send.
+            # A transient mid-batch failure re-raises into autoretry; the `if record.sent_at` guard
+            # then skips the recipients already accepted on retry, instead of re-sending (and
+            # duplicating) the whole batch.
+            with transaction.atomic():
+                record, _ = MessagingRecord.objects.get_or_create(
+                    raw_email=dest["raw_email"], campaign_key=campaign_key
+                )
+                record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+                if record.sent_at:
+                    continue
 
-            record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
-            if record.sent_at:
-                record.save()
-                continue
+                effective_reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
+                email_message = mail.EmailMultiAlternatives(
+                    subject=subject,
+                    body=txt_body,
+                    from_email=get_instance_setting("EMAIL_DEFAULT_FROM"),
+                    to=[dest["recipient"]],
+                    headers=headers,
+                    reply_to=[effective_reply_to] if effective_reply_to else None,
+                )
+                email_message.attach_alternative(html_body, "text/html")
 
-            records.append(record)
-            reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
+                connection.send_messages([email_message])
 
-            email_message = mail.EmailMultiAlternatives(
-                subject=subject,
-                body=txt_body,
-                from_email=get_instance_setting("EMAIL_DEFAULT_FROM"),
-                to=[dest["recipient"]],
-                headers=headers,
-                reply_to=[reply_to] if reply_to else None,
-            )
-
-            email_message.attach_alternative(html_body, "text/html")
-            messages.append(email_message)
-
-        connection = None
-        try:
-            klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
-            connection = klass(
-                host=get_instance_setting("EMAIL_HOST"),
-                port=get_instance_setting("EMAIL_PORT"),
-                username=get_instance_setting("EMAIL_HOST_USER"),
-                password=get_instance_setting("EMAIL_HOST_PASSWORD"),
-                use_tls=get_instance_setting("EMAIL_USE_TLS"),
-                use_ssl=get_instance_setting("EMAIL_USE_SSL"),
-            )
-            connection.open()
-            connection.send_messages(messages)
-
-            for record in records:
                 record.sent_at = timezone.now()
                 record.save()
-
-        except Exception as err:
-            print("Could not send email:", err, file=sys.stderr)
-            capture_exception(err)
-        finally:
+                EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc()
+    except _TRANSIENT_SMTP_ERRORS as err:
+        # Re-raise so the task's autoretry (3x + backoff) retries instead of dropping the email.
+        # warning, not capture_exception: expected + auto-retried, capturing each attempt is noise.
+        logger.warning("email_send_smtp_transient_error", error=str(err))
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
+        raise
+    except smtplib.SMTPRecipientsRefused as err:
+        # Per-recipient codes live in .recipients ({addr: (code, msg)}), not a top-level smtp_code.
+        # A 4xx (greylisting) is "try again later" → retry; 5xx (bad mailbox) is permanent.
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
+        if any(400 <= code < 500 for code, _ in err.recipients.values()):
+            logger.warning("email_send_smtp_transient_error", error=str(err))
+            raise
+        capture_exception(err)
+    except smtplib.SMTPResponseException as err:
+        # Send-path response codes (raised by sendmail): 4xx greylisting (450/451) and overloaded-relay
+        # 421 are retryable; 5xx and auth (535) are permanent → swallow so we don't retry-storm the relay.
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
+        if err.smtp_code is not None and 400 <= err.smtp_code < 500:
+            logger.warning("email_send_smtp_transient_error", error=str(err))
+            raise
+        capture_exception(err)
+    except Exception as err:
+        capture_exception(err)  # already logs the traceback via logger.exception
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
+    finally:
+        # Guard against a backend-construction failure (bad EMAIL_BACKEND, or TLS+SSL both set):
+        # connection is still None there, and an unguarded None.close() would log a misleading
+        # email_connection_close_failed over the real error already captured above.
+        if connection is not None:
             try:
-                connection.close()  # type: ignore
+                connection.close()
             except Exception as err:
-                print(
-                    "Could not close email connection (this can be ignored):",
-                    err,
-                    file=sys.stderr,
-                )
+                logger.warning("email_connection_close_failed", error=str(err))
+
+
+# `utm_tags` carries hardcoded query-string fragments (`a=1&b=2`) and is never
+# user-controlled. It must pass through verbatim so the `&` separators don't
+# get HTML-escaped before reaching Customer.io — Liquid renders the value raw,
+# and mail clients expect the literal `&` between query parameters.
+_PASSTHROUGH_KEYS = {"utm_tags"}
+
+# Keys whose values are PostHog-generated URLs (built from `settings.SITE_URL`
+# + a path) and should remain clickable in the rendered email. Defanging would
+# break every "click here" button, so URL-shape characters (`:`, `/`, `.`) are
+# preserved — but attribute-injection characters (`<`, `>`, `"`, `'`, `&`) are
+# still html-escaped, so a user-controlled path segment (e.g. the `slug`
+# appended in `build_comment_item_url`) cannot break out of `<a href="...">`.
+_TRUSTED_URL_KEYS = {"url", "href", "link", "site_url"}
+_TRUSTED_URL_KEY_SUFFIXES = ("_url", "_link", "_href")
+
+_KeyPolicy = Literal["passthrough", "trusted_url", "default"]
+
+
+def _classify_key(key: Any) -> _KeyPolicy:
+    if not isinstance(key, str):
+        return "default"
+    lower = key.lower()
+    if lower in _PASSTHROUGH_KEYS:
+        return "passthrough"
+    if lower in _TRUSTED_URL_KEYS or lower.endswith(_TRUSTED_URL_KEY_SUFFIXES):
+        return "trusted_url"
+    return "default"
 
 
 def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, Any]:
     """
-    Sanitizes properties that will be used in email templates to prevent HTML injection.
-    This function recursively processes dictionaries, lists, and scalar values to ensure
-    all string values are properly escaped.
+    Sanitizes properties that will be used in email templates to prevent HTML
+    injection and to defang URL-shaped strings so mail clients don't auto-link
+    user-controlled content like display names or organization names.
+    Recursively processes dictionaries, lists, and scalar values. Keys are
+    handled in three tiers:
+
+    - `_PASSTHROUGH_KEYS` (e.g. `utm_tags`) — value returned unchanged.
+    - `_TRUSTED_URL_KEYS` and `*_url` / `*_link` / `*_href` — html-escaped only,
+      no defang, so the link stays clickable but a user-controlled portion of
+      the URL can't escape the href attribute.
+    - everything else — full `sanitize_email_string` (NFKC + invisible-strip +
+      html-escape + URL defang).
 
     Args:
         properties: Dictionary of properties to sanitize
@@ -285,53 +377,42 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
     if properties is None:
         return {}
 
-    # Special keys that should not be sanitized (e.g., URL query parameters)
-    skip_sanitization_keys = ["utm_tags"]
-
-    # Supported types (besides containers like dict and list)
     supported_types = (str, int, float, bool, type(None), Decimal, uuid.UUID, datetime.datetime, datetime.date)
 
-    def sanitize_value(value: Any) -> Any:
+    def sanitize_value(value: Any, *, key: Any = None) -> Any:
+        policy = _classify_key(key) if key is not None else "default"
+        if policy == "passthrough":
+            return value
         if isinstance(value, str):
-            return html.escape(value)
+            if policy == "trusted_url":
+                return html.escape(value)
+            return sanitize_email_string(value)
         elif isinstance(value, dict):
-            return {k: sanitize_value(v) for k, v in value.items()}
+            return {k: sanitize_value(v, key=k) for k, v in value.items()}
         elif isinstance(value, list):
             return [sanitize_value(item) for item in value]
         elif isinstance(value, uuid.UUID):
-            # Handle UUID by converting to string and escaping
-            return html.escape(str(value))
+            return sanitize_email_string(str(value))
         elif isinstance(value, datetime.datetime | datetime.date):
-            # Convert datetime/date to ISO-8601 string and escape — reached via
-            # dataclasses.asdict() for facade contracts with created_at-style fields
-            return html.escape(value.isoformat())
+            # Reached via dataclasses.asdict() for facade contracts with created_at-style fields.
+            return sanitize_email_string(value.isoformat())
         elif hasattr(value, "_meta") and hasattr(value, "pk"):
-            # Handle Django models by converting to string and escaping
-            return html.escape(str(value))
+            # str(model) often contains user-controlled fields (Team.name, Organization.name)
+            # that mail clients would otherwise auto-link.
+            return sanitize_email_string(str(value))
         elif isinstance(value, Decimal):
-            # Convert Decimal to float for JSON serialization
             return float(value)
         elif isinstance(value, int | float | bool | type(None)):
-            # These types are safe as-is
             return value
         elif dataclasses.is_dataclass(value) and not isinstance(value, type):
-            # Convert dataclass instances to a dict and recurse so their string fields get escaped
-            return {k: sanitize_value(v) for k, v in dataclasses.asdict(value).items()}
+            return {k: sanitize_value(v, key=k) for k, v in dataclasses.asdict(value).items()}
         else:
-            # Raise an error for unsupported types - this is a security measure to prevent uncaught injections
             raise TypeError(
                 f"Unsupported type in email properties: {type(value).__name__}. "
                 f"Only {', '.join(t.__name__ for t in supported_types)}, dict, list, dataclasses, and Django models are supported."
             )
 
-    result = {}
-    for k, v in properties.items():
-        if k in skip_sanitization_keys:
-            result[k] = v  # Skip sanitization for special keys
-        else:
-            result[k] = sanitize_value(v)
-
-    return result
+    return {k: sanitize_value(v, key=k) for k, v in properties.items()}
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

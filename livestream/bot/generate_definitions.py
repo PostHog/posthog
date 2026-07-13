@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate bot definitions JSON for the Go livestream service.
 
-Reads from posthog/hogql_queries/web_analytics/bot_definitions.py (single source of truth)
+Reads from products/web_analytics/backend/hogql_queries/bot_definitions.py (single source of truth)
 and writes livestream/bot/definitions.json.
 
 Run from repo root:
@@ -17,7 +17,7 @@ from pathlib import Path
 repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo_root))
 
-from posthog.hogql_queries.web_analytics.bot_definitions import BOT_DEFINITIONS  # noqa: E402
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS  # noqa: E402
 
 entries = [
     {

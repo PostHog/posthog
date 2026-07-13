@@ -1,15 +1,17 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconCheck, IconFilter, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
+import { DataWarehouseColumnsHint } from 'lib/components/CyclotronJob/DataWarehouseColumnsHint'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import MaxTool from 'scenes/max/MaxTool'
@@ -101,6 +103,17 @@ export function HogFunctionFilters({
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
     const cdpDwhTableSourceEnabled = useFeatureFlag('CDP_DWH_TABLE_SOURCE')
 
+    // The table matcher's column suggestions read from databaseTableListLogic, which isn't loaded
+    // automatically in this scene — kick it off when a warehouse table is the source.
+    const { dataWarehouseTables, dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { loadDatabase } = useActions(databaseTableListLogic)
+    useEffect(() => {
+        if (isDataWarehouse && !dataWarehouseTables.length) {
+            loadDatabase()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isDataWarehouse])
+
     const excludedProperties: ExcludedProperties = {
         [TaxonomicFilterGroupType.EventProperties]: [
             '$exception_types',
@@ -141,7 +154,9 @@ export function HogFunctionFilters({
         return types
     }, [isTransformation, groupsTaxonomicTypes, isDataWarehouse])
 
-    const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions
+    // Masking trigger options are event/person based (hashes of person.id / event.event and
+    // event-count thresholds), so they don't apply to data-warehouse row triggers.
+    const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions && !isDataWarehouse
 
     if (type === 'internal_destination') {
         return <HogFunctionFiltersInternal />
@@ -173,8 +188,8 @@ export function HogFunctionFilters({
                             <br />
                             <b>Person updates</b> will trigger whenever a Person is created, updated or deleted.
                             <br />
-                            <b>Data warehouse</b> will trigger whenever a new row has been synced into the data
-                            warehouse.
+                            <b>Warehouse table</b> will trigger whenever a new row is synced into a data warehouse
+                            table.
                         </>
                     }
                 >
@@ -187,7 +202,7 @@ export function HogFunctionFilters({
                                         ? [{ value: 'person-updates', label: 'Person updates' }]
                                         : []),
                                     ...(cdpDwhTableSourceEnabled
-                                        ? [{ value: 'data-warehouse-table', label: 'Data warehouse' }]
+                                        ? [{ value: 'data-warehouse-table', label: 'Warehouse table' }]
                                         : []),
                                 ]}
                                 value={value?.source ?? 'events'}
@@ -211,6 +226,13 @@ export function HogFunctionFilters({
                 {({ value, onChange: _onChange }) => {
                     const filters = (value ?? {}) as CyclotronJobFiltersType
                     const currentFilters = newFilters ?? filters
+
+                    const dataWarehouseTableName = isDataWarehouse
+                        ? currentFilters?.data_warehouse?.[0]?.table_name
+                        : undefined
+                    const dataWarehouseColumns = dataWarehouseTableName
+                        ? Object.values(dataWarehouseTablesMap[dataWarehouseTableName]?.fields ?? {})
+                        : []
 
                     const onChange = (newValue: CyclotronJobFiltersType): void => {
                         if (oldFilters && newFilters) {
@@ -287,7 +309,7 @@ export function HogFunctionFilters({
                                             isTransformation
                                                 ? [TaxonomicFilterGroupType.Events]
                                                 : isDataWarehouse
-                                                  ? [TaxonomicFilterGroupType.DataWarehouse]
+                                                  ? [TaxonomicFilterGroupType.DataWarehouseSourceTables]
                                                   : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                                         }
                                         propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
@@ -308,6 +330,13 @@ export function HogFunctionFilters({
                                         excludedProperties={excludedProperties}
                                         allowNonCapturedEvents
                                     />
+                                    {dataWarehouseTableName ? (
+                                        <DataWarehouseColumnsHint
+                                            schemaColumns={dataWarehouseColumns}
+                                            tableName={dataWarehouseTableName}
+                                            personAvailable
+                                        />
+                                    ) : null}
                                 </>
                             ) : null}
                             {oldFilters && newFilters && (

@@ -6,6 +6,7 @@
     --scene-layout-header-height: 40px;
     --scene-title-section-height: 50px;
     --side-panel-min-width: 28rem;
+    --settings-nav-width: 16rem;
 
     // Layout vars consumed across scenes. Defined at the root so they cascade
     // in every layout mode — `.Navigation3000` only renders in non-`full`
@@ -14,6 +15,15 @@
     --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
     --scene-padding: 1rem;
     --scene-padding-bottom: 4rem;
+
+    // Height of the MinimalNavigation top bar (orgless/zen modes). The settings
+    // scene's viewport-fixed nav clears it via --settings-nav-top below.
+    --minimal-navigation-height: 3.5rem;
+
+    // Top offset for the settings scene's viewport-fixed nav. Defaults to the
+    // scene padding (full app layout); the minimal/zen wrapper overrides it to
+    // also clear the MinimalNavigation bar so the nav doesn't overlap the logo.
+    --settings-nav-top: var(--scene-padding);
 
     @media screen and (max-width: $sm) {
         // handle notched devices and mobile safari's bottom nav bar
@@ -711,10 +721,7 @@
     /* Default, overridden via inline style */
 
     display: grid;
-    grid-template: 'left top' var(--scene-layout-header-height) 'left content' 1fr / var(--left-nav-width) minmax(
-            0,
-            1fr
-        );
+    grid-template: 'left content' 1fr / var(--left-nav-width) minmax(0, 1fr);
     height: 100vh;
     overflow: hidden;
 
@@ -724,7 +731,7 @@
 
     /* Mobile layout - single column with overlay nav */
     &.app-layout--mobile {
-        grid-template: 'top' var(--scene-layout-header-height) 'content' 1fr / minmax(0, 1fr);
+        grid-template: 'content' 1fr / minmax(0, 1fr);
 
         .main-content-container {
             margin-right: 0;
@@ -734,10 +741,6 @@
 
 .left-nav {
     grid-area: left;
-}
-
-.top-nav {
-    grid-area: top;
 }
 
 .main-content-container {

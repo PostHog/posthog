@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterator
+from contextvars import ContextVar
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.core.signals import request_finished, request_started
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
+
+from celery.signals import task_postrun, task_prerun
+
+from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 
@@ -10,6 +20,67 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 
 from ee.models.rbac.role import RoleMembership
+
+# Scoped memoization for `get_restricted_properties_for_team`. A single request, Celery task,
+# or other unit of work can construct many query runners (e.g. a dashboard with N insights),
+# each of which would otherwise issue an identical PropertyAccessControl lookup. We cache the
+# computed set keyed by (team_id, user_id) for the lifetime of an explicitly-opened scope and
+# discard the cache when the scope closes.
+#
+# The ContextVar defaults to ``None`` which means "no scope active — do not cache". This is
+# critical: a thread-lifetime cache on a Celery worker could serve restricted data to a user
+# whose access was revoked between tasks. Scopes are opened explicitly at HTTP request
+# boundaries (`request_started` / `request_finished`) and Celery task boundaries
+# (`task_prerun` / `task_postrun`); callers running outside those boundaries (management
+# commands, ad-hoc scripts, code paths we haven't instrumented) simply pay the query cost
+# rather than risk stale authorization data.
+_restriction_cache_var: ContextVar[dict[tuple[int, int | None], set[tuple[str, int]]] | None] = ContextVar(
+    "property_access_restriction_cache", default=None
+)
+
+
+@contextlib.contextmanager
+def restriction_cache_scope() -> Iterator[None]:
+    """Open a memoization scope for ``get_restricted_properties_for_team``.
+
+    Use this to bracket any non-HTTP, non-Celery code path that calls
+    ``get_restricted_properties_for_team`` more than once for the same user
+    (e.g. management commands or tests that want the per-request behavior
+    without going through the signal plumbing).
+    """
+    token = _restriction_cache_var.set({})
+    try:
+        yield
+    finally:
+        _restriction_cache_var.reset(token)
+
+
+@receiver(request_started)
+@receiver(task_prerun)
+def _open_restriction_cache_scope(**_kwargs: object) -> None:
+    _restriction_cache_var.set({})
+
+
+@receiver(request_finished)
+@receiver(task_postrun)
+def _close_restriction_cache_scope(**_kwargs: object) -> None:
+    _restriction_cache_var.set(None)
+
+
+@receiver(post_save, sender=PropertyAccessControl)
+@receiver(post_delete, sender=PropertyAccessControl)
+@receiver(post_save, sender=OrganizationMembership)
+@receiver(post_delete, sender=OrganizationMembership)
+@receiver(post_save, sender=RoleMembership)
+@receiver(post_delete, sender=RoleMembership)
+def _invalidate_restriction_cache_on_change(**_kwargs: object) -> None:
+    # The cached restrictions depend on PropertyAccessControl rules plus the user's organization
+    # membership and role memberships. Any change to those rows invalidates the cache for the
+    # current scope so subsequent calls within the same request/task see fresh data.
+    cache = _restriction_cache_var.get()
+    if cache is not None:
+        cache.clear()
+
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -25,6 +96,7 @@ __all__ = [
     "get_property_access_level",
     "get_restricted_properties_for_team",
     "get_restricted_property_names",
+    "is_property_access_control_enabled",
     "strip_restricted_properties",
 ]
 
@@ -34,6 +106,20 @@ def get_default_access_level() -> PropertyAccessLevel:
     :returns: The default access level for a property
     """
     return PropertyAccessLevel.READ_WRITE
+
+
+def is_property_access_control_enabled(*, team: Team | None = None, team_id: int | None = None) -> bool:
+    if team is None and team_id is not None:
+        team = Team.objects.select_related("organization").filter(id=team_id).first()
+
+    if team is None:
+        return False
+
+    organization = team.organization
+    if organization is None:
+        return False  # type: ignore
+
+    return organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL)
 
 
 def get_property_access_level(
@@ -56,6 +142,9 @@ def get_property_access_level(
 
     :returns: The `PropertyAccessLevel` for the property.
     """
+    if not is_property_access_control_enabled(team=property.team):
+        return get_default_access_level()
+
     rules = list(
         PropertyAccessControl.objects.filter(property_definition=property).select_related("organization_member", "role")
     )
@@ -135,6 +224,10 @@ def get_non_writable_property_names(
 
     from products.access_control.backend.models.property_access_control import PropertyAccessControl
 
+    # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
+    if not is_property_access_control_enabled(team_id=team_id):
+        return set()
+
     rules = (
         PropertyAccessControl.objects.filter(team_id=team_id)
         .select_related("property_definition", "organization_member", "role")
@@ -191,11 +284,30 @@ def get_restricted_properties_for_team(
     This is designed to be called once per query to batch-load all restrictions rather than checking one property
     at a time.
 
+    The result is memoized per scope (HTTP request, Celery task, or an explicit
+    ``restriction_cache_scope()`` block), keyed by ``(team_id, user_id)``, so that rendering a dashboard
+    with many insights doesn't trigger one ``PropertyAccessControl`` lookup per insight. Outside of an
+    active scope (e.g. ad-hoc scripts) the lookup runs uncached so we never serve stale authorization data.
+
     :param team_id: The team whose property restrictions we are checking.
     :param user: (optional) The user making the query. When not provided, only the default (property-level) rules apply.
 
     :returns: A set of (property_name, property_definition_type) tuples that are restricted.
     """
+    cache = _restriction_cache_var.get()
+    cache_key = (team_id, user.pk if user is not None else None)
+    if cache is not None:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+    # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
+    if not is_property_access_control_enabled(team_id=team_id):
+        empty_no_feature: set[tuple[str, int]] = set()
+        if cache is not None:
+            cache[cache_key] = empty_no_feature
+        return empty_no_feature
+
     rules = (
         PropertyAccessControl.objects.filter(team_id=team_id)
         .select_related("property_definition", "organization_member", "role")
@@ -203,7 +315,10 @@ def get_restricted_properties_for_team(
     )
 
     if not rules.exists():
-        return set()
+        empty: set[tuple[str, int]] = set()
+        if cache is not None:
+            cache[cache_key] = empty
+        return empty
 
     # group rules by property definition
     rules_by_property: dict[UUID, list[PropertyAccessControl]] = {}
@@ -246,6 +361,8 @@ def get_restricted_properties_for_team(
         if prop_def is not None and not level.grants_access():
             restricted.add((prop_def.name, prop_def.type))
 
+    if cache is not None:
+        cache[cache_key] = restricted
     return restricted
 
 

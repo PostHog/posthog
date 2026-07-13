@@ -1,13 +1,14 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from langgraph.errors import GraphInterrupt
 from pydantic import BaseModel
 
 from posthog.rbac.user_access_control import UserAccessControl
 
 from ee.hogai.core.context import set_node_path
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL, _import_max_tools
-from ee.hogai.tool import MaxTool
+from ee.hogai.tool import ClientToolCallRequest, MaxTool
 from ee.hogai.tool_errors import (
     MaxToolAccessDeniedError,
     MaxToolError,
@@ -46,6 +47,40 @@ class TestMaxTool(BaseTest):
         tool = DummyTool(team=self.team, user=self.user, context_prompt_template="Value: {expected_key}")
         result = tool.format_context_prompt_injection({})
         assert result == "Value: None"
+
+    def test_format_context_prompt_injection_substitutes_provided_key(self):
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template="Value: {expected_key}")
+        result = tool.format_context_prompt_injection({"expected_key": "hello"})
+        assert result == "Value: hello"
+
+    def test_format_context_prompt_injection_ignores_literal_braces_in_code(self):
+        # Templates may contain literal `{...}` code snippets (e.g. Hog/JS examples).
+        # These must not be parsed as placeholders.
+        template = (
+            "Inline example: `fun name(args) { ... }` and the block form\n"
+            "    fun onEvent(event) {\n"
+            "        // ...\n"
+            "        return event\n"
+            "    }\n"
+            "End."
+        )
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template=template)
+        result = tool.format_context_prompt_injection({"current_hog_code": "let x := 1"})
+        assert result == template
+
+    def test_format_context_prompt_injection_mixed_placeholders_and_literal_braces(self):
+        template = "Code: { ... }\nKey: {expected_key}"
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template=template)
+        result = tool.format_context_prompt_injection({"expected_key": "v"})
+        assert result == "Code: { ... }\nKey: v"
+
+    def test_format_context_prompt_injection_supports_brace_escapes(self):
+        # `{{key}}` should render as `{<value>}` to preserve the prior escape behavior
+        # used by some templates (e.g. session-recording filters).
+        template = "filters={{{current_filters}}}"
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template=template)
+        result = tool.format_context_prompt_injection({"current_filters": "abc"})
+        assert result == "filters={abc}"
 
 
 class TestMaxToolNodePath(BaseTest):
@@ -87,6 +122,76 @@ class TestMaxToolNodePath(BaseTest):
         self.assertEqual(result[0].name, "explicit_parent")
         self.assertEqual(result[1].name, "explicit_child")
         self.assertEqual(result[2].name, "max_tool.read_taxonomy")
+
+
+class TestMaxToolClientExecution(BaseTest):
+    def _create_tool(self) -> DummyTool:
+        return DummyTool(
+            team=self.team,
+            user=self.user,
+            node_path=(NodePath(name="root", tool_call_id="call_123", message_id="msg_1"),),
+        )
+
+    def test_interrupts_with_client_tool_call_request(self):
+        tool = self._create_tool()
+
+        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+            mock_interrupt.side_effect = GraphInterrupt()
+
+            with self.assertRaises(GraphInterrupt):
+                tool.request_client_execution()
+
+            request = mock_interrupt.call_args.args[0]
+            self.assertIsInstance(request, ClientToolCallRequest)
+            self.assertEqual(request.tool_name, "read_taxonomy")
+            self.assertEqual(request.original_tool_call_id, "call_123")
+
+    def test_returns_client_result_verbatim(self):
+        tool = self._create_tool()
+
+        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+            mock_interrupt.return_value = {
+                "action": "client_tool_result",
+                "result": {"valid": False, "error": "no rule matched"},
+            }
+
+            result = tool.request_client_execution()
+
+            self.assertEqual(result, {"valid": False, "error": "no rule matched"})
+
+    def test_raises_retryable_error_on_invalid_resume_payload(self):
+        tool = self._create_tool()
+
+        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+            mock_interrupt.return_value = {"action": "approve", "proposal_id": "prop_1"}
+
+            with self.assertRaises(MaxToolRetryableError):
+                tool.request_client_execution()
+
+    def test_accepts_result_addressed_to_this_tool_call(self):
+        tool = self._create_tool()
+
+        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+            mock_interrupt.return_value = {
+                "action": "client_tool_result",
+                "tool_call_id": "call_123",
+                "result": {"ok": True},
+            }
+
+            self.assertEqual(tool.request_client_execution(), {"ok": True})
+
+    def test_raises_retryable_error_on_result_for_a_different_tool_call(self):
+        tool = self._create_tool()
+
+        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+            mock_interrupt.return_value = {
+                "action": "client_tool_result",
+                "tool_call_id": "call_999",
+                "result": {"ok": True},
+            }
+
+            with self.assertRaises(MaxToolRetryableError):
+                tool.request_client_execution()
 
 
 class TestMaxToolErrorHierarchy(BaseTest):

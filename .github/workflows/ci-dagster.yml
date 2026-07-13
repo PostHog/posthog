@@ -5,6 +5,11 @@ on:
         branches:
             - master
     pull_request:
+    # Required so `Dagster Tests Pass` (a required status check) reports on merge
+    # queue entries — without it the queue would wait for the check until timeout.
+    # The jobs themselves skip on merge_group (the suite already runs in full on
+    # every PR) and the aggregator treats skipped as success.
+    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -43,13 +48,14 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Validate dagster path filter coverage
+        if: github.event_name != 'merge_group'
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2'
+                  version: '0.11.14'
             - run: uv run .github/scripts/check-dagster-paths.py
 
     # Job to decide if we should run dagster ci
@@ -58,6 +64,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run dagster checks
+        if: github.event_name != 'merge_group'
         # Set job outputs to values from filter step
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
@@ -70,7 +77,7 @@ jobs:
             # fetch-depth=1000 + blob:none mirrors ci-backend's turbo-discover so
             # HEAD^2 (PR branch tip) is reachable for the merge-base step below
             # without the cost of fetching blobs.
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
@@ -100,7 +107,9 @@ jobs:
                         - 'posthog/hogql_queries/**'
                         - 'posthog/settings/**'
                         - 'posthog/kafka_client/**'
+                        - 'posthog/session/**'
                         - 'posthog/schema.py'
+                        - 'posthog/schema_enums.py' # enum-only schema changes touch only this file
                         - 'posthog/utils.py'
                         - 'posthog/errors.py'
                         - 'posthog/exceptions_capture.py'
@@ -108,23 +117,31 @@ jobs:
                         - 'posthog/git.py'
                         - 'posthog/llm/**'
                         - 'posthog/person_db_router.py'
+                        - 'posthog/persons_db.py'
                         - 'posthog/redis.py'
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
                         - 'posthog/ducklake/**'
+                        - 'common/hogvm/**'
                         # Test infrastructure used by dagster tests
+                        - conftest.py
                         - 'posthog/conftest.py'
                         - 'posthog/test/**'
                         # --- ee modules that DAGs import ---
                         - 'ee/billing/**'
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
-                        # --- Only the 8 products that DAGs actually import from ---
+                        # --- Only the products that DAGs actually import from ---
+                        - 'products/analytics_platform/backend/**/*.py'
+                        - 'products/cohorts/backend/**/*.py'
+                        - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
+                        - 'products/warehouse_sources/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
+                        - 'products/ai_observability/backend/**/*.py'
                         - 'products/llm_analytics/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
                         - 'products/revenue_analytics/backend/**/*.py'
@@ -152,6 +169,17 @@ jobs:
                         - pytest.ini
                         - pyproject.toml
                         - uv.lock
+                        # hogli db setup (db:restore-schema-fresh). Scoped to the
+                        # modules that command actually imports — framework,
+                        # manifest, boot modules, db_schema — so unrelated hogli
+                        # commands (doctor, devbox, ...) don't trigger this suite.
+                        - 'tools/hogli/**'
+                        - hogli.yaml
+                        - 'tools/hogli-commands/hogli_commands/db_schema.py'
+                        - 'tools/hogli-commands/hogli_commands/prechecks.py'
+                        - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
+                        - 'tools/hogli-commands/hogli_commands/hint_hook.py'
+                        - 'tools/hogli-commands/hogli_commands/hints.py'
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
@@ -220,9 +248,12 @@ jobs:
                 include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
                   clean: false
@@ -232,13 +263,17 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
-                  # Retry transient image-pull failures (TLS handshake timeouts,
-                  # registry-1.docker.io / docker.redpanda.com flakes) so a single
-                  # blip doesn't sink the whole shard. Matches ci-backend/ci-nodejs/ci-rust.
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
@@ -254,12 +289,13 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -276,17 +312,10 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: stable
                   components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -307,7 +336,7 @@ jobs:
 
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != '' }}
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
                   path: schema.sql.gz
@@ -348,13 +377,38 @@ jobs:
             - name: Run clickhouse migrations
               run: python manage.py migrate_clickhouse
 
+            - name: Restore test durations from cache
+              # pytest-split distributes Dagster tests across shards using .test_durations.
+              # Restore the newest cache (refreshed daily by ci-backend-update-test-timing.yml,
+              # which merges all segments into one file) over the committed file; a miss leaves
+              # the committed fallback and pytest-split still runs.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
+
             - name: Run Dagster tests
               run: |
+                  # Pick the split algorithm and granularity at runtime: optimal_chunks +
+                  # file granularity only when the installed pytest-split offers them, else
+                  # duration_based_chunks / item. A workflow edit runs merged with master, so
+                  # an unrebased PR on older pytest-split must not hit an unknown
+                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
+                  SPLITTING_ALGORITHM=duration_based_chunks
+                  SPLIT_GRANULARITY=()
+                  if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                      SPLITTING_ALGORITHM=optimal_chunks
+                      SPLIT_GRANULARITY=(--split-granularity=file)
+                  fi
                   pytest posthog/dags products/**/dags \
                       --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
-                      --splitting-algorithm=duration_based_chunks \
+                      --splitting-algorithm="$SPLITTING_ALGORITHM" \
+                      "${SPLIT_GRANULARITY[@]}" \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
                       --junitxml=junit-dagster-${{ matrix.group }}.xml

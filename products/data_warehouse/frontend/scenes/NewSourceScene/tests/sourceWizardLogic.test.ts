@@ -1,5 +1,10 @@
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
+
 import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import type { ExternalDataSourceSyncSchema } from '~/types'
 
 import {
     buildKeaFormDefaultFromSourceDetails,
@@ -15,7 +20,7 @@ describe('sourceWizardLogic', () => {
         initKeaTests()
     })
 
-    it('keeps wizard state isolated by tab id', () => {
+    it('shares a single wizard instance across references with the same props', () => {
         const postgresSource = {
             name: 'Postgres',
             iconPath: '',
@@ -23,61 +28,20 @@ describe('sourceWizardLogic', () => {
             fields: [],
         } as SourceConfig
         const availableSources = { Postgres: postgresSource }
-        const firstTabLogic = sourceWizardLogic({ availableSources, tabId: 'first-tab' })
-        const secondTabLogic = sourceWizardLogic({ availableSources, tabId: 'second-tab' })
-        const unmountFirstTabLogic = firstTabLogic.mount()
-        const unmountSecondTabLogic = secondTabLogic.mount()
+        const firstReference = sourceWizardLogic({ availableSources })
+        const secondReference = sourceWizardLogic({ availableSources })
+        const unmount = firstReference.mount()
 
         try {
-            firstTabLogic.actions.selectConnector(postgresSource)
-            firstTabLogic.actions.setStep(2)
-            firstTabLogic.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'first.example.com')
-            secondTabLogic.actions.setStep(3)
-            secondTabLogic.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'second.example.com')
+            firstReference.actions.selectConnector(postgresSource)
+            firstReference.actions.setStep(2)
+            firstReference.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'shared.example.com')
 
-            expect(firstTabLogic.values.selectedConnector?.name).toEqual('Postgres')
-            expect(firstTabLogic.values.currentStep).toEqual(2)
-            expect(firstTabLogic.values.sourceConnectionDetails.payload.host).toEqual('first.example.com')
-            expect(secondTabLogic.values.selectedConnector).toBeNull()
-            expect(secondTabLogic.values.currentStep).toEqual(3)
-            expect(secondTabLogic.values.sourceConnectionDetails.payload.host).toEqual('second.example.com')
+            expect(secondReference.values.selectedConnector?.name).toEqual('Postgres')
+            expect(secondReference.values.currentStep).toEqual(2)
+            expect(secondReference.values.sourceConnectionDetails.payload.host).toEqual('shared.example.com')
         } finally {
-            unmountFirstTabLogic()
-            unmountSecondTabLogic()
-        }
-    })
-
-    it('preserves wizard state while attached to the mounted scene tab', () => {
-        const postgresSource = {
-            name: 'Postgres',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
-        const availableSources = { Postgres: postgresSource }
-        const attachedLogic = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
-        const unmountAttached = attachedLogic.mount()
-        const firstMount = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
-        const unmountFirst = firstMount.mount()
-
-        try {
-            firstMount.actions.selectConnector(postgresSource)
-            firstMount.actions.setStep(2)
-            firstMount.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'kept.example.com')
-            unmountFirst()
-
-            const secondMount = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
-            const unmountSecond = secondMount.mount()
-
-            try {
-                expect(secondMount.values.selectedConnector?.name).toEqual('Postgres')
-                expect(secondMount.values.currentStep).toEqual(2)
-                expect(secondMount.values.sourceConnectionDetails.payload.host).toEqual('kept.example.com')
-            } finally {
-                unmountSecond()
-            }
-        } finally {
-            unmountAttached()
+            unmount()
         }
     })
 
@@ -297,9 +261,24 @@ describe('sourceWizardLogic', () => {
             expect(res).toEqual({ payload: {} })
         })
 
-        it('returns errors for an invalid prefix', () => {
-            const res = getErrorsForFields([], { prefix: '@@@', payload: {} })
-            expect(res.prefix).toBeTruthy()
+        // Warehouse-mode prefixes must satisfy the backend `validate_source_prefix` rules so an
+        // invalid prefix is caught in the wizard rather than only after the create request fails.
+        it.each([
+            ['@@@', true],
+            ['my-prefix', true], // hyphen — rejected by the backend, previously allowed here
+            ['2things', true], // leading digit
+            ['___', true], // only underscores
+            [' my ', true], // backend strips only underscores, not whitespace
+            ['my_prefix', false],
+            ['_leading', false],
+            ['', false], // empty prefix is allowed
+        ])('validates warehouse-mode prefix %p', (prefix, expectError) => {
+            const res = getErrorsForFields([], { prefix, payload: {} })
+            if (expectError) {
+                expect(res.prefix).toBeTruthy()
+            } else {
+                expect(res.prefix).toBeUndefined()
+            }
         })
 
         it('requires name for direct mode', () => {
@@ -662,6 +641,217 @@ describe('sourceWizardLogic', () => {
                 payload: { host: 'foo' },
                 access_method: 'warehouse',
             })
+        })
+    })
+
+    // Reducer guards for permission_error rows (Stripe scope gating).
+    describe('permission_error sync gating', () => {
+        const stripeSource = {
+            name: 'Stripe',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+
+        const buildSchema = (overrides: Partial<ExternalDataSourceSyncSchema> = {}): ExternalDataSourceSyncSchema =>
+            ({
+                table: 'Customer',
+                label: null,
+                rows: null,
+                should_sync: false,
+                sync_time_of_day: null,
+                incremental_field: null,
+                incremental_field_type: null,
+                sync_type: null,
+                incremental_fields: [],
+                incremental_available: false,
+                append_available: false,
+                supports_webhooks: true,
+                description: null,
+                should_sync_default: true,
+                primary_key_columns: null,
+                available_columns: [],
+                detected_primary_keys: null,
+                permission_error: null,
+                ...overrides,
+            }) as ExternalDataSourceSyncSchema
+
+        const mountWithSchemas = (
+            schemas: ExternalDataSourceSyncSchema[]
+        ): { logic: ReturnType<typeof sourceWizardLogic>; unmount: () => void } => {
+            const logic = sourceWizardLogic({
+                availableSources: { Stripe: stripeSource },
+            })
+            const unmount = logic.mount()
+            logic.actions.selectConnector(stripeSource)
+            logic.actions.setDatabaseSchemas(schemas)
+            return { logic, unmount }
+        }
+
+        it('toggleAllTables(selectAll=true) leaves permission_error rows unchecked', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer' }),
+                buildSchema({ table: 'Charge', permission_error: 'Missing rak_charge_read' }),
+            ])
+
+            try {
+                logic.actions.toggleAllTables(true)
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['Customer'].should_sync).toBe(true)
+                expect(byTable['Charge'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('toggleAllTables(selectAll=true) with explicit tableNames still skips permission_error rows', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer' }),
+                buildSchema({ table: 'Charge', permission_error: 'Missing rak_charge_read' }),
+            ])
+
+            try {
+                logic.actions.toggleAllTables(true, ['Customer', 'Charge'])
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['Customer'].should_sync).toBe(true)
+                expect(byTable['Charge'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('toggleSchemaShouldSync(true) on a permission_error row stays off', () => {
+            const blockedSchema = buildSchema({
+                table: 'Charge',
+                permission_error: 'Missing rak_charge_read',
+            })
+            const { logic, unmount } = mountWithSchemas([blockedSchema])
+
+            try {
+                logic.actions.toggleSchemaShouldSync(blockedSchema, true)
+                expect(logic.values.databaseSchema[0].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('toggleSchemaShouldSync(true) on a normal row still flips it on', () => {
+            const okSchema = buildSchema({ table: 'Customer' })
+            const { logic, unmount } = mountWithSchemas([okSchema])
+
+            try {
+                logic.actions.toggleSchemaShouldSync(okSchema, true)
+                expect(logic.values.databaseSchema[0].should_sync).toBe(true)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('toggleSchemaGroup skips permission_error rows in a group', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'public.customers' }),
+                buildSchema({ table: 'public.charges', permission_error: 'Missing scope' }),
+                buildSchema({ table: 'public.invoices' }),
+            ])
+
+            try {
+                logic.actions.toggleSchemaGroup('public', true)
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['public.customers'].should_sync).toBe(true)
+                expect(byTable['public.invoices'].should_sync).toBe(true)
+                expect(byTable['public.charges'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    // Onboarding one-click setup: autoConfigureTables opts every syncable table in so the user
+    // can sync the whole source without touching the schema step.
+    describe('autoConfigureTables', () => {
+        const stripeSource = {
+            name: 'Stripe',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+
+        const apiSchema = (overrides: Partial<ExternalDataSourceSyncSchema> = {}): ExternalDataSourceSyncSchema =>
+            ({
+                table: 'Customer',
+                label: null,
+                rows: null,
+                should_sync: false,
+                sync_time_of_day: null,
+                incremental_field: null,
+                incremental_field_type: null,
+                sync_type: null,
+                incremental_fields: [],
+                incremental_available: false,
+                append_available: false,
+                supports_webhooks: false,
+                description: null,
+                should_sync_default: true,
+                primary_key_columns: null,
+                available_columns: [],
+                detected_primary_keys: null,
+                permission_error: null,
+                cdc_available: false,
+                ...overrides,
+            }) as ExternalDataSourceSyncSchema
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('selects every syncable table and resolves sync defaults when set', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema({
+                    table: 'Customer',
+                    should_sync_default: false, // proves autoConfigureTables overrides the per-table default
+                    incremental_available: true,
+                    incremental_fields: [
+                        { field: 'updated_at', field_type: 'datetime', label: 'updated_at', type: 'datetime' },
+                    ],
+                }),
+                apiSchema({ table: 'Product', should_sync_default: false }),
+                apiSchema({ table: 'Charge', permission_error: 'Missing scope' }),
+            ] as ExternalDataSourceSyncSchema[])
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource }, autoConfigureTables: true })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['Customer'].should_sync).toBe(true)
+                expect(byTable['Customer'].sync_type).toBe('incremental')
+                expect(byTable['Customer'].incremental_field).toBe('updated_at')
+                expect(byTable['Product'].should_sync).toBe(true)
+                // permission_error rows can never be synced, even under auto-configure.
+                expect(byTable['Charge'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('honours should_sync_default when not set', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema({ table: 'Product', should_sync_default: false }),
+            ] as ExternalDataSourceSyncSchema[])
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.databaseSchema[0].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
         })
     })
 })

@@ -8,10 +8,18 @@ export const template: HogFunctionTemplate = {
     name: 'Filter Bot Events',
     description:
         'Filters out events from known bot user agents. This transformation will drop the event if a bot is detected.',
-    icon_url: '/static/hedgehog/builder-hog-01.png',
+    icon_url: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png',
     category: ['Custom'],
     code_language: 'hog',
     code: `
+// PostHog's curated bot UA and IP lists are tuned for browser traffic. Server-side
+// SDKs (posthog-python, posthog-node, ...) send HTTP-client UAs like 'python-httpx'
+// and backend IPs that match those lists but are not bots. Treat anything other than
+// the browser SDKs ($lib in {web, js}) as non-browser and skip the curated checks.
+// Customer-configured customBotPatterns and customIpPrefixes still apply regardless.
+let lib := event.properties['$lib']
+let is_browser_traffic := empty(lib) or lib == 'web' or lib == 'js'
+
 // Get the user agent value
 let user_agent := event.properties[inputs.userAgent]
 
@@ -20,7 +28,7 @@ if (empty(user_agent) and inputs.keepUndefinedUseragent == 'No') {
     return null
 }
 
-if (inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {
+if (is_browser_traffic and inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {
     return null
 }
 
@@ -46,7 +54,7 @@ if (empty(ip)) {
     return event
 }
 
-if (inputs.filterKnownBotIps and isKnownBotIp(ip)) {
+if (is_browser_traffic and inputs.filterKnownBotIps and isKnownBotIp(ip)) {
     return null
 }
 

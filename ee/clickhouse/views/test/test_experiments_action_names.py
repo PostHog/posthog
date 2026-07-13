@@ -1,7 +1,7 @@
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.action.action import Action
+from products.actions.backend.models.action import Action
 
 from ee.api.test.base import APILicensedTest
 

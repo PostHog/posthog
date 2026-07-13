@@ -1,14 +1,25 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
-import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
+
+import { bulkScanLogic } from 'products/replay_vision/frontend/logics/bulkScanLogic'
+import { visionQuotaLogic } from 'products/replay_vision/frontend/logics/visionQuotaLogic'
+import { quotaUx } from 'products/replay_vision/frontend/utils/quotaProjection'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
@@ -28,6 +39,7 @@ const SortingKeyToLabel = {
     keypress_count: 'Keystrokes',
     mouse_activity_count: 'Mouse activity',
     recording_ttl: 'Expiration',
+    surfacing_score: 'Relevance',
 }
 
 function getLabel(filters: RecordingUniversalFilters): string {
@@ -39,6 +51,24 @@ function getLabel(filters: RecordingUniversalFilters): string {
     return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
 }
 
+type RecordingSort = { order: NonNullable<RecordingUniversalFilters['order']>; order_direction: 'ASC' | 'DESC' }
+
+/** The analytics payload for a sort change, or null when the sort is unchanged so we don't log no-op switches. */
+export function getSortChangedEvent(
+    filters: RecordingUniversalFilters,
+    sort: RecordingSort
+): Record<string, string> | null {
+    if (sort.order === filters.order && sort.order_direction === filters.order_direction) {
+        return null
+    }
+    return {
+        sort_key: sort.order,
+        sort_direction: sort.order_direction,
+        previous_sort_key: filters.order ?? 'start_time',
+        previous_sort_direction: filters.order_direction ?? 'DESC',
+    }
+}
+
 function SortedBy({
     filters,
     setFilters,
@@ -48,35 +78,59 @@ function SortedBy({
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     disabledReason?: string
 }): JSX.Element {
+    const surfacingScoreEnabled = useFeatureFlag('REPLAY_PLAYLIST_SURFACING_SCORE')
+    const inRelevanceSortExperiment = useFeatureFlag('REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT', 'test')
+    const showRelevanceSort = surfacingScoreEnabled || inRelevanceSortExperiment
+
+    // Track sort changes for the relevance-sort experiment
+    const changeSort = (sort: RecordingSort): void => {
+        const sortChangedEvent = getSortChangedEvent(filters, sort)
+        if (sortChangedEvent) {
+            posthog.capture('session recording list sort changed', sortChangedEvent)
+        }
+        setFilters(sort)
+    }
+
     return (
         <SettingsMenu
             highlightWhenActive={false}
             disabledReason={disabledReason}
             items={[
+                ...(showRelevanceSort
+                    ? [
+                          {
+                              label: SortingKeyToLabel['surfacing_score'],
+                              tooltip:
+                                  'Ranks recordings by a relevance score so the sessions most likely to be worth watching appear first.',
+                              onClick: () => changeSort({ order: 'surfacing_score', order_direction: 'DESC' }),
+                              active: filters.order === 'surfacing_score',
+                          },
+                      ]
+                    : []),
                 {
                     label: 'Start time',
                     items: [
                         {
                             label: 'Latest',
-                            onClick: () => setFilters({ order: 'start_time', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'start_time', order_direction: 'DESC' }),
                             active:
                                 !filters.order || (filters.order === 'start_time' && filters.order_direction !== 'ASC'),
                         },
                         {
                             label: 'Oldest',
-                            onClick: () => setFilters({ order: 'start_time', order_direction: 'ASC' }),
+                            onClick: () => changeSort({ order: 'start_time', order_direction: 'ASC' }),
                             active: filters.order === 'start_time' && filters.order_direction === 'ASC',
                         },
                     ],
                 },
                 {
                     label: SortingKeyToLabel['activity_score'],
-                    onClick: () => setFilters({ order: 'activity_score', order_direction: 'DESC' }),
+                    onClick: () => changeSort({ order: 'activity_score', order_direction: 'DESC' }),
                     active: filters.order === 'activity_score',
                 },
                 {
                     label: SortingKeyToLabel['console_error_count'],
-                    onClick: () => setFilters({ order: 'console_error_count', order_direction: 'DESC' }),
+                    onClick: () => changeSort({ order: 'console_error_count', order_direction: 'DESC' }),
                     active: filters.order === 'console_error_count',
                 },
                 {
@@ -84,17 +138,17 @@ function SortedBy({
                     items: [
                         {
                             label: SortingKeyToLabel['duration'],
-                            onClick: () => setFilters({ order: 'duration', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'duration', order_direction: 'DESC' }),
                             active: filters.order === 'duration',
                         },
                         {
                             label: SortingKeyToLabel['active_seconds'],
-                            onClick: () => setFilters({ order: 'active_seconds', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'active_seconds', order_direction: 'DESC' }),
                             active: filters.order === 'active_seconds',
                         },
                         {
                             label: SortingKeyToLabel['inactive_seconds'],
-                            onClick: () => setFilters({ order: 'inactive_seconds', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'inactive_seconds', order_direction: 'DESC' }),
                             active: filters.order === 'inactive_seconds',
                         },
                     ],
@@ -104,24 +158,24 @@ function SortedBy({
                     items: [
                         {
                             label: SortingKeyToLabel['click_count'],
-                            onClick: () => setFilters({ order: 'click_count', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'click_count', order_direction: 'DESC' }),
                             active: filters.order === 'click_count',
                         },
                         {
                             label: SortingKeyToLabel['keypress_count'],
-                            onClick: () => setFilters({ order: 'keypress_count', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'keypress_count', order_direction: 'DESC' }),
                             active: filters.order === 'keypress_count',
                         },
                         {
                             label: SortingKeyToLabel['mouse_activity_count'],
-                            onClick: () => setFilters({ order: 'mouse_activity_count', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'mouse_activity_count', order_direction: 'DESC' }),
                             active: filters.order === 'mouse_activity_count',
                         },
                     ],
                 },
                 {
                     label: 'Expiration',
-                    onClick: () => setFilters({ order: 'recording_ttl', order_direction: 'ASC' }),
+                    onClick: () => changeSort({ order: 'recording_ttl', order_direction: 'ASC' }),
                     active: filters.order === 'recording_ttl',
                 },
             ]}
@@ -190,51 +244,201 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
     )
 }
 
-function NewCollectionModal(): JSX.Element {
-    const { isNewCollectionDialogOpen, selectedRecordingsIds, newCollectionName } =
-        useValues(sessionRecordingsPlaylistLogic)
-    const { setIsNewCollectionDialogOpen, setNewCollectionName, handleCreateNewCollectionBulkAdd } =
-        useActions(sessionRecordingsPlaylistLogic)
+export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Element {
+    const {
+        isAddToCollectionModalOpen,
+        selectedRecordingsIds,
+        addToCollectionSearch,
+        collectionsForBulkAdd,
+        collectionsForBulkAddLoading,
+        isCreatingNewCollectionInModal,
+        newCollectionName,
+    } = useValues(sessionRecordingsPlaylistLogic)
+    const {
+        setIsAddToCollectionModalOpen,
+        setAddToCollectionSearch,
+        setIsCreatingNewCollectionInModal,
+        setNewCollectionName,
+        handleBulkAddToPlaylist,
+        handleCreateNewCollectionBulkAdd,
+    } = useActions(sessionRecordingsPlaylistLogic)
     const { loadPlaylists } = useActions(sessionRecordingCollectionsLogic)
 
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SessionRecording,
+        AccessControlLevel.Editor
+    )
+
     const handleClose = (): void => {
-        setIsNewCollectionDialogOpen(false)
-        setNewCollectionName('')
+        setIsAddToCollectionModalOpen(false)
     }
 
+    const recordingCountSuffix = `${selectedRecordingsIds.length} recording${
+        selectedRecordingsIds.length > 1 ? 's' : ''
+    }`
+
+    const collections = (collectionsForBulkAdd?.results ?? []).filter((p) => (shortId ? p.short_id !== shortId : true))
+
     return (
-        <LemonModal isOpen={isNewCollectionDialogOpen} onClose={handleClose} title="Create collection" maxWidth="500px">
-            <div className="space-y-4">
-                <p>
-                    Collections help you organize and save recordings for later analysis. This will create a new
-                    collection with the {selectedRecordingsIds.length} selected recording
-                    {selectedRecordingsIds.length > 1 ? 's' : ''}.
-                </p>
-                <div className="space-y-2">
-                    <label className="text-sm font-medium">Collection name</label>
+        <LemonModal
+            isOpen={isAddToCollectionModalOpen}
+            onClose={handleClose}
+            title={isCreatingNewCollectionInModal ? 'Create collection' : 'Add to collection'}
+            maxWidth="500px"
+        >
+            {!isCreatingNewCollectionInModal ? (
+                <div className="space-y-3">
+                    <p className="mb-0 text-secondary">Add {recordingCountSuffix} to an existing collection.</p>
                     <LemonInput
-                        value={newCollectionName}
-                        onChange={setNewCollectionName}
-                        placeholder="e.g., Bug reports, User onboarding, Feature usage"
-                        className="w-full"
+                        type="search"
+                        placeholder="Search collections"
+                        value={addToCollectionSearch}
+                        onChange={setAddToCollectionSearch}
+                        fullWidth
                         autoFocus
                     />
+                    <div className="border border-primary rounded overflow-hidden">
+                        <div className="max-h-80 overflow-y-auto">
+                            {collectionsForBulkAddLoading ? (
+                                <div className="p-4 text-center">
+                                    <Spinner textColored />
+                                </div>
+                            ) : collections.length === 0 ? (
+                                <div className="p-4 text-center text-secondary">
+                                    {addToCollectionSearch ? 'No collections match your search' : 'No collections yet'}
+                                </div>
+                            ) : (
+                                <ul className="m-0 p-0 list-none">
+                                    {collections.map((playlist) => (
+                                        <li key={playlist.short_id}>
+                                            <LemonButton
+                                                fullWidth
+                                                size="small"
+                                                disabledReason={accessControlDisabledReason}
+                                                onClick={() => {
+                                                    handleBulkAddToPlaylist(playlist.short_id)
+                                                    handleClose()
+                                                }}
+                                                data-attr="add-to-existing-collection-item"
+                                            >
+                                                <div className="flex flex-col items-start w-full">
+                                                    <span className="truncate w-full">
+                                                        {playlist.name || playlist.derived_name || 'Unnamed'}
+                                                    </span>
+                                                    {playlist.last_modified_at ? (
+                                                        <span className="text-xs text-secondary">
+                                                            Updated {dayjs(playlist.last_modified_at).fromNow()}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            </LemonButton>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex justify-between items-center gap-2 mt-2">
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            onClick={() => setIsCreatingNewCollectionInModal(true)}
+                            disabledReason={accessControlDisabledReason}
+                            data-attr="add-to-new-collection"
+                        >
+                            New collection
+                        </LemonButton>
+                        <LemonButton type="secondary" onClick={handleClose}>
+                            Cancel
+                        </LemonButton>
+                    </div>
                 </div>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-8">
-                <LemonButton type="secondary" onClick={handleClose}>
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
-                    onClick={() => handleCreateNewCollectionBulkAdd(loadPlaylists)}
-                >
-                    Create collection
-                </LemonButton>
-            </div>
+            ) : (
+                <div className="space-y-4">
+                    <p>
+                        Collections help you organize and save recordings for later analysis. This will create a new
+                        collection with the {recordingCountSuffix}.
+                    </p>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Collection name</label>
+                        <LemonInput
+                            value={newCollectionName}
+                            onChange={setNewCollectionName}
+                            placeholder="e.g., Bug reports, User onboarding, Feature usage"
+                            className="w-full"
+                            autoFocus
+                        />
+                    </div>
+                    <div className="flex justify-end gap-2 mt-8">
+                        <LemonButton type="secondary" onClick={() => setIsCreatingNewCollectionInModal(false)}>
+                            Back
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
+                            onClick={() => handleCreateNewCollectionBulkAdd(loadPlaylists)}
+                        >
+                            Create collection
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
         </LemonModal>
+    )
+}
+
+/** Bulk "Scan these recordings" row whose scanner list opens on hover (a nested `items` menu is click-only). */
+function BulkScanMenuItem(): JSX.Element {
+    const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
+    const { scanners, scannersLoading, scanning } = useValues(bulkScanLogic)
+    const { scanRecordings } = useActions(bulkScanLogic)
+    const { quota } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
+
+    const submenuItems: LemonMenuItem[] = scannersLoading
+        ? [{ label: 'Loading scanners…', disabledReason: 'Loading' }]
+        : scanners.length === 0
+          ? [
+                {
+                    label: 'No scanners yet — create one',
+                    onClick: () => router.actions.push(urls.replayVision()),
+                    'data-attr': 'vision-bulk-scan-create-scanner',
+                },
+            ]
+          : scanners.map((scanner) => ({
+                label: scanner.name,
+                onClick: () => scanRecordings(scanner.id, selectedRecordingsIds),
+                'data-attr': 'vision-bulk-scan-scanner-item',
+            }))
+
+    return (
+        <LemonMenu
+            items={submenuItems}
+            placement="right-start"
+            trigger="hover"
+            buttonSize="xsmall"
+            closeOnClickInside
+            closeParentPopoverOnClickInside
+        >
+            <LemonButton
+                fullWidth
+                role="menuitem"
+                size="xsmall"
+                icon={<IconEye />}
+                sideIcon={<IconChevronRight />}
+                disabledReason={
+                    scanning
+                        ? 'Starting scans…'
+                        : selectedRecordingsIds.length === 0
+                          ? 'Select recordings to scan'
+                          : quotaDisabledReason
+                }
+                tooltip={quotaTooltip}
+                data-attr="vision-bulk-scan-recordings"
+            >
+                Scan these recordings
+            </LemonButton>
+        </LemonMenu>
     )
 }
 
@@ -251,21 +455,20 @@ export function SessionRecordingsPlaylistTopSettings({
 }): JSX.Element {
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
-    const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
     const {
         selectedRecordingsIds,
         otherRecordings,
         visiblePinnedRecordings: pinnedRecordings,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
-        handleBulkAddToPlaylist,
         handleBulkDeleteFromPlaylist,
         handleSelectUnselectAll,
         setIsDeleteSelectedRecordingsDialogOpen,
-        setIsNewCollectionDialogOpen,
+        setIsAddToCollectionModalOpen,
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
@@ -275,37 +478,17 @@ export function SessionRecordingsPlaylistTopSettings({
         AccessControlLevel.Editor
     )
 
+    const visionEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
+
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems: LemonMenuItem[] = [
             {
-                label: 'Add to new collection...',
-                onClick: () => setIsNewCollectionDialogOpen(true),
-                'data-attr': 'add-to-new-collection',
+                label: 'Add to collection...',
+                onClick: () => setIsAddToCollectionModalOpen(true),
+                'data-attr': 'add-to-collection',
                 disabledReason: accessControlDisabledReason,
             },
         ]
-
-        const collections =
-            type === 'collection' && shortId
-                ? playlists.results.filter((playlist) => playlist.short_id !== shortId)
-                : playlists.results
-
-        menuItems.push({
-            label: 'Add to collection',
-            items: playlistsLoading
-                ? [
-                      {
-                          label: <Spinner textColored={true} />,
-                          onClick: () => {},
-                      },
-                  ]
-                : collections.map((playlist) => ({
-                      label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
-                      onClick: () => handleBulkAddToPlaylist(playlist.short_id),
-                  })),
-            disabledReason: collections.length === 0 ? 'There are no collections' : accessControlDisabledReason,
-            'data-attr': 'add-to-collection',
-        })
 
         if (type === 'collection' && shortId) {
             menuItems.push({
@@ -327,6 +510,15 @@ export function SessionRecordingsPlaylistTopSettings({
             onClick: () => handleBulkMarkAsNotViewed(shortId),
             'data-attr': 'mark-as-not-viewed',
         })
+
+        if (visionEnabled) {
+            // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
+            menuItems.push({
+                key: 'bulk-scan-recordings',
+                label: () => <BulkScanMenuItem />,
+                custom: true,
+            })
+        }
 
         menuItems.push({
             label: 'Delete',
@@ -405,7 +597,7 @@ export function SessionRecordingsPlaylistTopSettings({
                 />
             </div>
             <ConfirmDeleteRecordings shortId={shortId} />
-            <NewCollectionModal />
+            <AddToCollectionModal shortId={shortId} />
         </SettingsBar>
     )
 }

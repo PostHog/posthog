@@ -3,25 +3,32 @@ import typing
 import datetime as dt
 import dataclasses
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.ducklake.common import get_duckgres_server_for_organization, is_dev_mode
+from posthog.ducklake.common import duckgres_data_modeling_schema, get_duckgres_server_for_organization, is_dev_mode
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.sync import database_sync_to_async
+from posthog.ph_client import feature_enabled_or_false
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
-from products.data_modeling.backend.models import Node, NodeType
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
+from products.endpoints.backend.facade.temporal import prepare_executable_query
+
+from ..metrics import get_node_suspended_metric
+from .utils import CONSECUTIVE_FAILURES_TO_SUSPEND, clear_node_suspension_for_engine, maybe_suspend_node_for_engine
 
 LOGGER = get_logger(__name__)
 
 FEATURE_FLAG = "duckgres-data-modeling-shadow"
-SHADOW_SCHEMA_PREFIX = "shadow"
 
 
 @dataclasses.dataclass
@@ -63,7 +70,7 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
         return False
 
     try:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             FEATURE_FLAG,
             str(team.pk),
             groups={
@@ -86,11 +93,17 @@ def _compile_hogql_to_postgres_sql(hogql_query: str, team_id: int) -> tuple[str,
 
     from posthog.ducklake.client import compile_hogql_to_ducklake_sql
 
-    postgres_sql, values, _ = compile_hogql_to_ducklake_sql(team_id, HogQLQuery(query=hogql_query))
+    postgres_sql, values, _ = compile_hogql_to_ducklake_sql(
+        team_id,
+        HogQLQuery(query=hogql_query),
+        # Userless shadow materialization; mirror ClickHouse materialization so the
+        # model query can resolve its warehouse source tables/views.
+        bypass_warehouse_access_control=True,
+    )
     return postgres_sql, values
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_shadow_input_objects(
     inputs: DuckgresShadowInputs,
 ) -> tuple[Team, Node, DataWarehouseSavedQuery]:
@@ -112,11 +125,11 @@ def _get_shadow_input_objects(
 @activity.defn
 async def check_duckgres_shadow_enabled_activity(team_id: int) -> bool:
     """Check whether the duckgres shadow flag is enabled for a team."""
-    team = await database_sync_to_async(Team.objects.get)(id=team_id)
-    return await database_sync_to_async(_is_duckgres_shadow_enabled)(team)
+    team = await database_sync_to_async_pool(Team.objects.get)(id=team_id)
+    return await database_sync_to_async_pool(_is_duckgres_shadow_enabled)(team)
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _resolve_duckgres_job(job_id: str, result: "DuckgresShadowResult") -> None:
     """Update the duckgres job to its terminal state based on the result."""
     job = DataModelingJob.objects.get(id=job_id)
@@ -147,7 +160,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
 
     team, node, saved_query = await _get_shadow_input_objects(inputs)
     hogql_query = typing.cast(dict, saved_query.query)["query"]
-    schema_name = f"{SHADOW_SCHEMA_PREFIX}_{team.pk}_models"
+    schema_name = duckgres_data_modeling_schema(team.pk)
     table_name = saved_query.normalized_name
 
     await logger.ainfo(
@@ -164,12 +177,12 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
         if inputs.dangerously_execute_raw_sql:
             sql = hogql_query
         else:
-            sql, values = await database_sync_to_async(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
+            sql, values = await database_sync_to_async_pool(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
         await logger.adebug("Duckgres shadow SQL generated", sql=sql)
 
         from posthog.ducklake.client import execute_ducklake_create_table
 
-        result = await database_sync_to_async(execute_ducklake_create_table)(
+        result = await database_sync_to_async_pool(execute_ducklake_create_table)(
             team.pk, sql, schema_name, table_name, values
         )
         duration = time.monotonic() - start_time
@@ -192,6 +205,12 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             file_size_delta_bytes=result.file_size_delta_bytes,
         )
         await _resolve_duckgres_job(inputs.job_id, shadow_result)
+        await clear_node_suspension_for_engine(
+            node_id=inputs.node_id,
+            team_id=inputs.team_id,
+            dag_id=inputs.dag_id,
+            engine=DataModelingJobEngine.DUCKGRES,
+        )
         return shadow_result
     except Exception as e:
         duration = time.monotonic() - start_time
@@ -210,4 +229,18 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             error=str(e),
         )
         await _resolve_duckgres_job(inputs.job_id, shadow_result)
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=inputs.node_id,
+            team_id=inputs.team_id,
+            dag_id=inputs.dag_id,
+            saved_query_id=saved_query.id,
+            engine=DataModelingJobEngine.DUCKGRES,
+            reason=str(e),
+            job_id=inputs.job_id,
+        )
+        if suspended:
+            get_node_suspended_metric(DataModelingJobEngine.DUCKGRES.value).add(1)
+            await logger.ainfo(
+                f"Suspended node {inputs.node_id} (duckgres) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
+            )
         return shadow_result

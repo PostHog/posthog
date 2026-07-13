@@ -178,13 +178,15 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
             "test-bucket".to_string(),
             "llma/".to_string(),
         ))), // ai_blob_storage
-        Some(10),         // request_timeout_seconds
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         options.overflow_limiter, // overflow_limiter
         None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
     );
 
     TestClient::new(app)

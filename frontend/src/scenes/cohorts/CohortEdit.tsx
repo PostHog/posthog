@@ -39,7 +39,9 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
-import { ActivityScope, CohortType, SidePanelTab } from '~/types'
+import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
+
+import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -51,14 +53,72 @@ import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePer
 
 const RESOURCE_TYPE = 'cohort'
 
+function UsedInBanner({ usedIn }: { usedIn: CohortUsedInResponseApi }): JSX.Element | null {
+    const sections = [
+        {
+            title: 'Feature flags',
+            block: usedIn.feature_flags,
+            items: usedIn.feature_flags.results.map((flag) => ({
+                key: `flag-${flag.id}`,
+                url: urls.featureFlag(flag.id),
+                label: flag.name || flag.key,
+            })),
+        },
+        {
+            title: 'Insights',
+            block: usedIn.insights,
+            items: usedIn.insights.results.map((insight) => ({
+                key: `insight-${insight.id}`,
+                url: urls.insightView(insight.short_id as InsightShortId),
+                label: insight.name,
+            })),
+        },
+        {
+            title: 'Cohorts',
+            block: usedIn.cohorts,
+            items: usedIn.cohorts.results.map((c) => ({
+                key: `cohort-${c.id}`,
+                url: urls.cohort(c.id),
+                label: c.name,
+            })),
+        },
+    ].filter((section) => section.items.length > 0)
+
+    if (sections.length === 0) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="info">
+            <h4 className="font-semibold mb-1">Used in</h4>
+            <div className="space-y-2">
+                {sections.map(({ title, block, items }) => (
+                    <div key={title}>
+                        <h5 className="text-xs font-semibold uppercase opacity-60 mb-0">
+                            {title}
+                            {block.has_more && ` (${block.results.length} of ${block.total} shown)`}
+                        </h5>
+                        <ul className="list-disc pl-4 mb-0 space-y-0.5">
+                            {items.map(({ key, url, label }) => (
+                                <li key={key}>
+                                    <Link to={url}>{label}</Link>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ))}
+            </div>
+        </LemonBanner>
+    )
+}
+
 export interface CohortEditProps {
     id?: CohortType['id']
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
-    tabId: string
 }
 
-export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Element {
-    const logicProps = { id, tabId }
+export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
+    const logicProps = { id }
 
     const renderRemovePersonFromCohortButton = ({ record }: { record: unknown }): JSX.Element => {
         if (!Array.isArray(record)) {
@@ -92,12 +152,13 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         cohort,
         cohortLoading,
         cohortMissing,
-        query,
+        effectiveQuery,
         creationPersonQuery,
         personsToCreateStaticCohort,
         canRemovePersonFromCohort,
         isPendingCalculation,
         isCalculatingOrPending,
+        usedIn,
         staticCohortMode,
         activeTab,
     } = useValues(logic)
@@ -107,7 +168,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
-    const warningLogic = cohortCountWarningLogic({ cohort, query, dataNodeLogicKey })
+    const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
 
     const cohortId = typeof cohort.id === 'number' ? cohort.id : null
@@ -125,7 +186,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     if (cohort.deleted) {
         return (
             <div>
-                <CohortSceneMenuBar id={id} tabId={tabId} />
+                <CohortSceneMenuBar id={id} />
                 <LemonBanner type="error">The cohort '{cohort.name}' has been soft deleted.</LemonBanner>
                 <ScenePanel>
                     <ButtonPrimitive
@@ -145,8 +206,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     return (
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
-                <AddPersonToCohortModal id={id} tabId={tabId} />
-                <CohortSceneMenuBar id={id} tabId={tabId} />
+                <AddPersonToCohortModal id={id} />
+                <CohortSceneMenuBar id={id} />
 
                 <ScenePanel>
                     <ScenePanelInfoSection>
@@ -197,7 +258,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             </ButtonPrimitive>
                         )}
 
-                        {!cohort.is_static && featureFlags[FEATURE_FLAGS.COHORT_CALCULATION_HISTORY] && (
+                        {!cohort.is_static && (
                             <ButtonPrimitive
                                 onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
                                 disabledReasons={{
@@ -249,6 +310,9 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             <SceneTitleSection
                                 name={cohort.name}
                                 description={cohort.description || ''}
+                                // When the SceneMenuBar renders above the title, the title's default
+                                // negative top margin pulls it up under the bar — drop it in that case.
+                                className={featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR] ? 'mt-0' : undefined}
                                 resourceType={{
                                     to: urls.cohorts(),
                                     type: RESOURCE_TYPE,
@@ -427,6 +491,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     </div>
                                 </div>
                             </SceneSection>
+                            {!isNewCohort && usedIn && <UsedInBanner usedIn={usedIn} />}
                             {cohort.is_static && staticCohortMode === 'criteria' ? (
                                 <>
                                     <SceneDivider />
@@ -651,7 +716,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 </div>
                                             ) : (
                                                 <Query
-                                                    query={query}
+                                                    query={effectiveQuery}
                                                     setQuery={setQuery}
                                                     context={{
                                                         refresh: 'force_blocking',

@@ -8,7 +8,15 @@ Deterministic safety gates first, then Claude reviews for showstoppers.
 Add the `stamphog` label to a non-draft PR.
 The GitHub Action runs the agent and posts an approval or comment.
 On approval the label stays so it's visible which PRs were stamphog'd.
-On failure the label is removed so it can be re-applied.
+On a substantive non-approval (`REFUSE`/`ESCALATE`) the label is removed so it
+can be re-applied once the feedback is addressed.
+If the review agent can't reach its LLM backend (credentials, credit, or
+outage) it returns `ERROR` and **keeps** the label — a transient infra failure
+must not silently drop labels across every queued PR. The review retries on the
+next push, or re-apply the label once the backend recovers. When the whole
+fleet of stamphog reviews suddenly returns `ERROR`, suspect the
+`STAMPHOG_ANTHROPIC_API_KEY` org secret first (stamphog uses its own dedicated
+Anthropic key, separate from the shared `ANTHROPIC_API_KEY`).
 
 ### Local testing
 
@@ -59,6 +67,20 @@ LLM Review
   - Claude Agent SDK with Read/Grep/Glob tools
   - Explores the repo via git diff, reads source files if needed
   - Looks for showstoppers: production breakage, security, missed deps
+  - Reads other reviewers' signals as context (not a gate): top-level review
+    states (annotated current-head vs older-commit), inline comments (tagged
+    resolved/outdated), and reactions (👍/👎/👀) on the PR and comments —
+    filtered to org members and an allowlist of reviewer bots (installed
+    apps like inkeep react for non-review reasons), never the PR author
+  - An 👀 reaction signals an in-flight review — the LLM refuses rather than
+    approving over someone who is mid-review
+  - Stamphog's own prior reviews (stamphog[bot] refusals, github-actions[bot]
+    approvals) are excluded from the prompt — they describe an earlier snapshot
+    of the PR and are never independent review signal
+  - For non-trivial changes, expects at least one independent reviewer (an
+    agent reviewer like Codex/Greptile/Claude, or a teammate) to have passed
+    over the current head; escalates otherwise. Trivial changes (docs, tests,
+    config/lockfile, typo/comment fixes) don't need one
   - Gates are authoritative — LLM can tighten but never loosen
   │
   ▼

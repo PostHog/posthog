@@ -2,7 +2,10 @@
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
+#include <cerrno>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -862,6 +865,10 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     }
     if (ctx->settingsClause()) {
       throw NotImplementedError("Unsupported: SelectStmt.settingsClause()");
+    }
+    // `selectStmt`-level `(USING? sampleClause)?` is DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` SAMPLE lands on `JoinExpr.sample`); reject rather than silently drop.
+    if (!ctx->sampleClause().empty()) {
+      throw NotImplementedError("Unsupported: SelectStmt.sampleClause()");
     }
 
     return json;
@@ -1814,12 +1821,23 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     std::string count_str = text.substr(0, space_pos);
     std::string unit_str = text.substr(space_pos + 1);
 
+    bool count_valid = !count_str.empty();
     for (char c : count_str) {
       if (!std::isdigit(static_cast<unsigned char>(c))) {
-        throw NotImplementedError(("Unsupported interval count: " + count_str).c_str());
+        count_valid = false;
+        break;
       }
     }
-    int countInt = std::stoi(count_str);
+    if (!count_valid) {
+      throw NotImplementedError(("Unsupported interval count: '" + count_str + "' is not a valid integer").c_str());
+    }
+    // ClickHouse stores intervals as Int64, so accept the full Int64 range (stoll, not int32 stoi).
+    int64_t countInt;
+    try {
+      countInt = std::stoll(count_str);
+    } catch (const std::out_of_range&) {
+      throw NotImplementedError(("Unsupported interval count: '" + count_str + "' is too large").c_str());
+    }
 
     std::string name;
     if (unit_str == "second" || unit_str == "seconds") {
@@ -1880,6 +1898,17 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["left"] = visitAsJSON(ctx->columnExpr(0));
     json["right"] = visitAsJSON(ctx->columnExpr(1));
     json["negated"] = ctx->NOT() != nullptr;
+    return json;
+  }
+
+  VISIT(ColumnExprNullSafeEq) {
+    // MySQL `a <=> b` is sugar for `a IS NOT DISTINCT FROM b`
+    Json json = Json::object();
+    json["node"] = "IsDistinctFrom";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["left"] = visitAsJSON(ctx->columnExpr(0));
+    json["right"] = visitAsJSON(ctx->columnExpr(1));
+    json["negated"] = true;
     return json;
   }
 
@@ -2874,11 +2903,21 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
       json["value_type"] = "number";
     } else if (!is_hex && !is_binary && (text.find(".") != string::npos || text.find("e") != string::npos)) {
-      try {
-        json["value"] = Json(stod(text));  // Float
-      } catch (const std::out_of_range&) {
+      // `stod` collapses overflow + underflow into the same `out_of_range`; use `strtod` + errno to keep them apart.
+      errno = 0;
+      const char* c_str = text.c_str();
+      char* end = nullptr;
+      double value = std::strtod(c_str, &end);
+      bool consumed_all = end == c_str + text.size();
+      if (!consumed_all) {
+        // Malformed input — defer to `stod` so callers see the historical SyntaxError shape.
+        json["value"] = Json(stod(text));
+      } else if (errno == ERANGE && (value == HUGE_VAL || value == -HUGE_VAL)) {
         json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
         json["value_type"] = "number";
+      } else {
+        // No errno (in range) or `ERANGE` underflow (subnormal / 0) — keep the value.
+        json["value"] = Json(value);
       }
       return json;
     } else if (is_binary) {
@@ -2905,18 +2944,19 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         json["value"] = static_cast<int64_t>(magnitude);
       }
       return json;
+    } else if (is_hex && ctx->floatingLiteral() != nullptr) {
+      // Hex-float literal (e.g. `0x1p4`) — route through `stod`; the integer path's `stoll` would drop the exponent.
+      json["value"] = Json(stod(text));
+      return json;
     } else {
       try {
         // base 10 (not strtoll base 0): leading zeros are no-ops, never octal — "017" → 17, "09" → 9.
         int base = is_hex ? 16 : 10;
         json["value"] = static_cast<int64_t>(stoll(text, nullptr, base));  // Integer
       } catch (const std::out_of_range&) {
-        try {
-          json["value"] = Json(stod(text));  // Too large for int64, use float
-        } catch (const std::out_of_range&) {
-          json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
-          json["value_type"] = "number";
-        }
+        // Beyond Int64 — keep the literal lossless via the `value_type: "number"` string envelope; the deserialiser rebuilds an arbitrary-precision Python int.
+        json["value"] = text;
+        json["value_type"] = "number";
       }
       return json;
     }

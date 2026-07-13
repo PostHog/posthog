@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from django.conf import settings
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter
 
 from posthog.models.team.team import Team
@@ -187,6 +188,8 @@ def _verify_and_fix_batch(
     # Batch-read cached values using MGET (single Redis round trip)
     try:
         cache_batch_data = config.hypercache.batch_get_from_cache(teams)
+    except SoftTimeLimitExceeded:
+        raise
     except Exception as e:
         logger.warning("Batch cache read failed, falling back to individual lookups", error=str(e))
         cache_batch_data = {}
@@ -200,6 +203,8 @@ def _verify_and_fix_batch(
     if config.get_team_ids_to_skip_fix_fn:
         try:
             team_ids_to_skip_fix = config.get_team_ids_to_skip_fix_fn([t.id for t in teams])
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as e:
             logger.warning("Batch skip-fix check failed, proceeding without skips", error=str(e))
 
@@ -215,6 +220,8 @@ def _verify_and_fix_batch(
                 team_count=len(teams),
                 duration_seconds=time.time() - batch_load_start,
             )
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as e:
             logger.warning("Batch load failed, falling back to individual loads", error=str(e))
 
@@ -223,6 +230,11 @@ def _verify_and_fix_batch(
 
         try:
             verification = verify_team_fn(team, db_batch_data, cache_batch_data)
+        except SoftTimeLimitExceeded:
+            # The task ran out of time, not the verify call. Let it propagate so the
+            # run winds down instead of looping through the remaining teams; this
+            # team is re-verified on the next cycle.
+            raise
         except Exception as e:
             result.errors += 1
             logger.exception("Error verifying team", team_id=team.id, error=str(e))
@@ -251,8 +263,15 @@ def _verify_and_fix_batch(
                 issue_type = "expiry_missing"
 
         if issue_type:
-            # Check if we should skip fixing (e.g., grace period for recently updated flags)
-            if team.id in team_ids_to_skip_fix:
+            # The grace period guards against clobbering an in-flight async rebuild,
+            # which only matters when an entry EXISTS (mismatch/expiry). A full
+            # cache_miss has nothing to clobber and hard-fails no-DB-fallback readers
+            # (e.g. the Rust /flags/definitions endpoint → 503). This routine is shared
+            # by every hypercache, so the miss exemption is opt-in per config: only the
+            # flag_definitions caches set repair_miss_during_grace_period; read-through
+            # caches (flags, team_metadata) cold-load on miss and keep the skip.
+            repair_miss = issue_type == "cache_miss" and config.repair_miss_during_grace_period
+            if not repair_miss and team.id in team_ids_to_skip_fix:
                 result.skipped_for_grace_period += 1
                 if len(result.skipped_team_ids) < MAX_FIXED_TEAM_IDS_TO_LOG:
                     result.skipped_team_ids.append(team.id)
@@ -307,10 +326,20 @@ def _fix_and_record(
     try:
         # Use preloaded db_data if available to avoid redundant DB query
         if "db_data" in verification:
+            # The direct write bypasses update_fn's internal guards, so apply the
+            # config's write guard here too (e.g. refuse to cache an emptied
+            # group_type_mapping over populated data). A veto is neither fix nor failure.
+            if config.should_skip_write is not None and config.should_skip_write(team, verification["db_data"]):
+                return
             config.hypercache.set_cache_value(team, verification["db_data"])
             success = True
         else:
             success = config.update_fn(team)
+    except SoftTimeLimitExceeded:
+        # The task ran out of time mid-write, not a cache/storage failure. Let it
+        # propagate so the run winds down instead of logging a misleading error and
+        # continuing; this team is re-fixed on the next cycle.
+        raise
     except Exception as e:
         success = False
         logger.exception("Error fixing cache", team_id=team.id, issue_type=issue_type, error=str(e))

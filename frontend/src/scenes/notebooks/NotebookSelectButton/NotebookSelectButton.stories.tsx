@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { delay, HttpResponse } from 'msw'
 
 import {
     NotebookSelectButton,
@@ -49,8 +50,8 @@ const allNotebooks = [
 const renderNotebookSelect = (props: any): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/notebooks/': (req, res, ctx) => {
-                const contains = req.url.searchParams.get('contains')
+            '/api/projects/:team_id/notebooks/': async ({ request }) => {
+                const contains = new URL(request.url).searchParams.get('contains')
                 const sessionRecordingId = contains?.split(':')[1]
                 const unfiltered = contains == null && sessionRecordingId === undefined
 
@@ -67,7 +68,8 @@ const renderNotebookSelect = (props: any): JSX.Element => {
                 }
 
                 if (sessionRecordingId === 'very_slow') {
-                    return res(ctx.delay('infinite'), ctx.status(200), ctx.json({ count: 0, results: [] }))
+                    await delay('infinite')
+                    return HttpResponse.json({ count: 0, results: [] })
                 }
             },
         },

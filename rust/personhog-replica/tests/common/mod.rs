@@ -29,7 +29,14 @@ impl TestContext {
             .await
             .expect("Failed to connect to test database");
         // In tests, use the same pool for everything
-        let storage = Arc::new(PostgresStorage::new_single_pool(pool.clone()));
+        let storage = Arc::new(PostgresStorage::new(
+            pool.clone(),
+            pool.clone(),
+            pool.clone(),
+            pool.clone(),
+            50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
+            5,  // bulk_max_concurrent_chunks
+        ));
         let team_id = random_team_id();
 
         Self {
@@ -211,8 +218,31 @@ impl TestContext {
         Ok(())
     }
 
+    pub async fn insert_personless_distinct_id(
+        &self,
+        distinct_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO posthog_personlessdistinctid
+            (distinct_id, team_id, is_merged, created_at)
+            VALUES ($1, $2, false, NOW())
+            ON CONFLICT DO NOTHING"#,
+        )
+        .bind(distinct_id)
+        .bind(self.team_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1")
+            .bind(self.team_id)
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
             .bind(self.team_id)
             .execute(&self.pool)
             .await?;

@@ -13,7 +13,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { isObject, isURL, isKeyOf } from 'lib/utils'
+import { isObject, isKeyOf } from 'lib/utils/guards'
+import { isURL } from 'lib/utils/url'
 import { NewProperty } from 'scenes/persons/NewProperty'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -25,7 +26,7 @@ import {
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
     isPostHogProperty,
 } from '~/taxonomy/taxonomy'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
+import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
@@ -217,6 +218,8 @@ export interface PropertiesTableProps extends BasePropertyType {
     useDetectedPropertyType?: boolean
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
     highlightedKeys?: string[]
+    /** Controls the highlight style for highlighted rows. Default: 'default' uses var(--mark), 'subtle' uses a more subtle background. */
+    highlightVariant?: 'default' | 'subtle'
     type: PropertyDefinitionType
     /**
      * The container for these properties e.g. the event name of the event the properties are on
@@ -239,6 +242,7 @@ export function PropertiesTable({
     useDetectedPropertyType,
     tableProps,
     highlightedKeys,
+    highlightVariant = 'default',
     type,
     parent,
 }: PropertiesTableProps): JSX.Element {
@@ -253,34 +257,36 @@ export function PropertiesTable({
             return []
         }
 
+        // Map the property definition type to its taxonomic group so labels (e.g. "Latest city name"
+        // for person properties vs "City name" for event properties) resolve correctly when sorting and searching.
+        const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
+            [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
+            [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+            [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+            [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
+            [PropertyDefinitionType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
+            [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
+            [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
+            [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
+            [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
+            [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
+            [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.Logs,
+            [PropertyDefinitionType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
+            [PropertyDefinitionType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+            [PropertyDefinitionType.Span]: TaxonomicFilterGroupType.Spans,
+            [PropertyDefinitionType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
+            [PropertyDefinitionType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
+            [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
+            [PropertyDefinitionType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
+        }
+        const propertyGroupType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
+
         let entries = Object.entries(properties)
         if (sortProperties) {
             entries = entries.sort((a, b) => {
                 // if this is a posthog property we want to sort by its label
-                const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
-                    [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
-                    [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
-                    [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
-                    [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
-                    [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
-                    [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
-                    [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
-                    [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
-                    [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
-                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.Logs,
-                    [PropertyDefinitionType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
-                    [PropertyDefinitionType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
-                    [PropertyDefinitionType.Span]: TaxonomicFilterGroupType.Spans,
-                    [PropertyDefinitionType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
-                    [PropertyDefinitionType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
-                    [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
-                    [PropertyDefinitionType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
-                }
-
-                const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
-
-                const left = getCoreFilterDefinition(a[0], propertyType)?.label || a[0]
-                const right = getCoreFilterDefinition(b[0], propertyType)?.label || b[0]
+                const left = getCoreFilterDefinition(a[0], propertyGroupType)?.label || a[0]
+                const right = getCoreFilterDefinition(b[0], propertyGroupType)?.label || b[0]
 
                 if (left < right) {
                     return -1
@@ -307,7 +313,7 @@ export function PropertiesTable({
         if (searchTerm) {
             const normalizedSearchTerm = searchTerm.toLowerCase()
             entries = entries.filter(([key, value]) => {
-                const label = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key]?.label?.toLowerCase()
+                const label = getCoreFilterDefinition(key, propertyGroupType)?.label?.toLowerCase()
                 return (
                     key.toLowerCase().includes(normalizedSearchTerm) ||
                     (label && label.includes(normalizedSearchTerm)) ||
@@ -336,7 +342,7 @@ export function PropertiesTable({
             })
         }
         return entries
-    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues, type]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (Array.isArray(properties)) {
         return (
@@ -587,7 +593,9 @@ export function PropertiesTable({
                     onRow={(record) =>
                         highlightedKeys?.includes(record[0])
                             ? {
-                                  style: { background: 'var(--mark)' },
+                                  style: {
+                                      background: highlightVariant === 'subtle' ? 'var(--bg-3000)' : 'var(--mark)',
+                                  },
                               }
                             : {}
                     }

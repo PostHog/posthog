@@ -10,7 +10,7 @@ from posthog.schema import DateRange, IntervalType
 from posthog.hogql.parser import ast
 
 from posthog.models.team import Team, WeekStartDay
-from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
+from posthog.queries.util import get_trunc_func_ch
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
 IntervalLiteral = Literal["second", "minute", "hour", "day", "week", "month"]
@@ -129,7 +129,10 @@ class QueryDateRange:
         if self._earliest_timestamp_fallback:
             return self._earliest_timestamp_fallback
 
-        return get_earliest_timestamp(self._team.pk)
+        # Imported here to break the cycle: timestamp_utils imports QueryDateRange.
+        from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_unfiltered  # noqa: PLC0415
+
+        return get_earliest_timestamp_unfiltered(self._team)
 
     def date_from(self) -> datetime:
         date_from: datetime
@@ -466,7 +469,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
     def get_start_of_interval_hogql(self, *, source: ast.Expr | None = None) -> ast.Expr:
         trunc_func = get_trunc_func_ch(self.interval_type.name.lower())
-        trunc_func_args = [source] if source else [ast.Constant(value=self.date_from())]
+        trunc_func_args: list[ast.Expr] = [source] if source else [ast.Constant(value=self.date_from())]
         if trunc_func == "toStartOfWeek":
             trunc_func_args.append(
                 ast.Constant(value=int((WeekStartDay(self._team.week_start_day or 0)).clickhouse_mode))

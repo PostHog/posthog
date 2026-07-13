@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 import yaml
 from parameterized import parameterized
 
-from products.tasks.backend.services.agentsh import (
+from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_AUDIT_DB,
     ENV_WRAPPER_SCRIPT,
     INFRASTRUCTURE_DOMAINS,
@@ -130,9 +130,84 @@ class TestGeneratePolicyYaml(TestCase):
     @override_settings(DEBUG=True)
     def test_debug_mode_adds_dev_ports(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
+        debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
+        self.assertIn(8000, debug_rule["ports"])
+        self.assertIn(8010, debug_rule["ports"])
+
+    @override_settings(DEBUG=True)
+    def test_debug_mode_keeps_prod_rule_restricted_to_cloud_ports(self):
+        # DEBUG additions land in `allow-debug-domains`, not `allow-domains` —
+        # the prod rule stays identical across environments so a debug-only
+        # port can't accidentally widen prod.
+        policy = yaml.safe_load(generate_policy_yaml([]))
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
-        self.assertIn(8000, allow_rule["ports"])
-        self.assertIn(8010, allow_rule["ports"])
+        self.assertEqual(sorted(allow_rule["ports"]), [22, 80, 443])
+
+    @override_settings(
+        DEBUG=True,
+        SANDBOX_LLM_GATEWAY_URL="http://host.docker.internal:3308",
+        SANDBOX_MCP_URL="http://host.docker.internal:8787/mcp",
+    )
+    def test_debug_mode_adds_ports_from_sandbox_url_settings(self):
+        # Local llm-gateway (3308) and MCP wrangler (8787) listen on non-standard
+        # ports — without including them in `allow-debug-domains.ports`, agentsh
+        # denies the connect at the syscall layer even when the hostname is allowed.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
+        self.assertIn(3308, debug_rule["ports"])
+        self.assertIn(8787, debug_rule["ports"])
+
+    @override_settings(
+        DEBUG=True,
+        SANDBOX_LLM_GATEWAY_URL="http://host.docker.internal:3308",
+    )
+    def test_debug_mode_adds_sandbox_hosts_to_debug_rule(self):
+        # Parsed sandbox hostnames belong on the DEBUG rule, not the prod rule.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("host.docker.internal", debug_rule["domains"])
+        self.assertNotIn("host.docker.internal", allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://example.local:3308")
+    def test_non_debug_mode_omits_debug_rule_entirely(self):
+        # Outside DEBUG the debug rule should not exist, and the prod rule
+        # must not absorb any sandbox URL hostnames or non-cloud ports.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        rule_names = [rule["name"] for rule in policy["network_rules"]]
+        self.assertNotIn("allow-debug-domains", rule_names)
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertEqual(sorted(allow_rule["ports"]), [22, 80, 443])
+        self.assertNotIn("example.local", allow_rule["domains"])
+
+    @override_settings(
+        DEBUG=True,
+        # Non-numeric port — `urlparse(...).port` raises ValueError on access.
+        SANDBOX_API_URL="http://host:abc",
+        # Out-of-range port (>65535) — also raises ValueError.
+        SANDBOX_LLM_GATEWAY_URL="http://host:99999",
+    )
+    def test_debug_mode_tolerates_malformed_sandbox_urls(self):
+        # A typo in `SANDBOX_*_URL` should not crash `generate_policy_yaml`.
+        # Malformed ports degrade silently to "no port added"; the base DEBUG
+        # ports (8000/8010) and prod ports (22/80/443) are preserved so the
+        # sandbox still boots with a sane allowlist.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        for port in (8000, 8010):
+            self.assertIn(port, debug_rule["ports"])
+        self.assertEqual(sorted(allow_rule["ports"]), [22, 80, 443])
+
+    @override_settings(DEBUG=True, SANDBOX_LLM_GATEWAY_URL="not-a-url-at-all://")
+    def test_debug_mode_tolerates_malformed_sandbox_hostname(self):
+        # Companion to the port-side guard — `_hostname_from_url` should
+        # degrade silently rather than crash policy generation.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
+        # Localhost + host.docker.internal are still present.
+        self.assertIn("localhost", debug_rule["domains"])
+        self.assertIn("host.docker.internal", debug_rule["domains"])
 
     def test_allow_all_policy_when_no_domains(self):
         policy = yaml.safe_load(generate_policy_yaml(None))
@@ -199,7 +274,7 @@ class TestBuildExecPrefix(TestCase):
 @override_settings(DEBUG=True, SANDBOX_PROVIDER="modal")
 class TestModalSandboxAgentShWrapping(TestCase):
     def test_command_without_domains_skips_agentsh_exec(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
@@ -210,12 +285,14 @@ class TestModalSandboxAgentShWrapping(TestCase):
             create_pr=True,
         )
         self.assertNotIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        self.assertNotIn("env -0 > /tmp/agent-env", cmd)
+        # The env file is written at launch regardless of agentsh so the
+        # mid-session credential refresh can re-source the token per command.
+        self.assertIn("env -0 > /tmp/agent-env", cmd)
         self.assertNotIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("nohup", cmd)
 
     def test_command_includes_allowed_domains(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
@@ -233,7 +310,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("example.com,api.example.com", cmd)
 
     def test_command_includes_runtime_environment_variables(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
@@ -253,8 +330,8 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("POSTHOG_CODE_REASONING_EFFORT=high", cmd)
 
     def test_write_file_uses_filesystem_api_before_rename(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
-        from products.tasks.backend.services.sandbox import ExecutionResult, SandboxConfig
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"

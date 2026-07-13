@@ -17,7 +17,7 @@ from rest_framework import status
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.person import Person
+from posthog.test.persons import create_person, delete_person
 
 
 class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
@@ -31,7 +31,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(num):
             if delete:
-                person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+                person = create_person(distinct_ids=[f"user_{i}"], team=self.team)
             else:
                 _create_person(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(
@@ -56,7 +56,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
                 properties={"$browser": "Chrome", "$group_0": "g0"},
             )
             if delete:
-                person.delete()
+                delete_person(person)
 
     def test_basic_format(self):
         self._create_sample_data(5)
@@ -337,81 +337,5 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         j = response.json()
 
         people = j["results"][0]["people"]
-        self.assertEqual(2, len(people))
-        self.assertEqual(None, j["next"])
-
-
-class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
-    """
-    Tests for /api/projects/:project_id/persons/funnel/correlation/
-    """
-
-    def test_pagination(self):
-        cache.clear()
-
-        for i in range(10):
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id=f"user_{i}",
-                timestamp="2020-01-02T14:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="positively_related",
-                distinct_id=f"user_{i}",
-                timestamp="2020-01-03T14:00:00Z",
-            )
-            _create_event(
-                team=self.team,
-                event="paid",
-                distinct_id=f"user_{i}",
-                timestamp="2020-01-04T14:00:00Z",
-            )
-
-        request_data = {
-            "events": json.dumps(
-                [
-                    {"id": "user signed up", "type": "events", "order": 0},
-                    {"id": "paid", "type": "events", "order": 1},
-                ]
-            ),
-            "insight": INSIGHT_FUNNELS,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
-            "funnel_correlation_type": "events",
-            "funnel_correlation_person_converted": "true",
-            "funnel_correlation_person_limit": 4,
-            "funnel_correlation_person_entity": json.dumps({"id": "positively_related", "type": "events"}),
-        }
-
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/persons/funnel/correlation",
-            data=cast(Any, request_data),
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        j = response.json()
-
-        first_person = j["results"][0]["people"][0]
-        self.assertEqual(4, len(j["results"][0]["people"]))
-        self.assertTrue("id" in first_person and "name" in first_person and "distinct_ids" in first_person)
-        self.assertEqual(4, j["results"][0]["count"])
-
-        next = j["next"]
-        response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        j = response.json()
-
-        people = j["results"][0]["people"]
-        next = j["next"]
-        self.assertEqual(4, len(people))
-        self.assertNotEqual(None, next)
-
-        response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        j = response.json()
-        people = j["results"][0]["people"]
-        next = j["next"]
         self.assertEqual(2, len(people))
         self.assertEqual(None, j["next"])

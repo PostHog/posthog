@@ -57,9 +57,6 @@ case "$GO_SVC" in
     # MMDB path, relative to livestream directory where air runs
     export LIVESTREAM_MMDB_PATH=../share/GeoLite2-City.mmdb
 
-    # Postgres settings
-    export LIVESTREAM_POSTGRES_URL=postgres://posthog:posthog@localhost:5432/posthog
-
     # Redis (needed for real-time notifications SSE endpoint)
     export LIVESTREAM_REDIS_URL="redis://localhost:6379"
 

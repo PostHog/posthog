@@ -101,6 +101,19 @@
                     {
                         "name": "~/queries/schema",
                         "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                    },
+                    {
+                        "name": "monaco-editor",
+                        "message": "Value imports of monaco-editor statically couple ~4 MB of editor code into your chunk. Use `import type`, or render via the lazy facade in lib/monaco/CodeEditor.",
+                        "allowTypeImports": true
+                    },
+                    {
+                        "name": "lib/monaco/CodeEditorImpl",
+                        "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
+                    },
+                    {
+                        "name": "~/lib/monaco/CodeEditorImpl",
+                        "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
                     }
                 ]
             }
@@ -195,6 +208,139 @@
             "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}", "products/**/mcp/apps/**/*.{ts,tsx}"],
             "rules": {
                 "react/forbid-elements": "off"
+            }
+        },
+        {
+            "files": [
+                "products/agent_platform/services/agent-shared/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-ingress/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-runner/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-janitor/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-tools/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-tests/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-sandbox-host/**/*.test.{ts,js}"
+            ],
+            "rules": {
+                "jest/no-export": "off",
+                "jest/require-to-throw-message": "off",
+                "jest/expect-expect": "off",
+                "jest/valid-expect": "off",
+                "jest/no-conditional-expect": "off"
+            }
+        },
+        {
+            "files": [
+                "products/agent_platform/services/agent-shared/src/**/*.ts",
+                "products/agent_platform/services/agent-runner/src/**/*.ts",
+                "products/agent_platform/services/agent-tools/src/**/*.ts",
+                "products/agent_platform/services/agent-ingress/src/**/*.ts",
+                "products/agent_platform/services/agent-janitor/src/**/*.ts"
+            ],
+            "rules": {
+                "no-restricted-globals": [
+                    "error",
+                    {
+                        "name": "fetch",
+                        "message": "Use the injected HttpClient (e.g. ctx.http.fetch in tools, this.http.fetch in services). Bare global fetch bypasses the smokescreen proxy in prod."
+                    }
+                ]
+            }
+        },
+        {
+            "files": [
+                "products/agent_platform/services/agent-shared/src/runtime/http-client.ts",
+                "products/agent_platform/services/agent-shared/**/*.test.ts",
+                "products/agent_platform/services/agent-runner/**/*.test.ts",
+                "products/agent_platform/services/agent-tools/**/*.test.ts",
+                "products/agent_platform/services/agent-ingress/**/*.test.ts",
+                "products/agent_platform/services/agent-janitor/**/*.test.ts"
+            ],
+            "rules": {
+                "no-restricted-globals": "off"
+            }
+        },
+        {
+            "files": [
+                "frontend/src/lib/monaco/**",
+                "frontend/src/lib/components/MonacoDiffEditor.tsx",
+                "frontend/src/scenes/data-warehouse/editor/sqlEditorLogic.tsx",
+                "frontend/src/scenes/hog-functions/configuration/HogFunctionTest.tsx"
+            ],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "dayjs",
+                                "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
+                            },
+                            {
+                                "name": "chart.js",
+                                "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
+                            },
+                            {
+                                "name": "chart.js/auto",
+                                "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
+                            },
+                            {
+                                "name": "~/queries/schema",
+                                "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["products/posthog_ai/frontend/sandbox/**/*.{ts,tsx}"],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "patterns": [
+                            {
+                                "group": ["**/ee/api/conversation", "**/ee/api/conversation/**"],
+                                "message": "Sandbox renderer must not import the conversation API. Use products/tasks/frontend/generated/api for task data."
+                            },
+                            {
+                                "group": ["**/api.conversations*"],
+                                "message": "Sandbox renderer must not import api.conversations. Use api.tasks.* and products/tasks/frontend/generated/api."
+                            }
+                        ],
+                        "paths": [
+                            {
+                                "name": "scenes/max/maxThreadLogic",
+                                "message": "Sandbox module must not import maxThreadLogic (conversation orchestration). Forbidden by design boundary."
+                            },
+                            {
+                                "name": "scenes/max/maxContextLogic",
+                                "message": "Sandbox module must not import maxContextLogic. Forbidden by design boundary."
+                            },
+                            {
+                                "name": "scenes/max/maxLogic",
+                                "message": "Sandbox module must not import maxLogic. Forbidden by design boundary."
+                            },
+                            {
+                                "name": "scenes/max/maxGlobalLogic",
+                                "message": "Sandbox module must not import maxGlobalLogic. Forbidden by design boundary."
+                            },
+                            {
+                                "name": "scenes/max/maxTypes",
+                                "message": "Avoid importing maxTypes from the sandbox module. Extract needed types (e.g. SandboxToolCallMessage) into products/posthog_ai/frontend/sandbox/types/ instead.",
+                                "allowTypeImports": true
+                            },
+                            {
+                                "name": "dayjs",
+                                "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
+                            },
+                            {
+                                "name": "~/queries/schema",
+                                "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                            }
+                        ]
+                    }
+                ]
             }
         }
     ]

@@ -1,0 +1,180 @@
+import pytest
+from unittest.mock import MagicMock
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
+from products.ai_observability.backend.llm.client import Client
+from products.ai_observability.backend.llm.config import ProviderConfig
+from products.ai_observability.backend.llm.errors import ProviderMismatchError, UnsupportedProviderError
+from products.ai_observability.backend.llm.types import CompletionRequest
+
+
+class TestClientInitialization(SimpleTestCase):
+    def test_default_initialization(self):
+        client = Client()
+        assert client.provider_key is None
+        assert client.analytics.distinct_id == ""
+        assert client.analytics.capture is True
+        assert client.analytics.trace_id is not None
+
+    def test_initialization_with_kwargs(self):
+        client = Client(
+            distinct_id="test-user",
+            trace_id="test-trace-id",
+            capture_analytics=False,
+        )
+        assert client.analytics.distinct_id == "test-user"
+        assert client.analytics.trace_id == "test-trace-id"
+        assert client.analytics.capture is False
+
+    def test_trace_id_generated_when_not_provided(self):
+        client = Client(distinct_id="test")
+        assert client.analytics.trace_id is not None
+        assert len(client.analytics.trace_id) == 36
+
+
+class TestProviderRouting(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("openai",),
+            ("anthropic",),
+            ("gemini",),
+            ("together_ai",),
+            ("openrouter",),
+            ("fireworks",),
+            ("minimax",),
+        ]
+    )
+    def test_get_provider_returns_correct_adapter(self, provider_name):
+        from products.ai_observability.backend.llm.client import _get_provider
+
+        provider = _get_provider(provider_name)
+        assert provider.name == provider_name
+
+    def test_get_provider_raises_for_unsupported(self):
+        from products.ai_observability.backend.llm.client import _get_provider
+
+        with pytest.raises(UnsupportedProviderError) as exc:
+            _get_provider("unsupported")
+        assert "unsupported" in str(exc.value)
+
+    def test_get_provider_azure_openai_reads_encrypted_config(self):
+        from products.ai_observability.backend.llm.client import _get_provider
+        from products.ai_observability.backend.llm.providers.azure_openai import AzureOpenAIAdapter
+
+        mock_key = MagicMock()
+        mock_key.encrypted_config = {
+            "api_key": "irrelevant",
+            "azure_endpoint": "https://contoso.openai.azure.com/",
+            "api_version": "2025-01-01",
+        }
+
+        provider = _get_provider("azure_openai", mock_key)
+
+        assert isinstance(provider, AzureOpenAIAdapter)
+        assert provider.azure_endpoint == "https://contoso.openai.azure.com/"
+        assert provider.api_version == "2025-01-01"
+
+    def test_get_provider_azure_openai_without_provider_key_uses_defaults(self):
+        from products.ai_observability.backend.llm.client import _get_provider
+        from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION, AzureOpenAIAdapter
+
+        provider = _get_provider("azure_openai")
+
+        assert isinstance(provider, AzureOpenAIAdapter)
+        assert provider.azure_endpoint == ""
+        assert provider.api_version == DEFAULT_API_VERSION
+
+
+class TestProviderMismatchValidation(SimpleTestCase):
+    def test_provider_mismatch_raises_error(self):
+        mock_key = MagicMock()
+        mock_key.provider = "openai"
+        mock_key.encrypted_config = {"api_key": "test-key"}
+
+        client = Client(provider_key=mock_key)
+
+        request = CompletionRequest(
+            model="claude-sonnet-4-5",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="anthropic",
+        )
+
+        with pytest.raises(ProviderMismatchError) as exc:
+            client.complete(request)
+        assert "openai" in str(exc.value)
+        assert "anthropic" in str(exc.value)
+
+    def test_matching_provider_does_not_raise(self):
+        mock_key = MagicMock()
+        mock_key.provider = "openai"
+        mock_key.encrypted_config = {"api_key": "test-key"}
+
+        client = Client(provider_key=mock_key)
+
+        client._validate_provider("openai")
+
+    def test_no_provider_key_allows_any_provider(self):
+        client = Client()
+        client._validate_provider("openai")
+        client._validate_provider("anthropic")
+        client._validate_provider("gemini")
+        client._validate_provider("together_ai")
+        client._validate_provider("openrouter")
+        client._validate_provider("fireworks")
+        client._validate_provider("minimax")
+
+
+class TestApiKeyExtraction(SimpleTestCase):
+    def test_get_api_key_with_provider_key(self):
+        mock_key = MagicMock()
+        mock_key.encrypted_config = {"api_key": "secret-key"}
+
+        client = Client(provider_key=mock_key)
+
+        assert client._get_api_key() == "secret-key"
+
+    def test_get_api_key_without_provider_key(self):
+        client = Client()
+        assert client._get_api_key() is None
+
+
+class TestEffectiveCredentials(SimpleTestCase):
+    def test_credentials_from_config_take_precedence(self):
+        config = ProviderConfig(api_key="config-key", base_url="https://config.example.com")
+        client = Client(config=config)
+
+        api_key, base_url = client._resolve_credentials()
+
+        assert api_key == "config-key"
+        assert base_url == "https://config.example.com"
+
+    def test_credentials_from_provider_key_when_no_config(self):
+        mock_key = MagicMock()
+        mock_key.encrypted_config = {"api_key": "provider-key"}
+
+        client = Client(provider_key=mock_key)
+
+        api_key, base_url = client._resolve_credentials()
+
+        assert api_key == "provider-key"
+        assert base_url is None
+
+    def test_no_credentials_when_neither_config_nor_provider_key(self):
+        client = Client()
+
+        api_key, base_url = client._resolve_credentials()
+
+        assert api_key is None
+        assert base_url is None
+
+    def test_config_with_none_base_url(self):
+        config = ProviderConfig(api_key="config-key")
+        client = Client(config=config)
+
+        api_key, base_url = client._resolve_credentials()
+
+        assert api_key == "config-key"
+        assert base_url is None

@@ -16,17 +16,19 @@ from google.cloud import bigquery
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
-from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
+
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
-
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
     "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
@@ -51,7 +53,7 @@ def bigquery_config() -> dict[str, str]:
 
 
 @pytest.fixture
-def bigquery_client() -> collections.abc.Generator[bigquery.Client, None, None]:
+def bigquery_client() -> collections.abc.Generator[bigquery.Client]:
     """Manage a bigquery.Client for testing."""
     client = bigquery.Client()
 
@@ -61,7 +63,7 @@ def bigquery_client() -> collections.abc.Generator[bigquery.Client, None, None]:
 
 
 @pytest.fixture
-def bigquery_dataset(bigquery_config, bigquery_client) -> collections.abc.Generator[bigquery.Dataset, None, None]:
+def bigquery_dataset(bigquery_config, bigquery_client) -> collections.abc.Generator[bigquery.Dataset]:
     """Manage a bigquery dataset for testing.
 
     We clean up the dataset after every test. Could be quite time expensive, but guarantees a clean slate.
@@ -93,7 +95,7 @@ def bigquery_table_primary_key(request) -> str:
 @pytest.fixture
 def bigquery_table_integer(
     bigquery_config, bigquery_client, bigquery_dataset, bigquery_table_primary_key
-) -> collections.abc.Generator[bigquery.Table, None, None]:
+) -> collections.abc.Generator[bigquery.Table]:
     """Manage a bigquery table for testing.
 
     We clean up the table after every test. Could be quite time expensive, but guarantees a clean slate.
@@ -129,7 +131,7 @@ def bigquery_table_integer(
 @pytest.fixture
 def bigquery_table_timestamp(
     bigquery_config, bigquery_client, bigquery_dataset, bigquery_table_primary_key
-) -> collections.abc.Generator[bigquery.Table, None, None]:
+) -> collections.abc.Generator[bigquery.Table]:
     """Manage a bigquery table for testing.
 
     We clean up the table after every test. Could be quite time expensive, but guarantees a clean slate.
@@ -172,7 +174,7 @@ def bigquery_table_timestamp(
 @pytest.fixture
 def bigquery_view_integer(
     bigquery_config, bigquery_client, bigquery_dataset, bigquery_table_integer
-) -> collections.abc.Generator[bigquery.Table, None, None]:
+) -> collections.abc.Generator[bigquery.Table]:
     """Manage a BigQuery view for testing.
 
     We clean up the view after every test. Could be quite time expensive, but guarantees a clean slate.
@@ -319,7 +321,7 @@ async def setup_bigquery(
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_bigquery_source_full_refresh_table(
     activity_environment,
@@ -385,7 +387,7 @@ async def test_bigquery_source_full_refresh_table(
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_bigquery_source_full_refresh_view(
     activity_environment,
@@ -451,7 +453,7 @@ async def test_bigquery_source_full_refresh_view(
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_bigquery_source_incremental_integer(
     activity_environment,
@@ -570,7 +572,7 @@ async def test_bigquery_source_incremental_integer(
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_bigquery_source_incremental_timestamp(
     activity_environment,
@@ -695,7 +697,7 @@ async def test_bigquery_source_incremental_timestamp(
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.parametrize("bigquery_table_primary_key", ["test_pk"], indirect=True)
 @pytest.mark.asyncio
 async def test_bigquery_source_incremental_custom_primary_key(

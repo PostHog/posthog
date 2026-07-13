@@ -1,13 +1,18 @@
 from dataclasses import dataclass
-from datetime import datetime
+
+from django.utils import timezone
+
+import structlog
 
 from posthog.schema import DateRange, NativeMarketingSource
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
+from posthog.models.user import User
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
@@ -15,6 +20,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
     INTEGRATION_DEFAULT_SOURCES,
     INTEGRATION_PRIMARY_SOURCE,
 )
+from products.marketing_analytics.backend.services.native_integrations import KEY_TO_NATIVE, iter_custom_source_mappings
 from products.marketing_analytics.backend.services.types import (
     AlternativeSource,
     Campaign,
@@ -29,6 +35,8 @@ from products.marketing_analytics.backend.services.types import (
     UtmIssueSeverity,
 )
 
+logger = structlog.get_logger(__name__)
+
 
 def _load_team_mappings(team: Team) -> TeamMappings:
     """Load custom source mappings and campaign name mappings from team config."""
@@ -36,24 +44,27 @@ def _load_team_mappings(team: Team) -> TeamMappings:
     if config is None:
         return TeamMappings(source_to_integration={}, campaign_aliases={}, field_preferences={})
 
-    # Build source mapping: custom utm_source values -> the integration's primary source
-    # e.g. custom_source_mappings = {"GoogleAds": ["partner_blog", "affiliate"]}
-    # The adapter for GoogleAds uses "google" as source_name, so "partner_blog" should match "google"
+    # Build source mapping: custom utm_source values -> the integration's primary source.
+    # e.g. custom_source_mappings = {"GoogleAds": ["partner_blog", "affiliate"]} →
+    # {"partner_blog": "google", "affiliate": "google"} because the GoogleAds adapter
+    # uses "google" as `source_name`. The (target_key, raw_value) pairs come from
+    # `iter_custom_source_mappings` so the enum-resolution rules stay shared with
+    # `native_integrations.build_combined_alias_map`.
     source_to_integration: dict[str, str] = {}
-
-    custom_source_mappings = config.custom_source_mappings or {}
-    for integration_type, custom_sources in custom_source_mappings.items():
-        try:
-            native_source = NativeMarketingSource(integration_type)
-        except ValueError:
-            native_source = None
-        primary_source = (
-            INTEGRATION_PRIMARY_SOURCE.get(native_source, integration_type.lower())
-            if native_source
-            else integration_type.lower()
-        )
-        for custom_source in custom_sources:
-            source_to_integration[custom_source.lower().strip()] = primary_source.lower().strip()
+    for target_key, raw_value in iter_custom_source_mappings(config.custom_source_mappings):
+        native = KEY_TO_NATIVE[target_key]
+        primary = INTEGRATION_PRIMARY_SOURCE.get(native)
+        if not primary:
+            # Integration without a registered primary source (e.g. shipped before
+            # INTEGRATION_PRIMARY_SOURCE was updated). Drop it, but log the gap.
+            logger.warning(
+                "utm_audit_dropping_custom_mapping_no_primary_source",
+                team_id=team.id,
+                integration=native.value,
+                raw_value=raw_value,
+            )
+            continue
+        source_to_integration[raw_value.lower().strip()] = str(primary).lower().strip()
 
     # Build campaign aliases: clean_campaign_name -> set of raw utm values
     # e.g. campaign_name_mappings = {"GoogleAds": {"brand_campaign": ["partner_q1", "brand_q1"]}}
@@ -109,7 +120,13 @@ def _build_known_sources(mappings: TeamMappings) -> set[str]:
     return known
 
 
-def run_utm_audit(team: Team, date_from: str = "-30d", date_to: str | None = None) -> UtmAuditResponse:
+def run_utm_audit(
+    team: Team,
+    date_from: str = "-30d",
+    date_to: str | None = None,
+    *,
+    user: User | None = None,
+) -> UtmAuditResponse:
     """
     Run a UTM audit for all marketing integrations.
 
@@ -121,14 +138,14 @@ def run_utm_audit(team: Team, date_from: str = "-30d", date_to: str | None = Non
         date_range=DateRange(date_from=date_from, date_to=date_to),
         team=team,
         interval=None,
-        now=datetime.now(),
+        now=timezone.now(),
     )
 
     mappings = _load_team_mappings(team)
     known_sources = _build_known_sources(mappings)
 
-    campaigns = _get_campaigns_with_spend(team, date_range)
-    utm_events = _get_utm_events(team, date_range)
+    campaigns = _get_campaigns_with_spend(team, date_range, user=user)
+    utm_events = _get_utm_events(team, date_range, user=user)
 
     results = _cross_reference(campaigns, utm_events, mappings, known_sources) if campaigns else []
     all_utm = _build_all_utm_events(campaigns, utm_events, mappings)
@@ -145,7 +162,7 @@ def run_utm_audit(team: Team, date_from: str = "-30d", date_to: str | None = Non
     )
 
 
-def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[Campaign]:
+def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange, *, user: User | None = None) -> list[Campaign]:
     """Get all campaigns with spend from marketing integrations."""
     context = QueryContext(
         date_range=date_range,
@@ -205,7 +222,8 @@ def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[Ca
         limit=ast.Constant(value=500),
     )
 
-    result = execute_hogql_query(query, team)
+    with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=team.pk):
+        result = execute_hogql_query(query, team, user=user)
     campaigns = []
     for row in result.results or []:
         campaigns.append(
@@ -221,7 +239,7 @@ def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[Ca
     return campaigns
 
 
-def _get_utm_events(team: Team, date_range: QueryDateRange) -> dict[tuple[str, str], int]:
+def _get_utm_events(team: Team, date_range: QueryDateRange, *, user: User | None = None) -> dict[tuple[str, str], int]:
     """
     Get distinct utm_campaign + utm_source combinations from pageview events.
     Returns a dict mapping (campaign, source) -> event_count.
@@ -243,14 +261,16 @@ def _get_utm_events(team: Team, date_range: QueryDateRange) -> dict[tuple[str, s
         LIMIT 5000
     """
 
-    result = execute_hogql_query(
-        hogql,
-        team,
-        placeholders={
-            "date_from": date_range.date_from_as_hogql(),
-            "date_to": date_range.date_to_as_hogql(),
-        },
-    )
+    with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=team.pk):
+        result = execute_hogql_query(
+            hogql,
+            team,
+            user=user,
+            placeholders={
+                "date_from": date_range.date_from_as_hogql(),
+                "date_to": date_range.date_to_as_hogql(),
+            },
+        )
     utm_map: dict[tuple[str, str], int] = {}
     for row in result.results or []:
         campaign = (row[0] or "").lower().strip()

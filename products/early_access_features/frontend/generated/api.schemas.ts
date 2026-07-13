@@ -9,8 +9,8 @@
  */
 /**
  * * `server` - Server
- * `client` - Client
- * `all` - All
+ * * `client` - Client
+ * * `all` - All
  */
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
@@ -28,7 +28,7 @@ export const BlankEnumApi = {
 
 /**
  * * `distinct_id` - User ID (default)
- * `device_id` - Device ID
+ * * `device_id` - Device ID
  */
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
@@ -57,26 +57,26 @@ export interface MinimalFeatureFlagApi {
      */
     version?: number | null
     /** Specifies where this feature flag should be evaluated
-
-  * `server` - Server
-  * `client` - Client
-  * `all` - All */
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
     evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
-
-  * `distinct_id` - User ID (default)
-  * `device_id` - Device ID */
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
 }
 
 /**
  * * `draft` - draft
- * `concept` - concept
- * `alpha` - alpha
- * `beta` - beta
- * `general-availability` - general availability
- * `archived` - archived
+ * * `concept` - concept
+ * * `alpha` - alpha
+ * * `beta` - beta
+ * * `general-availability` - general availability
+ * * `archived` - archived
  */
 export type StageEnumApi = (typeof StageEnumApi)[keyof typeof StageEnumApi]
 
@@ -94,6 +94,9 @@ export const StageEnumApi = {
  */
 export type EarlyAccessFeatureApiPayload = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface EarlyAccessFeatureApi {
     readonly id: string
     readonly feature_flag: MinimalFeatureFlagApi
@@ -105,13 +108,13 @@ export interface EarlyAccessFeatureApi {
     /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
     description?: string
     /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
-
-  * `draft` - draft
-  * `concept` - concept
-  * `alpha` - alpha
-  * `beta` - beta
-  * `general-availability` - general availability
-  * `archived` - archived */
+     *
+     * * `draft` - draft
+     * * `concept` - concept
+     * * `alpha` - alpha
+     * * `beta` - beta
+     * * `general-availability` - general availability
+     * * `archived` - archived */
     stage: StageEnumApi
     /**
      * URL to external documentation for this feature. Shown to users in the opt-in UI.
@@ -121,6 +124,11 @@ export interface EarlyAccessFeatureApi {
     /** Feature flag payload for this early access feature */
     readonly payload: EarlyAccessFeatureApiPayload
     readonly created_at: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedEarlyAccessFeatureListApi {
@@ -132,6 +140,9 @@ export interface PaginatedEarlyAccessFeatureListApi {
     results: EarlyAccessFeatureApi[]
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     readonly id: string
     /**
@@ -142,13 +153,13 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
     description?: string
     /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
-
-  * `draft` - draft
-  * `concept` - concept
-  * `alpha` - alpha
-  * `beta` - beta
-  * `general-availability` - general availability
-  * `archived` - archived */
+     *
+     * * `draft` - draft
+     * * `concept` - concept
+     * * `alpha` - alpha
+     * * `beta` - beta
+     * * `general-availability` - general availability
+     * * `archived` - archived */
     stage: StageEnumApi
     /**
      * URL to external documentation for this feature. Shown to users in the opt-in UI.
@@ -162,6 +173,11 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     feature_flag_id?: number
     readonly feature_flag: MinimalFeatureFlagApi
     _create_in_folder?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 /**
@@ -169,6 +185,9 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
  */
 export type PatchedEarlyAccessFeatureApiPayload = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedEarlyAccessFeatureApi {
     readonly id?: string
     readonly feature_flag?: MinimalFeatureFlagApi
@@ -180,13 +199,13 @@ export interface PatchedEarlyAccessFeatureApi {
     /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
     description?: string
     /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
-
-  * `draft` - draft
-  * `concept` - concept
-  * `alpha` - alpha
-  * `beta` - beta
-  * `general-availability` - general availability
-  * `archived` - archived */
+     *
+     * * `draft` - draft
+     * * `concept` - concept
+     * * `alpha` - alpha
+     * * `beta` - beta
+     * * `general-availability` - general availability
+     * * `archived` - archived */
     stage?: StageEnumApi
     /**
      * URL to external documentation for this feature. Shown to users in the opt-in UI.
@@ -196,6 +215,11 @@ export interface PatchedEarlyAccessFeatureApi {
     /** Feature flag payload for this early access feature */
     readonly payload?: PatchedEarlyAccessFeatureApiPayload
     readonly created_at?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export type EarlyAccessFeatureListParams = {

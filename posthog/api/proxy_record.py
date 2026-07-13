@@ -173,7 +173,7 @@ class DiagnosticReportSerializer(serializers.Serializer):
     checks = DiagnosticCheckResultSerializer(many=True, help_text="Per-check results in execution order.")
 
 
-@extend_schema(tags=["reverse_proxy"])
+@extend_schema(tags=["reverse_proxy"], extensions={"x-product": "proxy_records"})
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = ProxyRecordSerializer
@@ -306,14 +306,29 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        report = diagnose_proxy_record(record)
+        try:
+            report = diagnose_proxy_record(record)
+        except Exception as e:
+            capture_exception(e, {"proxy_record_id": str(record.id), "domain": record.domain})
+            return Response(
+                {
+                    "detail": (
+                        "Couldn't run diagnostics for this proxy. Please try again in a few minutes; "
+                        "if this keeps happening, contact PostHog support."
+                    )
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         serializer = DiagnosticReportSerializer(report)
         return Response(serializer.data)
 
     @extend_schema(
-        description="Retry provisioning a failed reverse proxy. "
-        "Only available for proxies in 'erroring' or 'timed_out' status. "
-        "Resets the proxy to 'waiting' status and restarts the provisioning workflow.",
+        description="Retry provisioning of a reverse proxy. "
+        "Available for any proxy that isn't currently being provisioned or deleted "
+        "(i.e. not in 'waiting', 'issuing', or 'deleting' status). This includes 'valid' "
+        "proxies whose diagnostics detected drift (e.g. the Cloudflare custom hostname went "
+        "missing). Resets the proxy to 'waiting' status and restarts the provisioning workflow.",
         request=None,
     )
     @action(methods=["POST"], detail=True)
@@ -323,9 +338,13 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         except ProxyRecord.DoesNotExist:
             raise NotFound()
 
-        if record.status not in (
-            ProxyRecord.Status.ERRORING,
-            ProxyRecord.Status.TIMED_OUT,
+        # Retry re-runs the idempotent create-proxy workflow to re-provision. Block only the
+        # transitional states where a re-run would race the in-flight provision/delete; every
+        # settled state (valid/warning/erroring/timed_out) can be re-provisioned to recover drift.
+        if record.status in (
+            ProxyRecord.Status.WAITING,
+            ProxyRecord.Status.ISSUING,
+            ProxyRecord.Status.DELETING,
         ):
             return Response(
                 {"detail": f"Cannot retry proxy in {record.status} state."},

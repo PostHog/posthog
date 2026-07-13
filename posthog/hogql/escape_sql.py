@@ -22,7 +22,8 @@ escape_chars_map = {
     "\\": "\\\\",
 }
 singlequote_escape_chars_map = {**escape_chars_map, "'": "\\'"}
-backquote_escape_chars_map = {**escape_chars_map, "`": "\\`"}
+# The HogQL/ClickHouse parsers only accept a doubled backtick inside a quoted identifier, not a backslash-escaped one.
+backquote_escape_chars_map = {**escape_chars_map, "`": "``"}
 
 
 def safe_identifier(identifier: str) -> str:
@@ -185,6 +186,74 @@ DUCKDB_EXTRA_RESERVED_KEYWORDS = {
 }
 
 
+# Simple lowercase identifiers can stay unquoted; everything else is backtick-quoted
+# unless rejected by escape_mysql_identifier's hard exclusions.
+MYSQL_SIMPLE_IDENTIFIER_REGEX = re.compile(r"^[a-z_][a-z0-9_$]*$")
+
+
+# https://dev.mysql.com/doc/refman/8.0/en/keywords.html — reserved words only (not the full
+# keyword list). Identifiers colliding with these must be backtick-quoted.
+MYSQL_RESERVED_KEYWORDS = {
+    "ACCESSIBLE", "ADD", "ALL", "ALTER", "ANALYZE", "AND", "AS", "ASC", "ASENSITIVE",
+    "BEFORE", "BETWEEN", "BIGINT", "BINARY", "BLOB", "BOTH", "BY",
+    "CALL", "CASCADE", "CASE", "CHANGE", "CHAR", "CHARACTER", "CHECK", "COLLATE", "COLUMN",
+    "CONDITION", "CONSTRAINT", "CONTINUE", "CONVERT", "CREATE", "CROSS", "CUBE", "CUME_DIST",
+    "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "CURRENT_USER", "CURSOR",
+    "DATABASE", "DATABASES", "DAY_HOUR", "DAY_MICROSECOND", "DAY_MINUTE", "DAY_SECOND",
+    "DEC", "DECIMAL", "DECLARE", "DEFAULT", "DELAYED", "DELETE", "DENSE_RANK", "DESC",
+    "DESCRIBE", "DETERMINISTIC", "DISTINCT", "DISTINCTROW", "DIV", "DOUBLE", "DROP", "DUAL",
+    "EACH", "ELSE", "ELSEIF", "EMPTY", "ENCLOSED", "ESCAPED", "EXCEPT", "EXISTS", "EXIT",
+    "EXPLAIN", "FALSE", "FETCH", "FIRST_VALUE", "FLOAT", "FLOAT4", "FLOAT8", "FOR", "FORCE",
+    "FOREIGN", "FROM", "FULLTEXT", "FUNCTION",
+    "GENERATED", "GET", "GRANT", "GROUP", "GROUPING", "GROUPS",
+    "HAVING", "HIGH_PRIORITY", "HOUR_MICROSECOND", "HOUR_MINUTE", "HOUR_SECOND",
+    "IF", "IGNORE", "IN", "INDEX", "INFILE", "INNER", "INOUT", "INSENSITIVE", "INSERT",
+    "INT", "INT1", "INT2", "INT3", "INT4", "INT8", "INTEGER", "INTERSECT", "INTERVAL",
+    "INTO", "IO_AFTER_GTIDS", "IO_BEFORE_GTIDS", "IS", "ITERATE",
+    "JOIN", "JSON_TABLE", "KEY", "KEYS", "KILL",
+    "LAG", "LAST_VALUE", "LATERAL", "LEAD", "LEADING", "LEAVE", "LEFT", "LIKE", "LIMIT",
+    "LINEAR", "LINES", "LOAD", "LOCALTIME", "LOCALTIMESTAMP", "LOCK", "LONG", "LONGBLOB",
+    "LONGTEXT", "LOOP", "LOW_PRIORITY",
+    "MASTER_BIND", "MASTER_SSL_VERIFY_SERVER_CERT", "MATCH", "MAXVALUE", "MEDIUMBLOB",
+    "MEDIUMINT", "MEDIUMTEXT", "MIDDLEINT", "MINUTE_MICROSECOND", "MINUTE_SECOND", "MOD",
+    "MODIFIES", "NATURAL", "NOT", "NO_WRITE_TO_BINLOG", "NTH_VALUE", "NTILE", "NULL", "NUMERIC",
+    "OF", "ON", "OPTIMIZE", "OPTIMIZER_COSTS", "OPTION", "OPTIONALLY", "OR", "ORDER", "OUT",
+    "OUTER", "OUTFILE", "OVER",
+    "PARTITION", "PERCENT_RANK", "PRECISION", "PRIMARY", "PROCEDURE", "PURGE",
+    "RANGE", "RANK", "READ", "READS", "READ_WRITE", "REAL", "RECURSIVE", "REFERENCES",
+    "REGEXP", "RELEASE", "RENAME", "REPEAT", "REPLACE", "REQUIRE", "RESIGNAL", "RESTRICT",
+    "RETURN", "REVOKE", "RIGHT", "RLIKE", "ROW", "ROWS", "ROW_NUMBER",
+    "SCHEMA", "SCHEMAS", "SECOND_MICROSECOND", "SELECT", "SENSITIVE", "SEPARATOR", "SET",
+    "SHOW", "SIGNAL", "SMALLINT", "SPATIAL", "SPECIFIC", "SQL", "SQLEXCEPTION", "SQLSTATE",
+    "SQLWARNING", "SQL_BIG_RESULT", "SQL_CALC_FOUND_ROWS", "SQL_SMALL_RESULT", "SSL",
+    "STARTING", "STORED", "STRAIGHT_JOIN", "SYSTEM",
+    "TABLE", "TERMINATED", "THEN", "TINYBLOB", "TINYINT", "TINYTEXT", "TO", "TRAILING",
+    "TRIGGER", "TRUE",
+    "UNDO", "UNION", "UNIQUE", "UNLOCK", "UNSIGNED", "UPDATE", "USAGE", "USE", "USING",
+    "UTC_DATE", "UTC_TIME", "UTC_TIMESTAMP",
+    "VALUES", "VARBINARY", "VARCHAR", "VARCHARACTER", "VARYING", "VIRTUAL",
+    "WHEN", "WHERE", "WHILE", "WINDOW", "WITH", "WRITE",
+    "XOR", "YEAR_MONTH", "ZEROFILL",
+}  # fmt: skip
+
+
+def escape_mysql_identifier(v: str) -> str:
+    if len(v) > 64:
+        raise QueryError(f'The MySQL identifier "{v}" is too long. Maximum length is 64 characters.')
+    # MySQL allows almost anything inside backticks, but ``%`` would be interpreted
+    # as a parameter placeholder by PyMySQL and NUL bytes are invalid identifiers.
+    if "%" in v:
+        raise QueryError(f'The MySQL identifier "{v}" is not permitted as it contains the "%" character')
+    if "\0" in v:
+        raise QueryError(f'The MySQL identifier "{v}" is not permitted as it contains a NUL character')
+
+    # Always backtick-quote unless the identifier is a simple lowercase name. MySQL's reserved
+    # word list is long and version-dependent, so quoting anything non-trivial is the safe default.
+    if MYSQL_SIMPLE_IDENTIFIER_REGEX.match(v) and v.upper() not in MYSQL_RESERVED_KEYWORDS:
+        return v
+    return "`" + v.replace("`", "``") + "`"
+
+
 def escape_postgres_identifier(v: str) -> str:
     if len(v) > 63:
         raise QueryError(f'The Postgres identifier "{v}" is too long. Maximum length is 63 characters.')
@@ -196,6 +265,15 @@ def escape_duckdb_identifier(v: str) -> str:
     """Escape an identifier for DuckDB. Same quoting rules as Postgres but no length limit,
     and with DuckDB's additional reserved keywords treated as requiring quotes."""
     return _quote_postgres_wire_identifier(v, extra_reserved_keywords=DUCKDB_EXTRA_RESERVED_KEYWORDS)
+
+
+def escape_snowflake_identifier(v: str) -> str:
+    # Always double-quote: Snowflake folds unquoted identifiers to uppercase, so quoting
+    # preserves the column's stored case. ``%`` is rejected for parity with the other
+    # parameterized direct-query escapers (the connector treats it as a placeholder).
+    if "%" in v:
+        raise QueryError(f'The Snowflake identifier "{v}" is not permitted as it contains the "%" character')
+    return '"' + v.replace('"', '""') + '"'
 
 
 def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | None) -> str:

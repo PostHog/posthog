@@ -12,6 +12,15 @@ from redis import asyncio as aioredis
 
 _client_map: Dict[str, Any] = {}
 _test_async_client_map: Dict[str, Any] = {}  # For test mode, where we don't need per-loop isolation
+_test_fake_server_map: Dict[str, Any] = {}  # Shared FakeServer per url so sync + async fake clients see one store
+
+
+def _get_test_fake_server(redis_url: str):
+    import fakeredis
+
+    if redis_url not in _test_fake_server_map:
+        _test_fake_server_map[redis_url] = fakeredis.FakeServer()
+    return _test_fake_server_map[redis_url]
 
 
 def get_client(redis_url: Optional[str] = None) -> redis.Redis:
@@ -26,7 +35,7 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
             # This import is only used in tests, we don't want to import it in production
             import fakeredis
 
-            client: Any = fakeredis.FakeRedis()
+            client: Any = fakeredis.FakeRedis(server=_get_test_fake_server(redis_url))
         elif redis_url:
             client = redis.from_url(redis_url, db=0)
         else:
@@ -109,7 +118,7 @@ def get_async_client(redis_url: Optional[str] = None):
         if redis_url not in _test_async_client_map:
             import fakeredis
 
-            _test_async_client_map[redis_url] = fakeredis.FakeAsyncRedis()
+            _test_async_client_map[redis_url] = fakeredis.FakeAsyncRedis(server=_get_test_fake_server(redis_url))
         return _test_async_client_map[redis_url]
     else:
         # Production code: use per-loop caching for real Redis connections
