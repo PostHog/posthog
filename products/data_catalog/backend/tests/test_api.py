@@ -192,21 +192,30 @@ class TestMetricLifecycleAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_insight_read", ["data_catalog:read", "data_catalog:write"], status.HTTP_403_FORBIDDEN),
+            (f"{fmt}_without_insight_read", fmt, ["data_catalog:read", "data_catalog:write"], status.HTTP_403_FORBIDDEN)
+            for fmt in ("json", "multipart")
+        ]
+        + [
             (
-                "with_insight_read",
+                f"{fmt}_with_insight_read",
+                fmt,
                 ["data_catalog:read", "data_catalog:write", "insight:read"],
                 status.HTTP_201_CREATED,
-            ),
+            )
+            for fmt in ("json", "multipart")
         ]
     )
-    def test_create_from_insight_needs_insight_read_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+    def test_create_from_insight_needs_insight_read_scope(
+        self, _name: str, fmt: str, scopes: list[str], expected: int
+    ) -> None:
+        # Cover form-encoded/multipart requests too: request.data is a QueryDict there, so the scope
+        # check must not be JSON-only or a data_catalog:write token could read the insight query.
         insight = self._insight()
         self.client.logout()
         response = self.client.post(
             self.url,
             {"name": "mrr", "description": "d", "source_insight_short_id": insight.short_id},
-            format="json",
+            format=fmt,
             **self._bearer(scopes),
         )
         assert response.status_code == expected, response.json()
