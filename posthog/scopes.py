@@ -138,9 +138,9 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
         # Provenance marker for PostHog-initiated internal sandbox runs (Task.internal=True).
-        # The LLM gateway requires it — as an explicit scope, wildcard `*` doesn't count —
-        # to reach internal, unbilled products (background_agents, signals, conversations),
-        # so user-held Code tokens can't route spend there. It grants nothing else.
+        # The LLM gateway requires it as an explicit scope to reach internal, unbilled
+        # products (background_agents, signals, conversations), so user-held Code tokens
+        # can't route spend there. It grants nothing else.
         "llm_gateway_internal",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
