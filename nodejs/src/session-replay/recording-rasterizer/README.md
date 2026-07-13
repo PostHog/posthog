@@ -65,6 +65,11 @@ bin/temporal-recording-rasterizer-worker
 This builds TypeScript locally, builds the Docker image (with hash-based caching),
 and starts the container with volume mounts for fast iteration.
 
+On startup the worker verifies its browser is `chrome-headless-shell` (the only binary
+that supports the `beginFrame` capture path) and refuses to start otherwise. If you see
+`Rasterizer browser is not chrome-headless-shell`, point `PUPPETEER_EXECUTABLE_PATH` at a
+`chrome-headless-shell` binary — the canonical image and the script above already do this.
+
 ## Configuration
 
 Key environment variables (see `config.ts` for full list):
