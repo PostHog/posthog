@@ -1968,7 +1968,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # Successfully update the feature flag with the different user. This will increment the version
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
-                {"name": "Updated name", "version": original_version},
+                {"name": "Updated name", "active": False, "version": original_version},
                 format="json",
             )
 

@@ -1528,8 +1528,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!props.id || props.id === 'new' || props.id === 'link') {
                         return null
                     }
-                    const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
-                    return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
+                    try {
+                        const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
+                        return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
+                    } catch {
+                        // Swallow errors — this is a silent background reconciliation, so a
+                        // transient failure shouldn't surface a toast or get reported.
+                        return null
+                    }
                 },
             },
         ],
