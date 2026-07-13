@@ -1,6 +1,9 @@
+from typing import get_args
+
 from django.db.models import QuerySet
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -15,12 +18,28 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.pulse.backend.api.brief import PULSE_FEATURE_FLAG
 from products.pulse.backend.models import Opportunity
+from products.pulse.backend.sources.base import EvidenceType
+
+logger = structlog.get_logger(__name__)
+
+
+class EvidenceRefSerializer(serializers.Serializer):
+    # Mirrors the EvidenceRef TypedDict (sources/base.py) so the frontend gets a typed ref
+    # instead of an opaque dict it has to narrow by hand.
+    type = serializers.ChoiceField(
+        choices=list(get_args(EvidenceType)),
+        help_text="The kind of PostHog resource this ref points at (insight, dashboard, annotation, ...).",
+    )
+    ref = serializers.CharField(help_text="Stable identifier of the referenced resource (e.g. an insight short id).")
+    label = serializers.CharField(
+        allow_blank=True, help_text="Human-readable label for the resource, if one was captured."
+    )
 
 
 class OpportunitySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the opportunity.")
-    evidence = serializers.ListField(
-        child=serializers.DictField(),
+    evidence = EvidenceRefSerializer(
+        many=True,
         read_only=True,
         help_text="Evidence refs backing the opportunity: type, ref, and label per entry.",
     )
@@ -138,6 +157,16 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         )
         opportunity.refresh_from_db()
         if not updated:
+            # A lost conditional-update race (0 rows matched) is a 400, not a bug — log it so a
+            # 3am spike of transition 400s is distinguishable from a genuine regression.
+            logger.warning(
+                "pulse_opportunity_transition_conflict",
+                team_id=self.team_id,
+                opportunity_id=str(opportunity.id),
+                expected=expected,
+                target=target,
+                actual=opportunity.status,
+            )
             raise ValidationError(
                 f"This opportunity is {opportunity.status}; it must be {expected} to become {target}."
             )

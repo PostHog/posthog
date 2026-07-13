@@ -9,14 +9,12 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { BriefConfigApi, OpportunityApi, OpportunityStatusEnumApi, ProductBriefApi } from './generated/api.schemas'
+import type { BriefConfigApi, ProductBriefApi } from './generated/api.schemas'
 import {
     BRIEF_ALREADY_GENERATING_MESSAGE,
     CITATION_TYPES,
     MAX_CONSECUTIVE_POLL_FAILURES,
-    parseOpportunityEvidence,
     pulseLogic,
-    transitionsForStatus,
 } from './pulseLogic'
 
 const generatingBrief = {
@@ -48,20 +46,6 @@ const readyBrief = {
     sources_used: ['anchored_insights'],
 }
 
-const openOpportunity: OpportunityApi = {
-    id: 'opp-1',
-    kind: 'build',
-    status: 'open',
-    title: 'Recover the signup drop',
-    summary: 's',
-    suggested_action: 'a',
-    evidence: [{ type: 'insight', ref: 'abc123', label: 'Signups' }],
-    first_seen_brief: null,
-    created_at: '2026-06-01T00:00:00Z',
-    created_by: null,
-    updated_at: null,
-}
-
 const existingConfig: BriefConfigApi = {
     id: 'cfg-1',
     name: 'Flags team',
@@ -82,7 +66,6 @@ describe('pulseLogic', () => {
                 '/api/projects/:team_id/pulse/brief_configs/': { count: 0, results: [] },
                 '/api/projects/:team_id/pulse/briefs/': { count: 0, results: [] },
                 '/api/projects/:team_id/pulse/briefs/:id/': readyBrief,
-                '/api/projects/:team_id/pulse/opportunities/': { count: 0, results: [] },
             },
             post: {
                 '/api/projects/:team_id/pulse/briefs/generate/': () => [201, generatingBrief],
@@ -305,8 +288,8 @@ describe('pulseLogic', () => {
         ['flag', '123', '/feature_flags/123'],
         ['experiment', '45', '/experiments/45'],
         ['annotation', '77', '/data-management/annotations/77'],
-        // Opportunity refs are internal UUIDs — every one links to the opportunities panel.
-        ['opportunity', '11111111-1111-1111-1111-111111111111', '/pulse?tab=opportunities'],
+        // Opportunity refs are internal UUIDs — every one links to the pulse scene.
+        ['opportunity', '11111111-1111-1111-1111-111111111111', '/pulse'],
         // A hallucinated non-numeric ref renders unlinked instead of a dead /NaN link.
         ['flag', 'not-a-number', undefined],
         // Empty-string and "0" are finite numbers but not real ids — must not link to resource 0.
@@ -314,155 +297,6 @@ describe('pulseLogic', () => {
         ['experiment', '0', undefined],
     ])('maps %s:%s citations to a scene URL', (type, ref, expected) => {
         expect(CITATION_TYPES[type].url(ref)).toEqual(expected)
-    })
-
-    it('parses opportunity evidence entries, dropping malformed ones', () => {
-        expect(
-            parseOpportunityEvidence([
-                { type: 'insight', ref: 'abc123', label: 'Signups' },
-                { type: 42, ref: 'x' },
-                { type: 'insight' },
-            ])
-        ).toEqual([
-            { type: 'insight', ref: 'abc123' },
-            { type: '', ref: 'x' },
-        ])
-    })
-
-    it.each<[string, string[]]>([
-        ['open', ['acted', 'dismiss']],
-        ['dismissed', ['reopen']],
-        ['acted', []],
-        ['resolved', []],
-    ])('offers the right transitions for a %s opportunity', (status, expected) => {
-        expect(transitionsForStatus(status as OpportunityStatusEnumApi).map(({ transition }) => transition)).toEqual(
-            expected
-        )
-    })
-
-    it('swaps in the server row on transition success', async () => {
-        useMocks({
-            post: {
-                '/api/projects/:team_id/pulse/opportunities/:id/dismiss/': () => [
-                    200,
-                    { ...openOpportunity, status: 'dismissed', updated_at: '2026-07-04T00:00:00Z' },
-                ],
-            },
-        })
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.loadOpportunitiesSuccess([openOpportunity])
-
-        await expectLogic(logic, () => {
-            logic.actions.transitionOpportunity('opp-1', 'dismiss')
-        })
-            .toDispatchActions(['opportunityTransitionStarted', 'opportunityTransitionSucceeded'])
-            .toMatchValues({ transitionsInFlight: {} })
-        expect(logic.values.opportunities[0].status).toEqual('dismissed')
-        expect(logic.values.opportunities[0].updated_at).toEqual('2026-07-04T00:00:00Z')
-    })
-
-    it('keeps the status unchanged and toasts when a transition fails', async () => {
-        const errorSpy = jest.spyOn(lemonToast, 'error')
-        useMocks({
-            post: {
-                '/api/projects/:team_id/pulse/opportunities/:id/reopen/': () => [
-                    400,
-                    {
-                        type: 'validation_error',
-                        code: 'invalid',
-                        detail: 'This opportunity is open; it must be dismissed to become open.',
-                        attr: null,
-                    },
-                ],
-            },
-        })
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.loadOpportunitiesSuccess([openOpportunity])
-
-        await expectLogic(logic, () => {
-            logic.actions.transitionOpportunity('opp-1', 'reopen')
-        })
-            .toDispatchActions(['opportunityTransitionStarted', 'opportunityTransitionFailed'])
-            .toMatchValues({ transitionsInFlight: {} })
-        expect(logic.values.opportunities[0].status).toEqual('open')
-        expect(errorSpy).toHaveBeenCalledWith('This opportunity is open; it must be dismissed to become open.')
-    })
-
-    it('ignores a second transition for the same row while one is in flight', async () => {
-        let requests = 0
-        useMocks({
-            post: {
-                '/api/projects/:team_id/pulse/opportunities/:id/dismiss/': () => {
-                    requests += 1
-                    return [200, { ...openOpportunity, status: 'dismissed' }]
-                },
-            },
-        })
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.loadOpportunitiesSuccess([openOpportunity])
-
-        await expectLogic(logic, () => {
-            logic.actions.transitionOpportunity('opp-1', 'dismiss')
-            logic.actions.transitionOpportunity('opp-1', 'dismiss')
-        }).toFinishAllListeners()
-        expect(requests).toEqual(1)
-    })
-
-    it('loads opportunities on first switch to the tab only', async () => {
-        let requests = 0
-        useMocks({
-            get: {
-                '/api/projects/:team_id/pulse/opportunities/': () => {
-                    requests += 1
-                    return [200, { count: 1, results: [openOpportunity] }]
-                },
-            },
-        })
-        // Mounting the scene must not fetch the non-default tab.
-        await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(logic).toNotHaveDispatchedActions(['loadOpportunities'])
-
-        await expectLogic(logic, () => {
-            logic.actions.setActiveTab('opportunities')
-        }).toFinishAllListeners()
-        expect(requests).toEqual(1)
-        expect(logic.values.opportunities).toHaveLength(1)
-
-        await expectLogic(logic, () => {
-            logic.actions.setActiveTab('briefs')
-            logic.actions.setActiveTab('opportunities')
-        }).toFinishAllListeners()
-        expect(requests).toEqual(1) // subsequent switches reuse the loaded list
-    })
-
-    it('retries the opportunities load on the next switch after a failure', async () => {
-        silenceKeaLoadersErrors()
-        const errorSpy = jest.spyOn(lemonToast, 'error')
-        let requests = 0
-        useMocks({
-            get: {
-                '/api/projects/:team_id/pulse/opportunities/': () => {
-                    requests += 1
-                    return requests === 1 ? [500, {}] : [200, { count: 1, results: [openOpportunity] }]
-                },
-            },
-        })
-        await expectLogic(logic).toFinishAllListeners()
-
-        await expectLogic(logic, () => {
-            logic.actions.setActiveTab('opportunities')
-        }).toFinishAllListeners()
-        expect(requests).toEqual(1)
-        expect(errorSpy).toHaveBeenCalled()
-
-        // A failed load must not latch the loaded flag and masquerade as an empty panel.
-        await expectLogic(logic, () => {
-            logic.actions.setActiveTab('briefs')
-            logic.actions.setActiveTab('opportunities')
-        }).toFinishAllListeners()
-        expect(requests).toEqual(2)
-        expect(logic.values.opportunities).toHaveLength(1)
-        resumeKeaLoadersErrors()
     })
 
     it('reports product_brief_viewed once per brief', async () => {

@@ -1,5 +1,8 @@
+import dataclasses
+
 from django.db import transaction
 
+from products.pulse.backend.generation.accountability import OpportunityStatusLine
 from products.pulse.backend.generation.schemas import BriefOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
 from products.pulse.backend.sources.base import EvidenceRef, SourceItem, parse_evidence_ref
@@ -45,17 +48,22 @@ def _build_opportunity(brief: ProductBrief, opp: OpportunityOut, item: SourceIte
     )
 
 
-def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[SourceItem]) -> list[Opportunity]:
+def persist_brief_output(
+    *, brief: ProductBrief, out: BriefOut, items: list[SourceItem], status_lines: list[OpportunityStatusLine]
+) -> list[Opportunity]:
     """Persist the brief output in place and return the newly created (non-deduped) opportunities."""
     team_opportunities = Opportunity.objects.for_team(brief.team_id)
     items_by_hint = {item.fingerprint_hint: item for item in items}
     with transaction.atomic():
         brief.sections = [s.model_dump() for s in out.sections]
+        # Deterministic, code-computed then-vs-now re-scores — persisted alongside the LLM output
+        # so the frontend renders metric movement without round-tripping it through the model.
+        brief.accountability = [dataclasses.asdict(line) for line in status_lines]
         # A brief with only opportunities still has something to say — QUIET means nothing survived the gate.
         has_content = bool(out.sections or out.opportunities)
         brief.status = ProductBrief.Status.READY if has_content else ProductBrief.Status.QUIET
         brief.sources_used = sorted({item.source for item in items})
-        brief.save(update_fields=["sections", "status", "sources_used", "updated_at"])
+        brief.save(update_fields=["sections", "accountability", "status", "sources_used", "updated_at"])
         seen = set(
             team_opportunities.filter(
                 fingerprint__in=[opportunity_fingerprint(o.kind, o.fingerprint_hint) for o in out.opportunities],

@@ -1,5 +1,6 @@
 from posthog.test.base import BaseTest
 
+from products.pulse.backend.generation.accountability import OpportunityStatusLine
 from products.pulse.backend.generation.persist import persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
@@ -48,7 +49,7 @@ class TestPersistBriefOutput(BaseTest):
 
     def test_persists_sections_and_resolved_opportunity_context(self) -> None:
         brief = self._brief()
-        created = persist_brief_output(brief=brief, out=_out(), items=[_item()])
+        created = persist_brief_output(brief=brief, out=_out(), items=[_item()], status_lines=[])
         assert brief.status == ProductBrief.Status.READY
         assert len(brief.sections) == 1
         assert brief.sources_used == ["anchored_insights"]
@@ -59,33 +60,64 @@ class TestPersistBriefOutput(BaseTest):
         assert opportunity.metric_ref == {"insight_short_id": "abc"}
 
     def test_unresolvable_ref_falls_back_to_parsed_evidence(self) -> None:
-        persist_brief_output(brief=self._brief(), out=_out(fingerprint_hint="unknown:9"), items=[_item()])
+        persist_brief_output(
+            brief=self._brief(), out=_out(fingerprint_hint="unknown:9"), items=[_item()], status_lines=[]
+        )
         opportunity = self._opportunities().get()
         assert opportunity.evidence == [{"type": "insight", "ref": "abc", "label": ""}]
         assert opportunity.baseline is None
         assert opportunity.metric_ref is None
 
     def test_same_fingerprint_does_not_duplicate(self) -> None:
-        first = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
-        second = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        first = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()], status_lines=[])
+        second = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()], status_lines=[])
         assert self._opportunities().count() == 1
         assert len(first) == 1
         assert second == []
 
     def test_dismissed_fingerprint_is_suppressed(self) -> None:
-        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()], status_lines=[])
         self._opportunities().update(status=Opportunity.Status.DISMISSED)
-        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()], status_lines=[])
         assert self._opportunities().count() == 1
 
     def test_empty_output_marks_quiet(self) -> None:
         brief = self._brief()
-        persist_brief_output(brief=brief, out=BriefOut(sections=[], opportunities=[]), items=[])
+        persist_brief_output(brief=brief, out=BriefOut(sections=[], opportunities=[]), items=[], status_lines=[])
         assert brief.status == ProductBrief.Status.QUIET
         assert brief.sources_used == []
 
     def test_opportunity_only_output_marks_ready(self) -> None:
         out = BriefOut(sections=[], opportunities=_out().opportunities)
         brief = self._brief()
-        persist_brief_output(brief=brief, out=out, items=[_item()])
+        persist_brief_output(brief=brief, out=out, items=[_item()], status_lines=[])
         assert brief.status == ProductBrief.Status.READY
+
+    def test_persists_accountability_status_lines(self) -> None:
+        # The frontend renders brief.accountability directly; if persist stops writing it, the
+        # accountability UI silently goes blank.
+        brief = self._brief()
+        line = OpportunityStatusLine(
+            opportunity_id="11111111-1111-1111-1111-111111111111",
+            kind="build",
+            status="acted",
+            title="Recover the signup drop",
+            age_days=21,
+            baseline_summary="70.0/day avg",
+            current_summary="100.0/day avg",
+            delta_pct=42.9,
+        )
+        persist_brief_output(brief=brief, out=_out(), items=[_item()], status_lines=[line])
+        brief.refresh_from_db()
+        assert brief.accountability == [
+            {
+                "opportunity_id": "11111111-1111-1111-1111-111111111111",
+                "kind": "build",
+                "status": "acted",
+                "title": "Recover the signup drop",
+                "age_days": 21,
+                "baseline_summary": "70.0/day avg",
+                "current_summary": "100.0/day avg",
+                "delta_pct": 42.9,
+            }
+        ]

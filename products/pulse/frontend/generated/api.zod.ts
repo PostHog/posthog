@@ -13,6 +13,9 @@ export const pulseBriefConfigsCreateBodyNameMax = 400
 
 export const pulseBriefConfigsCreateBodyFocusPromptMax = 2000
 
+export const pulseBriefConfigsCreateBodyAccountabilityMinAgeDaysMin = -2147483648
+export const pulseBriefConfigsCreateBodyAccountabilityMinAgeDaysMax = 2147483647
+
 export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(pulseBriefConfigsCreateBodyNameMax).describe('Human-readable name for this brief focus.'),
     focus_prompt: zod
@@ -41,11 +44,22 @@ export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false.'
         ),
+    accountability_min_age_days: zod
+        .number()
+        .min(pulseBriefConfigsCreateBodyAccountabilityMinAgeDaysMin)
+        .max(pulseBriefConfigsCreateBodyAccountabilityMinAgeDaysMax)
+        .optional()
+        .describe(
+            'How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.'
+        ),
 })
 
 export const pulseBriefConfigsUpdateBodyNameMax = 400
 
 export const pulseBriefConfigsUpdateBodyFocusPromptMax = 2000
+
+export const pulseBriefConfigsUpdateBodyAccountabilityMinAgeDaysMin = -2147483648
+export const pulseBriefConfigsUpdateBodyAccountabilityMinAgeDaysMax = 2147483647
 
 export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(pulseBriefConfigsUpdateBodyNameMax).describe('Human-readable name for this brief focus.'),
@@ -75,11 +89,22 @@ export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false.'
         ),
+    accountability_min_age_days: zod
+        .number()
+        .min(pulseBriefConfigsUpdateBodyAccountabilityMinAgeDaysMin)
+        .max(pulseBriefConfigsUpdateBodyAccountabilityMinAgeDaysMax)
+        .optional()
+        .describe(
+            'How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.'
+        ),
 })
 
 export const pulseBriefConfigsPartialUpdateBodyNameMax = 400
 
 export const pulseBriefConfigsPartialUpdateBodyFocusPromptMax = 2000
+
+export const pulseBriefConfigsPartialUpdateBodyAccountabilityMinAgeDaysMin = -2147483648
+export const pulseBriefConfigsPartialUpdateBodyAccountabilityMinAgeDaysMax = 2147483647
 
 export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -112,6 +137,14 @@ export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false.'
+        ),
+    accountability_min_age_days: zod
+        .number()
+        .min(pulseBriefConfigsPartialUpdateBodyAccountabilityMinAgeDaysMin)
+        .max(pulseBriefConfigsPartialUpdateBodyAccountabilityMinAgeDaysMax)
+        .optional()
+        .describe(
+            'How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.'
         ),
 })
 

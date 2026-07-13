@@ -110,6 +110,11 @@ def _get_opportunity(team) -> Opportunity:
 
 
 @sync_to_async
+def _get_brief_accountability(team, brief_id) -> list:
+    return ProductBrief.objects.for_team(team.pk).get(id=brief_id).accountability
+
+
+@sync_to_async
 def _create_opportunity(team, fingerprint: str) -> Opportunity:
     with team_scope(team.pk, canonical=True):
         return Opportunity.objects.create(team=team, kind="build", title="t", summary="s", fingerprint=fingerprint)
@@ -262,9 +267,7 @@ async def test_synthesize_activity_collects_accountability_for_any_item_kind(tea
     env = ActivityEnvironment()
     item = SourceItem(source="stub", kind=kind, title="t", description="d", fingerprint_hint="abc:0")
     with (
-        patch(
-            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
-        ) as synth_mock,
+        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
         patch(
             "products.pulse.backend.temporal.activities.collect_accountability", return_value=[_STATUS_LINE]
         ) as collect_mock,
@@ -275,8 +278,9 @@ async def test_synthesize_activity_collects_accountability_for_any_item_kind(tea
             SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
         )
     assert status == ProductBrief.Status.READY
-    assert synth_mock.call_args.kwargs["status_lines"] == [_STATUS_LINE]
     collect_mock.assert_called_once()
+    # The collected re-scores are persisted structurally on the brief for the frontend to render.
+    assert await _get_brief_accountability(team, brief.id) == [dataclasses.asdict(_STATUS_LINE)]
 
 
 async def test_synthesize_activity_survives_accountability_collection_failure(team, user) -> None:
@@ -284,9 +288,7 @@ async def test_synthesize_activity_survives_accountability_collection_failure(te
     env = ActivityEnvironment()
     item = SourceItem(source="stub", kind="context", title="t", description="d", fingerprint_hint="abc:0")
     with (
-        patch(
-            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
-        ) as synth_mock,
+        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
         patch(
             "products.pulse.backend.temporal.activities.collect_accountability",
             side_effect=RuntimeError("re-score exploded"),
@@ -298,7 +300,8 @@ async def test_synthesize_activity_survives_accountability_collection_failure(te
             SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
         )
     assert status == ProductBrief.Status.READY
-    assert synth_mock.call_args.kwargs["status_lines"] == []
+    # A blown-up re-score degrades to an empty accountability section, not a failed brief.
+    assert await _get_brief_accountability(team, brief.id) == []
 
 
 async def test_synthesize_activity_emits_signal_per_new_opportunity(team, user) -> None:

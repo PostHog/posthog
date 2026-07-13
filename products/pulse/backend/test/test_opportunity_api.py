@@ -115,6 +115,49 @@ class TestOpportunityAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Must be one of" in str(response.json())
 
+    def test_double_submit_transitions_exactly_once(self) -> None:
+        # Two dismiss calls on the same open opportunity: the conditional update lets exactly one
+        # win. The loser must 400 and fire no event — a read-then-write guard would let both pass.
+        opportunity = self._opportunity(opportunity_status=Opportunity.Status.OPEN)
+        base = f"/api/projects/{self.team.id}/pulse/opportunities/{opportunity.id}/dismiss/"
+
+        first = self.client.post(base)
+        second = self.client.post(base)
+
+        assert {first.status_code, second.status_code} == {status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST}
+        opportunity.refresh_from_db()
+        assert opportunity.status == Opportunity.Status.DISMISSED
+        self.mock_report.assert_called_once()
+
+    def test_repeated_filter_param_uses_last_value(self) -> None:
+        # Django's QueryDict.get returns the last repeated value, so ?status=open&status=dismissed
+        # silently filters by "dismissed". Documented here so a change to that is a conscious one.
+        self._opportunity(opportunity_status=Opportunity.Status.OPEN)
+        dismissed = self._opportunity(opportunity_status=Opportunity.Status.DISMISSED)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/pulse/opportunities/?status=open&status=dismissed")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(dismissed.id)]
+
+    def test_evidence_serializes_as_typed_refs(self) -> None:
+        # The typed evidence serializer must round-trip real evidence content without erroring —
+        # a missing/renamed field would 500 the retrieve that the frontend depends on.
+        opportunity = Opportunity.objects.for_team(self.team.pk).create(
+            team=self.team,
+            kind=Opportunity.Kind.BUILD,
+            status=Opportunity.Status.OPEN,
+            title="t",
+            summary="s",
+            fingerprint=f"build:{uuid.uuid4()}",
+            evidence=[{"type": "insight", "ref": "abc123", "label": "Pageviews"}],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/pulse/opportunities/{opportunity.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["evidence"] == [{"type": "insight", "ref": "abc123", "label": "Pageviews"}]
+
     def test_opportunities_are_team_scoped(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
         mine = self._opportunity()

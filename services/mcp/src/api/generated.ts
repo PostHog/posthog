@@ -239,6 +239,28 @@ export namespace Schemas {
       readonly last_modified_by: UserBasic;
     }
 
+    export interface AccountabilityStatusLine {
+      /** ID of the opportunity this status line re-scores. */
+      opportunity_id: string;
+      /** Opportunity kind at the time the brief was generated. */
+      kind: string;
+      /** Opportunity lifecycle status at the time the brief was generated. */
+      status: string;
+      /** Opportunity title. */
+      title: string;
+      /** How many days ago the opportunity was first suggested. */
+      age_days: number;
+      /** Human-readable metric rate at suggestion time. */
+      baseline_summary: string;
+      /** Human-readable metric rate now, or "metric no longer available" when it can't be re-read. */
+      current_summary: string;
+      /**
+         * Percentage change from the baseline rate to the current rate; null when it can't be computed.
+         * @nullable
+         */
+      delta_pct: number | null;
+    }
+
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
 
@@ -11653,6 +11675,12 @@ export namespace Schemas {
       enabled?: boolean;
       /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
       deleted?: boolean;
+      /**
+         * How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      accountability_min_age_days?: number;
       readonly created_at: string;
       /** User who created the config. */
       readonly created_by: UserBasic | null;
@@ -21296,6 +21324,45 @@ export namespace Schemas {
       AiEmbedding: '$ai_embedding',
       AiTrace: '$ai_trace',
     } as const;
+
+    /**
+     * * `insight` - insight
+     * * `dashboard` - dashboard
+     * * `annotation` - annotation
+     * * `alert` - alert
+     * * `subscription` - subscription
+     * * `signal_report` - signal_report
+     * * `opportunity` - opportunity
+     */
+    export type EvidenceRefTypeEnum = typeof EvidenceRefTypeEnum[keyof typeof EvidenceRefTypeEnum];
+
+
+    export const EvidenceRefTypeEnum = {
+      Insight: 'insight',
+      Dashboard: 'dashboard',
+      Annotation: 'annotation',
+      Alert: 'alert',
+      Subscription: 'subscription',
+      SignalReport: 'signal_report',
+      Opportunity: 'opportunity',
+    } as const;
+
+    export interface EvidenceRef {
+      /** The kind of PostHog resource this ref points at (insight, dashboard, annotation, ...).
+       *
+       * * `insight` - insight
+       * * `dashboard` - dashboard
+       * * `annotation` - annotation
+       * * `alert` - alert
+       * * `subscription` - subscription
+       * * `signal_report` - signal_report
+       * * `opportunity` - opportunity */
+      type: EvidenceRefTypeEnum;
+      /** Stable identifier of the referenced resource (e.g. an insight short id). */
+      ref: string;
+      /** Human-readable label for the resource, if one was captured. */
+      label: string;
+    }
 
     export interface ExecuteTestClusterRequest {
       /**
@@ -30971,8 +31038,6 @@ export namespace Schemas {
       Remove: 'remove',
     } as const;
 
-    export type OpportunityEvidenceItem = { [key: string]: unknown };
-
     /**
      * * `build` - Build
      * * `fix` - Fix
@@ -31025,7 +31090,7 @@ export namespace Schemas {
       /** The concrete next step suggested for the team. */
       readonly suggested_action: string;
       /** Evidence refs backing the opportunity: type, ref, and label per entry. */
-      readonly evidence: readonly OpportunityEvidenceItem[];
+      readonly evidence: readonly EvidenceRef[];
       /**
          * The brief this opportunity first surfaced in, if any.
          * @nullable
@@ -36914,6 +36979,12 @@ export namespace Schemas {
       enabled?: boolean;
       /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
       deleted?: boolean;
+      /**
+         * How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      accountability_min_age_days?: number;
       readonly created_at?: string;
       /** User who created the config. */
       readonly created_by?: UserBasic | null;
@@ -43757,6 +43828,8 @@ export namespace Schemas {
       readonly period_days: number;
       /** Generated brief sections: kind, title, markdown, citations, confidence. */
       readonly sections: readonly ProductBriefSectionsItem[];
+      /** Then-vs-now re-scores of past opportunities surfaced with this brief. */
+      readonly accountability: readonly AccountabilityStatusLine[];
       /** Names of the brief sources that contributed items. */
       readonly sources_used: readonly string[];
       /**

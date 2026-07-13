@@ -63,6 +63,7 @@ class BriefConfigSerializer(serializers.ModelSerializer):
             "anchors",
             "enabled",
             "deleted",
+            "accountability_min_age_days",
             "created_at",
             "created_by",
             "updated_at",
@@ -77,7 +78,28 @@ class BriefConfigSerializer(serializers.ModelSerializer):
             "deleted": {
                 "help_text": "Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false."
             },
+            "accountability_min_age_days": {
+                "help_text": "How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7."
+            },
         }
+
+
+class AccountabilityStatusLineSerializer(serializers.Serializer):
+    # A then-vs-now re-score of a past opportunity, computed deterministically in code (see
+    # generation/accountability.OpportunityStatusLine) and persisted on the brief.
+    opportunity_id = serializers.CharField(help_text="ID of the opportunity this status line re-scores.")
+    kind = serializers.CharField(help_text="Opportunity kind at the time the brief was generated.")
+    status = serializers.CharField(help_text="Opportunity lifecycle status at the time the brief was generated.")
+    title = serializers.CharField(help_text="Opportunity title.")
+    age_days = serializers.IntegerField(help_text="How many days ago the opportunity was first suggested.")
+    baseline_summary = serializers.CharField(help_text="Human-readable metric rate at suggestion time.")
+    current_summary = serializers.CharField(
+        help_text='Human-readable metric rate now, or "metric no longer available" when it can\'t be re-read.'
+    )
+    delta_pct = serializers.FloatField(
+        allow_null=True,
+        help_text="Percentage change from the baseline rate to the current rate; null when it can't be computed.",
+    )
 
 
 class ProductBriefSerializer(serializers.ModelSerializer):
@@ -86,6 +108,11 @@ class ProductBriefSerializer(serializers.ModelSerializer):
         child=serializers.DictField(),
         read_only=True,
         help_text="Generated brief sections: kind, title, markdown, citations, confidence.",
+    )
+    accountability = AccountabilityStatusLineSerializer(
+        many=True,
+        read_only=True,
+        help_text="Then-vs-now re-scores of past opportunities surfaced with this brief.",
     )
     sources_used = serializers.ListField(
         child=serializers.CharField(),
@@ -102,6 +129,7 @@ class ProductBriefSerializer(serializers.ModelSerializer):
             "trigger",
             "period_days",
             "sections",
+            "accountability",
             "sources_used",
             "error",
             "created_at",
@@ -121,10 +149,11 @@ class ProductBriefSerializer(serializers.ModelSerializer):
 
 
 class ProductBriefListSerializer(ProductBriefSerializer):
-    # The list view stays light: full section markdown is only shipped on retrieve.
-    # Omitting "sections" from fields is sufficient — DRF drops declared fields not listed there.
+    # The list view stays light: full section markdown and accountability re-scores are only
+    # shipped on retrieve. Omitting them from fields is sufficient — DRF drops declared fields
+    # not listed there.
     class Meta(ProductBriefSerializer.Meta):
-        fields = [f for f in ProductBriefSerializer.Meta.fields if f != "sections"]
+        fields = [f for f in ProductBriefSerializer.Meta.fields if f not in {"sections", "accountability"}]
         read_only_fields = fields
 
 

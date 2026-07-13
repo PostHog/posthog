@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -8,7 +9,7 @@ import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { CitationTag } from './CitationTag'
 import type { OpportunityApi } from './generated/api.schemas'
 import { OpportunityKindEnumApi, OpportunityStatusEnumApi } from './generated/api.schemas'
-import { parseOpportunityEvidence, pulseLogic, transitionsForStatus } from './pulseLogic'
+import { opportunitiesLogic, transitionsForStatus } from './opportunitiesLogic'
 
 // Exhaustive over the enums so a new backend value fails compilation here instead of rendering unstyled.
 const STATUS_TAG_TYPES: Record<OpportunityStatusEnumApi, LemonTagType> = {
@@ -25,7 +26,8 @@ const KIND_TAG_TYPES: Record<OpportunityKindEnumApi, LemonTagType> = {
 }
 
 export function OpportunitiesPanel(): JSX.Element {
-    const { opportunities, opportunitiesLoading } = useValues(pulseLogic)
+    const { opportunities, opportunitiesLoading, opportunitiesLoadFailed } = useValues(opportunitiesLogic)
+    const { loadOpportunities } = useActions(opportunitiesLogic)
 
     const columns: LemonTableColumns<OpportunityApi> = [
         {
@@ -61,7 +63,7 @@ export function OpportunitiesPanel(): JSX.Element {
             key: 'evidence',
             render: (_, opportunity) => (
                 <div className="flex flex-wrap gap-1">
-                    {parseOpportunityEvidence(opportunity.evidence).map((citation) => (
+                    {opportunity.evidence.map((citation) => (
                         <CitationTag key={`${citation.type}:${citation.ref}`} citation={citation} />
                     ))}
                 </div>
@@ -75,6 +77,16 @@ export function OpportunitiesPanel(): JSX.Element {
         },
     ]
 
+    // A failed load shows an error with a retry instead of the "run a brief" empty state, which
+    // would otherwise contradict the error toast and send the user down the wrong path.
+    if (opportunitiesLoadFailed) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadOpportunities() }}>
+                Loading opportunities failed.
+            </LemonBanner>
+        )
+    }
+
     return (
         <LemonTable
             dataSource={opportunities}
@@ -87,8 +99,8 @@ export function OpportunitiesPanel(): JSX.Element {
 }
 
 function OpportunityRowActions({ opportunity }: { opportunity: OpportunityApi }): JSX.Element | null {
-    const { transitionsInFlight } = useValues(pulseLogic)
-    const { transitionOpportunity } = useActions(pulseLogic)
+    const { transitionsInFlight } = useValues(opportunitiesLogic)
+    const { transitionOpportunity } = useActions(opportunitiesLogic)
 
     const available = transitionsForStatus(opportunity.status)
     if (available.length === 0) {

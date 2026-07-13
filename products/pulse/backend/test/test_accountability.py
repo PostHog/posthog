@@ -1,4 +1,5 @@
 import uuid
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import timedelta
 from typing import Any
 
@@ -275,3 +276,36 @@ class TestCollectAccountability(BaseTest):
         lines = collect_accountability(self.team)
 
         assert [line.opportunity_id for line in lines] == [str(opportunity.id)]
+
+    @patch(_CALCULATE_PATH)
+    def test_min_age_days_is_configurable(self, mock_calculate: MagicMock) -> None:
+        # An opportunity older than the default gate but younger than a raised one must defer.
+        mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [70.0] * 14}])
+        self._opportunity(created_days_ago=10)
+
+        assert len(collect_accountability(self.team, min_age_days=30)) == 0
+        assert len(collect_accountability(self.team, min_age_days=7)) == 1
+
+    def test_insight_timeout_degrades_to_metric_unavailable(self) -> None:
+        # A re-score that exceeds the per-insight timeout degrades the line, never blanking or
+        # hanging the whole section.
+        self._opportunity()
+        with patch(
+            "products.pulse.backend.generation.accountability._execute_within_timeout",
+            side_effect=FuturesTimeoutError(),
+        ):
+            lines = collect_accountability(self.team)
+
+        assert len(lines) == 1
+        assert lines[0].current_summary == METRIC_UNAVAILABLE
+        assert lines[0].delta_pct is None
+
+    @patch(_CALCULATE_PATH)
+    def test_cumulative_budget_stops_rescoring(self, mock_calculate: MagicMock) -> None:
+        # With the wall-clock budget exhausted, re-scoring stops rather than eating the LLM's slice.
+        mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [70.0] * 14}])
+        self._opportunity()
+        with patch("products.pulse.backend.generation.accountability._RESCORE_BUDGET_SECONDS", 0):
+            lines = collect_accountability(self.team)
+
+        assert lines == []

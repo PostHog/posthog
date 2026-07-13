@@ -10,7 +10,7 @@ from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
-from products.pulse.backend.generation.accountability import OpportunityStatusLine, collect_accountability
+from products.pulse.backend.generation.accountability import MIN_AGE_DAYS, OpportunityStatusLine, collect_accountability
 from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
@@ -98,7 +98,10 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
     # Best-effort: a broken re-score degrades to no accountability section.
     if items:
         try:
-            status_lines = await database_sync_to_async(collect_accountability, thread_sensitive=False)(brief.team)
+            min_age_days = brief.config.accountability_min_age_days if brief.config else MIN_AGE_DAYS
+            status_lines = await database_sync_to_async(collect_accountability, thread_sensitive=False)(
+                brief.team, min_age_days
+            )
         except Exception:
             logger.exception("pulse_accountability_failed", team_id=brief.team_id, brief_id=str(brief.id))
     out = await synthesize_brief(
@@ -107,15 +110,13 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         config=brief.config,
         items=items,
         period_days=brief.period_days,
-        status_lines=status_lines,
     )
     created = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
-        brief=brief, out=out, items=items
+        brief=brief, out=out, items=items, status_lines=status_lines
     )
     await _emit_opportunity_signals(brief, out, created)
     try:
-        # ph_scoped_capture (not posthoganalytics.capture): outside request context the global
-        # client's flush may never run before the worker moves on, silently losing the event.
+        # ph_scoped_capture, not posthoganalytics.capture: events fire outside request context.
         await database_sync_to_async(_report_brief_generated, thread_sensitive=False)(brief, len(created))
     except Exception:
         logger.exception("pulse_brief_generated_capture_failed", team_id=brief.team_id, brief_id=str(brief.id))

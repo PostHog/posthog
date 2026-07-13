@@ -44,23 +44,14 @@ def calculate_insight_results(insight: Insight, team: Team) -> list[Any]:
 
 
 def series_daily_values(series_result: Any, period_days: int) -> list[float] | None:
-    """Shape-check one calculation series and return its trailing 2×period_days daily values.
-
-    None means a non-trends result shape. Slices before float conversion so an insight with a
-    long history doesn't pay for converting the whole series.
-    """
+    # None means a non-trends shape. Slices before float conversion so a long history isn't converted whole.
     if not isinstance(series_result, dict) or "data" not in series_result:
         return None
     return [float(v) for v in series_result["data"][-2 * period_days :]]
 
 
 def split_score_windows(values: list[float]) -> tuple[list[float], list[float]] | None:
-    """Split a pre-trimmed daily series into (baseline, current) halves.
-
-    Shared by gathering and accountability re-scoring so "current" always means the same window
-    math the movement was originally scored with. Callers trim the series to 2×period_days via
-    series_daily_values before calling this. Returns None when there is too little data.
-    """
+    # Split into (baseline, current) halves. Callers pre-trim to 2×period_days via series_daily_values.
     if len(values) % 2:
         values = values[1:]  # drop the oldest sample so the two windows compare equal lengths
     if len(values) < 2:

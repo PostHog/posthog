@@ -1,4 +1,9 @@
+import time
 from collections.abc import Callable
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FuturesTimeoutError,
+)
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -22,6 +27,11 @@ logger = structlog.get_logger(__name__)
 MIN_AGE_DAYS = 7
 MAX_STATUS_LINES = 10
 METRIC_UNAVAILABLE = "metric no longer available"
+
+# A single stuck insight query can't hang the shared synthesize activity: cap each execution,
+# and cap the whole re-scoring pass so the LLM call after it keeps its slice of the 5-min budget.
+_INSIGHT_TIMEOUT_SECONDS = 20
+_RESCORE_BUDGET_SECONDS = 45
 
 
 @dataclass(frozen=True)
@@ -63,15 +73,34 @@ class _InsightResultsCache:
             # A raising execution is deliberately not cached: the per-line handler logs it,
             # and a retry on a later line still counts against the attempt budget.
             self.attempts += 1
-            self._results[insight.short_id] = calculate_insight_results(insight, self._team)
+            self._results[insight.short_id] = _execute_within_timeout(insight, self._team)
         return self._results[insight.short_id]
 
 
-def collect_accountability(team: Team, now_fn: Callable[[], datetime] = timezone.now) -> list[OpportunityStatusLine]:
+def _execute_within_timeout(insight: Insight, team: Team) -> list[Any]:
+    """Run a blocking insight execution with a hard wall-clock cap.
+
+    ThreadPoolExecutor, not asyncio: the collector runs sync inside a worker thread, so there is
+    no event loop to wait_for on. A timed-out query keeps running in the background — we stop
+    waiting for it and let the line degrade to METRIC_UNAVAILABLE (shutdown(wait=False) so the
+    hung query never blocks the collector).
+    """
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(calculate_insight_results, insight, team)
+    try:
+        return future.result(timeout=_INSIGHT_TIMEOUT_SECONDS)
+    finally:
+        executor.shutdown(wait=False)
+
+
+def collect_accountability(
+    team: Team, min_age_days: int = MIN_AGE_DAYS, now_fn: Callable[[], datetime] = timezone.now
+) -> list[OpportunityStatusLine]:
     """Re-score past opportunities against their creation-time baselines.
 
-    Team-wide, not config-scoped: opportunities carry no config affinity in the model, so every
-    brief sees the same accountability list (per-focus scoping is a recorded follow-up).
+    The opportunity set is team-wide (opportunities carry no config affinity in the model), but
+    the age gate is caller-supplied so a slower-cadence config can wait longer before grading its
+    own suggestions.
     """
     now = now_fn()
     rows = (
@@ -79,17 +108,23 @@ def collect_accountability(team: Team, now_fn: Callable[[], datetime] = timezone
         # isnull filters are the SQL half of the usability gate; _has_usable_refs re-checks the
         # JSON shapes in Python. The 2x overscan bounds the fetch — rows are permanent dedup
         # tombstones, so an uncapped scan grows with team history.
-        .filter(created_at__lte=now - timedelta(days=MIN_AGE_DAYS), metric_ref__isnull=False, baseline__isnull=False)
+        .filter(created_at__lte=now - timedelta(days=min_age_days), metric_ref__isnull=False, baseline__isnull=False)
         .order_by("-created_at")[: MAX_STATUS_LINES * 2]
     )
     usable = [row for row in rows if _has_usable_refs(row)]
     insights = _insights_by_short_id(team, usable)
     results_cache = _InsightResultsCache(team)
     lines: list[OpportunityStatusLine] = []
+    started_at = time.monotonic()
     for opportunity in usable:
         # The attempt budget also caps blocking insight executions when lines keep failing —
         # failed lines don't count toward the line cap, but their executions still cost time.
         if len(lines) >= MAX_STATUS_LINES or results_cache.attempts >= MAX_STATUS_LINES:
+            break
+        # A cumulative wall-clock ceiling on top of the per-insight timeout: many slow-but-not-
+        # timing-out queries must still leave the LLM call its share of the 5-minute activity.
+        if time.monotonic() - started_at > _RESCORE_BUDGET_SECONDS:
+            logger.warning("pulse_accountability_budget_exceeded", team_id=team.id, scored=len(lines))
             break
         try:
             lines.append(_status_line(opportunity, now, insights, results_cache))
@@ -114,10 +149,11 @@ def _has_usable_refs(opportunity: Opportunity) -> bool:
 
 def _insights_by_short_id(team: Team, opportunities: list[Opportunity]) -> dict[str, Insight]:
     short_ids = {opportunity.metric_ref["insight_short_id"] for opportunity in opportunities}
-    insights: dict[str, Insight] = {}
-    for insight in Insight.objects.filter(team=team, short_id__in=short_ids, deleted=False).order_by("id"):
-        insights.setdefault(insight.short_id, insight)  # lowest id wins when a short_id has duplicates
-    return insights
+    # (team_id, short_id) is unique on the insight table, so each short_id resolves to at most one row.
+    return {
+        insight.short_id: insight
+        for insight in Insight.objects.filter(team=team, short_id__in=short_ids, deleted=False)
+    }
 
 
 def _status_line(
@@ -174,7 +210,12 @@ def _current_window(
     insight = insights.get(opportunity.metric_ref["insight_short_id"])
     if insight is None:
         return None
-    results = results_cache.results_for(insight)
+    try:
+        results = results_cache.results_for(insight)
+    except FuturesTimeoutError:
+        # A stuck query degrades to "metric no longer available", not a blanked activity.
+        logger.warning("pulse_accountability_insight_timeout", insight_short_id=insight.short_id)
+        return None
     series_index = int(opportunity.metric_ref.get("series_index", 0))
     if not 0 <= series_index < len(results):
         return None
