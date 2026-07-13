@@ -185,10 +185,12 @@ def get_group_types_for_project(project_id: int, *, caller_tag: str | None = Non
         return cached
 
     try:
-        client = require_personhog_client()
+        # require_personhog_client() runs inside the personhog_call fn so an
+        # unconfigured client (RuntimeError) is wrapped as DatabaseError and hits
+        # the fallback below, rather than escaping uncaught.
         result = personhog_call(
             "get_group_types_for_project",
-            lambda: _fetch_group_types_via_personhog(client, project_id),
+            lambda: _fetch_group_types_via_personhog(require_personhog_client(), project_id),
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_project'}",
             reraise_as=DatabaseError,
         )
@@ -224,10 +226,9 @@ def _fetch_group_types_for_team_via_personhog(client: PersonHogClient, team_id: 
 def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> list[dict[str, Any]]:
     """Fetch group types for a team via personhog."""
     try:
-        client = require_personhog_client()
         return personhog_call(
             "get_group_types_for_team",
-            lambda: _fetch_group_types_for_team_via_personhog(client, team_id),
+            lambda: _fetch_group_types_for_team_via_personhog(require_personhog_client(), team_id),
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_team'}",
             reraise_as=DatabaseError,
         )
@@ -375,12 +376,11 @@ def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list
     from posthog.personhog_client.proto import CountGroupTypeMappingsRequest
 
     try:
-        client = require_personhog_client()
         return personhog_call(
             "count_group_type_mappings_per_team",
             lambda: [
                 {"team_id": c.team_id, "total": c.count}
-                for c in client.count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
+                for c in require_personhog_client().count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
             ],
             caller_tag=f"group_type_mapping/{caller_tag or 'count_group_type_mappings_per_team'}",
             reraise_as=DatabaseError,
