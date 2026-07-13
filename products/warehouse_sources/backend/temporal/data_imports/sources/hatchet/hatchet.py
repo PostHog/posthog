@@ -1,10 +1,11 @@
+import re
 import json
 import base64
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -13,6 +14,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.settings import (
     FULL_REFRESH_SINCE_DAYS,
@@ -24,8 +26,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.se
 # claim we prefer when the user leaves the host blank.
 DEFAULT_HATCHET_HOST = "https://cloud.onhatchet.run"
 
+# Returned when the resolved host resolves to a private/internal address on cloud (SSRF guard).
+HOST_NOT_ALLOWED_ERROR = "Hatchet host is not allowed"
+
 
 class HatchetRetryableError(Exception):
+    pass
+
+
+class HatchetHostNotAllowedError(Exception):
+    """The resolved host is blocked (SSRF guard) or tried to redirect the authenticated request."""
+
     pass
 
 
@@ -63,15 +74,35 @@ def _decode_token_claims(token: str) -> dict[str, Any]:
         raise HatchetTokenError("Could not decode the Hatchet API token") from e
 
 
+def _normalize_origin(raw: str) -> str:
+    """Reduce a host or URL to a clean `scheme://host[:port]` origin.
+
+    Any path, query, or fragment is dropped so a crafted host value can't extend or retarget the
+    fixed Hatchet API path. A bare host gains an https scheme; an explicit http/https scheme is
+    preserved (self-hosted instances may run plaintext on a private network)."""
+    raw = raw.strip()
+    if not re.match(r"^https?://", raw, flags=re.IGNORECASE):
+        raw = f"https://{raw}"
+    parsed = urlparse(raw)
+    scheme = parsed.scheme.lower()
+    scheme = scheme if scheme in ("http", "https") else "https"
+    return f"{scheme}://{parsed.netloc}"
+
+
+def _host_from_url(base_url: str) -> str:
+    return (urlparse(base_url).hostname or "").lower()
+
+
 def resolve_connection(api_token: str, host: str | None = None, tenant_id: str | None = None) -> HatchetConnection:
     """Resolve the base URL and tenant id for the API calls.
 
     Both can be supplied explicitly (self-hosted overrides), otherwise they are read from the
     token's `server_url` / `sub` claims. The explicit host still falls back to the Cloud default so
-    a token without a `server_url` claim keeps working."""
+    a token without a `server_url` claim keeps working. The resolved host — from the field or the
+    claim — is normalized to a clean origin; callers still SSRF-check it before sending the token."""
     claims = _decode_token_claims(api_token)
 
-    resolved_host = (host or claims.get("server_url") or DEFAULT_HATCHET_HOST).strip().rstrip("/")
+    resolved_host = _normalize_origin(host or claims.get("server_url") or DEFAULT_HATCHET_HOST)
     resolved_tenant = (tenant_id or claims.get("sub") or "").strip()
 
     if not resolved_tenant:
@@ -177,12 +208,19 @@ def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
+def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
     response = session.get(url, headers=headers, timeout=60)
 
     # 429 and transient 5xx are retryable; auth/permission errors below are not.
     if response.status_code == 429 or response.status_code >= 500:
         raise HatchetRetryableError(f"Hatchet API error (retryable): status={response.status_code}, url={url}")
+
+    # Redirects are disabled as an SSRF boundary; a 3xx means the host tried to bounce the
+    # authenticated request elsewhere, so fail instead of parsing (or following) it.
+    if 300 <= response.status_code < 400:
+        raise HatchetHostNotAllowedError(
+            f"Hatchet API returned an unexpected redirect: status={response.status_code}, url={url}"
+        )
 
     if not response.ok:
         logger.error(f"Hatchet API error: status={response.status_code}, body={response.text}, url={url}")
@@ -191,7 +229,9 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
     return response.json()
 
 
-def validate_credentials(api_token: str, host: str | None, tenant_id: str | None) -> tuple[bool, str | None]:
+def validate_credentials(
+    api_token: str, host: str | None, tenant_id: str | None, team_id: int | None = None
+) -> tuple[bool, str | None]:
     """Probe the token by listing event keys — the cheapest tenant-scoped read with no required
     filters. A 200 confirms the token is genuine and scoped to the tenant."""
     try:
@@ -199,9 +239,21 @@ def validate_credentials(api_token: str, host: str | None, tenant_id: str | None
     except HatchetTokenError as e:
         return False, str(e)
 
+    # The host (from the `host` field or the token's `server_url` claim) is user-controlled and the
+    # bearer token is sent to it, so block hosts that resolve to private/internal addresses (SSRF).
+    # Only enforced on cloud — see _is_host_safe.
+    if team_id is not None:
+        host_ok, host_err = _is_host_safe(_host_from_url(connection.base_url), team_id)
+        if not host_ok:
+            return False, host_err or HOST_NOT_ALLOWED_ERROR
+
     url = f"{connection.base_url}/api/v1/stable/tenants/{connection.tenant_id}/events/keys"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        # Redact the token from captured samples/logs, and never follow a redirect off the
+        # validated host (both defense-in-depth alongside the host check above).
+        response = make_tracked_session(redact_values=(api_token,), allow_redirects=False).get(
+            url, headers=_get_headers(api_token), timeout=10
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -241,13 +293,22 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[HatchetResumeConfig],
+    team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[Any]:
     config = HATCHET_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
+
+    # Re-check at run time (not just at source-create): the host could have been edited or now
+    # resolve to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+    host_ok, host_err = _is_host_safe(_host_from_url(connection.base_url), team_id)
+    if not host_ok:
+        raise HatchetHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session()
+    # Redact the token from captured samples/logs and never follow a redirect off the validated host.
+    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
 
     params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
     path = config.path.format(tenant=connection.tenant_id)
@@ -274,7 +335,14 @@ def get_rows(
         url = _build_url(connection.base_url, path, page_params)
         data = _fetch_page(session, url, headers, logger)
 
-        rows = data.get(config.response_data_path, []) if isinstance(data, dict) else []
+        # List endpoints wrap results as `{"rows": [...]}`, but some (e.g. event keys) return a bare
+        # top-level array; take that directly so those endpoints don't silently sync zero rows.
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict):
+            rows = data.get(config.response_data_path, [])
+        else:
+            rows = []
         if not isinstance(rows, list) or not rows:
             break
 
@@ -309,6 +377,7 @@ def hatchet_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[HatchetResumeConfig],
+    team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -322,6 +391,7 @@ def hatchet_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            team_id=team_id,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),

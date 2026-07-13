@@ -589,8 +589,6 @@ doesn't conflict with concurrent PRs.
 - gusto
 - harness
 - harvey
-- hatchet
-- healthchecks
 - heap
 - helicone
 - helpscout

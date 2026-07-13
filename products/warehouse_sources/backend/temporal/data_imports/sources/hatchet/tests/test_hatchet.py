@@ -10,6 +10,7 @@ import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet import (
     HatchetConnection,
+    HatchetHostNotAllowedError,
     HatchetResumeConfig,
     HatchetTokenError,
     _build_initial_params,
@@ -92,7 +93,9 @@ class TestResolveSince:
 
         since = _resolve_since(config, should_use_incremental_field=True, db_incremental_field_last_value=watermark)
 
-        assert since == watermark - config.incremental_lookback
+        lookback = config.incremental_lookback
+        assert lookback is not None
+        assert since == watermark - lookback
 
     def test_future_watermark_capped_to_now(self):
         config = HATCHET_ENDPOINTS["workflow_runs"]
@@ -203,7 +206,7 @@ class TestGetRows:
             return_value=page,
         ) as fetch:
             rows = _collect(
-                get_rows("tok", self._connection(), "workflow_runs", logger, manager)  # type: ignore[arg-type]
+                get_rows("tok", self._connection(), "workflow_runs", logger, manager, team_id=1)  # type: ignore[arg-type]
             )
 
         assert fetch.call_count == 1
@@ -230,7 +233,7 @@ class TestGetRows:
             side_effect=fake_fetch,
         ):
             rows = _collect(
-                get_rows("tok", self._connection(), "workflow_runs", logger, manager)  # type: ignore[arg-type]
+                get_rows("tok", self._connection(), "workflow_runs", logger, manager, team_id=1)  # type: ignore[arg-type]
             )
 
         assert len(rows) == 200
@@ -250,11 +253,63 @@ class TestGetRows:
             "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
             side_effect=fake_fetch,
         ):
-            _collect(get_rows("tok", self._connection(), "workflow_runs", logger, manager, True, None))  # type: ignore[arg-type]
+            _collect(get_rows("tok", self._connection(), "workflow_runs", logger, manager, 1, True, None))  # type: ignore[arg-type]
 
         assert "offset=100" in captured_urls[0]
         # The window the interrupted run started on is replayed, not recomputed from a new watermark.
         assert "since=2026-01-01T00%3A00%3A00.000000Z" in captured_urls[0]
+
+    def test_syncs_bare_top_level_array_response(self):
+        # event_keys returns a top-level JSON array, not a `{"rows": [...]}` envelope; it must still
+        # sync instead of silently loading zero rows.
+        manager = FakeManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
+            return_value=["user:signed_up", "billing:charged"],
+        ):
+            rows = _collect(
+                get_rows("tok", self._connection(), "event_keys", logger, manager, team_id=1)  # type: ignore[arg-type]
+            )
+
+        assert rows == [{"key": "user:signed_up"}, {"key": "billing:charged"}]
+
+    def test_unsafe_host_raises_before_any_fetch(self):
+        manager = FakeManager()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
+                return_value=(False, "Hosts with internal IP addresses are not allowed"),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
+            ) as fetch,
+        ):
+            with pytest.raises(HatchetHostNotAllowedError):
+                _collect(get_rows("tok", self._connection(), "workflow_runs", logger, manager, team_id=99))  # type: ignore[arg-type]
+
+        fetch.assert_not_called()
+
+    def test_session_disables_redirects_and_redacts_token(self):
+        # The bearer token is sent to a user-controlled host, so the session must never follow a
+        # redirect off it and must redact the token from captured samples/logs.
+        manager = FakeManager()
+        page = {"rows": [_row("a")], "pagination": {"current_page": 1, "num_pages": 1}}
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.make_tracked_session"
+            ) as session,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
+                return_value=page,
+            ),
+        ):
+            _collect(get_rows("tok", self._connection(), "workflow_runs", logger, manager, team_id=1))  # type: ignore[arg-type]
+
+        assert session.call_args.kwargs["allow_redirects"] is False
+        assert session.call_args.kwargs["redact_values"] == ("tok",)
 
 
 class TestValidateCredentials:
@@ -282,6 +337,25 @@ class TestValidateCredentials:
             "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.make_tracked_session"
         ) as session:
             valid, message = validate_credentials("garbage", None, None)
+
+        assert valid is False
+        assert message
+        session.assert_not_called()
+
+    def test_unsafe_host_fails_before_network_call(self):
+        # A host resolving to an internal address must be rejected before the token is ever sent.
+        token = _make_token({"sub": "tenant-1", "server_url": "https://internal.example"})
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
+                return_value=(False, "Hosts with internal IP addresses are not allowed"),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.make_tracked_session"
+            ) as session,
+        ):
+            valid, message = validate_credentials(token, None, None, team_id=99)
 
         assert valid is False
         assert message

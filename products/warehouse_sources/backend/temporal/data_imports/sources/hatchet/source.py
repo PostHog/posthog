@@ -140,7 +140,7 @@ If you self-host Hatchet, or the token can't be decoded, set the **Host** and **
     def validate_credentials(
         self, config: HatchetSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        return validate_hatchet_credentials(config.api_token, config.host or None, config.tenant_id or None)
+        return validate_hatchet_credentials(config.api_token, config.host or None, config.tenant_id or None, team_id)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HatchetResumeConfig]:
         return ResumableSourceManager[HatchetResumeConfig](inputs, HatchetResumeConfig)
@@ -158,6 +158,7 @@ If you self-host Hatchet, or the token can't be decoded, set the **Host** and **
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            team_id=inputs.team_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

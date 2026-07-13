@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HatchetSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet import (
     HatchetConnection,
@@ -25,8 +27,9 @@ class TestHatchetSource:
 
         api_token = next(f for f in self.source.get_source_config.fields if f.name == "api_token")
         # The token is a secret; the wizard must render it as a password input.
+        assert isinstance(api_token, SourceFieldInputConfig)
         assert api_token.required is True
-        assert api_token.type.value == "password"
+        assert api_token.type == SourceFieldInputConfigType.PASSWORD
 
     def test_host_is_a_connection_host_field(self):
         # The token is sent to `host`; retargeting it must force re-entry of the token secret.
@@ -69,8 +72,9 @@ class TestHatchetSource:
             result = self.source.validate_credentials(config, self.team_id)
 
         assert result == (True, None)
-        # Empty override strings collapse to None so the token-derived values are used.
-        validate.assert_called_once_with("tok", None, None)
+        # Empty override strings collapse to None so the token-derived values are used; team_id is
+        # forwarded so the credential probe can SSRF-check the resolved host.
+        validate.assert_called_once_with("tok", None, None, self.team_id)
 
     def test_source_for_pipeline_plumbs_endpoint_and_connection(self):
         inputs = mock.MagicMock()
