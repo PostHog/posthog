@@ -1,8 +1,22 @@
 import { loadConfig } from './config.ts'
+import { ScrubMetrics } from './metrics.ts'
+import { advancedScrub, loadModels } from './scrub.ts'
 import { startServer } from './server.ts'
 
 const cfg = loadConfig()
-const { scrub, metrics } = startServer(cfg.port, cfg.metricsPort, cfg.maxConcurrency, cfg.maxBodyBytes)
+// Models load before any listener exists, so the readiness probe can't pass until the scrub can run.
+const models = await loadModels()
+const { scrub, metrics } = startServer(
+    cfg.port,
+    cfg.metricsPort,
+    cfg.maxConcurrency,
+    cfg.maxBodyBytes,
+    async (input) => {
+        const { out, t } = await advancedScrub(input, models)
+        ScrubMetrics.observeScrubOutcome(t)
+        return out
+    }
+)
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     process.on(sig, () => {
