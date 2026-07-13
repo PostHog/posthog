@@ -13,30 +13,16 @@ from posthog.schema_enums import AlertState
 from products.alerts.backend.models import AlertConfiguration
 from products.exports.backend.models.subscription import SubscriptionDelivery
 from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
+from products.pulse.backend.config import MAX_ITEMS_PER_DETECTOR, STUCK_REFRESH_ATTEMPTS
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
+from products.pulse.backend.urls import insight_url, subscription_url
 
 logger = structlog.get_logger(__name__)
 
-MAX_ITEMS_PER_DETECTOR = 10
-# Mirrors posthog.caching.insight_cache.MAX_ATTEMPTS (not imported: that module drags the
-# celery task graph onto this import path). At this count the cache updater has given up.
-STUCK_REFRESH_ATTEMPTS = 3
-
-
-def _insight_url(team_id: int, short_id: str) -> str:
-    return f"/project/{team_id}/insights/{short_id}"
-
-
-def _dashboard_url(team_id: int, dashboard_id: int) -> str:
-    return f"/project/{team_id}/dashboard/{dashboard_id}"
-
 
 class ResourceHealthSource:
-    """Broken PostHog resources the team should fix, surfaced as health items → "fix" opportunities.
-
-    Three failure-isolated detectors over error state PostHog already persists: alerts stuck in
-    ERRORED, subscriptions failing to deliver, and insights whose cache refresh has given up."""
+    """Broken PostHog resources the team should fix, surfaced as health items → "fix" opportunities."""
 
     name = "resource_health"
 
@@ -69,7 +55,6 @@ class ResourceHealthSource:
         url: str,
         metrics: dict[str, float | int | str] | None = None,
     ) -> SourceItem:
-        # Evidence ref and fingerprint are minted together so they can never disagree.
         return SourceItem(
             source=self.name,
             kind=SourceItemKind.HEALTH,
@@ -105,7 +90,7 @@ class ResourceHealthSource:
                     ref=str(alert.id),
                     label=label,
                     # Alerts are managed from the insight they watch.
-                    url=_insight_url(team.id, alert.insight.short_id),
+                    url=insight_url(team.id, alert.insight.short_id),
                     metrics=metrics,
                 )
             )
@@ -123,6 +108,7 @@ class ResourceHealthSource:
             .values(
                 "subscription_id",
                 "subscription__title",
+                "subscription__prompt",
                 "subscription__insight__short_id",
                 "subscription__dashboard_id",
             )
@@ -131,15 +117,21 @@ class ResourceHealthSource:
         )
         items: list[SourceItem] = []
         for row in rows:
-            label = row["subscription__title"] or f"Subscription {row['subscription_id']}"
+            # Prefer the subscription's own name; fall back to a prompt snippet (AI-prompt subs need
+            # not be titled) before the bare id.
+            label = (
+                row["subscription__title"]
+                or (row["subscription__prompt"] or "").strip()[:60]
+                or f"Subscription {row['subscription_id']}"
+            )
             count = row["failed_deliveries"]
-            # A subscription targets an insight or a dashboard; link to whichever it has.
-            if row["subscription__insight__short_id"]:
-                url = _insight_url(team.id, row["subscription__insight__short_id"])
-            elif row["subscription__dashboard_id"]:
-                url = _dashboard_url(team.id, row["subscription__dashboard_id"])
-            else:
-                url = ""
+            # Every subscription type (insight, dashboard, AI-prompt) gets a navigable link.
+            url = subscription_url(
+                team.id,
+                row["subscription_id"],
+                insight_short_id=row["subscription__insight__short_id"],
+                dashboard_id=row["subscription__dashboard_id"],
+            )
             items.append(
                 self._health_item(
                     title=f"Subscription '{label}' failed to deliver {count} time{'s' if count != 1 else ''}",
@@ -188,7 +180,7 @@ class ResourceHealthSource:
                     ref_type=EvidenceType.INSIGHT,
                     ref=short_id,
                     label=label,
-                    url=_insight_url(team.id, short_id),
+                    url=insight_url(team.id, short_id),
                     metrics=metrics,
                 )
             )

@@ -34,6 +34,13 @@ LLM_MAX_RETRIES = 1
 # Cap on items passed into synthesis — keeps the activity payload well under Temporal's ~2 MiB cap.
 MAX_ITEMS = 50
 
+# Per-source gather caps — safety bounds on query/payload size, not per-request tuning knobs.
+MAX_ANNOTATIONS = 20
+MAX_ITEMS_PER_DETECTOR = 10
+# Mirrors posthog.caching.insight_cache.MAX_ATTEMPTS (not imported — that module pulls the celery
+# task graph onto the pulse import path). The point at which the cache updater has given up.
+STUCK_REFRESH_ATTEMPTS = 3
+
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
