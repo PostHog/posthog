@@ -1,12 +1,12 @@
 ---
 name: adding-inbox-sources
-description: Add a new warehouse-backed source to the PostHog Code Self-driving Inbox (the feature that ships GitHub, Linear, Zendesk, pganalyze). A source syncs one warehouse table (issues/tickets/conversations) and a cloud "signals scout" watches it and emits findings. Use when asked to "add a new inbox/self-driving source", "wire up <Jira/GitLab/Sentry/Intercom/Freshdesk/Front/Gorgias/etc> as a signal source", or to extend the source-toggle grid. Covers BOTH repos (posthog/code UI wiring + posthog/posthog scout emitter) and the deploy ordering between them.
+description: Add a new warehouse-backed source to the PostHog Code Self-driving Inbox (the feature that ships GitHub, Linear, Zendesk, Jira, pganalyze). A source syncs one warehouse table (issues/tickets/conversations) and a cloud "signals scout" watches it and emits findings. Use when asked to "add a new inbox/self-driving source", "wire up <GitLab/Sentry/Intercom/Freshdesk/Front/Gorgias/etc> as a signal source", or to extend the source-toggle grid. Covers BOTH repos (posthog/code UI wiring + posthog/posthog scout emitter) and the deploy ordering between them.
 ---
 
 # Adding a Self-driving Inbox source
 
 The Self-driving Inbox connects a PostHog **data-warehouse source** (GitHub, Linear,
-Zendesk, pganalyze today), syncs one "actionable records" table (`issues` /
+Zendesk, Jira, pganalyze today), syncs one "actionable records" table (`issues` /
 `tickets` / `conversations`), and a server-side **signals scout** in
 `posthog/posthog` watches new rows and emits findings/reports into the Code Inbox.
 
@@ -77,7 +77,6 @@ Verify exact `source_type` + `payload` key names against the posthog
 
 | Product   | `source_type` | Table           | Auth                    | Setup template       | `payload` keys                                     |
 | --------- | ------------- | --------------- | ----------------------- | -------------------- | -------------------------------------------------- |
-| Jira      | `Jira`        | `issues`        | API token               | `DynamicSourceSetup` | `subdomain`, `email`, `api_token`                  |
 | GitLab    | `GitLab`      | `issues`        | API token               | `DynamicSourceSetup` | `gitlab_host`, `personal_access_token`, `project`  |
 | Sentry    | `Sentry`      | `issues`        | API token               | `DynamicSourceSetup` | `auth_token`, `organization_slug`, `api_base_url?` |
 | Freshdesk | `Freshdesk`   | `tickets`       | API key                 | `DynamicSourceSetup` | `subdomain`, `api_key`                             |
@@ -85,27 +84,36 @@ Verify exact `source_type` + `payload` key names against the posthog
 | Gorgias   | `Gorgias`     | `tickets`       | API key                 | `DynamicSourceSetup` | `gorgias_domain`, `email`, `api_key`               |
 | Intercom  | `Intercom`    | `conversations` | OAuth (`kind=intercom`) | Linear               | `intercom_integration_id`                          |
 
-(Zendesk `tickets`, GitHub `issues`, Linear `issues`, pganalyze `issues`+`servers`
-are already shipped — copy them, don't re-add.)
+**Already shipped — copy them, don't re-add:** Zendesk `tickets`, GitHub
+`issues`, Linear `issues`, pganalyze `issues`+`servers`, and **Jira `issues`**
+(`source_type` `Jira`; `subdomain`, `email`, `api_token`). Jira is the reference
+implementation for a credential-based `DynamicSourceSetup` source whose warehouse
+table stores nested JSON rather than flat columns — its emitter
+(`products/signals/backend/emission/jira_issues.py`) and `JIRA_ISSUES_CONFIG`
+registry entry are the pattern to clone for a _new_ source with the same shape
+(see the JSON-blob gotcha in the emitter step below). Do **not** wire Jira up
+again.
 
 ---
 
 ## posthog/code checklist (per source)
 
-Product key is the lowercase `source_product` (e.g. `"jira"`). Grep the repo for
-`"zendesk"` (case-insensitive) inside `packages/` — every hit that is
-source-list-relevant is a place you must add the new product. The canonical list:
+Product key is the lowercase `source_product` (e.g. `"gitlab"`; Jira, already
+shipped, uses `"jira"`). Grep the repo for `"jira"` (case-insensitive) inside
+`packages/` — every hit is a place you must add your new product, and reading
+Jira's occurrences gives you a complete, deployed reference to copy. The
+canonical list:
 
 ### Type gates (every source)
 
-1. `packages/shared/src/inbox-types.ts` — add `"jira"` to the `SourceProduct` union.
+1. `packages/shared/src/inbox-types.ts` — add your `"<product>"` to the `SourceProduct` union (it already contains `"jira"`).
 2. `packages/api-client/src/posthog-client.ts` — add to `SignalSourceConfig.source_product` union; add a new `source_type` value only if the record type isn't already `issue`/`ticket`.
 
 ### Live UI path (every source)
 
 3. `packages/ui/src/features/inbox/hooks/useSignalSourceToggles.ts` — `SetupSourceProduct`, `SOURCE_TYPE_MAP`, `SOURCE_LABELS`, `DATA_WAREHOUSE_SOURCES` (`{ dwSourceType, requiredTable }`), `ALL_SOURCE_PRODUCTS`, and the `computeValues` initializer object.
 4. `packages/ui/src/features/inbox/components/SignalSourceToggles.tsx` — `SignalSourceValues` field, a `toggleX`/`setupX` callback, and a `<SignalSourceToggleCard>` in the "External connections" column (icon/label/description + `requiresSetup`/`onSetup`/`loading`/`syncStatus`).
-5. `packages/ui/src/features/inbox/components/DataSourceSetup.tsx` — `DataSourceType`, `REQUIRED_SCHEMAS`, and the `switch` case. For a credential source, route the case to `<DynamicSourceSetup sourceType="Jira" title="Connect Jira" schemas={schemasPayload("jira")} … />` — **no new form component**. Only OAuth/resource-picker sources need a bespoke `XSetup`.
+5. `packages/ui/src/features/inbox/components/DataSourceSetup.tsx` — `DataSourceType`, `REQUIRED_SCHEMAS`, and the `switch` case. For a credential source, route the case to `<DynamicSourceSetup sourceType="Jira" title="Connect Jira" schemas={schemasPayload("jira")} … />` — **no new form component**. (Jira's own case already ships; copy its shape for your source, don't re-add Jira.) Only OAuth/resource-picker sources need a bespoke `XSetup`.
 6. `packages/ui/src/features/inbox/components/utils/source-product-icons.tsx` — `SOURCE_PRODUCT_META` entry (`Icon`, `color`, `label`). Add an inline SVG icon file (copy `PgAnalyzeIcon.tsx`) if no Phosphor icon fits.
 7. `packages/ui/src/features/inbox/filterOptions.tsx` — `INBOX_SOURCE_OPTIONS` entry (source-filter dropdown).
 
@@ -146,7 +154,7 @@ generic; only the per-source emitter + registry entry are new.
 3. **Migration** — `python manage.py makemigrations signals` → `NNNN_alter_signalsourceconfig_source_product`. **Batch all new enum values into ONE migration when doing several sources** — parallel PRs each adding a migration to this model collide in the merge queue.
 4. **Emitter** — new module `products/signals/backend/emission/<source>_<table>.py` exporting a `SignalSourceTableConfig`: `partition_field` (incremental cursor column), `fields` (columns to SELECT), optional `where_clause`, `partition_field_is_datetime_string`, an `emitter(row) -> SignalEmitterOutput(source_product, source_type, source_id, description, weight, extra)`, and optional LLM `actionability_prompt`/`summarization_prompt`. **Copy `github_issues.py` and adapt to the warehouse table's columns** (read the source's `settings.py`/`canonical_descriptions.py` under `products/warehouse_sources/backend/temporal/data_imports/sources/<name>/` for exact column names).
 
-   ⚠️ **Not every source stores flat columns.** GitHub/Linear expose `title`/`body`/`created_at` as top-level columns, so the generic `data_warehouse_record_fetcher` (`SELECT {fields} FROM {table} WHERE {partition_field} > cursor`) works directly. Others do **not**: e.g. **Jira's `issues` table has only `id`, `key`, `self`, `fields` (a nested JSON blob), `expand`** — `summary`/`description`/`status`/`created` all live inside `fields`. For such sources you must SELECT `fields` and `JSONExtractString(fields, '…')` in the emitter, and the `partition_field` must be a JSON expression (`JSONExtractString(fields, 'created')`, `partition_field_is_datetime_string=True`). **Verify the generic fetcher accepts a JSON-expression `partition_field`** (it interpolates it into HogQL `WHERE`) before assuming a clone works — this is the single most likely thing to be subtly wrong, and it can only be confirmed by running a sync, not by reading code. Inspect the real column shape via the source's `canonical_descriptions.py` first.
+   ⚠️ **Not every source stores flat columns.** GitHub/Linear expose `title`/`body`/`created_at` as top-level columns, so the generic `data_warehouse_record_fetcher` (`SELECT {fields} FROM {table} WHERE {partition_field} > cursor`) works directly. Others do **not**: e.g. **Jira's `issues` table has only `id`, `key`, `self`, `fields` (a nested JSON blob), `expand`** — `summary`/`description`/`status`/`created` all live inside `fields`. For such sources you must SELECT `fields` and `JSONExtractString(fields, '…')` in the emitter, and the `partition_field` must be a JSON expression (`JSONExtractString(fields, 'created')`, `partition_field_is_datetime_string=True`). **The already-shipped `jira_issues.py` (`JIRA_ISSUES_CONFIG`) is the worked reference for this nested-JSON shape — copy it instead of `github_issues.py` when your source's table stores a JSON blob.** It confirms the generic fetcher accepts a JSON-expression `partition_field` (it interpolates it into HogQL `WHERE`), so you don't need to re-derive that — but still verify your source's own column shape via its `canonical_descriptions.py` first, since a wrong `partition_field` can only be caught by running a sync.
 
 5. **Register** — `products/signals/backend/emission/registry.py` `_register_all_emitters()`: `register((ExternalDataSourceType.X, "<table>"), <config>)`.
 6. **Contract** — `products/signals/backend/contracts.py`: add a `Literal[SignalSourceProduct.X]` variant.
