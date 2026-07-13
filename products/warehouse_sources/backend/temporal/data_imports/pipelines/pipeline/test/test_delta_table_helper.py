@@ -41,9 +41,8 @@ def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misalig
     memoryview(padded)[8 : 8 + data_buffer.size] = memoryview(data_buffer)
     misaligned_buffer = padded.slice(8, data_buffer.size)
     assert misaligned_buffer.address % 16 == 8
-    # The validity buffer is legitimately None here; pyarrow accepts it but the stub types
-    # the list as list[Buffer], so cast rather than fight the (over-strict) annotation.
-    buffers = cast("list[pa.Buffer]", [None, misaligned_buffer])
+    # The validity buffer is legitimately None here (no nulls).
+    buffers: list[pa.Buffer | None] = [None, misaligned_buffer]
     return pa.Array.from_buffers(pa.decimal128(precision, scale), len(values), buffers)
 
 
