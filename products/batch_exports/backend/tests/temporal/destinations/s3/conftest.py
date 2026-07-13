@@ -176,30 +176,27 @@ async def session() -> aioboto3.Session:
 
 @pytest_asyncio.fixture(scope="module")
 async def kms_key(session: aioboto3.Session) -> collections.abc.AsyncIterator[dict]:
-    async with session.client("kms") as kms:
-        try:
+    try:
+        async with session.client("kms") as kms:
             resp = await kms.create_key(
                 Description="PostHog batch exports test key",
                 KeyUsage="ENCRYPT_DECRYPT",
                 KeySpec="SYMMETRIC_DEFAULT",
             )
-
-        except (
-            botocore.exceptions.NoCredentialsError,
-            botocore.exceptions.PartialCredentialsError,
-            botocore.exceptions.ClientError,
-            botocore.exceptions.NoRegionError,
-        ):
-            raise pytest.skip("Could not create KMS key")
-
-        key_id = resp["KeyMetadata"]["KeyId"]
-        try:
+            key_id = resp["KeyMetadata"]["KeyId"]
             yield resp["KeyMetadata"]
-        finally:
             await kms.schedule_key_deletion(
                 KeyId=key_id,
                 PendingWindowInDays=7,  # Minimum
             )
+
+    except (
+        botocore.exceptions.NoCredentialsError,
+        botocore.exceptions.PartialCredentialsError,
+        botocore.exceptions.ClientError,
+        botocore.exceptions.NoRegionError,
+    ):
+        raise pytest.skip("Could not create KMS key")
 
 
 @pytest.fixture(scope="module")
