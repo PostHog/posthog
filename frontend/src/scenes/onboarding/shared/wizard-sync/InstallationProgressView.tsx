@@ -296,20 +296,22 @@ export function InstallationProgressContent({
                 </div>
             )}
 
-            {prUrl && !prMerged && phase !== 'error' && (
-                // ph-no-capture: the label carries the customer's repo name and the href their PR
-                // url — neither may reach autocapture in the shared app analytics project.
-                <LemonButton
-                    type="primary"
-                    to={prUrl}
-                    targetBlank
-                    icon={<IconPullRequest />}
-                    center
-                    className="ph-no-capture"
-                >
-                    <span className="truncate">{prNameLabel(prUrl)}</span>
-                </LemonButton>
-            )}
+            {prUrl &&
+                !prMerged &&
+                phase !== 'error' && (
+                    // ph-no-capture: the label carries the customer's repo name and the href their PR
+                    // url — neither may reach autocapture in the shared app analytics project.
+                    <LemonButton
+                        type="primary"
+                        to={prUrl}
+                        targetBlank
+                        icon={<IconPullRequest />}
+                        center
+                        className="ph-no-capture"
+                    >
+                        <span className="truncate">{prNameLabel(prUrl)}</span>
+                    </LemonButton>
+                )}
 
             {prUrl && prMerged && phase !== 'error' && (
                 <div className="flex items-center gap-3 rounded-lg border border-[var(--color-purple-500)] p-3">
