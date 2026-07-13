@@ -74,10 +74,11 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
                 limit_context=self.limit_context,
             )
 
-            # We could have a empty result in normal conditions but also when we're recreating the tables.
-            # While we're testing, if it is a empty result, let's  fallback on using the
+            # We could have an empty result in normal conditions but also when we're recreating the tables.
+            # While we're testing, if it is an empty result, let's fall back on using the
             # regular queries to be extra careful.
-            assert response.results
+            if not response.results:
+                return None
 
             return response
         except Exception as e:
@@ -140,9 +141,10 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             else pre_aggregated_response
         )
 
-        assert response.results
-
-        row = response.results[0]
+        # The underlying events query can legitimately return zero rows (a team and time
+        # window with no matching events), so fall back to an all-empty row rather than
+        # crashing with a bare AssertionError. `to_data` renders None values as an empty overview.
+        row = response.results[0] if response.results else [None] * 10
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
 
         def get_prev_val(idx, use_unsample=True):
