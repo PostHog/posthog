@@ -812,9 +812,18 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
 
 class TaskThreadMessage(TeamScopedRootMixin):
-    """One human message in a task's thread — the side conversation channel members
-    have around a task. Messages never reach the agent unless the task author
-    forwards one (send_to_agent), which stamps the forwarded_* fields."""
+    """One message in a task's thread — the side conversation channel members have
+    around a task. Human messages never reach the agent unless the task author
+    forwards one (send_to_agent), which stamps the forwarded_* fields. Agent rows
+    (``author_kind=AGENT``, no ``author``) are server-emitted announcements carrying
+    a stable ``event`` key + ``payload`` — the same shape as ``ChannelFeedMessage`` —
+    so clients can render them structurally and dedupe them against live
+    session-derived views (e.g. ``turn_complete`` carries the run id)."""
+
+    class AuthorKind(models.TextChoices):
+        HUMAN = "human", "Human"
+        SYSTEM = "system", "System"
+        AGENT = "agent", "Agent"
 
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -826,6 +835,11 @@ class TaskThreadMessage(TeamScopedRootMixin):
     author = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
+    author_kind = models.CharField(max_length=16, choices=AuthorKind, default=AuthorKind.HUMAN)
+    # Stable event key + structured payload for non-human rows (empty for human
+    # messages); `content` stays the rendered text so older clients degrade cleanly.
+    event = models.CharField(max_length=64, blank=True, default="")
+    payload = models.JSONField(default=dict, blank=True)
     content = models.TextField()
     forwarded_to_agent_at = models.DateTimeField(null=True, blank=True)
     forwarded_by = models.ForeignKey(

@@ -4863,6 +4863,9 @@ def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMe
     return contracts.TaskThreadMessageDTO(
         id=message.id,
         task=message.task_id,
+        author_kind=message.author_kind,
+        event=message.event,
+        payload=message.payload or {},
         content=message.content,
         created_at=message.created_at,
         author=_user_basic_info(message.author if message.author_id else None),
@@ -5030,9 +5033,22 @@ _TURN_COMPLETE_COOLDOWN_SECONDS = 30
 _TURN_MESSAGE_MAX_CHARS = 4000
 
 
-def _create_agent_thread_message(task: Task, content: str) -> None:
-    """Write an authorless (agent) thread message and index its mentions."""
-    message = TaskThreadMessage.objects.create(team_id=task.team_id, task_id=task.id, author_id=None, content=content)
+def _create_agent_thread_message(task: Task, content: str, *, event: str, payload: dict | None = None) -> None:
+    """Write an agent-authored thread message and index its mentions.
+
+    ``content`` is the rendered text (older clients show it as-is); ``event`` +
+    ``payload`` are the structured record, mirroring ChannelFeedMessage, that
+    lets clients render agent rows natively and dedupe them against live views.
+    """
+    message = TaskThreadMessage.objects.create(
+        team_id=task.team_id,
+        task_id=task.id,
+        author_id=None,
+        author_kind=TaskThreadMessage.AuthorKind.AGENT,
+        event=event,
+        payload=payload or {},
+        content=content,
+    )
     try:
         _index_thread_message_mentions(message)
     except Exception:
@@ -5070,7 +5086,12 @@ def post_canvas_created_thread_update(
         # Brackets and newlines in the name would break the [label](url) token.
         name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
         content = f"[{name}]({canvas_url}) has been created" if canvas_url else f"{name} has been created"
-        _create_agent_thread_message(task, content)
+        _create_agent_thread_message(
+            task,
+            content,
+            event="canvas_created",
+            payload={"canvas_name": name, "canvas_url": canvas_url},
+        )
     except Exception:
         logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
 
@@ -5104,7 +5125,14 @@ def post_turn_complete_thread_update(
         if len(body) > _TURN_MESSAGE_MAX_CHARS:
             body = body[: _TURN_MESSAGE_MAX_CHARS - 1] + "…"
         mention = format_mention_token(creator.get_full_name() or creator.email, creator.email)
-        _create_agent_thread_message(task, f"{mention} {body}")
+        # payload.run_id is the dedupe key: a client already rendering this run's
+        # live agent turns can suppress the durable row (or vice versa).
+        _create_agent_thread_message(
+            task,
+            f"{mention} {body}",
+            event="turn_complete",
+            payload={"run_id": str(run_id)},
+        )
     except Exception:
         logger.exception("Failed to post turn-complete thread update", extra={"task_id": str(task_id)})
 

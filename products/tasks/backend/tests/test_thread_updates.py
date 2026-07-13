@@ -54,6 +54,11 @@ class TestAgentThreadUpdates(TestCase):
         messages = self._messages(self.task)
         self.assertEqual(len(messages), 1)
         self.assertIsNone(messages[0].author_id)
+        self.assertEqual(messages[0].author_kind, TaskThreadMessage.AuthorKind.AGENT)
+        self.assertEqual(messages[0].event, "turn_complete")
+        # run_id is the client's key for deduping this durable row against
+        # live session-derived agent turns.
+        self.assertEqual(messages[0].payload, {"run_id": str(self.task_run.id)})
         self.assertEqual(messages[0].content, expected)
         # The creator's mention is indexed so it lands in their mentions feed.
         self.assertTrue(
@@ -125,6 +130,8 @@ class TestAgentThreadUpdates(TestCase):
         messages = self._messages(self.task)
         self.assertEqual(len(messages), 1)
         self.assertIsNone(messages[0].author_id)
+        self.assertEqual(messages[0].author_kind, TaskThreadMessage.AuthorKind.AGENT)
+        self.assertEqual(messages[0].event, "canvas_created")
         self.assertEqual(messages[0].content, expected)
 
     @patch(_FLAG_TARGET, return_value=False)

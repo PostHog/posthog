@@ -1274,7 +1274,18 @@ class TaskThreadMessageSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = TaskThreadMessageDTO
-        fields = ["id", "task", "content", "created_at", "author", "forwarded_to_agent_at", "forwarded_by"]
+        fields = [
+            "id",
+            "task",
+            "author_kind",
+            "event",
+            "payload",
+            "content",
+            "created_at",
+            "author",
+            "forwarded_to_agent_at",
+            "forwarded_by",
+        ]
 
 
 class TaskThreadMessageWriteSerializer(serializers.Serializer):
