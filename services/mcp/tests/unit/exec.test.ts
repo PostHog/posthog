@@ -625,6 +625,24 @@ describe('exec tool', () => {
             expect(parsedSchema.properties.name.hint).toBeUndefined()
         })
 
+        it('does not mark a defaulted discriminator field as required', async () => {
+            // Query wrappers carry a `kind` literal with a `.default()` (e.g. `TracesQuery`)
+            // that the executor auto-fills, so callers never supply it. Rendering the schema
+            // with `io: 'output'` used to list it in `required`, misrepresenting it as
+            // mandatory input and pushing agents to send an "undocumented" discriminator.
+            const tool = makeMockTool({
+                schema: z.object({
+                    kind: z.literal('TracesQuery').default('TracesQuery'),
+                    limit: z.number().default(100).optional(),
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'info --json mock-tool' })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed.inputSchema.properties.kind.const).toBe('TracesQuery')
+            expect(parsed.inputSchema.required ?? []).not.toContain('kind')
+        })
+
         it('throws usage error for bare info', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'info' })).rejects.toThrow(

@@ -10,7 +10,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.messaging.hogql_compile import compile_hogql_for_streaming
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestCompileHogqlForStreaming:
     @pytest.mark.asyncio
     async def test_bypasses_property_restrictions(self):
