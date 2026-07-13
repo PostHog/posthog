@@ -12095,6 +12095,19 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface BriefSection {
+      /** Section kind, e.g. 'what_happened' or 'what_to_build_next'. */
+      kind: string;
+      /** Short, specific section heading. */
+      title: string;
+      /** Section body in markdown. */
+      markdown: string;
+      /** Citation ids (e.g. 'c1') backing the section, copied verbatim. */
+      citations: string[];
+      /** Confidence in this section, 0.0-1.0. */
+      confidence: number;
+    }
+
     /**
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID
@@ -46031,8 +46044,6 @@ export namespace Schemas {
       Failure: 'failure',
     } as const;
 
-    export type ProductBriefSectionsItem = { [key: string]: unknown };
-
     export interface ProductBrief {
       readonly id: string;
       /**
@@ -46054,8 +46065,8 @@ export namespace Schemas {
       readonly trigger: ProductBriefTriggerEnum;
       /** The resolved-at-gather period spec the brief covers. */
       readonly period: Period;
-      /** Generated brief sections: kind, title, markdown, citations, confidence. */
-      readonly sections: readonly ProductBriefSectionsItem[];
+      /** Generated brief sections, most important first. */
+      readonly sections: readonly BriefSection[];
       /** Names of the brief sources that contributed items. */
       readonly sources_used: readonly string[];
       /**

@@ -266,7 +266,18 @@ export interface PaginatedProductBriefListListApi {
     results: ProductBriefListApi[]
 }
 
-export type ProductBriefApiSectionsItem = { [key: string]: unknown }
+export interface BriefSectionApi {
+    /** Section kind, e.g. 'what_happened' or 'what_to_build_next'. */
+    kind: string
+    /** Short, specific section heading. */
+    title: string
+    /** Section body in markdown. */
+    markdown: string
+    /** Citation ids (e.g. 'c1') backing the section, copied verbatim. */
+    citations: string[]
+    /** Confidence in this section, 0.0-1.0. */
+    confidence: number
+}
 
 export interface ProductBriefApi {
     readonly id: string
@@ -289,8 +300,8 @@ export interface ProductBriefApi {
     readonly trigger: ProductBriefTriggerEnumApi
     /** The resolved-at-gather period spec the brief covers. */
     readonly period: PeriodApi
-    /** Generated brief sections: kind, title, markdown, citations, confidence. */
-    readonly sections: readonly ProductBriefApiSectionsItem[]
+    /** Generated brief sections, most important first. */
+    readonly sections: readonly BriefSectionApi[]
     /** Names of the brief sources that contributed items. */
     readonly sources_used: readonly string[]
     /**
