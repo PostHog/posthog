@@ -8,6 +8,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
@@ -16,6 +17,8 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
     ChannelSerializer,
     ChannelWriteSerializer,
+    TaskMentionQuerySerializer,
+    TaskMentionSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
 )
@@ -90,6 +93,40 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be deleted")
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for the requester's mentions feed — thread messages across the team's tasks
+    that @-mention them, indexed at write time.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "head", "options"]
+    serializer_class = TaskMentionSerializer
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @validated_request(
+        query_serializer=TaskMentionQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskMentionSerializer(many=True), description="Mentions, newest first"),
+        },
+        summary="List mentions of the requester",
+        description="Thread messages that @-mention the requester, newest first, restricted to tasks they can see.",
+    )
+    def list(self, request, *args, **kwargs):
+        since = request.validated_query_data.get("since")
+        limit = request.validated_query_data["limit"]
+        mentions = tasks_facade.list_mentions(self.team_id, self._user_id(), since=since, limit=limit)
+        return Response(TaskMentionSerializer(mentions, many=True).data)
 
 
 class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

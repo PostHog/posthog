@@ -48,6 +48,7 @@ describe('SessionConsoleLogRecorder', () => {
             teamId,
             consoleLogIngestionEnabled,
             aiTrainingOptedIn: true,
+            firstPartyHosts: [],
         },
         message: {
             distinct_id: distinctId,
@@ -73,6 +74,25 @@ describe('SessionConsoleLogRecorder', () => {
     })
 
     describe('Console log counting', () => {
+        it('uses the metadata counts for pre-serialized messages without storing entries', async () => {
+            const message = createMessage('window1', [])
+            message.message.eventsByWindowId = {}
+            message.message.preSerialized = {
+                lines: Buffer.from(''),
+                events: [],
+                consoleLogCount: 2,
+                consoleWarnCount: 1,
+                consoleErrorCount: 3,
+            }
+
+            await recorder.recordMessage(message)
+            const result = recorder.end()
+
+            expect(result).toEqual({ consoleLogCount: 2, consoleWarnCount: 1, consoleErrorCount: 3 })
+            // The ml-mirror console-log store is disabled; the counts only feed block metadata.
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).not.toHaveBeenCalled()
+        })
+
         it('should count console log events', async () => {
             const events = [
                 createConsoleLogEvent({

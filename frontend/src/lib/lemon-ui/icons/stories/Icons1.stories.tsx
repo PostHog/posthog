@@ -33,7 +33,8 @@ export default meta
 
 interface IconDefinition {
     name: string
-    icon: (...args: any[]) => JSX.Element
+    // ElementType also admits forwardRef-wrapped icons (e.g. IconUnverifiedEvent)
+    icon: React.ElementType
 }
 
 const allIcons: IconDefinition[] = Object.entries(icons)

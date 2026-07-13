@@ -680,6 +680,13 @@ class TestIsTransientConnectDrop:
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+            # The exact wrapped message that reached error tracking: the egress proxy
+            # returned a 502 while opening the CONNECT tunnel to a ClickHouse host.
+            "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+            "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: "
+            "502 Bad gateway'))) executing HTTP request attempt 1",
+            "Tunnel connection failed: 503 Service Unavailable",
+            "Tunnel connection failed: 504 Gateway Timeout",
         ],
     )
     def test_matches_transient_drops(self, message):
@@ -692,6 +699,8 @@ class TestIsTransientConnectDrop:
             "[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657)",
             "Code: 516. DB::Exception: Authentication failed",
             "HTTPDriver for https://host:8443 returned response code 404",
+            # A proxy 407 is a deterministic auth-config failure, not a transient gateway blip.
+            "Tunnel connection failed: 407 Proxy Authentication Required",
         ],
     )
     def test_does_not_match_deterministic_failures(self, message):

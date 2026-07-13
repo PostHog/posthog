@@ -51,8 +51,11 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by
      *  data index. Lets one series draw bars with distinct identity (e.g. an aggregated breakdown,
      *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
-     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
-    bars?: { color?: string; label?: string; meta?: Meta }[]
+     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`).
+     *  `hatch` fills that bar with the diagonal-hatch pattern (in the bar's resolved color) instead
+     *  of a solid fill — for flagging individual not-final bars (e.g. a bucket still being
+     *  ingested) without the contiguous-range constraint of `stroke.partial`. */
+    bars?: { color?: string; label?: string; meta?: Meta; hatch?: boolean }[]
     /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
      *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
      *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
@@ -122,6 +125,10 @@ export interface Series<Meta = unknown> {
         excluded?: boolean
         /** Whether the series appears in the tooltip's seriesData. Defaults to true. */
         tooltip?: boolean
+        /** Whether the series' value counts toward the built-in tooltip's total row — its own row
+         *  still renders. Use for series whose values don't sum meaningfully with the rest (e.g. a
+         *  percentage column alongside counts). Defaults to true. */
+        total?: boolean
         /** Whether the ValueLabels overlay draws a label for this series. Defaults to true. */
         valueLabel?: boolean
     }
@@ -218,6 +225,17 @@ export interface ChartMargins {
     left: number
 }
 
+/** `showAxisLines` value — a boolean toggles both edges; `{ x, y }` toggles each independently
+ *  (an omitted edge defaults to shown). */
+export type AxisLinesConfig = boolean | { x?: boolean; y?: boolean }
+
+export function resolveAxisLines(value: AxisLinesConfig | undefined): { x: boolean; y: boolean } {
+    if (value == null || typeof value === 'boolean') {
+        return { x: !!value, y: !!value }
+    }
+    return { x: value.x ?? true, y: value.y ?? true }
+}
+
 /** Base configuration shared by all chart types. */
 export interface ChartConfig {
     // — Scale —
@@ -243,7 +261,7 @@ export interface ChartConfig {
     showGrid?: boolean
     /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
      *  when `showGrid` is true, since the grid already frames the plot. */
-    showAxisLines?: boolean
+    showAxisLines?: AxisLinesConfig
     /** Draw short tick marks on the axes next to each visible tick label. Pairs with
      *  `showAxisLines` for a clean, grid-free axis that still reads precisely. */
     showTickMarks?: boolean
@@ -290,6 +308,10 @@ export interface YAxis {
     tickFormatter?: (value: number) => string
     /** Axis title. */
     label?: string
+    /** Hide this axis's tick labels and margin gutter. The scale still applies to its series. */
+    hide?: boolean
+    /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
+    startAtZero?: boolean
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
@@ -369,9 +391,6 @@ export type ValueDomain =
 export type BarFillStyle = 'flat' | 'gradient' | 'gloss'
 
 export interface BarsConfig {
-    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
-     *  segment. Defaults to 0 (square). */
-    cornerRadius?: number
     /** Draw a faint hatched track behind each bar, spanning the full plot height — for
      *  funnel-style charts where every bar is a share of a whole. Only honored when
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
@@ -412,7 +431,7 @@ export interface BarsConfig {
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
      *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
      *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
-     *  corners round at the full `cornerRadius` even when the edge segment is a thin sliver (e.g.
+     *  corners round at the full `barCornerRadius` even when the edge segment is a thin sliver (e.g.
      *  the last breakdown of a near-100% funnel step) — which per-segment rounding can't, as it
      *  clamps the radius to the sliver's half-width. Defaults to `false`. */
     roundStackEnds?: boolean
@@ -421,8 +440,13 @@ export interface BarsConfig {
 export interface BarChartConfig extends ChartConfig {
     /** Defaults to `stacked`. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
-    /** Bar appearance + band-layout details (corner rounding, track, shadow, padding…). */
+    /** Bar appearance + band-layout details (track, shadow, padding, fill style…). */
     bars?: BarsConfig
+    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
+     *  segment (or the whole stack with {@link BarsConfig.roundStackEnds}). Defaults to 0 (square).
+     *  Same top-level key as the time-series/combo configs, so one config shape rounds every bar
+     *  chart and shared config defaults can target them all. */
+    barCornerRadius?: number
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
 }
@@ -446,6 +470,10 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
      *  `'stacked'`. `'percent'` stacks bars to 100%; line/area series still plot at raw values. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
+    /** Stacked layout only — use d3.stackOffsetDiverging so negative bar values stack below the
+     *  zero baseline (positives above). Default `false` clamps negatives to 0. Mirrors
+     *  {@link BarsConfig.divergingStack}. */
+    divergingStack?: boolean
     /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
     barCornerRadius?: number
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used

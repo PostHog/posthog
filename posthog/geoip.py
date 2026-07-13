@@ -1,4 +1,5 @@
-from typing import Optional
+import ipaddress
+from typing import Optional, TypedDict
 
 from django.contrib.gis.geoip2 import GeoIP2
 
@@ -61,3 +62,44 @@ def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
             if mapped_key in VALID_GEOIP_PROPERTIES:
                 properties[f"$geoip_{mapped_key}"] = value
     return properties
+
+
+class GeoLocation(TypedDict, total=False):
+    latitude: float
+    longitude: float
+    country_code: str
+
+
+def _is_non_public_ip(ip_address: str) -> bool:
+    """True for addresses geoip can't usefully locate — private/reserved ranges (incl. IPv6) and
+    malformed input. Without this, RFC1918 (10/8, 172.16/12), loopback (::1), link-local, etc. would
+    fall through to geoip.city() and raise "not in the database" on every such request."""
+    try:
+        parsed = ipaddress.ip_address(ip_address)
+    except ValueError:
+        return True
+    return (
+        parsed.is_private or parsed.is_loopback or parsed.is_link_local or parsed.is_reserved or parsed.is_unspecified
+    )
+
+
+def get_geoip_location(ip_address: Optional[str]) -> GeoLocation:
+    """Latitude/longitude/country_code for risk scoring. Unlike get_geoip_properties this keeps floats."""
+    if not ip_address or not geoip or _is_non_public_ip(ip_address):
+        return {}
+    try:
+        city = geoip.city(ip_address)
+    except Exception:
+        logger.exception("geoIP location error")
+        return {}
+    out: GeoLocation = {}
+    latitude = city.get("latitude")
+    if isinstance(latitude, int | float):
+        out["latitude"] = float(latitude)
+    longitude = city.get("longitude")
+    if isinstance(longitude, int | float):
+        out["longitude"] = float(longitude)
+    country_code = city.get("country_code")
+    if isinstance(country_code, str):
+        out["country_code"] = country_code
+    return out

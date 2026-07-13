@@ -348,6 +348,104 @@ class TestHogQLTypeSystem:
             ),
         )
 
+    @pytest.mark.parametrize(
+        "name,arg_types,expected",
+        [
+            # Fixed return types, independent of the element type.
+            (
+                "arrayUniq",
+                [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))],
+                ast.IntegerType(nullable=False),
+            ),
+            (
+                "arrayStringConcat",
+                [ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False))],
+                ast.StringType(nullable=False),
+            ),
+            (
+                "arrayProduct",
+                [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))],
+                ast.FloatType(nullable=False),
+            ),
+            # Element-preserving: same element type as the input array.
+            (
+                "arrayCumSum",
+                [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))],
+                ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+            ),
+            (
+                "arrayResize",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+                    ast.IntegerType(nullable=False),
+                ],
+                ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+            ),
+            # -PushBack widens the element type to the least common supertype of the array and the value.
+            (
+                "arrayPushBack",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                    ast.FloatType(nullable=False),
+                ],
+                ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+            ),
+            (
+                "arrayWithConstant",
+                [ast.IntegerType(nullable=False), ast.StringType(nullable=False)],
+                ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+            ),
+            (
+                "arrayIntersect",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                ],
+                ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+            ),
+            # reverse is polymorphic identity — same type back, whether string or array.
+            ("reverse", [ast.StringType(nullable=False)], ast.StringType(nullable=False)),
+            (
+                "reverse",
+                [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))],
+                ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+            ),
+            # Nullable inputs: array-level nullability propagates so the printer keeps its null wrapper.
+            (
+                "arrayUniq",
+                [ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=False))],
+                ast.IntegerType(nullable=True),
+            ),
+            (
+                "arrayIntersect",
+                [
+                    ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=False)),
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                ],
+                ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=False)),
+            ),
+            (
+                "arrayWithConstant",
+                [ast.IntegerType(nullable=True), ast.StringType(nullable=False)],
+                ast.ArrayType(nullable=True, item_type=ast.StringType(nullable=False)),
+            ),
+            # A nullable appended value flows into the element type; array-level nullability stays
+            # conservative (any argument nullable).
+            (
+                "arrayPushBack",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                    ast.IntegerType(nullable=True),
+                ],
+                ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=True)),
+            ),
+        ],
+    )
+    def test_resolver_infers_array_helper_function_types(
+        self, name: str, arg_types: list[ast.ConstantType], expected: ast.ConstantType
+    ) -> None:
+        assert infer_function_return_type(name, arg_types).return_type == expected
+
     def test_resolver_binds_higher_order_map_lambda_argument_types(self) -> None:
         node = cast(
             ast.SelectQuery,
@@ -592,6 +690,99 @@ class TestHogQLTypeSystem:
         assert infer_function_return_type("quantilesMerge", [quantiles_state]).return_type == ast.ArrayType(
             nullable=False,
             item_type=ast.FloatType(nullable=False),
+        )
+
+    @pytest.mark.parametrize(
+        "name,arg_types,expected",
+        [
+            # -If drops the trailing condition; the base return type is unchanged.
+            (
+                "sumIf",
+                [ast.IntegerType(nullable=False), ast.BooleanType(nullable=False)],
+                ast.IntegerType(nullable=False),
+            ),
+            (
+                "maxIf",
+                [ast.StringType(nullable=False), ast.BooleanType(nullable=False)],
+                ast.StringType(nullable=False),
+            ),
+            (
+                "argMaxIf",
+                [ast.StringType(nullable=False), ast.DateTimeType(nullable=False), ast.BooleanType(nullable=False)],
+                ast.StringType(nullable=False),
+            ),
+            (
+                "countDistinctIf",
+                [ast.IntegerType(nullable=False), ast.BooleanType(nullable=False)],
+                ast.IntegerType(nullable=False),
+            ),
+            # -Array aggregates over array elements; result type matches the base.
+            (
+                "sumArray",
+                [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))],
+                ast.IntegerType(nullable=False),
+            ),
+            # -ForEach wraps the base result in an array.
+            (
+                "sumForEach",
+                [ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False))],
+                ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+            ),
+            # -OrNull makes the result nullable; -OrDefault forces it non-null.
+            ("sumOrNull", [ast.IntegerType(nullable=False)], ast.IntegerType(nullable=True)),
+            ("avgOrNull", [ast.IntegerType(nullable=False)], ast.FloatType(nullable=True)),
+            ("sumOrDefault", [ast.IntegerType(nullable=True)], ast.IntegerType(nullable=False)),
+            (
+                "groupArrayIf",
+                [ast.StringType(nullable=False), ast.BooleanType(nullable=False)],
+                ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+            ),
+            # quantiles already returns an array — the combinator must transform that, not be swallowed
+            # by the greedy "quantiles" base match. -ForEach therefore nests it.
+            (
+                "quantilesForEach",
+                [ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False))],
+                ast.ArrayType(
+                    nullable=False, item_type=ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False))
+                ),
+            ),
+            # Stacked combinators peel outermost-first.
+            (
+                "quantilesArrayIf",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+                    ast.BooleanType(nullable=False),
+                ],
+                ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+            ),
+            (
+                "sumIfOrNull",
+                [ast.IntegerType(nullable=False), ast.BooleanType(nullable=False)],
+                ast.IntegerType(nullable=True),
+            ),
+            # -Distinct leaves the base result type unchanged. countDistinct resolves via this path now
+            # that it's no longer enumerated in the base set.
+            ("countDistinct", [ast.IntegerType(nullable=False)], ast.IntegerType(nullable=False)),
+        ],
+    )
+    def test_resolver_infers_aggregate_combinator_types(
+        self, name: str, arg_types: list[ast.ConstantType], expected: ast.ConstantType
+    ) -> None:
+        assert infer_function_return_type(name, arg_types).return_type == expected
+
+    def test_aggregate_combinator_inference_is_conservative(self) -> None:
+        # A name ending in a combinator suffix whose residual is not a known aggregate must stay
+        # Unknown rather than be assigned a confidently-wrong type.
+        assert (
+            infer_function_return_type(
+                "notarealaggregateforeach",
+                [ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False))],
+            ).source
+            == "unknown"
+        )
+        # A plain base aggregate (no combinator) is unaffected.
+        assert infer_function_return_type("sum", [ast.IntegerType(nullable=False)]).return_type == ast.IntegerType(
+            nullable=False
         )
 
     def test_resolver_infers_common_string_function_types(self) -> None:

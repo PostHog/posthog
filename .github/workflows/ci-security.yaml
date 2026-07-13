@@ -15,7 +15,69 @@ env:
     SEMGREP_IMAGE: semgrep/semgrep:1.167.0@sha256:06938c1f365d3f67b8cedd8bc117607ae64253f88a0e768e9da9408548927dd6
 
 jobs:
+    # Job to decide if we should run language-specific semgrep scans.
+    # See .github/actions/paths-filter/README.md for filter semantics
+    # NOTE: With token auth, paths-filter uses pulls.listFiles which caps at
+    # 3000 changed files. PRs exceeding that will silently truncate, but the
+    # outputs default to 'true' so scans run unconditionally (safe fallback).
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        name: Determine need to run Semgrep checks
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            python: ${{ steps.filter.outputs.python || 'true' }}
+            go: ${{ steps.filter.outputs.go || 'true' }}
+            rust: ${{ steps.filter.outputs.rust || 'true' }}
+            js: ${{ steps.filter.outputs.js || 'true' }}
+            products-frontend: ${{ steps.filter.outputs.products-frontend || 'true' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+            - uses: ./.github/actions/paths-filter
+              id: filter
+              if: github.event_name != 'push' # Run all scans on master push
+              with:
+                  filters: |
+                      python:
+                        - 'bin/**'
+                        - 'common/**'
+                        - 'ee/**'
+                        - 'posthog/**'
+                        - 'products/**'
+                        - 'services/llm-gateway/**'
+                        - 'services/stripe-mock/**'
+                        - '.semgrep/rules/security/**'
+                        - '.github/workflows/ci-security.yaml'
+                      go:
+                        - 'livestream/**'
+                        - '.github/workflows/ci-security.yaml'
+                      rust:
+                        - 'cli/**'
+                        - 'rust/**'
+                        - '.github/workflows/ci-security.yaml'
+                      js:
+                        - 'frontend/**'
+                        - 'nodejs/**'
+                        - 'products/agent_platform/**'
+                        - 'services/agent-proxy/**'
+                        - 'services/mcp/**'
+                        - 'services/oauth-proxy/**'
+                        - 'services/stripe-app/**'
+                        - '.semgrep/rules/security/**'
+                        - '.github/workflows/ci-security.yaml'
+                      products-frontend:
+                        - 'products/**'
+                        - '.semgrep/rules/security/prefer-codegen-api.yaml'
+                        - '.github/workflows/ci-security.yaml'
+
     semgrep-python:
+        needs: changes
+        if: needs.changes.outputs.python == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 30
 
@@ -56,6 +118,8 @@ jobs:
                       bin/ common/ ee/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
 
     semgrep-go:
+        needs: changes
+        if: needs.changes.outputs.go == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 10
 
@@ -93,6 +157,8 @@ jobs:
                       livestream/
 
     semgrep-rust:
+        needs: changes
+        if: needs.changes.outputs.rust == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 10
 
@@ -132,6 +198,8 @@ jobs:
                       cli/ rust/
 
     semgrep-js:
+        needs: changes
+        if: needs.changes.outputs.js == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
 
@@ -168,6 +236,8 @@ jobs:
                       frontend/ nodejs/ products/agent_platform/ services/agent-proxy/ services/mcp/ services/oauth-proxy/ services/stripe-app/
 
     semgrep-products-frontend:
+        needs: changes
+        if: needs.changes.outputs.products-frontend == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
 
@@ -293,7 +363,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ posthog/ products/
+                      bin/ common/ ee/ frontend/ packages/ posthog/ products/
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
@@ -309,7 +379,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ posthog/ products/
+                      bin/ common/ ee/ frontend/ packages/ posthog/ products/
 
     semgrep-test-rules:
         runs-on: ubuntu-latest
@@ -339,6 +409,7 @@ jobs:
 
     semgrep_checks:
         needs:
+            - changes
             - semgrep-python
             - semgrep-go
             - semgrep-rust
@@ -354,6 +425,10 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
+                  if [[ "${{ needs.changes.result }}" != "success" ]]; then
+                    echo "changes (path filter) job did not succeed - cannot trust skips."
+                    exit 1
+                  fi
                   if [[ "${{ needs.semgrep-python.result }}" != "success" && "${{ needs.semgrep-python.result }}" != "skipped" ]]; then
                     echo "semgrep-python did not complete successfully."
                     exit 1

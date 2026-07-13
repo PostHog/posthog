@@ -26,6 +26,7 @@
 //!   - Block { declarations: [decl, ...] }
 //!   - Program { declarations: [decl, ...] }
 
+use super::bp::can_extend_named_argument;
 use super::expr::is_pure_infix_op;
 use super::{identifier_text, kw_valid_as_identifier, Parser};
 use crate::emit::Emitter;
@@ -485,7 +486,33 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let id = self.bump()?;
             let name = identifier_text(self.text(id), id.kind);
             self.bump()?; // `:=`
-            let right = self.parse_stmt_rhs_expr()?;
+            let mut right = self.parse_stmt_rhs_expr()?;
+            // Same NamedArgument re-rooting as `parse_expr_or_assignment_stmt`:
+            // cpp's varAssignment alt can't absorb a value-tier operator after
+            // a bare alias, so `for (y := 1 as x [1]; …)` falls to the
+            // expression alt with the operator re-rooted onto the NamedArgument.
+            if can_extend_named_argument(self.peek()) {
+                let named = self.emit.named_argument(&name, right);
+                let prev_postfix = self.stop_postfix_call_before_colon_equals;
+                self.stop_postfix_call_before_colon_equals = true;
+                let prev_recover = self.stmt_rhs_recover_on_pratt_rhs_failure;
+                self.stmt_rhs_recover_on_pratt_rhs_failure = true;
+                let extended = self.pratt_continue_with_lhs(named, 0, id_start);
+                self.stop_postfix_call_before_colon_equals = prev_postfix;
+                self.stmt_rhs_recover_on_pratt_rhs_failure = prev_recover;
+                let extended = extended?;
+                let is_bare_named = self
+                    .emit
+                    .node_kind(&extended)
+                    .is_some_and(|kind| kind == "NamedArgument");
+                if !is_bare_named {
+                    return Ok(extended);
+                }
+                right = self
+                    .emit
+                    .get_field(&extended, "value")
+                    .ok_or_else(|| self.err("NamedArgument without a value"))?;
+            }
             let left = self.wrap_pos_to(
                 self.emit.field(vec![self.emit.string(&name)]),
                 id_start,
@@ -786,7 +813,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let id = self.bump()?;
             let name = identifier_text(self.text(id), id.kind);
             self.bump()?; // `:=`
-            let right = self.parse_stmt_rhs_expr()?;
+            let mut right = self.parse_stmt_rhs_expr()?;
             // A *second* `:=` after the rhs means cpp's varAssignment
             // separator is the second one, not the first — the leading
             // `IDENT := <rhs>` becomes a NamedArgument as the lvalue of
@@ -800,6 +827,39 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let _ = self.eat(TokenKind::Semicolon)?;
                 let left = self.emit.named_argument(&name, right);
                 return Ok(self.emit.variable_assignment(left, outer_right));
+            }
+            // cpp parses `IDENT := rhs` as one expression (`ColumnExprNamedArg`,
+            // a value-tier primary) and only promotes a BARE NamedArgument to a
+            // VariableAssignment. When the rhs parse stopped at a value-tier
+            // operator (bare-alias boundary: `y := 1 as x [1]`), the trailing
+            // operator re-roots onto the NamedArgument and the statement is an
+            // ExprStatement of the extended expression. Only enter this path
+            // when the next token could actually extend; an extension that
+            // fails to attach (statement-splitting recovery, `y := x *= 2`)
+            // comes back as the bare NamedArgument and falls through to the
+            // plain assignment below.
+            if can_extend_named_argument(self.peek()) {
+                let named = self.emit.named_argument(&name, right);
+                let prev_postfix = self.stop_postfix_call_before_colon_equals;
+                self.stop_postfix_call_before_colon_equals = true;
+                let prev_recover = self.stmt_rhs_recover_on_pratt_rhs_failure;
+                self.stmt_rhs_recover_on_pratt_rhs_failure = true;
+                let extended = self.pratt_continue_with_lhs(named, 0, id_start);
+                self.stop_postfix_call_before_colon_equals = prev_postfix;
+                self.stmt_rhs_recover_on_pratt_rhs_failure = prev_recover;
+                let extended = extended?;
+                let is_bare_named = self
+                    .emit
+                    .node_kind(&extended)
+                    .is_some_and(|kind| kind == "NamedArgument");
+                if !is_bare_named {
+                    let _ = self.eat(TokenKind::Semicolon)?;
+                    return Ok(self.emit.expr_statement(extended));
+                }
+                right = self
+                    .emit
+                    .get_field(&extended, "value")
+                    .ok_or_else(|| self.err("NamedArgument without a value"))?;
             }
             // The `:=` form is an `exprStmt` (`expression (COLONEQUALS
             // expression)? SEMICOLON?`) — consume the optional trailing

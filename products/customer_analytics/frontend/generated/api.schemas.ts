@@ -95,6 +95,55 @@ export interface PaginatedAccountNoteListApi {
 }
 
 /**
+ * A team-defined account relationship type (CSM, Onboarding manager, ...).
+ */
+export interface AccountRelationshipDefinitionApi {
+    /** Relationship definition UUID. */
+    readonly id: string
+    /**
+     * Human-readable name of the relationship. Unique within the team.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+     * @nullable
+     */
+    description?: string | null
+    /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+    is_single_holder?: boolean
+}
+
+export interface PaginatedAccountRelationshipDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountRelationshipDefinitionApi[]
+}
+
+/**
+ * A team-defined account relationship type (CSM, Onboarding manager, ...).
+ */
+export interface PatchedAccountRelationshipDefinitionApi {
+    /** Relationship definition UUID. */
+    readonly id?: string
+    /**
+     * Human-readable name of the relationship. Unique within the team.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+     * @nullable
+     */
+    description?: string | null
+    /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+    is_single_holder?: boolean
+}
+
+/**
  * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
@@ -231,6 +280,45 @@ export interface PaginatedAccountNotebookListApi {
 }
 
 /**
+ * A user assigned to an account relationship (read shape).
+ */
+export interface AccountAssignmentApi {
+    /** PostHog user id of the assignee. */
+    readonly id: number
+    /** Email of the assignee. */
+    readonly email: string
+}
+
+/**
+ * One assignment of a user to an account relationship, with its effective range.
+ */
+export interface AccountRelationshipApi {
+    /** Unique id of this assignment row. */
+    readonly id: string
+    /** The relationship type this assignment belongs to. */
+    readonly definition: AccountRelationshipDefinitionApi
+    /** The assigned user; null when their account was deleted. */
+    readonly user: AccountAssignmentApi | null
+    /** When this assignment became effective. */
+    readonly started_at: string
+    /**
+     * When this assignment ended; null while it is active.
+     * @nullable
+     */
+    readonly ended_at: string | null
+}
+
+/**
+ * Input for assigning a user to an account relationship.
+ */
+export interface AccountRelationshipWriteApi {
+    /** Id of the relationship definition to assign. */
+    definition: string
+    /** PostHog user id of the assignee. Must be a member of the account's organization. */
+    user: number
+}
+
+/**
  * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
@@ -306,6 +394,7 @@ export interface PatchedAccountApi {
  * * `date` - date
  * * `datetime` - datetime
  * * `boolean` - boolean
+ * * `select` - select
  */
 export type CustomPropertyDisplayTypeEnumApi =
     (typeof CustomPropertyDisplayTypeEnumApi)[keyof typeof CustomPropertyDisplayTypeEnumApi]
@@ -318,7 +407,65 @@ export const CustomPropertyDisplayTypeEnumApi = {
     Date: 'date',
     Datetime: 'datetime',
     Boolean: 'boolean',
+    Select: 'select',
 } as const
+
+/**
+ * * `preset-1` - preset-1
+ * * `preset-2` - preset-2
+ * * `preset-3` - preset-3
+ * * `preset-4` - preset-4
+ * * `preset-5` - preset-5
+ * * `preset-6` - preset-6
+ * * `preset-7` - preset-7
+ * * `preset-8` - preset-8
+ * * `preset-9` - preset-9
+ * * `preset-10` - preset-10
+ */
+export type CustomPropertyOptionColorEnumApi =
+    (typeof CustomPropertyOptionColorEnumApi)[keyof typeof CustomPropertyOptionColorEnumApi]
+
+export const CustomPropertyOptionColorEnumApi = {
+    Preset1: 'preset-1',
+    Preset2: 'preset-2',
+    Preset3: 'preset-3',
+    Preset4: 'preset-4',
+    Preset5: 'preset-5',
+    Preset6: 'preset-6',
+    Preset7: 'preset-7',
+    Preset8: 'preset-8',
+    Preset9: 'preset-9',
+    Preset10: 'preset-10',
+} as const
+
+/**
+ * An allowed value of a select custom property.
+ */
+export interface CustomPropertyOptionApi {
+    /**
+     * Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.
+     * @nullable
+     */
+    id?: string | null
+    /**
+     * Display label of the option. Stored as the account's value when picked.
+     * @maxLength 400
+     */
+    label: string
+    /** Preset color token used to render the option ('preset-1' through 'preset-10').
+     *
+     * * `preset-1` - preset-1
+     * * `preset-2` - preset-2
+     * * `preset-3` - preset-3
+     * * `preset-4` - preset-4
+     * * `preset-5` - preset-5
+     * * `preset-6` - preset-6
+     * * `preset-7` - preset-7
+     * * `preset-8` - preset-8
+     * * `preset-9` - preset-9
+     * * `preset-10` - preset-10 */
+    color: CustomPropertyOptionColorEnumApi
+}
 
 /**
  * Binds a materialized data-warehouse view column to a custom property definition; the view's
@@ -393,7 +540,7 @@ export interface CustomPropertyDefinitionApi {
      * @nullable
      */
     description?: string | null
-    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
      *
      * * `text` - text
      * * `number` - number
@@ -401,10 +548,16 @@ export interface CustomPropertyDefinitionApi {
      * * `percent` - percent
      * * `date` - date
      * * `datetime` - datetime
-     * * `boolean` - boolean */
+     * * `boolean` - boolean
+     * * `select` - select */
     display_type: CustomPropertyDisplayTypeEnumApi
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
+    /**
+     * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
+     * @nullable
+     */
+    options?: CustomPropertyOptionApi[] | null
     /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
     readonly source: CustomPropertySourceApi | null
     readonly created_at: string
@@ -443,7 +596,7 @@ export interface PatchedCustomPropertyDefinitionApi {
      * @nullable
      */
     description?: string | null
-    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
      *
      * * `text` - text
      * * `number` - number
@@ -451,10 +604,16 @@ export interface PatchedCustomPropertyDefinitionApi {
      * * `percent` - percent
      * * `date` - date
      * * `datetime` - datetime
-     * * `boolean` - boolean */
+     * * `boolean` - boolean
+     * * `select` - select */
     display_type?: CustomPropertyDisplayTypeEnumApi
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
+    /**
+     * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
+     * @nullable
+     */
+    options?: CustomPropertyOptionApi[] | null
     /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
     readonly source?: CustomPropertySourceApi | null
     readonly created_at?: string
@@ -464,6 +623,27 @@ export interface PatchedCustomPropertyDefinitionApi {
     readonly updated_at?: string | null
     /** Workflows that use this property, resolved by definition id. */
     readonly references?: readonly CustomPropertyReferenceApi[]
+}
+
+/**
+ * One suggested filter value for a custom property.
+ */
+export interface CustomPropertyValueSuggestionApi {
+    /** A suggested value for the custom property. */
+    readonly name: string
+}
+
+/**
+ * Response shape of the custom property value-suggestions endpoint.
+ *
+ * Matches the contract of the shared property-values picker (``propertyDefinitionsModel``
+ * on the frontend), which expects ``{results: [{name}], refreshing}``.
+ */
+export interface CustomPropertyValueSuggestionsResponseApi {
+    /** Suggested values matching the search input. */
+    readonly results: readonly CustomPropertyValueSuggestionApi[]
+    /** Always false — present for compatibility with the property-values consumer. */
+    readonly refreshing: boolean
 }
 
 export interface PaginatedCustomPropertySourceListApi {
@@ -743,6 +923,10 @@ export type AccountNotesListParams = {
      */
     account_id?: string
     /**
+     * Only return notes on accounts assigned to these user IDs (the account's CSM or account executive; repeat the param per user).
+     */
+    assigned_to?: number[]
+    /**
      * Only return notes created by these user IDs (repeat the param per user).
      */
     created_by?: number[]
@@ -758,6 +942,17 @@ export type AccountNotesListParams = {
      * Full-text search across note title and content, plus substring match on account name.
      */
     search?: string
+}
+
+export type AccountRelationshipDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type AccountsListParams = {
@@ -818,6 +1013,13 @@ export type AccountsNotebooksListParams = {
     search?: string
 }
 
+export type AccountsRelationshipsListParams = {
+    /**
+     * Include ended assignments (the full timeline), not just active ones.
+     */
+    include_history?: boolean
+}
+
 export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
@@ -827,6 +1029,17 @@ export type CustomPropertyDefinitionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type CustomPropertyDefinitionsValuesRetrieveParams = {
+    /**
+     * Id of the custom property definition to suggest values for.
+     */
+    key: string
+    /**
+     * Case-insensitive substring to narrow the suggestions.
+     */
+    value?: string
 }
 
 export type CustomPropertySourcesListParams = {

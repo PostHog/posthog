@@ -6,8 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pydantic
 import temporalio.exceptions
 
-from posthog.schema import SignalRemediation
-
+from products.signals.backend.contracts import SignalRemediation
 from products.signals.backend.facade.api import (
     _MAX_TELEMETRY_STR_LEN,
     MAX_SIGNAL_REMEDIATION_TOKENS,

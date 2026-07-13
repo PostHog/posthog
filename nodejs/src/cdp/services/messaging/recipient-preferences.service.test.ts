@@ -101,7 +101,8 @@ describe('RecipientPreferencesService', () => {
         describe('for email actions', () => {
             const createEmailAction = (
                 to: string = 'test@example.com',
-                categoryId: string
+                categoryId: string,
+                categoryType?: 'marketing' | 'transactional'
             ): Extract<HogFlowAction, { type: 'function_email' }> => ({
                 id: 'email',
                 name: 'Send email',
@@ -111,6 +112,7 @@ describe('RecipientPreferencesService', () => {
                 config: {
                     template_id: 'template-email',
                     message_category_id: categoryId,
+                    message_category_type: categoryType,
                     inputs: {
                         email: {
                             value: {
@@ -245,6 +247,29 @@ describe('RecipientPreferencesService', () => {
                 expect(result).toBe(true)
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
             })
+
+            it.each([
+                ['the specific category', { '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT' }],
+                ['all marketing messaging', { $all: 'OPTED_OUT' }],
+            ])(
+                'should return false for a transactional email even when recipient is opted out of %s',
+                async (_label, preferences) => {
+                    const action = createEmailAction(
+                        'test@example.com',
+                        '123e4567-e89b-12d3-a456-426614174000',
+                        'transactional'
+                    )
+                    const invocation = createFunctionStepInvocation(action)
+
+                    mockRecipientsManagerGet.mockResolvedValue(createRecipient('test@example.com', preferences))
+
+                    const result = await service.shouldSkipAction(invocation, action)
+
+                    expect(result).toBe(false)
+                    // Transactional messages bypass the opt-out lookup entirely
+                    expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
+                }
+            )
 
             it('should return true if recipient is opted out of specific category even when opted in to all marketing', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')

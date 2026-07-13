@@ -18,6 +18,23 @@ tools:
     create-session-summaries-individually:
         operation: create_session_summaries_individually
         enabled: false
+    session-recording-bulk-delete:
+        operation: session_recordings_bulk_delete_create
+        enabled: true
+        scopes:
+            - session_recording:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Bulk delete session recordings
+        description: >
+            Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be
+            undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more
+            than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in
+            batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster.
+            IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some
+            recordings were already deleted or never existed.
     session-recording-delete:
         operation: session_recordings_destroy
         enabled: true
@@ -30,7 +47,8 @@ tools:
         title: Delete session recording
         description: >
             Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance
-            workflows.
+            workflows. To delete more than one recording, use `session-recording-bulk-delete` instead of calling this
+            repeatedly.
     session-recording-get:
         operation: session_recordings_retrieve
         enabled: true

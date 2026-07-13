@@ -1412,65 +1412,86 @@ describe('the feature flag release conditions logic', () => {
             }
         )
 
-        it('falls back to raw ids without caching when the persons request fails', async () => {
-            logic?.unmount()
+        describe('when the persons request fails', () => {
+            // loadDistinctIdNames reports the failed request via console.error by design
+            let consoleErrorSpy: jest.SpyInstance
 
-            useMocks({
-                post: {
-                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
-                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => [500, {}],
-                },
+            beforeEach(() => {
+                consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
             })
 
-            logic = featureFlagReleaseConditionsLogic({
-                id: 'distinct-id-error',
-                filters: distinctIdFilters(['distinct-1', 'distinct-2']),
+            afterEach(() => {
+                consoleErrorSpy.mockRestore()
             })
 
-            await expectLogic(logic, () => {
-                logic.mount()
-            })
-                .toDispatchActions(['loadDistinctIdNames'])
-                .toFinishAllListeners()
-                // Failed ids stay uncached so a later setFilters/updateConditionSet retries them.
-                .toMatchValues({ distinctIdNameCache: {} })
+            it('falls back to raw ids without caching', async () => {
+                logic?.unmount()
 
-            expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1')
-        })
-
-        it('preserves resolved names from earlier chunks when a later chunk fails', async () => {
-            logic?.unmount()
-
-            // More than one batch worth of ids so the request is chunked.
-            const ids = Array.from({ length: 250 }, (_, i) => `d-${i}`)
-            const firstChunkResults = Object.fromEntries(ids.slice(0, 200).map((id) => [id, { name: `name-${id}` }]))
-
-            let callCount = 0
-            useMocks({
-                post: {
-                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
-                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => {
-                        callCount += 1
-                        // First chunk resolves, second chunk fails.
-                        return callCount === 1 ? [200, { results: firstChunkResults }] : [500, {}]
+                useMocks({
+                    post: {
+                        '/api/projects/:team/feature_flags/user_blast_radius': () => [
+                            200,
+                            { affected: 10, total: 100 },
+                        ],
+                        '/api/environments/:team/persons/batch_by_distinct_ids/': () => [500, {}],
                     },
-                },
+                })
+
+                logic = featureFlagReleaseConditionsLogic({
+                    id: 'distinct-id-error',
+                    filters: distinctIdFilters(['distinct-1', 'distinct-2']),
+                })
+
+                await expectLogic(logic, () => {
+                    logic.mount()
+                })
+                    .toDispatchActions(['loadDistinctIdNames'])
+                    .toFinishAllListeners()
+                    // Failed ids stay uncached so a later setFilters/updateConditionSet retries them.
+                    .toMatchValues({ distinctIdNameCache: {} })
+
+                expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1')
             })
 
-            logic = featureFlagReleaseConditionsLogic({
-                id: 'distinct-id-chunked',
-                filters: distinctIdFilters(ids),
-            })
+            it('preserves resolved names from earlier chunks when a later chunk fails', async () => {
+                logic?.unmount()
 
-            await expectLogic(logic, () => {
-                logic.mount()
-            })
-                .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
-                .toFinishAllListeners()
+                // More than one batch worth of ids so the request is chunked.
+                const ids = Array.from({ length: 250 }, (_, i) => `d-${i}`)
+                const firstChunkResults = Object.fromEntries(
+                    ids.slice(0, 200).map((id) => [id, { name: `name-${id}` }])
+                )
 
-            // First-chunk names survive; the failed second chunk stays uncached and renders raw.
-            expect(logic.values.getDistinctIdName('d-0')).toBe('d-0 (name-d-0)')
-            expect(logic.values.getDistinctIdName('d-200')).toBe('d-200')
+                let callCount = 0
+                useMocks({
+                    post: {
+                        '/api/projects/:team/feature_flags/user_blast_radius': () => [
+                            200,
+                            { affected: 10, total: 100 },
+                        ],
+                        '/api/environments/:team/persons/batch_by_distinct_ids/': () => {
+                            callCount += 1
+                            // First chunk resolves, second chunk fails.
+                            return callCount === 1 ? [200, { results: firstChunkResults }] : [500, {}]
+                        },
+                    },
+                })
+
+                logic = featureFlagReleaseConditionsLogic({
+                    id: 'distinct-id-chunked',
+                    filters: distinctIdFilters(ids),
+                })
+
+                await expectLogic(logic, () => {
+                    logic.mount()
+                })
+                    .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+                    .toFinishAllListeners()
+
+                // First-chunk names survive; the failed second chunk stays uncached and renders raw.
+                expect(logic.values.getDistinctIdName('d-0')).toBe('d-0 (name-d-0)')
+                expect(logic.values.getDistinctIdName('d-200')).toBe('d-200')
+            })
         })
 
         it('resolves names when a distinct_id filter is added to a mounted flag', async () => {
@@ -1620,6 +1641,60 @@ describe('the feature flag release conditions logic', () => {
             expect(logic.values.taxonomicGroupTypesForCondition(undefined)).not.toContain(
                 TaxonomicFilterGroupType.PersonProperties
             )
+        })
+    })
+
+    describe('propsChanged does not clobber fresher local edits', () => {
+        it('keeps a local rollout edit when the parent prop has not caught up', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'stale-prop-test',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 0, variant: null, sort_key: 'group-1' },
+                ]),
+            })
+            logic.mount()
+
+            // User drags the rollout to 100 locally
+            logic.actions.updateConditionSet(0, 100)
+            expect(logic.values.filters.groups[0].rollout_percentage).toEqual(100)
+
+            // A re-render fires propsChanged with the pre-edit parent snapshot (0%) before the
+            // local edit has round-tripped back to the parent. It must not reset the fresher edit.
+            await expectLogic(logic, () => {
+                featureFlagReleaseConditionsLogic({
+                    id: 'stale-prop-test',
+                    filters: generateFeatureFlagFilters([
+                        { properties: [], rollout_percentage: 0, variant: null, sort_key: 'group-1' },
+                    ]),
+                })
+            }).toNotHaveDispatchedActions(['setFilters'])
+
+            expect(logic.values.filters.groups[0].rollout_percentage).toEqual(100)
+        })
+
+        it('adopts a genuine external filters change from the parent', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'external-change-test',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 0, variant: null, sort_key: 'group-1' },
+                ]),
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                featureFlagReleaseConditionsLogic({
+                    id: 'external-change-test',
+                    filters: generateFeatureFlagFilters([
+                        { properties: [], rollout_percentage: 25, variant: null, sort_key: 'group-1' },
+                    ]),
+                })
+            }).toDispatchActions(['setFilters'])
+
+            expect(logic.values.filters.groups[0].rollout_percentage).toEqual(25)
         })
     })
 })

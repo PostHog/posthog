@@ -2424,6 +2424,44 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
         assert child_params.get("since") == "2026-06-08T12:53:34Z"
 
 
+class TestCustomSourceIncrementalStartParam(SimpleTestCase):
+    _OMIT = object()
+
+    def _manifest(self, start_param) -> dict:
+        manifest = _minimal_manifest()
+        incremental: dict = {"cursor_path": "updated_at"}
+        if start_param is not self._OMIT:
+            incremental["start_param"] = start_param
+        manifest["resources"][0]["endpoint"]["incremental"] = incremental
+        return manifest
+
+    @parameterized.expand([("missing", _OMIT), ("empty", ""), ("non_string", 123)])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_missing_start_param_raises_non_retryable(self, _name, start_param, mock_resources):
+        mock_resources.return_value = [_fake_resource("users")]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest(start_param)))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+        )
+        with self.assertRaises(NonRetryableException) as ctx:
+            source.source_for_pipeline(config, inputs)
+        assert "start_param" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+    @parameterized.expand([("missing", _OMIT), ("empty", "")])
+    def test_missing_start_param_rejected_at_validation(self, _name, start_param):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest(start_param)), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "start_param" in err and "'users'" in err
+
+
 def _apikey_manifest() -> dict:
     """A minimal manifest whose auth is an api_key in a query param, so the
     injected secret is registered for value-based redaction."""

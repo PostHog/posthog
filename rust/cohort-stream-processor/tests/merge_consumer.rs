@@ -20,6 +20,9 @@
 //!   | xargs -r rpk topic delete'
 //! ```
 
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::HashSet;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
@@ -48,7 +51,8 @@ use cohort_stream_processor::producer::{
 };
 use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord};
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, Stage1Key, StoreConfig, TombstoneKey,
+    BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
+    TombstoneKey,
 };
 use cohort_stream_processor::workers::{
     CascadeConfig, MergeWorkerDeps, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT,
@@ -460,14 +464,9 @@ fn stage1_state(
     lsk: LeafStateKey,
     person: Uuid,
 ) -> Option<Stage1State> {
-    let key = Stage1Key {
-        partition_id,
-        team_id: TEAM as u64,
-        leaf_state_key: lsk,
-        person_id: person,
-    };
+    let key = BehavioralKey::new(partition_id, TEAM as u64, person, lsk);
     store
-        .get_stage1(&key)
+        .get_behavioral(&key)
         .unwrap()
         .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
 }
@@ -551,6 +550,17 @@ fn register_instance(manager: &mut Manager, name: &str) -> [Handle; 3] {
     ]
 }
 
+fn test_handle(store: &CohortStore) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode: OffloadMode::All,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
+}
+
 struct Instance {
     store: CohortStore,
     dispatcher: Arc<EventDispatcher>,
@@ -607,7 +617,7 @@ async fn spawn_instance(
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
-        store.clone(),
+        test_handle(&store),
         Arc::new(catalog),
         membership_sink,
         merge_deps,
@@ -750,6 +760,7 @@ async fn keyed_produces_agree_with_partition_of_live() {
                 source_offset: n as i64,
                 leaves: vec![],
                 forward_hops: 0,
+                person_dedup: None,
             })
             .collect();
         let acks = transfer_sink.produce(transfers).await;

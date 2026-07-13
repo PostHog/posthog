@@ -22,8 +22,11 @@ import type {
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
+    ExternalDataSourcesOauthAccountsRetrieveParams,
+    ExternalDataSourcesRepairCdcCreate200,
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
+    IntegrationAccountsResponseApi,
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceConnectionOptionListApi,
     PaginatedExternalDataSourceSerializersListApi,
@@ -669,6 +672,33 @@ export const externalDataSourcesReloadCreate = async (
     })
 }
 
+export const getExternalDataSourcesRepairCdcCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/repair_cdc/`
+}
+
+/**
+ * Repair CDC on a source whose replication resources were lost.
+ *
+ * Only proceeds on evidence of breakage (a persisted broken marker, or a live probe
+ * showing the slot/publication missing) — repairing a healthy source would drop its
+ * slot and force a full re-sync. Cancels running CDC jobs, recreates the engine-side
+ * slot/publication against the stored CDC config, resets every active CDC schema to
+ * snapshot mode for a full re-sync (changes since the old slot died are
+ * unrecoverable), clears the broken markers, and resumes the paused schedules.
+ * Idempotent: safe to retry after a partial failure. Concurrent repairs of the same
+ * source are rejected with a 409.
+ */
+export const externalDataSourcesRepairCdcCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ExternalDataSourcesRepairCdcCreate200> => {
+    return apiMutator<ExternalDataSourcesRepairCdcCreate200>(getExternalDataSourcesRepairCdcCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/revenue_analytics_config/`
 }
@@ -897,6 +927,44 @@ export const externalDataSourcesDraftCustomManifestCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(draftCustomManifestRequestApi),
     })
+}
+
+export const getExternalDataSourcesOauthAccountsRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataSourcesOauthAccountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/oauth_accounts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/oauth_accounts/`
+}
+
+/**
+ * List the accounts/properties a connected OAuth integration exposes, in the shared
+ * IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
+ * this endpoint just routes by source type and serializes the result.
+ */
+export const externalDataSourcesOauthAccountsRetrieve = async (
+    projectId: string,
+    params: ExternalDataSourcesOauthAccountsRetrieveParams,
+    options?: RequestInit
+): Promise<IntegrationAccountsResponseApi> => {
+    return apiMutator<IntegrationAccountsResponseApi>(
+        getExternalDataSourcesOauthAccountsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataSourcesPreviewResourceCreateUrl = (projectId: string) => {
