@@ -411,7 +411,10 @@ export class ToolExecutor {
             clientContext.mcpConsumer,
             trackInnerCall,
             state.scopeGatedTools,
-            { isInlineExecUiHost: state.clientProfile.isInlineExecUiHost() }
+            {
+                isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+            }
         )
 
         return {

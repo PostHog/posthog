@@ -40,6 +40,10 @@ export const AlertsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const alertsCreateBodyNameMax = 255
+
+export const alertsCreateBodyThresholdOneNameMax = 255
+
 export const alertsCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
 export const alertsCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
@@ -73,7 +77,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     insight: zod
         .number()
         .describe('Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.'),
-    name: zod.string().optional().describe('Human-readable name for the alert.'),
+    name: zod.string().max(alertsCreateBodyNameMax).optional().describe('Human-readable name for the alert.'),
     subscribed_users: zod
         .array(zod.number())
         .describe('User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.'),
@@ -81,7 +85,11 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .object({
             id: zod.string().optional(),
             created_at: zod.iso.datetime({ offset: true }).optional(),
-            name: zod.string().optional().describe('Optional name for the threshold.'),
+            name: zod
+                .string()
+                .max(alertsCreateBodyThresholdOneNameMax)
+                .optional()
+                .describe('Optional name for the threshold.'),
             configuration: zod
                 .object({
                     bounds: zod
@@ -1328,6 +1336,10 @@ export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const alertsPartialUpdateBodyNameMax = 255
+
+export const alertsPartialUpdateBodyThresholdOneNameMax = 255
+
 export const alertsPartialUpdateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsPartialUpdateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
 export const alertsPartialUpdateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
@@ -1362,7 +1374,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .optional()
         .describe('Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.'),
-    name: zod.string().optional().describe('Human-readable name for the alert.'),
+    name: zod.string().max(alertsPartialUpdateBodyNameMax).optional().describe('Human-readable name for the alert.'),
     subscribed_users: zod
         .array(zod.number())
         .optional()
@@ -1371,7 +1383,11 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .object({
             id: zod.string().optional(),
             created_at: zod.iso.datetime({ offset: true }).optional(),
-            name: zod.string().optional().describe('Optional name for the threshold.'),
+            name: zod
+                .string()
+                .max(alertsPartialUpdateBodyThresholdOneNameMax)
+                .optional()
+                .describe('Optional name for the threshold.'),
             configuration: zod
                 .object({
                     bounds: zod

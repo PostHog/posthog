@@ -787,6 +787,8 @@ class ExternalDataSourceType(models.TextChoices):
     TERRAAPI = "TerraApi", "TerraApi"
     TRIGGERDEV = "TriggerDev", "TriggerDev"
     TURSO = "Turso", "Turso"
+    SINGULAR = "Singular", "Singular"
+    SWONKIE = "Swonkie", "Swonkie"
     TWELVELABS = "TwelveLabs", "TwelveLabs"
     TWENTY = "Twenty", "Twenty"
     UNSTRUCTURED = "Unstructured", "Unstructured"
@@ -795,6 +797,12 @@ class ExternalDataSourceType(models.TextChoices):
     VULTR = "Vultr", "Vultr"
     WINDMILL = "Windmill", "Windmill"
     ZEP = "Zep", "Zep"
+    HEX = "Hex", "Hex"
+    SUMSUB = "Sumsub", "Sumsub"
+    GOOGLECHAT = "GoogleChat", "GoogleChat"
+    KICKSCALE = "Kickscale", "Kickscale"
+    ZELLIFY = "Zellify", "Zellify"
+    RUDDERSTACK = "RudderStack", "RudderStack"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
@@ -804,8 +812,10 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.POSTGRES: "postgres",
     ExternalDataSourceType.MYSQL: "mysql",
     ExternalDataSourceType.SNOWFLAKE: "snowflake",
+    ExternalDataSourceType.REDSHIFT: "redshift",
 }
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):
     REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
+    ENGINEERING_ANALYTICS = "engineering_analytics", "Engineering Analytics"

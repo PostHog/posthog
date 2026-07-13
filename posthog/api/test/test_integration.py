@@ -14,6 +14,7 @@ from django.test import override_settings
 from django.test.client import Client as HttpClient
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -684,17 +685,20 @@ class TestAwsS3Integration:
         [
             (
                 {"aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "Name, access key ID, and secret access key must be provided",
+                "A name is required for an AWS S3 integration",
             ),
             (
                 {"name": "n", "aws_secret_access_key": "s"},
-                "Name, access key ID, and secret access key must be provided",
+                "Access key ID is required for an AWS S3 integration",
             ),
-            ({"name": "n", "aws_access_key_id": "k"}, "Name, access key ID, and secret access key must be provided"),
-            ({}, "Name, access key ID, and secret access key must be provided"),
+            (
+                {"name": "n", "aws_access_key_id": "k"},
+                "Secret access key is required for an AWS S3 integration",
+            ),
+            ({}, "A name is required for an AWS S3 integration"),
             (
                 {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": 1},
-                "Name, access key ID, and secret access key must be strings",
+                "Secret access key is required for an AWS S3 integration",
             ),
         ],
     )
@@ -709,6 +713,79 @@ class TestAwsS3Integration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == expected_error_message
+
+
+class TestAwsS3RoleBasedIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_with_valid_config(self, client: HttpClient):
+        client.force_login(self.user)
+
+        role = "arn:aws:iam::123456789012:role/my-role"
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "aws-s3",
+                "config": {
+                    "name": "prod-aws",
+                    "aws_role_arn": role,
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["kind"] == "aws-s3"
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.kind == "aws-s3"
+        assert integration.team == self.team
+        assert integration.integration_id == "prod-aws"
+        assert integration.config == {"name": "prod-aws", "aws_role_arn": role}
+        assert integration.sensitive_config == {}
+
+    def test_create_rejects_duplicate_role_in_different_org(self, client: HttpClient):
+        another_org = Organization.objects.create(name="Test Org 2")
+        another_team = Team.objects.create(organization=another_org, name="Test Team")
+        another_user = User.objects.create_and_join(
+            another_org, "test2@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        client.force_login(another_user)
+        payload = {
+            "kind": "aws-s3",
+            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+        }
+
+        first = client.post(
+            f"/api/environments/{another_team.pk}/integrations", payload, content_type="application/json"
+        )
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        client.force_login(self.user)
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot create AWS S3 integration: Invalid role" in second.json()["detail"]
+
+    def test_create_rejects_duplicate_name(self, client: HttpClient):
+        client.force_login(self.user)
+        payload = {
+            "kind": "aws-s3",
+            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+        }
+
+        first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "An integration named 'prod-aws' already exists" in second.json()["detail"]
+        assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
 
 
 class TestS3CompatibleIntegration:
@@ -817,6 +894,164 @@ class TestS3CompatibleIntegration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == expected_error_message
+
+
+class TestSnowflakeIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_with_password_auth(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "snowflake",
+                "config": {
+                    "name": "prod-snowflake",
+                    "account": "myorg-myaccount",
+                    "user": "posthog_svc",
+                    "authentication_type": "password",
+                    "password": "secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["kind"] == "snowflake"
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.integration_id == "prod-snowflake"
+        assert integration.config == {
+            "name": "prod-snowflake",
+            "account": "myorg-myaccount",
+            "user": "posthog_svc",
+            "authentication_type": "password",
+        }
+        assert integration.sensitive_config == {"password": "secret"}
+        # The credential value must never surface anywhere in the API response (sensitive_config is
+        # not a serializer field; this guards against a leak into config or any other exposed field).
+        # Note the word "password" legitimately appears as the non-secret authentication_type.
+        response_body = json.dumps(response.json())
+        assert "secret" not in response_body
+
+    def test_create_with_keypair_auth(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "snowflake",
+                "config": {
+                    "name": "prod-snowflake",
+                    "account": "myorg-myaccount",
+                    "user": "posthog_svc",
+                    "authentication_type": "keypair",
+                    "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+                    "private_key_passphrase": "phrase",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.config["authentication_type"] == "keypair"
+        assert integration.sensitive_config == {
+            "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+            "private_key_passphrase": "phrase",
+        }
+        response_body = json.dumps(response.json())
+        assert "private_key" not in response_body
+        assert "PRIVATE KEY" not in response_body
+        assert "phrase" not in response_body
+
+    def test_create_rejects_duplicate_name(self, client: HttpClient):
+        client.force_login(self.user)
+        payload = {
+            "kind": "snowflake",
+            "config": {
+                "name": "prod-snowflake",
+                "account": "myorg-myaccount",
+                "user": "posthog_svc",
+                "authentication_type": "password",
+                "password": "secret",
+            },
+        }
+
+        first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "An integration named 'prod-snowflake' already exists" in second.json()["detail"]
+        assert Integration.objects.filter(team=self.team, integration_id="prod-snowflake").count() == 1
+
+    def test_create_rejects_malformed_account(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "snowflake",
+                "config": {
+                    "name": "bad",
+                    "account": "https://myaccount.snowflakecomputing.com",
+                    "user": "posthog_svc",
+                    "authentication_type": "password",
+                    "password": "secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "invalid account identifier" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "invalid_config,expected_error_message",
+        [
+            (
+                {"account": "a", "user": "u", "password": "p"},
+                "Name, account, and user must be provided",
+            ),
+            (
+                {"name": "n", "user": "u", "password": "p"},
+                "Name, account, and user must be provided",
+            ),
+            ({}, "Name, account, and user must be provided"),
+            (
+                {"name": "n", "account": "a", "user": "u", "authentication_type": "password"},
+                "Password is required",
+            ),
+            (
+                {"name": "n", "account": "a", "user": "u", "authentication_type": "keypair"},
+                "Private key is required",
+            ),
+            (
+                {"name": "n", "account": "a", "user": "u", "authentication_type": "password", "password": 42},
+                "Password, private key, and private key passphrase must be strings",
+            ),
+        ],
+    )
+    def test_create_with_invalid_config(self, invalid_config, expected_error_message, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "snowflake", "config": invalid_config},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error_message in response.json()["detail"]
 
 
 class TestIntegrationAPIKeyAccess:
@@ -3144,6 +3379,121 @@ class TestStripeIntegration:
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert not Integration.objects.filter(team_id=self.team.pk, kind="stripe").exists()
+
+
+class TestOauthIntegrationRevokeOnDisconnect:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db, settings):
+        settings.SALESFORCE_CONSUMER_KEY = "sf-key"
+        settings.SALESFORCE_CONSUMER_SECRET = "sf-secret"
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create_salesforce_integration(
+        self,
+        sensitive_config: dict | None = None,
+        instance_url: str = "https://example.my.salesforce.com",
+    ) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="salesforce",
+            config={"instance_url": instance_url},
+            sensitive_config=(
+                {"access_token": "sf-access", "refresh_token": "sf-refresh"}
+                if sensitive_config is None
+                else sensitive_config
+            ),
+            integration_id=instance_url,
+            created_by=self.user,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_salesforce_revokes_token_at_provider(self, mock_post, client: HttpClient):
+        integration = self._create_salesforce_integration()
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_called_once_with(
+            "https://example.my.salesforce.com/services/oauth2/revoke",
+            data={"token": "sf-refresh"},
+            timeout=10,
+            allow_redirects=False,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_sandbox_salesforce_revokes_at_sandbox_host(self, mock_post, client: HttpClient):
+        # Sandbox integrations are stored as kind "salesforce" with a sandbox instance_url; revoking
+        # must hit that host, not login.salesforce.com, or the sandbox grant is never invalidated.
+        integration = self._create_salesforce_integration(
+            instance_url="https://example--sandbox.sandbox.my.salesforce.com"
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_called_once_with(
+            "https://example--sandbox.sandbox.my.salesforce.com/services/oauth2/revoke",
+            data={"token": "sf-refresh"},
+            timeout=10,
+            allow_redirects=False,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_still_deletes_when_revoke_fails(self, mock_post, client: HttpClient):
+        client.force_login(self.user)
+
+        raising = self._create_salesforce_integration()
+        mock_post.side_effect = Exception("Salesforce is down")
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{raising.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=raising.id).exists()
+
+        rejected = self._create_salesforce_integration()
+        mock_post.side_effect = None
+        rejecting_response = MagicMock(status_code=400)
+        rejecting_response.raise_for_status.side_effect = requests.HTTPError(
+            "400 Client Error", response=rejecting_response
+        )
+        mock_post.return_value = rejecting_response
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{rejected.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=rejected.id).exists()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_without_tokens_skips_revoke(self, mock_post, client: HttpClient):
+        integration = self._create_salesforce_integration(sensitive_config={})
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_not_called()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_kind_without_revoke_url_skips_revoke(self, mock_post, client: HttpClient):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={"authed_user": {"id": "U123"}},
+            sensitive_config={"access_token": "xoxb-test"},
+            created_by=self.user,
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_not_called()
 
 
 class TestStripeIntegrationOAuthTokens:

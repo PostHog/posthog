@@ -501,6 +501,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         externalTables.push({
                             ...table,
                             name: table.name,
+                            url_pattern: table.url_pattern || '',
                             source_type: table.source?.source_type || mapUrlToProvider(table.url_pattern),
                             source_map_id: table.schema?.id || table.source?.id || table.id,
                             source_prefix: table.source?.prefix || '',
