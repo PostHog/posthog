@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfigType
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -27,7 +27,7 @@ class TestSourceConfig:
         # A non-secret key field would be stored unencrypted; a non-required one would let a source be
         # created with no credentials.
         fields = MetorialSource().get_source_config.fields
-        api_key = next(f for f in fields if f.name == "api_key")
+        api_key = next(f for f in fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.required is True
         assert api_key.secret is True

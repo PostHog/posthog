@@ -2,6 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -121,8 +122,19 @@ def _fetch_page(
         raise MetorialRetryableError(f"Metorial API error (retryable): status={response.status_code}, path={path}")
 
     if not response.ok:
-        logger.error(f"Metorial API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
+        logger.error(f"Metorial API error: status={response.status_code}, path={path}")
+        # raise_for_status() would embed the full request URL (including the query string, which
+        # carries the incremental watermark and cursor) in the exception, and response.text can echo
+        # synced session content, tool-call payloads, or secret values. Both are surfaced as the
+        # schema's latest_error outside the warehouse table ACLs. Rebuild the error from
+        # scheme/host/path only so no response body or query string can leak into stored error state.
+        # The "<status> Client Error: <reason> for url: https://api.metorial.com" prefix stays stable
+        # for get_non_retryable_errors() matching.
+        safe = urlsplit(response.url)
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {safe.scheme}://{safe.netloc}{safe.path}",
+            response=response,
+        )
 
     return response.json()
 

@@ -210,3 +210,20 @@ class TestFetchPageRetries:
         with pytest.raises(requests.HTTPError):
             metorial._fetch_page(session, "/sessions", {}, {}, MagicMock())
         assert session.get.call_count == 1
+
+    def test_client_error_scrubs_query_string_and_keeps_non_retryable_prefix(self) -> None:
+        # The incremental watermark/cursor ride in the query string and the body can echo synced
+        # session content; neither may reach the rebuilt HTTPError (surfaced as the schema's
+        # latest_error outside warehouse ACLs). The status + host prefix stays stable so
+        # get_non_retryable_errors() still matches.
+        resp = requests.Response()
+        resp.status_code = 401
+        resp.reason = "Unauthorized"
+        resp.url = "https://api.metorial.com/sessions?updated_at%5Bgt%5D=2026-03-04T00%3A00%3A00.000Z&after=ses_secret"
+        resp._content = b'{"error":"leaked session content and secrets"}'
+        session = MagicMock()
+        session.get.return_value = resp
+
+        with pytest.raises(requests.HTTPError) as exc:
+            metorial._fetch_page(session, "/sessions", {}, {}, MagicMock())
+        assert str(exc.value) == "401 Client Error: Unauthorized for url: https://api.metorial.com/sessions"
