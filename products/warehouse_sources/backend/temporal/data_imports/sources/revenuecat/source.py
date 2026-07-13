@@ -163,8 +163,7 @@ class RevenueCatSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
-            featureFlag="dwh-revenuecat",
+            releaseStatus=ReleaseStatus.GA,
             webhookSetupCaption=(
                 "PostHog tries to register a webhook integration in RevenueCat using your "
                 "secret API key. RevenueCat does not HMAC-sign deliveries — instead, the "

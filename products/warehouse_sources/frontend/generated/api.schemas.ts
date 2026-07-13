@@ -1121,6 +1121,8 @@ export const CreatedViaEnumApi = {
  * * `TerraApi` - TerraApi
  * * `TriggerDev` - TriggerDev
  * * `Turso` - Turso
+ * * `Singular` - Singular
+ * * `Swonkie` - Swonkie
  * * `TwelveLabs` - TwelveLabs
  * * `Twenty` - Twenty
  * * `Unstructured` - Unstructured
@@ -1129,6 +1131,7 @@ export const CreatedViaEnumApi = {
  * * `Vultr` - Vultr
  * * `Windmill` - Windmill
  * * `Zep` - Zep
+ * * `Hex` - Hex
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1879,6 +1882,8 @@ export const ExternalDataSourceTypeEnumApi = {
     TerraApi: 'TerraApi',
     TriggerDev: 'TriggerDev',
     Turso: 'Turso',
+    Singular: 'Singular',
+    Swonkie: 'Swonkie',
     TwelveLabs: 'TwelveLabs',
     Twenty: 'Twenty',
     Unstructured: 'Unstructured',
@@ -1887,6 +1892,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Vultr: 'Vultr',
     Windmill: 'Windmill',
     Zep: 'Zep',
+    Hex: 'Hex',
 } as const
 
 /**
@@ -1905,6 +1911,7 @@ export const AccessMethodEnumApi = {
  * * `postgres` - postgres
  * * `mysql` - mysql
  * * `snowflake` - snowflake
+ * * `redshift` - redshift
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -1913,6 +1920,7 @@ export const EngineEnumApi = {
     Postgres: 'postgres',
     Mysql: 'mysql',
     Snowflake: 'snowflake',
+    Redshift: 'redshift',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -1960,7 +1968,8 @@ export interface ExternalDataSourceSerializersApi {
      * * `duckdb` - duckdb
      * * `postgres` - postgres
      * * `mysql` - mysql
-     * * `snowflake` - snowflake */
+     * * `snowflake` - snowflake
+     * * `redshift` - redshift */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -2739,6 +2748,8 @@ export interface ExternalDataSourceCreateApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -2746,7 +2757,8 @@ export interface ExternalDataSourceCreateApi {
      * * `Vellum` - Vellum
      * * `Vultr` - Vultr
      * * `Windmill` - Windmill
-     * * `Zep` - Zep */
+     * * `Zep` - Zep
+     * * `Hex` - Hex */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -2817,7 +2829,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `duckdb` - duckdb
      * * `postgres` - postgres
      * * `mysql` - mysql
-     * * `snowflake` - snowflake */
+     * * `snowflake` - snowflake
+     * * `redshift` - redshift */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -2933,7 +2946,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `duckdb` - duckdb
      * * `postgres` - postgres
      * * `mysql` - mysql
-     * * `snowflake` - snowflake */
+     * * `snowflake` - snowflake
+     * * `redshift` - redshift */
     readonly engine: EngineEnumApi | null
 }
 
@@ -3708,6 +3722,8 @@ export interface DatabaseSchemaRequestApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -3715,7 +3731,8 @@ export interface DatabaseSchemaRequestApi {
      * * `Vellum` - Vellum
      * * `Vultr` - Vultr
      * * `Windmill` - Windmill
-     * * `Zep` - Zep */
+     * * `Zep` - Zep
+     * * `Hex` - Hex */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -4548,6 +4565,8 @@ export interface SourcePreviewRequestApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -4555,7 +4574,8 @@ export interface SourcePreviewRequestApi {
      * * `Vellum` - Vellum
      * * `Vultr` - Vultr
      * * `Windmill` - Windmill
-     * * `Zep` - Zep */
+     * * `Zep` - Zep
+     * * `Hex` - Hex */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -5345,6 +5365,8 @@ export interface SourceSetupApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -5352,7 +5374,8 @@ export interface SourceSetupApi {
      * * `Vellum` - Vellum
      * * `Vultr` - Vultr
      * * `Windmill` - Windmill
-     * * `Zep` - Zep */
+     * * `Zep` - Zep
+     * * `Hex` - Hex */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -6149,6 +6172,8 @@ export interface SourceCredentialCreateApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -6156,7 +6181,8 @@ export interface SourceCredentialCreateApi {
      * * `Vellum` - Vellum
      * * `Vultr` - Vultr
      * * `Windmill` - Windmill
-     * * `Zep` - Zep */
+     * * `Zep` - Zep
+     * * `Hex` - Hex */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload

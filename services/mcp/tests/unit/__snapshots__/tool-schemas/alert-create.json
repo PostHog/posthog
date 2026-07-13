@@ -2225,6 +2225,7 @@
         },
         "name": {
             "description": "Human-readable name for the alert.",
+            "maxLength": 255,
             "type": "string"
         },
         "schedule_restriction": {
@@ -2347,6 +2348,7 @@
                 },
                 "name": {
                     "description": "Optional name for the threshold.",
+                    "maxLength": 255,
                     "type": "string"
                 }
             },
