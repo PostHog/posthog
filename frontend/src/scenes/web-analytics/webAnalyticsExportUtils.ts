@@ -1,8 +1,12 @@
+import { strToU8, zipSync } from 'fflate'
 import Papa from 'papaparse'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { downloadFile } from 'lib/utils/dom'
+import { slugify } from 'lib/utils/strings'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import {
     DataTableNode,
@@ -20,12 +24,119 @@ import {
     WebStatsTableQueryResponse,
 } from '~/queries/schema/schema-general'
 import { isTrendsQuery, isWebExternalClicksQuery, isWebGoalsQuery, isWebStatsTableQuery } from '~/queries/utils'
-import { getDisplayColumnName } from '~/scenes/web-analytics/common'
-import { ChartDisplayType, ExporterFormat } from '~/types'
+import { TabsTileTab, TILE_LABELS, WebAnalyticsTile, getDisplayColumnName } from '~/scenes/web-analytics/common'
+import { ChartDisplayType, ExporterFormat, InsightLogicProps } from '~/types'
 
 export interface ExportAdapter {
     toTableData(): string[][]
     canHandle(): boolean
+}
+
+export interface TileExportSection {
+    title: string
+    tableData: string[][]
+}
+
+export function csvFromTableData(tableData: string[][]): string {
+    return Papa.unparse(tableData)
+}
+
+export function downloadTableDataAsCsv(tableData: string[][], filename: string): void {
+    try {
+        const file = new File([csvFromTableData(tableData)], filename, { type: 'text/csv' })
+        downloadFile(file)
+    } catch {
+        lemonToast.error('Export failed')
+    }
+}
+
+function slugifyTileTitle(title: string): string {
+    return slugify(title) || 'tile'
+}
+
+export function buildCsvFilenames(titles: string[]): string[] {
+    const seen = new Map<string, number>()
+    return titles.map((title) => {
+        const stem = slugifyTileTitle(title)
+        const count = seen.get(stem) ?? 0
+        seen.set(stem, count + 1)
+        return count === 0 ? `${stem}.csv` : `${stem}-${count + 1}.csv`
+    })
+}
+
+export function downloadTilesAsCsvZip(sections: TileExportSection[], filename: string): void {
+    try {
+        const populated = sections.filter((section) => section.tableData.length > 0)
+        const filenames = buildCsvFilenames(populated.map((section) => section.title))
+        const entries: Record<string, Uint8Array> = {}
+        populated.forEach((section, index) => {
+            entries[filenames[index]] = strToU8(csvFromTableData(section.tableData))
+        })
+        const zipped = zipSync(entries)
+        downloadFile(new File([zipped as BlobPart], filename, { type: 'application/zip' }))
+    } catch {
+        lemonToast.error('Export failed')
+    }
+}
+
+export function getExportAdapter(insightDataRaw: unknown, query: QuerySchema | undefined): ExportAdapter | null {
+    if (!insightDataRaw || !query) {
+        return null
+    }
+    const adapters: ExportAdapter[] = [
+        new CalendarHeatmapAdapter(insightDataRaw as TrendsQueryResponse, query),
+        new WorldMapAdapter(insightDataRaw as TrendsQueryResponse, query),
+        new WebAnalyticsTableAdapter(insightDataRaw as WebStatsTableQueryResponse, query),
+        new TrendsAdapter(insightDataRaw as TrendsQueryResponse, query),
+    ]
+    return adapters.find((a) => a.canHandle()) ?? null
+}
+
+function tileToTableData(query: QuerySchema, insightProps: InsightLogicProps): string[][] | null {
+    const insightDataRaw = insightDataLogic.findMounted(insightProps)?.values.insightDataRaw
+    const adapter = getExportAdapter(insightDataRaw, query)
+    const tableData = adapter?.toTableData() ?? []
+    return tableData.length > 0 ? tableData : null
+}
+
+function tabSectionTitle(tile: { tileId: WebAnalyticsTile['tileId'] }, tab: TabsTileTab): string {
+    const base = TILE_LABELS[tile.tileId]
+    const tabTitle =
+        typeof tab.title === 'string' ? tab.title : typeof tab.linkText === 'string' ? tab.linkText : tab.id
+    return base ? `${base}: ${tabTitle}` : tabTitle
+}
+
+export function exportAllTilesAsCsvZip(tiles: WebAnalyticsTile[], filename = 'web-analytics-export.zip'): boolean {
+    const sections = collectAllTilesTableData(tiles)
+    if (sections.length === 0) {
+        lemonToast.warning('No data to export yet')
+        return false
+    }
+    downloadTilesAsCsvZip(sections, filename)
+    return true
+}
+
+export function collectAllTilesTableData(tiles: WebAnalyticsTile[]): TileExportSection[] {
+    const sections: TileExportSection[] = []
+    for (const tile of tiles) {
+        if (tile.kind === 'query') {
+            const tableData = tileToTableData(tile.query, tile.insightProps)
+            if (tableData) {
+                sections.push({ title: tile.title ?? TILE_LABELS[tile.tileId] ?? tile.tileId, tableData })
+            }
+        } else if (tile.kind === 'tabs') {
+            const activeTab = tile.tabs.find((tab) => tab.id === tile.activeTabId)
+            if (activeTab) {
+                const tableData = tileToTableData(activeTab.query, activeTab.insightProps)
+                if (tableData) {
+                    sections.push({ title: tabSectionTitle(tile, activeTab), tableData })
+                }
+            }
+        } else if (tile.kind === 'section') {
+            sections.push(...collectAllTilesTableData(tile.tiles))
+        }
+    }
+    return sections
 }
 
 export function exportTableData(tableData: string[][], format: ExporterFormat): void {

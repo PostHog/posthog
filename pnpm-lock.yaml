@@ -1031,6 +1031,9 @@ importers:
       fastpriorityqueue:
         specifier: ^0.7.5
         version: 0.7.5
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
       frimousse:
         specifier: ^0.3.0
         version: 0.3.0(react@18.3.1)(typescript@6.0.3)
