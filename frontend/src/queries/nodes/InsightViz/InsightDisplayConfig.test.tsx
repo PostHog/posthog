@@ -216,7 +216,7 @@ describe('InsightDisplayConfig', () => {
             [
                 'slope graph',
                 makeTrendsQuery(ChartDisplayType.SlopeGraph),
-                { sections: ['Display', 'Unit'], displayItems: ['Show legend'] },
+                { sections: ['Display', 'Unit'], displayItems: ['Show legend', 'Hide incomplete periods'] },
             ],
             [
                 'retention',
@@ -300,18 +300,31 @@ describe('InsightDisplayConfig', () => {
             expect(screen.queryByText(/Compare to|Previous period/i)).not.toBeInTheDocument()
         })
 
-        it('shows only the legend in the Display section', async () => {
+        it('shows only the legend and incomplete period toggle in the Display section', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
             await openOptionsMenu()
 
             const items = getDisplaySectionItems()
-            expect(items).toEqual(['Show legend'])
+            expect(items).toEqual(['Show legend', 'Hide incomplete periods'])
             // None of the time-series-only options should leak in.
             expect(items).not.toContain('Show values on series')
             expect(items).not.toContain('Show trend lines')
             expect(items).not.toContain('Show alert threshold lines')
             expect(items).not.toContain('Show multiple Y-axes')
             expect(items).not.toContain('Show annotations')
+        })
+
+        it('toggles incomplete period clipping on the query date range', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            await openOptionsMenu()
+
+            await userEvent.click(screen.getByText('Hide incomplete periods'))
+
+            await waitFor(() => {
+                expect(insightVizDataLogic(insightProps).values.querySource?.dateRange?.excludeIncompletePeriods).toBe(
+                    true
+                )
+            })
         })
 
         it('hides the Y-axis scale and statistical analysis sections', async () => {

@@ -50,6 +50,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         showAnnotations,
         isNonTimeSeriesDisplay,
         interval,
+        dateRange,
         usesInChartLegend,
         insightFilter,
     } = useValues(insightVizDataLogic(insightProps))
@@ -71,6 +72,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const isSlopeGraph = display === ChartDisplayType.SlopeGraph
     const isMetric = display === ChartDisplayType.Metric
     const hideContinuousChartOptions = isNonTimeSeriesDisplay || isMetric || isSlopeGraph
+    const showExcludeIncompletePeriodsConfig = isTrends && isSlopeGraph
     const showSmoothing =
         isTrends &&
         !hasBreakdownFilter(breakdownFilter) &&
@@ -122,11 +124,11 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         }
 
         if (isSlopeGraph) {
-            // A slope only shows the first vs last interval of each series — the legend (when there
-            // are multiple series) is the only display option that applies.
+            // A slope only shows the first vs last interval of each series.
             if (hasLegend) {
                 displayItems.push(DisplayOptions.Legend)
             }
+            displayItems.push(DisplayOptions.HideIncompletePeriods)
             return displayItems
         }
 
@@ -268,6 +270,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (showMultipleYAxes ? 1 : 0) +
         (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
         (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
+        (showExcludeIncompletePeriodsConfig && dateRange?.excludeIncompletePeriods ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
         (isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total' ? 1 : 0)
