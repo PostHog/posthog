@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc import metrics
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
     cdc_supported_source_types,
     get_cdc_adapter,
+    source_type_supports_cdc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     ChangeEventBatcher,
@@ -765,6 +766,11 @@ class CDCExtractActivity:
 
         if self.source.deleted:
             self.log.info("source_soft_deleted_deleting_schedule")
+            self._delete_own_schedule()
+            return False
+
+        if not source_type_supports_cdc(self.source.source_type):
+            self.log.info("source_type_not_cdc_supported_deleting_schedule", source_type=self.source.source_type)
             self._delete_own_schedule()
             return False
 

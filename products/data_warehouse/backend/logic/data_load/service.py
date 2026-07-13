@@ -488,6 +488,24 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     schemas are active, deletes the schedule.
     """
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.source_management import source_type_supports_cdc
+
+    schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
+
+    # A source type that has no CDC adapter can never run the extraction activity — it would
+    # raise on every tick. Never stand up (and tear down any stale) schedule for one.
+    if not source_type_supports_cdc(source.source_type):
+        logger.info(
+            "Deleting CDC extraction schedule — source type does not support CDC",
+            source_id=str(source.id),
+            schedule_id=schedule_id,
+            source_type=source.source_type,
+        )
+        try:
+            delete_external_data_schedule(schedule_id)
+        except Exception:
+            logger.exception("Failed to delete CDC extraction schedule", schedule_id=schedule_id)
+        return
 
     # `source__deleted=True` is excluded so a deleted source (whose schemas may have been
     # left non-deleted by `soft_delete`) collapses to the "no active CDC schemas" branch below
@@ -501,8 +519,6 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
         .exclude(deleted=True)
         .exclude(source__deleted=True)
     )
-
-    schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
 
     if not cdc_schemas:
         # No active CDC schemas left — dropping the schedule silently stops all CDC sync.

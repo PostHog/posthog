@@ -30,6 +30,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     cdc_min_interval,
     get_discover_schemas_schedule,
     get_sync_schedule,
+    sync_cdc_extraction_schedule,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
@@ -334,6 +335,23 @@ def _patch_temporal(update_side=None, create_side=None):
         patch(f"{SERVICE}.a_update_schedule", AsyncMock(side_effect=update_side)),
         patch(f"{SERVICE}.a_create_schedule", AsyncMock(side_effect=create_side)),
     )
+
+
+def test_sync_cdc_extraction_schedule_skips_unsupported_source_type():
+    # An MSSQL source has no CDC adapter, so it must never get an extraction schedule even
+    # if it somehow has a CDC schema — otherwise the schedule fires and raises on every tick.
+    team = _sync_team()
+    source = _make_source(team, source_type="MSSQL")
+    _make_schema(team, source, sync_type=ExternalDataSchema.SyncType.CDC)
+
+    with (
+        patch(f"{SERVICE}.delete_external_data_schedule") as mock_delete,
+        patch(f"{SERVICE}.sync_connect") as mock_connect,
+    ):
+        sync_cdc_extraction_schedule(source, create=True)
+
+    mock_delete.assert_called_once_with(_get_cdc_extraction_schedule_id(str(source.id)))
+    mock_connect.assert_not_called()
 
 
 @pytest.mark.parametrize(
