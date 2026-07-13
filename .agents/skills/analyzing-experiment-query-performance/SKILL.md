@@ -218,8 +218,10 @@ re-check the key's scopes before anything else.
 3. **Drill to ground truth**: for a specific `query_id`, the full `query_log` row
    (settings, replica, ProfileEvents) needs ClickHouse —
    use the `query-clickhouse-via-metabase` skill.
-4. **Result-consistency questions** (precomputed vs direct results diverging)
-   are a different tool: the `analyzing-experiment-precompute-canary` skill.
+4. **Result-consistency questions** (precomputed vs direct results diverging) are out of scope here —
+   these endpoints see performance and failures, not result values.
+   That's the precompute result-consistency canary's territory:
+   its Prometheus health gauges and structured divergence logs in Loki (via the Grafana MCP).
 5. In any writeup, cite `query_id`, `team_id`, and `experiment_id` so others can reproduce.
 
 ## Known limitations
