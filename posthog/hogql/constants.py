@@ -40,6 +40,23 @@ DEFAULT_POSTHOG_AI_RETURNED_ROWS = 100
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
+# Maximum AST nesting depth before a query is rejected as too deeply nested.
+# HogQL traversal (resolving, printing, cloning) is recursive, so a deeply nested
+# query burns several Python stack frames per nesting level. The Rust/cpp parsers
+# accept up to 1000 levels (mirroring ClickHouse's max_parser_depth), but that is
+# far more than CPython's default recursion limit (1000 total frames) can walk:
+# the heaviest traversal (the resolver) uses ~8 frames per level, overflowing at
+# ~100 nested levels — surfacing as an uncatchable RecursionError (a 500) rather
+# than a clean error. These caps make the traversal reject over-deep ASTs with a
+# clean, user-facing QueryError instead. Sized with headroom below the overflow
+# point so the guard fires before the stack runs out, even with the ambient
+# request stack in play, while staying well above any realistic query.
+# MAX_QUERY_DEPTH bounds live visitor depth (see posthog/hogql/visitor.py);
+# MAX_CLONE_DEPTH bounds copy.deepcopy recursion, which descends ~2 nodes per
+# nesting level and is lighter per frame (see posthog/hogql/base.py).
+MAX_QUERY_DEPTH = 80
+MAX_CLONE_DEPTH = 160
+
 CSV_EXPORT_LIMIT = 300000
 CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
 CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
