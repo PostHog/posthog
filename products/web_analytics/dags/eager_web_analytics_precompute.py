@@ -198,12 +198,14 @@ EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED = Counter(
 
 
 ACTIVE_AUDIENCE_LOOKBACK_HOURS = 24
+# Sanity ceiling on the active-team fetch; ~9k teams open the dashboard daily.
+ACTIVE_AUDIENCE_MAX_TEAMS = 20000
 
 
 def _fetch_active_wa_team_ids(limit: int) -> list[int]:
     """Top teams by deliberate WA dashboard activity (stats-table tile queries),
-    most active first. Powers the warm-audience ramp experiment: the instance
-    setting caps how many join the warm set, so scale can grow without deploys.
+    most active first. Powers the warm-audience ramp experiment via the job's
+    run config (`active_teams_pct`).
 
     Best-effort: any failure returns [] so the warmer falls back to the static
     lists rather than skipping a run."""
@@ -233,14 +235,15 @@ def _fetch_active_wa_team_ids(limit: int) -> list[int]:
         return []
 
 
-def _resolve_eager_audience() -> tuple[list[int], str, dict]:
+def _resolve_eager_audience(active_teams_pct: int = 0) -> tuple[list[int], str, dict]:
     """Resolve the audience and return a structured trace of which gate
     fired. Returns `(team_ids, gate_reason, diagnostics)`.
 
+    `active_teams_pct` (0-100, from the job's run config) adds that share of
+    the most active WA dashboard teams (last 24h) on top of the static lists.
+
     `gate_reason` is one of: `not_cloud`, `no_teams_configured`, `ok`.
     """
-    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415 — keep dagster import path light
-
     if not is_cloud():
         return [], "not_cloud", {}
 
@@ -249,12 +252,11 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     # `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` must still get its
     # baseline warmed — otherwise its reads land on cold on-demand inserts.
     # dict.fromkeys preserves order and dedupes teams in both lists.
-    active_limit = 0
-    try:
-        active_limit = int(get_instance_setting("WEB_ANALYTICS_EAGER_WARM_ACTIVE_TEAMS_LIMIT") or 0)
-    except Exception:
-        logger.exception("eager_warm_active_limit_read_failed")
-    active_team_ids = _fetch_active_wa_team_ids(active_limit) if active_limit > 0 else []
+    active_team_ids: list[int] = []
+    if active_teams_pct > 0:
+        all_active = _fetch_active_wa_team_ids(ACTIVE_AUDIENCE_MAX_TEAMS)
+        take = max(1, len(all_active) * min(active_teams_pct, 100) // 100) if all_active else 0
+        active_team_ids = all_active[:take]
 
     # Static lists first so the always-enrolled teams warm before the ramp
     # audience when a run is truncated by the job's max_runtime.
@@ -267,7 +269,11 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
             ]
         )
     )
-    diag = {"teams_configured": len(team_ids), "active_limit": active_limit, "active_teams": len(active_team_ids)}
+    diag = {
+        "teams_configured": len(team_ids),
+        "active_teams_pct": active_teams_pct,
+        "active_teams": len(active_team_ids),
+    }
     if not team_ids:
         return [], "no_teams_configured", diag
     return team_ids, "ok", diag
@@ -418,11 +424,19 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
     return warmed, failed
 
 
+class EagerWarmConfig(dagster.Config):
+    # Percentage (0-100) of the most active WA dashboard teams (last 24h, ranked by
+    # tile-query volume) to warm on top of the static enrollment lists. Defaults to
+    # 0 = static lists only; set in the run config when launching manually to ramp
+    # the warm-audience experiment (e.g. 5 -> 25 -> 100).
+    active_teams_pct: int = 0
+
+
 @dagster.op
-def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int]:
+def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWarmConfig) -> dict[str, int]:
     """Run the baseline tile matrix against every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting."""
     started = time.monotonic()
-    team_ids, gate_reason, diagnostics = _resolve_eager_audience()
+    team_ids, gate_reason, diagnostics = _resolve_eager_audience(active_teams_pct=config.active_teams_pct)
     diag_str = " ".join(f"{k}={v}" for k, v in diagnostics.items())
     context.log.info(
         f"eager_baseline_warming_start teams={len(team_ids)} gate_reason={gate_reason} {diag_str}".rstrip()
