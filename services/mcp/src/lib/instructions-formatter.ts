@@ -11,10 +11,11 @@ import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
-import CLAUDE_EXEC_HELP from '@/templates/sections/claude-exec-help.md'
+import CLAUDE_EXEC_LEARN from '@/templates/sections/claude-exec-learn.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
+import CLI_LEARN from '@/templates/sections/cli-learn.md'
 import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
 import CLI_SYNTAX from '@/templates/sections/cli-syntax.md'
@@ -27,7 +28,7 @@ import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
-import type { ExecHelpEntry } from '@/tools/exec-help'
+import type { ExecLearnGuide } from '@/tools/exec-learn'
 
 export interface InstructionsContext {
     guidelines: string
@@ -84,13 +85,12 @@ export class InstructionsFormatter {
     /**
      * Build the optional guidance catalog used by Claude web/desktop. The
      * existing prompt sections remain the source of truth; only their delivery
-     * moves from the advertised schema to `exec help`.
+     * moves from the advertised schema to `exec learn`.
      */
-    buildClaudeExecHelpEntries(ctx: InstructionsContext): ExecHelpEntry[] {
-        const entries: ExecHelpEntry[] = [
+    buildClaudeExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
+        const entries: ExecLearnGuide[] = [
             {
                 id: 'analytics',
-                kind: 'guide',
                 title: 'Analytics',
                 description: 'Detailed query selection, schema discovery, query-tool reference, and worked examples.',
                 content: this.compose([RETRIEVING_DATA, SCHEMA_WORKFLOW, EXAMPLES], ctx, { compact: false }),
@@ -100,7 +100,6 @@ export class InstructionsFormatter {
         if (ctx.renderUiEnabled) {
             entries.push({
                 id: 'visualizations',
-                kind: 'guide',
                 title: 'Visualizations',
                 description: 'When and how to render PostHog results with render-ui.',
                 content: this.compose([CLI_RENDERING], ctx, { compact: false }),
@@ -110,7 +109,6 @@ export class InstructionsFormatter {
         if (this.agentFeedbackEnabled(ctx.featureFlags)) {
             entries.push({
                 id: 'feedback',
-                kind: 'guide',
                 title: 'Feedback',
                 description: 'When and how to send actionable feedback to PostHog.',
                 content: this.compose([AGENT_FEEDBACK], ctx, { compact: false }),
@@ -123,12 +121,15 @@ export class InstructionsFormatter {
     /**
      * Claude web/desktop silently drops tool entries whose complete JSON schema
      * exceeds 18,000 characters. Keep routine tool-use guidance inline and move
-     * only task-specific sections behind `help <topic>`.
+     * only task-specific sections behind `learn <topic>`.
      */
-    buildClaudeExecCommandReference(ctx: InstructionsContext): string {
-        const helpEntries = this.buildClaudeExecHelpEntries(ctx)
-        const helpTopics = helpEntries.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
-        const helpSection = formatPrompt(CLAUDE_EXEC_HELP, { help_topics: helpTopics })
+    buildClaudeExecCommandReference(ctx: InstructionsContext, opts: { learnEnabled?: boolean } = {}): string {
+        const learnEnabled = opts.learnEnabled ?? true
+        const learnGuides = this.buildClaudeExecLearnGuides(ctx)
+        const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
+        const learnSection = learnEnabled
+            ? formatPrompt(CLAUDE_EXEC_LEARN, { learn_guides: learnGuideList })
+            : undefined
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
             featureFlags: ctx.featureFlags,
@@ -140,7 +141,7 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 CLI_SYNTAX,
-                helpSection,
+                ...(learnSection ? [learnSection] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 CLI_EXAMPLES,
@@ -172,10 +173,11 @@ export class InstructionsFormatter {
      *  its complete JSON schema has a smaller client-enforced size budget. */
     buildExecCommandReference(
         ctx: InstructionsContext,
-        opts: { stripEnvContext: boolean; keepEnvContext?: boolean }
+        opts: { stripEnvContext: boolean; keepEnvContext?: boolean; learnEnabled?: boolean }
     ): string {
         const sections = [
             CLI_SYNTAX,
+            ...((opts.learnEnabled ?? true) ? [CLI_LEARN] : []),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,

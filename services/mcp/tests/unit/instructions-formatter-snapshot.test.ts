@@ -105,13 +105,13 @@ describe('InstructionsFormatter prompt snapshots', () => {
     // users with no error anywhere (investigated 2026-07-10: claude.ai surfaced
     // only `render-ui` while `exec` vanished).
     //
-    // If this test fails, move optional guidance behind `help <topic>` or shrink
+    // If this test fails, move optional guidance behind `learn <topic>` or shrink
     // duplicated prompt content. Keep routine instructions inline and never
     // touch the limit.
     // ------------------------------------------------------------------------------------------------
     it('keeps the final serialized exec tool entry under the 17,500-char budget', () => {
         // Worst case served in production: Claude web/desktop with every optional
-        // help topic advertised, the full live tool catalog, and long environment
+        // learn guide advertised, the full live tool catalog, and long environment
         // context. The metadata goes through the real
         // env-context builder with inputs at the backing columns' max lengths
         // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
@@ -147,6 +147,8 @@ describe('InstructionsFormatter prompt snapshots', () => {
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
             groupTypes: worstCaseGroupTypes,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
         const posthog = new PostHogMCP('phc_test', { disabled: true })

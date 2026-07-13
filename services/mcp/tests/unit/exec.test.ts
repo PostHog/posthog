@@ -15,7 +15,7 @@ import {
     type ExecToolOptions,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
-import { ExecHelpCatalog } from '@/tools/exec-help'
+import { ExecLearnCatalog } from '@/tools/exec-learn'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -66,59 +66,60 @@ function createExec(
 }
 
 describe('exec tool', () => {
-    describe('help command', () => {
-        const helpCatalog = new ExecHelpCatalog([
-            {
-                id: 'analytics',
-                kind: 'guide',
-                title: 'Analytics',
-                description: 'Detailed analytics guidance.',
-                content: '### Retrieving data\n\nUse the analytics tools.',
-            },
-            {
-                id: 'retention-analysis',
-                kind: 'skill',
-                title: 'Retention analysis',
-                description: 'A retention workflow.',
-                content: '### Retention analysis\n\nFollow the workflow.',
-            },
-        ])
-
-        it('lists topic metadata without loading topic content', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
-
-            const result = JSON.parse((await exec.handler(mockContext, { command: 'help' })) as string)
-
-            expect(result).toEqual([
+    describe('learn command', () => {
+        const learnCatalog = new ExecLearnCatalog(
+            [
                 {
                     id: 'analytics',
-                    kind: 'guide',
                     title: 'Analytics',
                     description: 'Detailed analytics guidance.',
+                    content: '### Retrieving data\n\nUse the analytics tools.',
                 },
-                {
-                    id: 'retention-analysis',
-                    kind: 'skill',
-                    title: 'Retention analysis',
-                    description: 'A retention workflow.',
+            ],
+            undefined
+        )
+
+        it('lists guide metadata and skill discovery commands without loading content', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'learn' })) as string)
+
+            expect(result).toEqual({
+                guides: [
+                    {
+                        id: 'analytics',
+                        title: 'Analytics',
+                        description: 'Detailed analytics guidance.',
+                    },
+                ],
+                skills: {
+                    available: false,
+                    commands: [
+                        'learn skills',
+                        'learn -s <query>',
+                        'learn <skill> [path]',
+                        'learn <skill> <path> -s <query>',
+                        'learn <skill> <path> --lines <start>:<end>',
+                    ],
                 },
-            ])
+            })
         })
 
-        it('loads a topic by its globally unique ID', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('loads a built-in guide', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
 
-            await expect(exec.handler(mockContext, { command: 'help analytics' })).resolves.toBe(
+            await expect(exec.handler(mockContext, { command: 'learn analytics' })).resolves.toBe(
                 '### Retrieving data\n\nUse the analytics tools.'
             )
         })
 
-        it('reports the available IDs when a topic is unknown', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('keeps core exec usable when the skill archive is unavailable', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
 
-            await expect(exec.handler(mockContext, { command: 'help unknown' })).rejects.toThrow(
-                'Unknown help topic: "unknown". Available: analytics, retention-analysis'
+            await expect(exec.handler(mockContext, { command: 'learn skills' })).rejects.toThrow(
+                'Product skills are temporarily unavailable'
             )
+            await expect(exec.handler(mockContext, { command: 'tools' })).resolves.toContain('mock-tool')
         })
     })
 

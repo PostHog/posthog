@@ -295,10 +295,22 @@ In cli mode, the `posthog` tool keeps the guidance needed for routine calls in i
 The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
 Optional, task-specific guidance is served through the same tool:
 
-- `help` lists the available topics.
-- `help analytics` loads detailed analytics guidance and examples.
-- `help visualizations` loads rendering guidance when visualizations are available.
-- `help feedback` loads feedback guidance when feedback is available.
+- `learn` lists the available built-in guides and the product skill discovery syntax.
+- `learn analytics` loads detailed analytics guidance and examples.
+- `learn visualizations` loads rendering guidance when visualizations are available.
+- `learn feedback` loads feedback guidance when feedback is available.
+- `learn skills` lists the names of the product skills in the latest published skill bundle.
+- `learn -s <query>` searches skill names, descriptions, Markdown bodies, and bundled file paths.
+- `learn <skill> [path]` reads a skill or one of its bundled files.
+- `learn <skill> <path> -s <query>` searches within one Markdown file.
+- `learn <skill> <path> --lines <start>:<end>` reads an inclusive line range.
+
+The skill bundle is cached in Redis with stale-while-revalidate behavior and a seven-day hard expiry.
+By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
+Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
+Individual `learn` responses stay below 44,000 characters; large references return a heading outline for follow-up search or line reads.
+The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
+`consumer=plugin` omits `learn` because the plugin already supplies its own skill context.
 
 Other clients keep the full inline command reference.
 
