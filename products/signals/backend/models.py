@@ -59,6 +59,9 @@ class SignalSourceConfig(UUIDModel):
         ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed", "Endpoint execution failed"
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
+        OPPORTUNITY_BUILD = "opportunity_build", "Opportunity (build)"
+        OPPORTUNITY_FIX = "opportunity_fix", "Opportunity (fix)"
+        OPPORTUNITY_INSTRUMENT = "opportunity_instrument", "Opportunity (instrument)"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)

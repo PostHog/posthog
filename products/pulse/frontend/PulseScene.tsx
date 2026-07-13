@@ -17,6 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BriefConfigModal } from './BriefConfigModal'
 import { BriefsView } from './BriefsView'
+import { OpportunitiesPanel } from './OpportunitiesPanel'
 import { pulseLogic } from './pulseLogic'
 import { RunBriefButton } from './RunBriefButton'
 
@@ -81,6 +82,11 @@ export function PulseScene(): JSX.Element {
             )}
 
             <BriefsView />
+
+            <div className="flex flex-col gap-2">
+                <h3 className="mb-0">Opportunities</h3>
+                <OpportunitiesPanel />
+            </div>
             <BriefConfigModal />
         </SceneContent>
     )

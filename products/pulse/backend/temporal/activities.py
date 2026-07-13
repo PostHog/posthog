@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import dataclasses
 
@@ -7,12 +8,15 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
+from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.config import MAX_ITEMS
-from products.pulse.backend.generation.persist import persist_brief_output
+from products.pulse.backend.generation.accountability import MIN_AGE_DAYS, OpportunityStatusLine, collect_accountability
+from products.pulse.backend.generation.persist import _fingerprint, persist_brief_output
+from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
-from products.pulse.backend.models import BriefConfig, ProductBrief
+from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
@@ -20,6 +24,7 @@ from products.pulse.backend.temporal.inputs import (
     MarkBriefFailedInputs,
     SynthesizeActivityInputs,
 )
+from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
 
@@ -157,6 +162,18 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
     )
     resolved = resolve_period(brief.period, dt.datetime.now(dt.UTC), last_run)
     items = [SourceItem(**item) for item in inputs.items]
+    status_lines: list[OpportunityStatusLine] = []
+    # Accountability is not movement-gated — past suggestions matter every period. Only an empty
+    # gather skips it, since synthesize short-circuits without items anyway. Best-effort: a broken
+    # re-score degrades to no accountability section, never a failed brief.
+    if items:
+        try:
+            min_age_days = brief.config.accountability_min_age_days if brief.config else MIN_AGE_DAYS
+            status_lines = await database_sync_to_async(collect_accountability, thread_sensitive=False)(
+                brief.team, min_age_days
+            )
+        except Exception:
+            logger.exception("pulse_accountability_failed", team_id=brief.team_id, brief_id=str(brief.id))
     out = await synthesize_brief(
         team=brief.team,
         user=brief.created_by,
@@ -165,9 +182,87 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         start_date=resolved.start_date,
         end_date=resolved.end_date,
         lookback_days=resolved.lookback_days,
+        # Past suggestions the team engaged with — steers relevance, same list we persist for the panel.
+        status_lines=status_lines,
     )
-    await database_sync_to_async(persist_brief_output, thread_sensitive=False)(brief=brief, out=out, items=items)
+    await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
+        brief=brief, out=out, items=items, status_lines=status_lines
+    )
+    created = await database_sync_to_async(_created_opportunities, thread_sensitive=False)(brief)
+    await _emit_opportunity_signals(brief, out, created)
+    try:
+        # ph_scoped_capture, not posthoganalytics.capture: events fire outside request context.
+        await database_sync_to_async(_report_brief_generated, thread_sensitive=False)(brief, len(created))
+    except Exception:
+        logger.exception("pulse_brief_generated_capture_failed", team_id=brief.team_id, brief_id=str(brief.id))
     return brief.status
+
+
+def _created_opportunities(brief: ProductBrief) -> list[Opportunity]:
+    # persist skips existing fingerprints, so the opportunities first surfaced by THIS brief are
+    # exactly the ones it created this run — the list persist no longer returns directly.
+    return list(Opportunity.objects.for_team(brief.team_id).filter(first_seen_brief=brief))
+
+
+def _report_brief_generated(brief: ProductBrief, new_opportunity_count: int) -> None:
+    if brief.created_by is None:
+        return
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=brief.created_by.distinct_id,
+            event="product_brief_generated",
+            properties={
+                "brief_id": str(brief.id),
+                "status": brief.status,
+                "trigger": brief.trigger,
+                "period": brief.period,
+                "has_config": brief.config_id is not None,
+                "new_opportunity_count": new_opportunity_count,
+            },
+        )
+
+
+async def _emit_opportunity_signals(brief: ProductBrief, out: BriefOut, created: list[Opportunity]) -> None:
+    """Surface newly created opportunities in the signals inbox via the signals facade.
+
+    Deduped fingerprints never re-emit (they were surfaced by an earlier brief), delivery is
+    opt-in per team (a `pulse` SignalSourceConfig row, checked inside emit_signal), and each
+    emit is best-effort — a failure must never fail the brief.
+    """
+    confidence_by_fingerprint: dict[str, float] = {}
+    for opp in out.opportunities:
+        # First-wins to match persist's dedup: the first opportunity with a fingerprint is the
+        # one persisted, so its confidence is the weight that gets emitted.
+        confidence_by_fingerprint.setdefault(_fingerprint(opp.kind, opp.fingerprint_hint), opp.confidence)
+    # Independent best-effort emits, run concurrently (each still pays its own Temporal connect).
+    await asyncio.gather(
+        *(_emit_opportunity_signal(brief, opportunity, confidence_by_fingerprint) for opportunity in created)
+    )
+
+
+async def _emit_opportunity_signal(
+    brief: ProductBrief, opportunity: Opportunity, confidence_by_fingerprint: dict[str, float]
+) -> None:
+    try:
+        await emit_signal(
+            team=brief.team,
+            source_product="pulse",
+            source_type=f"opportunity_{opportunity.kind}",
+            source_id=str(opportunity.id),
+            description=f"{opportunity.title}\n\n{opportunity.summary}",
+            # The LLM's confidence passes through as the signal weight (weight 1.0 triggers
+            # signals' summary path). The map cannot miss — fingerprints are minted from the
+            # same output — so a broken invariant surfaces here as a logged emit failure.
+            weight=confidence_by_fingerprint[opportunity.fingerprint],
+            extra={"brief_id": str(brief.id)},
+        )
+    except Exception:
+        logger.exception(
+            "pulse_opportunity_signal_emit_failed",
+            team_id=brief.team_id,
+            brief_id=str(brief.id),
+            opportunity_id=str(opportunity.id),
+        )
 
 
 @temporalio.activity.defn

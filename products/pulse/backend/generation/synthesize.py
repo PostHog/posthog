@@ -8,7 +8,13 @@ from posthog.security.llm_prompt_sanitization import sanitize_user_text
 from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.config import LLM_MAX_RETRIES, LLM_TIMEOUT_SECONDS, SYNTHESIS_MODEL, BriefSettings
-from products.pulse.backend.generation.prompts import PULSE_SYNTHESIS_PROMPT_KEY, SYNTHESIZE_PROMPT, _get_managed_prompt
+from products.pulse.backend.generation.accountability import OpportunityStatusLine
+from products.pulse.backend.generation.prompts import (
+    ENGAGEMENT_BLOCK,
+    PULSE_SYNTHESIS_PROMPT_KEY,
+    SYNTHESIZE_PROMPT,
+    _get_managed_prompt,
+)
 from products.pulse.backend.generation.schemas import KIND_DESCRIPTIONS, BriefOut
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import SourceItem, build_evidence_index
@@ -56,6 +62,24 @@ def _render_items(items: list[SourceItem]) -> str:
     return "\n".join(blocks)
 
 
+# The team's own relevance signal: which past suggestions they acted on or dismissed. We feed
+# kind + status + title only — deliberately NOT the metric deltas, which are a naive then-vs-now
+# movement (v1 makes no causal claims), so treating them as "what worked" would teach the model to
+# read luck as impact. Titles are prior LLM output, so sanitize at this render boundary.
+_ENGAGED_STATUSES = ("acted", "dismissed")
+
+
+def _render_engagement(status_lines: list[OpportunityStatusLine]) -> str:
+    engaged = [line for line in status_lines if line.status in _ENGAGED_STATUSES]
+    if not engaged:
+        return ""
+    rows = "\n".join(
+        f'- [{line.status}] {line.kind}: "{sanitize_user_text(line.title, max_len=_TITLE_RENDER_MAX)}"'
+        for line in engaged
+    )
+    return ENGAGEMENT_BLOCK.format(engagement_rows=rows)
+
+
 async def synthesize_brief(
     *,
     team: Team,
@@ -65,6 +89,7 @@ async def synthesize_brief(
     start_date: dt.date,
     end_date: dt.date,
     lookback_days: int,
+    status_lines: list[OpportunityStatusLine] | None = None,
 ) -> BriefOut:
     # Quiet periods must cost ~nothing: no items, no LLM call.
     if not items:
@@ -84,6 +109,7 @@ async def synthesize_brief(
         lookback_days=lookback_days,
         max_opportunities=settings.max_opportunities,
         kind_descriptions=", ".join(f'"{kind}" = {description}' for kind, description in KIND_DESCRIPTIONS.items()),
+        engagement_block=_render_engagement(status_lines or []),
         items_block=_render_items(items),
     )
     llm = MaxChatOpenAI(

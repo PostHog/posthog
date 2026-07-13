@@ -85,6 +85,9 @@ class BriefConfig(PulseModel):
     enabled = models.BooleanField(default=True)
     # Soft delete: configs are recoverable and brief history keeps pointing at them.
     deleted = models.BooleanField(default=False)
+    # How old a surfaced opportunity must be before the accountability section re-scores it.
+    # Per-config so a slower-cadence focus can wait longer before grading its own suggestions.
+    accountability_min_age_days = models.IntegerField(default=7)
 
 
 class ProductBrief(PulseModel):
@@ -108,6 +111,9 @@ class ProductBrief(PulseModel):
     period = models.JSONField(default=default_period)
     # Shape: list[SectionOut] — see generation/schemas.py (the LLM structured-output schema).
     sections = models.JSONField(default=list)
+    # Shape: list[OpportunityStatusLine] — deterministic then-vs-now re-scores of past
+    # opportunities, computed in code (never LLM-authored) so the UI can render metric movement.
+    accountability = models.JSONField(default=list)
     sources_used = models.JSONField(default=list)
     error = models.TextField(null=True, blank=True)
     feedback = models.JSONField(default=dict)

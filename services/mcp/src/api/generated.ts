@@ -371,6 +371,28 @@ export namespace Schemas {
       user: number;
     }
 
+    export interface AccountabilityStatusLine {
+      /** ID of the opportunity this status line re-scores. */
+      opportunity_id: string;
+      /** Opportunity kind at the time the brief was generated. */
+      kind: string;
+      /** Opportunity lifecycle status at the time the brief was generated. */
+      status: string;
+      /** Opportunity title. */
+      title: string;
+      /** How many days ago the opportunity was first suggested. */
+      age_days: number;
+      /** Human-readable metric rate at suggestion time. */
+      baseline_summary: string;
+      /** Human-readable metric rate now, or "metric no longer available" when it can't be re-read. */
+      current_summary: string;
+      /**
+         * Percentage change from the baseline rate to the current rate; null when it can't be computed.
+         * @nullable
+         */
+      delta_pct: number | null;
+    }
+
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
 
@@ -12100,6 +12122,12 @@ export namespace Schemas {
       enabled?: boolean;
       /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
       deleted?: boolean;
+      /**
+         * How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      accountability_min_age_days?: number;
       readonly created_at: string;
       /** User who created the config. */
       readonly created_by: UserBasic | null;
@@ -33239,6 +33267,79 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `build` - Build
+     * * `fix` - Fix
+     * * `instrument` - Instrument
+     */
+    export type OpportunityKindEnum = typeof OpportunityKindEnum[keyof typeof OpportunityKindEnum];
+
+
+    export const OpportunityKindEnum = {
+      Build: 'build',
+      Fix: 'fix',
+      Instrument: 'instrument',
+    } as const;
+
+    /**
+     * * `open` - Open
+     * * `dismissed` - Dismissed
+     * * `acted` - Acted
+     * * `resolved` - Resolved
+     */
+    export type OpportunityStatusEnum = typeof OpportunityStatusEnum[keyof typeof OpportunityStatusEnum];
+
+
+    export const OpportunityStatusEnum = {
+      Open: 'open',
+      Dismissed: 'dismissed',
+      Acted: 'acted',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface ResourceLink {
+      /** The kind of PostHog resource this link points at. */
+      type: string;
+      /** Stable identifier of the referenced resource (e.g. an insight short id). */
+      ref: string;
+      /** Human-readable label for the resource. */
+      label: string;
+      /** Deep link into the app, or empty when there is none. */
+      url: string;
+    }
+
+    export interface Opportunity {
+      readonly id: string;
+      /** What the opportunity asks for: build (product opportunity), fix (broken PostHog resource), or instrument (missing tracking).
+       *
+       * * `build` - Build
+       * * `fix` - Fix
+       * * `instrument` - Instrument */
+      readonly kind: OpportunityKindEnum;
+      /** Lifecycle status: open, dismissed, acted, or resolved.
+       *
+       * * `open` - Open
+       * * `dismissed` - Dismissed
+       * * `acted` - Acted
+       * * `resolved` - Resolved */
+      readonly status: OpportunityStatusEnum;
+      /** Short, actionable opportunity title. */
+      readonly title: string;
+      /** What was observed and why it matters. */
+      readonly summary: string;
+      /** The concrete next step suggested for the team. */
+      readonly suggested_action: string;
+      /** Evidence links backing the opportunity: type, ref, label, and url per entry. */
+      readonly evidence: readonly ResourceLink[];
+      /** The brief this opportunity first surfaced in. */
+      readonly first_seen_brief: string;
+      readonly created_at: string;
+      /** User who created the opportunity. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
      * * `latest` - latest
      * * `earliest` - earliest
      */
@@ -34927,6 +35028,15 @@ export namespace Schemas {
       results: ObjectMediaPreview[];
     }
 
+    export interface PaginatedOpportunityList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Opportunity[];
+    }
+
     export interface PaginatedOrganizationDomainList {
       count: number;
       /** @nullable */
@@ -36417,6 +36527,7 @@ export namespace Schemas {
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
+     * * `pulse` - Pulse
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -36435,6 +36546,7 @@ export namespace Schemas {
       HealthChecks: 'health_checks',
       Endpoints: 'endpoints',
       ReplayVision: 'replay_vision',
+      Pulse: 'pulse',
     } as const;
 
     /**
@@ -36452,6 +36564,9 @@ export namespace Schemas {
      * * `endpoint_execution_failed` - Endpoint execution failed
      * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      * * `scanner_finding` - Scanner finding
+     * * `opportunity_build` - Opportunity (build)
+     * * `opportunity_fix` - Opportunity (fix)
+     * * `opportunity_instrument` - Opportunity (instrument)
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -36471,6 +36586,9 @@ export namespace Schemas {
       EndpointExecutionFailed: 'endpoint_execution_failed',
       EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
       ScannerFinding: 'scanner_finding',
+      OpportunityBuild: 'opportunity_build',
+      OpportunityFix: 'opportunity_fix',
+      OpportunityInstrument: 'opportunity_instrument',
     } as const;
 
     export interface SignalSourceConfig {
@@ -39331,6 +39449,12 @@ export namespace Schemas {
       enabled?: boolean;
       /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
       deleted?: boolean;
+      /**
+         * How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      accountability_min_age_days?: number;
       readonly created_at?: string;
       /** User who created the config. */
       readonly created_by?: UserBasic | null;
@@ -46322,6 +46446,8 @@ export namespace Schemas {
       readonly period: Period;
       /** Generated brief sections, most important first. */
       readonly sections: readonly BriefSection[];
+      /** Then-vs-now re-scores of past opportunities surfaced with this brief. */
+      readonly accountability: readonly AccountabilityStatusLine[];
       /** Names of the brief sources that contributed items. */
       readonly sources_used: readonly string[];
       /**
@@ -48123,6 +48249,17 @@ export namespace Schemas {
       truncated: boolean;
       /** Maximum number of pull requests returned in `items`. */
       limit: number;
+    }
+
+    export interface PulseOpportunityEvidenceEntry {
+      type: string;
+      ref: string;
+      label: string;
+    }
+
+    export interface PulseOpportunitySignalExtra {
+      brief_id: string;
+      evidence: PulseOpportunityEvidenceEntry[];
     }
 
     /**
@@ -50938,6 +51075,7 @@ export namespace Schemas {
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
+     * * `pulse` - pulse
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -50956,6 +51094,7 @@ export namespace Schemas {
       Logs: 'logs',
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
+      Pulse: 'pulse',
     } as const;
 
     /**
@@ -50974,6 +51113,9 @@ export namespace Schemas {
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
+     * * `opportunity_build` - opportunity_build
+     * * `opportunity_fix` - opportunity_fix
+     * * `opportunity_instrument` - opportunity_instrument
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -50994,6 +51136,9 @@ export namespace Schemas {
       AlertStateChange: 'alert_state_change',
       HealthIssue: 'health_issue',
       ScannerFinding: 'scanner_finding',
+      OpportunityBuild: 'opportunity_build',
+      OpportunityFix: 'opportunity_fix',
+      OpportunityInstrument: 'opportunity_instrument',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -51056,7 +51201,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra | PulseOpportunitySignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -51079,7 +51224,8 @@ export namespace Schemas {
        * * `signals_scout` - signals_scout
        * * `logs` - logs
        * * `health_checks` - health_checks
-       * * `replay_vision` - replay_vision */
+       * * `replay_vision` - replay_vision
+       * * `pulse` - pulse */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -51097,7 +51243,10 @@ export namespace Schemas {
        * * `cross_source_issue` - cross_source_issue
        * * `alert_state_change` - alert_state_change
        * * `health_issue` - health_issue
-       * * `scanner_finding` - scanner_finding */
+       * * `scanner_finding` - scanner_finding
+       * * `opportunity_build` - opportunity_build
+       * * `opportunity_fix` - opportunity_fix
+       * * `opportunity_instrument` - opportunity_instrument */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -72057,6 +72206,44 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type PulseOpportunitiesListParams = {
+    /**
+     * Filter by opportunity kind.
+     */
+    kind?: PulseOpportunitiesListKind;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by lifecycle status.
+     */
+    status?: PulseOpportunitiesListStatus;
+    };
+
+    export type PulseOpportunitiesListKind = typeof PulseOpportunitiesListKind[keyof typeof PulseOpportunitiesListKind];
+
+
+    export const PulseOpportunitiesListKind = {
+      Build: 'build',
+      Fix: 'fix',
+      Instrument: 'instrument',
+    } as const;
+
+    export type PulseOpportunitiesListStatus = typeof PulseOpportunitiesListStatus[keyof typeof PulseOpportunitiesListStatus];
+
+
+    export const PulseOpportunitiesListStatus = {
+      Acted: 'acted',
+      Dismissed: 'dismissed',
+      Open: 'open',
+      Resolved: 'resolved',
+    } as const;
 
     export type QueryLogRetrieve200 = { [key: string]: unknown };
 

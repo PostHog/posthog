@@ -134,6 +134,12 @@ export interface BriefConfigApi {
     enabled?: boolean
     /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
     deleted?: boolean
+    /**
+     * How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.
+     * @minimum 1
+     * @maximum 2147483647
+     */
+    accountability_min_age_days?: number
     readonly created_at: string
     /** User who created the config. */
     readonly created_by: UserBasicApi | null
@@ -170,6 +176,12 @@ export interface PatchedBriefConfigApi {
     enabled?: boolean
     /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
     deleted?: boolean
+    /**
+     * How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.
+     * @minimum 1
+     * @maximum 2147483647
+     */
+    accountability_min_age_days?: number
     readonly created_at?: string
     /** User who created the config. */
     readonly created_by?: UserBasicApi | null
@@ -296,6 +308,28 @@ export interface BriefSectionApi {
     confidence: number
 }
 
+export interface AccountabilityStatusLineApi {
+    /** ID of the opportunity this status line re-scores. */
+    opportunity_id: string
+    /** Opportunity kind at the time the brief was generated. */
+    kind: string
+    /** Opportunity lifecycle status at the time the brief was generated. */
+    status: string
+    /** Opportunity title. */
+    title: string
+    /** How many days ago the opportunity was first suggested. */
+    age_days: number
+    /** Human-readable metric rate at suggestion time. */
+    baseline_summary: string
+    /** Human-readable metric rate now, or "metric no longer available" when it can't be re-read. */
+    current_summary: string
+    /**
+     * Percentage change from the baseline rate to the current rate; null when it can't be computed.
+     * @nullable
+     */
+    delta_pct: number | null
+}
+
 export interface ProductBriefApi {
     readonly id: string
     /**
@@ -319,6 +353,8 @@ export interface ProductBriefApi {
     readonly period: PeriodApi
     /** Generated brief sections, most important first. */
     readonly sections: readonly BriefSectionApi[]
+    /** Then-vs-now re-scores of past opportunities surfaced with this brief. */
+    readonly accountability: readonly AccountabilityStatusLineApi[]
     /** Names of the brief sources that contributed items. */
     readonly sources_used: readonly string[]
     /**
@@ -343,6 +379,86 @@ export interface GenerateBriefRequestApi {
     period?: PeriodApi
 }
 
+/**
+ * * `build` - Build
+ * * `fix` - Fix
+ * * `instrument` - Instrument
+ */
+export type OpportunityKindEnumApi = (typeof OpportunityKindEnumApi)[keyof typeof OpportunityKindEnumApi]
+
+export const OpportunityKindEnumApi = {
+    Build: 'build',
+    Fix: 'fix',
+    Instrument: 'instrument',
+} as const
+
+/**
+ * * `open` - Open
+ * * `dismissed` - Dismissed
+ * * `acted` - Acted
+ * * `resolved` - Resolved
+ */
+export type OpportunityStatusEnumApi = (typeof OpportunityStatusEnumApi)[keyof typeof OpportunityStatusEnumApi]
+
+export const OpportunityStatusEnumApi = {
+    Open: 'open',
+    Dismissed: 'dismissed',
+    Acted: 'acted',
+    Resolved: 'resolved',
+} as const
+
+export interface ResourceLinkApi {
+    /** The kind of PostHog resource this link points at. */
+    type: string
+    /** Stable identifier of the referenced resource (e.g. an insight short id). */
+    ref: string
+    /** Human-readable label for the resource. */
+    label: string
+    /** Deep link into the app, or empty when there is none. */
+    url: string
+}
+
+export interface OpportunityApi {
+    readonly id: string
+    /** What the opportunity asks for: build (product opportunity), fix (broken PostHog resource), or instrument (missing tracking).
+     *
+     * * `build` - Build
+     * * `fix` - Fix
+     * * `instrument` - Instrument */
+    readonly kind: OpportunityKindEnumApi
+    /** Lifecycle status: open, dismissed, acted, or resolved.
+     *
+     * * `open` - Open
+     * * `dismissed` - Dismissed
+     * * `acted` - Acted
+     * * `resolved` - Resolved */
+    readonly status: OpportunityStatusEnumApi
+    /** Short, actionable opportunity title. */
+    readonly title: string
+    /** What was observed and why it matters. */
+    readonly summary: string
+    /** The concrete next step suggested for the team. */
+    readonly suggested_action: string
+    /** Evidence links backing the opportunity: type, ref, label, and url per entry. */
+    readonly evidence: readonly ResourceLinkApi[]
+    /** The brief this opportunity first surfaced in. */
+    readonly first_seen_brief: string
+    readonly created_at: string
+    /** User who created the opportunity. */
+    readonly created_by: UserBasicApi | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedOpportunityListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OpportunityApi[]
+}
+
 export type PulseBriefConfigsListParams = {
     /**
      * Number of results to return per page.
@@ -364,3 +480,40 @@ export type PulseBriefsListParams = {
      */
     offset?: number
 }
+
+export type PulseOpportunitiesListParams = {
+    /**
+     * Filter by opportunity kind.
+     */
+    kind?: PulseOpportunitiesListKind
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by lifecycle status.
+     */
+    status?: PulseOpportunitiesListStatus
+}
+
+export type PulseOpportunitiesListKind = (typeof PulseOpportunitiesListKind)[keyof typeof PulseOpportunitiesListKind]
+
+export const PulseOpportunitiesListKind = {
+    Build: 'build',
+    Fix: 'fix',
+    Instrument: 'instrument',
+} as const
+
+export type PulseOpportunitiesListStatus =
+    (typeof PulseOpportunitiesListStatus)[keyof typeof PulseOpportunitiesListStatus]
+
+export const PulseOpportunitiesListStatus = {
+    Acted: 'acted',
+    Dismissed: 'dismissed',
+    Open: 'open',
+    Resolved: 'resolved',
+} as const

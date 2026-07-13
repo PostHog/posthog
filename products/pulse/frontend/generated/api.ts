@@ -11,12 +11,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BriefConfigApi,
     GenerateBriefRequestApi,
+    OpportunityApi,
     PaginatedBriefConfigListApi,
+    PaginatedOpportunityListApi,
     PaginatedProductBriefListListApi,
     PatchedBriefConfigApi,
     ProductBriefApi,
     PulseBriefConfigsListParams,
     PulseBriefsListParams,
+    PulseOpportunitiesListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -198,5 +201,92 @@ export const pulseBriefsGenerateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(generateBriefRequestApi),
+    })
+}
+
+export const getPulseOpportunitiesListUrl = (projectId: string, params?: PulseOpportunitiesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/pulse/opportunities/?${stringifiedParams}`
+        : `/api/projects/${projectId}/pulse/opportunities/`
+}
+
+export const pulseOpportunitiesList = async (
+    projectId: string,
+    params?: PulseOpportunitiesListParams,
+    options?: RequestInit
+): Promise<PaginatedOpportunityListApi> => {
+    return apiMutator<PaginatedOpportunityListApi>(getPulseOpportunitiesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPulseOpportunitiesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/pulse/opportunities/${id}/`
+}
+
+export const pulseOpportunitiesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OpportunityApi> => {
+    return apiMutator<OpportunityApi>(getPulseOpportunitiesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPulseOpportunitiesActedCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/pulse/opportunities/${id}/acted/`
+}
+
+export const pulseOpportunitiesActedCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OpportunityApi> => {
+    return apiMutator<OpportunityApi>(getPulseOpportunitiesActedCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPulseOpportunitiesDismissCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/pulse/opportunities/${id}/dismiss/`
+}
+
+export const pulseOpportunitiesDismissCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OpportunityApi> => {
+    return apiMutator<OpportunityApi>(getPulseOpportunitiesDismissCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPulseOpportunitiesReopenCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/pulse/opportunities/${id}/reopen/`
+}
+
+export const pulseOpportunitiesReopenCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OpportunityApi> => {
+    return apiMutator<OpportunityApi>(getPulseOpportunitiesReopenCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }

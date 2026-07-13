@@ -198,3 +198,15 @@ class TestPulseAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_connect.assert_not_called()
+
+    def test_config_accountability_min_age_days_must_be_positive(
+        self, _mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        # A non-positive gate pushes the re-score cutoff to now/future and re-scores every
+        # opportunity against a stale baseline — reject it at the edge.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/",
+            {"name": "bad gate", "accountability_min_age_days": 0},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "accountability_min_age_days"

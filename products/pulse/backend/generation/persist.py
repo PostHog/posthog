@@ -1,5 +1,6 @@
 import uuid
 import hashlib
+import dataclasses
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -12,6 +13,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
+from products.pulse.backend.generation.accountability import OpportunityStatusLine
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief, ResourceLink, build_action
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, build_evidence_index
@@ -149,18 +151,27 @@ def _existing_fingerprints(team_opportunities: QuerySet[Opportunity], fingerprin
     return set(team_opportunities.filter(fingerprint__in=fingerprints).values_list("fingerprint", flat=True))
 
 
-def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[SourceItem]) -> ProductBrief:
+def persist_brief_output(
+    *,
+    brief: ProductBrief,
+    out: BriefOut,
+    items: list[SourceItem],
+    status_lines: list[OpportunityStatusLine] | None = None,
+) -> ProductBrief:
     team_opportunities = Opportunity.objects.for_team(brief.team_id)
     items_by_hint = {item.fingerprint_hint: item for item in items}
     # Same index the render side built, so the ids the model cited resolve back to the same refs.
     evidence_index = build_evidence_index(items)
     with transaction.atomic():
         brief.sections = [_section_dict(s, evidence_index) for s in out.sections]
+        # Deterministic, code-computed then-vs-now re-scores — persisted alongside the LLM output
+        # so the frontend renders metric movement without round-tripping it through the model.
+        brief.accountability = [dataclasses.asdict(line) for line in (status_lines or [])]
         # A brief with only opportunities still has something to say — QUIET means nothing survived the gate.
         has_content = bool(out.sections or out.opportunities)
         brief.status = ProductBrief.Status.READY if has_content else ProductBrief.Status.QUIET
         brief.sources_used = sorted({item.source for item in items})
-        brief.save(update_fields=["sections", "status", "sources_used", "updated_at"])
+        brief.save(update_fields=["sections", "accountability", "status", "sources_used", "updated_at"])
         seen = _existing_fingerprints(
             team_opportunities, [_fingerprint(o.kind, o.fingerprint_hint) for o in out.opportunities]
         )
