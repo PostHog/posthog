@@ -22,6 +22,13 @@ import { visionActionsLogic } from '../visionActionsLogic'
 const HedgehogXRay = pngHoggie(xRayPng)
 
 function humanizeSchedule(action: VisionActionApi): string {
+    // Alerts don't run on their stored rrule: every_match checks ride each scanner sweep, and
+    // on_breach thresholds are re-checked hourly.
+    if (action.mode === 'alert') {
+        return action.alert_config?.frequency === 'every_match'
+            ? 'Continuous (checked every few minutes)'
+            : 'Continuous (hourly checks)'
+    }
     const rrule = action.trigger_config?.rrule
     if (!rrule) {
         return '—'
@@ -30,9 +37,6 @@ function humanizeSchedule(action: VisionActionApi): string {
     // rrule) it falls back to the default daily cadence, which would mislabel the schedule — show the
     // raw rrule instead of a fabricated "Daily".
     const freq = /FREQ=([A-Z]+)/.exec(rrule)?.[1]
-    if (freq === 'HOURLY') {
-        return 'Continuous (checked every few minutes)'
-    }
     if (freq !== 'DAILY' && freq !== 'WEEKLY') {
         return rrule
     }

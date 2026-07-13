@@ -38,6 +38,8 @@ function RunStats(): JSX.Element {
     // Quiet alert checks (condition not met) don't appear in the run list, so for alerts the time
     // cells speak in terms of checks: "last checked" can be much more recent than the newest row.
     const isAlert = action?.mode === VisionActionModeEnumApi.Alert
+    // every_match rides each scanner sweep; on_breach thresholds are re-checked hourly.
+    const everyMatch = action?.alert_config?.frequency === 'every_match'
     return (
         <div className="flex flex-wrap sm:flex-nowrap items-stretch border rounded bg-surface-primary">
             <StatCell
@@ -54,16 +56,18 @@ function RunStats(): JSX.Element {
                         'Never'
                     )
                 }
-                description={isAlert ? 'checked every few minutes' : undefined}
+                description={
+                    isAlert ? (everyMatch ? 'checked every few minutes' : 'checked about every hour') : undefined
+                }
             />
             <StatCell
                 title={isAlert ? 'Next check' : 'Next run'}
                 value={
                     disabled ? (
                         'N/A'
-                    ) : isAlert ? (
-                        // The engine checks alerts on every scanner sweep; next_run_at is a vestigial
-                        // rrule cursor for alerts, so showing it would overstate the gap between checks.
+                    ) : isAlert && everyMatch ? (
+                        // every_match checks ride each sweep; the rrule cursor is vestigial there and
+                        // showing it would overstate the gap between checks. on_breach follows the cursor.
                         'Within minutes'
                     ) : action?.next_run_at ? (
                         <TZLabel time={action.next_run_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />
@@ -80,13 +84,14 @@ function RunStats(): JSX.Element {
 function EmptyRuns(): JSX.Element {
     const { action } = useValues(visionActionRunsLogic)
     const isAlert = action?.mode === VisionActionModeEnumApi.Alert
+    const everyMatch = action?.alert_config?.frequency === 'every_match'
     return (
         <div className="flex flex-col items-center text-center gap-3 py-10">
             <SleepingHog className="w-40 h-40" />
             <h3 className="m-0">{isAlert ? 'Your alert is live' : 'Your action is live'}</h3>
             <p className="text-muted max-w-md">
                 {isAlert
-                    ? 'Checks run every few minutes. When the condition is met, the alert and its matching observations show up here.'
+                    ? `Checks run ${everyMatch ? 'every few minutes' : 'about every hour'}. When the condition is met, the alert and its matching observations show up here.`
                     : "Results will show up after its next scheduled run. Once it runs, you'll see the summaries here — check back soon."}
             </p>
         </div>

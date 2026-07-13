@@ -39,6 +39,7 @@ function ActionOverview({
 }): JSX.Element {
     const guidance = action.synthesis_config?.prompt_guide?.trim()
     const isAlert = action.mode === VisionActionModeEnumApi.Alert
+    const everyMatch = action.alert_config?.frequency === 'every_match'
 
     return (
         <>
@@ -46,7 +47,9 @@ function ActionOverview({
                 name={action.name}
                 description={
                     isAlert
-                        ? 'Checked every few minutes; each alert covers the new matches since the last check'
+                        ? everyMatch
+                            ? 'Checked every few minutes; each alert covers the new matches since the last check'
+                            : 'Checked about every hour; notifies when the threshold starts being crossed'
                         : scheduleLabel
                           ? `Runs ${scheduleLabel.toLowerCase()}`
                           : undefined
