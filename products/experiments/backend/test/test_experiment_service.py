@@ -31,6 +31,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -50,7 +51,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.feature_flags.backend.facade.api import update_flag
+from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
@@ -2738,6 +2739,11 @@ class TestExperimentService(APIBaseTest):
         assert ChangeRequest.objects.filter(team=self.team).count() == 0
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.archived is False
+
+        # Positive control: the gate is live in this harness — a payload a policy does
+        # match must trip it, or the zero-change-request assertion above proves nothing.
+        with self.assertRaises(ApprovalRequired):
+            set_flag_active(experiment.feature_flag, True, team=self.team, user=self.user)
 
     def test_unarchive_experiment_keeps_manually_archived_flag(self):
         # The user archived the flag themselves, so unarchiving the experiment must not undo it.

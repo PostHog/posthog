@@ -1,9 +1,14 @@
-"""Feature flag facade: gated flag writes for other products.
+"""Feature flag facade: gated flag writes and read helpers for other products.
 
 Every write routes through ``FeatureFlagSerializer`` — the only path that honors
-``@approval_gate``, validation, and activity logging. Consumers (experiments, scheduled
-changes, MCP tools) call these functions instead of driving the serializer and its DRF
-context by hand.
+``@approval_gate``, validation, and activity logging. Consumers (currently experiments)
+call these functions instead of driving the serializer and its DRF context by hand.
+The read helpers (``user_can_edit_flag``, ``flag_disable_requires_approval``,
+``serialize_flags``) expose the flag API's access-control, approval-policy, and
+representation logic behind the same boundary.
+
+Writes do not enforce access control — that lives at the viewset layer. A caller
+acting on behalf of an end user must pre-check ``user_can_edit_flag`` first.
 
 Approval-gate ordering constraint for callers: a gated write can raise ``ApprovalRequired``
 (surfacing as a 409 + change_request_id), which conflicts with ``transaction.atomic`` — the
@@ -13,6 +18,7 @@ ChangeRequest. Run gated writes before/outside any transaction wrapping your own
 
 from typing import Any
 
+from posthog.api.utils import ServiceRequest
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
@@ -20,24 +26,6 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-
-class _ServiceRequest:
-    """Minimal request-like object for DRF serializers used from a service layer.
-
-    Provides the subset of the DRF Request interface that FeatureFlagSerializer
-    actually uses, without DRF's authentication machinery.
-    """
-
-    def __init__(self, user: Any):
-        self.user = user
-        self.method = "POST"
-        self.path = "/"
-        self.data: dict = {}
-        self.GET: dict = {}
-        self.META: dict = {}
-        self.headers: dict = {}
-        self.session: dict = {}
 
 
 def _serializer_context(team: Team, user: Any, request: Any | None) -> dict:
@@ -49,7 +37,7 @@ def _serializer_context(team: Team, user: Any, request: Any | None) -> dict:
     Pass BOTH get_team and get_organization so the approval gate resolves the policy
     from context rather than falling back to instance derivation.
     """
-    flag_request = request if getattr(request, "user", None) is not None else _ServiceRequest(user)
+    flag_request = request if getattr(request, "user", None) is not None else ServiceRequest(user)
     return {
         "request": flag_request,
         "team_id": team.id,

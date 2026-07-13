@@ -34,6 +34,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.cohort import CohortSerializer, get_active_flags_using_cohort
+from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
@@ -1144,11 +1145,13 @@ class ExperimentService:
             experiment_rollout_percentage = groups[0]["rollout_percentage"]
 
         # `groups` and `multivariate` are normalized (the experiment input surface restricts
-        # groups to a single rollout-only entry, and an experiment flag always has variants);
-        # every other validated filters key — aggregation_group_type_index, payloads
-        # (variant_key -> JSON string, e.g. prompt experiments map each variant to
-        # {"prompt_name": ..., "prompt_version": ...}), and any future key — is applied as-is
-        # so nothing the serializer accepted is silently dropped.
+        # groups to a single rollout-only entry, and an experiment flag always has variants).
+        # `aggregation_group_type_index` is seeded to None so person-level aggregation stays
+        # the default when the config omits it; the spread overrides the seed when present.
+        # Every other validated filters key — payloads (variant_key -> JSON string, e.g.
+        # prompt experiments map each variant to {"prompt_name": ..., "prompt_version": ...})
+        # and any future key — is applied as-is so nothing the serializer accepted is
+        # silently dropped.
         feature_flag_filters = {
             "aggregation_group_type_index": None,
             **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
@@ -4153,28 +4156,9 @@ class ExperimentService:
     def _build_serializer_context(self) -> dict:
         """Build minimal DRF serializer context for internal service use."""
         return {
-            "request": _ServiceRequest(self.user),
+            "request": ServiceRequest(self.user),
             "team_id": self.team.id,
             "project_id": self.team.project_id,
             "get_team": lambda: self.team,
             "get_organization": lambda: self.team.organization,
         }
-
-
-class _ServiceRequest:
-    """Minimal request-like object for DRF serializers used from the service layer.
-
-    Provides the subset of the DRF Request interface that the cohort and
-    saved-metric serializers actually use, without DRF's authentication machinery.
-    Gated feature-flag writes don't need it: the flag facade carries its own shim.
-    """
-
-    def __init__(self, user: Any):
-        self.user = user
-        self.method = "POST"
-        self.path = "/"
-        self.data: dict = {}
-        self.GET: dict = {}
-        self.META: dict = {}
-        self.headers: dict = {}
-        self.session: dict = {}
