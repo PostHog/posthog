@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     EngineeringAnalyticsCiFailureLogsQueryParams,
+    EngineeringAnalyticsFlakyTestsQueryParams,
     EngineeringAnalyticsPrCostQueryParams,
     EngineeringAnalyticsPrLifecycleQueryParams,
     EngineeringAnalyticsPullRequestsQueryParams,
@@ -34,6 +35,32 @@ const engineeringAnalyticsCiFailureLogs = (): ToolBase<
             },
         })
         return result
+    },
+})
+
+const EngineeringAnalyticsFlakyTestsSchema = EngineeringAnalyticsFlakyTestsQueryParams
+
+const engineeringAnalyticsFlakyTests = (): ToolBase<
+    typeof EngineeringAnalyticsFlakyTestsSchema,
+    WithPostHogUrl<Schemas.FlakyTestList>
+> => ({
+    name: 'engineering-analytics-flaky-tests',
+    schema: EngineeringAnalyticsFlakyTestsSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsFlakyTestsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FlakyTestList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/flaky_tests/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                min_failed_prs: params.min_failed_prs,
+                min_rerun_passes: params.min_rerun_passes,
+                source_id: params.source_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/engineering-analytics')
     },
 })
 
@@ -176,6 +203,9 @@ const WorkflowHealthSchema = EngineeringAnalyticsWorkflowHealthQueryParams.exten
     date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe(
         'Window end — relative or ISO8601. Defaults to now.'
     ),
+    run_scope: EngineeringAnalyticsWorkflowHealthQueryParams.shape['run_scope'].describe(
+        'Run scope. Use "pull_request" for PR CI runs (excludes default-branch master/main runs; same-repo PRs only, since fork PRs carry no PR attribution); omit or pass "all" for every run.'
+    ),
 })
 
 const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<Schemas.WorkflowHealthItem[]>> => ({
@@ -190,6 +220,7 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
                 branch: params.branch,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                run_scope: params.run_scope,
                 source_id: params.source_id,
             },
         })
@@ -199,6 +230,7 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'engineering-analytics-ci-failure-logs': engineeringAnalyticsCiFailureLogs,
+    'engineering-analytics-flaky-tests': engineeringAnalyticsFlakyTests,
     'engineering-analytics-pr-cost': engineeringAnalyticsPrCost,
     'engineering-analytics-sources': engineeringAnalyticsSources,
     'engineering-analytics-workflow-jobs': engineeringAnalyticsWorkflowJobs,

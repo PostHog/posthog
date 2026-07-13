@@ -218,6 +218,20 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
+        // `$ai_*` events: same batch handler, dedicated path so the ingress can route
+        // them to the capture-ai deployment and keep AI/analytics workloads isolated.
+        .route(
+            "/i/v0/ai/batch",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/i/v0/ai/batch/",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
         .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
 
     let event_router = Router::new()

@@ -22,6 +22,13 @@ from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, Repla
 # Distinct from `metrics1` (pre-aggregated rollups for dashboards/alerts): this
 # keeps every raw sample, for exact quantiles, per-emission drill-down, and the
 # metric->trace pivot. Lives on the logs ClickHouse cluster next to logs/traces.
+#
+# aggregation_temporality/is_monotonic live on the series (rate() needs them to
+# know whether to diff) but are NOT in the fingerprint — a collector config change
+# should update the series via the Replacing dedup, not re-key it. Histogram
+# bucket arrays stay on the sample row, self-contained: exponential histograms
+# can rescale their buckets between emissions, so bounds can't live on the
+# deduped series row without silently misaligning a sample's counts.
 
 SAMPLES_TABLE_NAME = "metric_samples1"
 SAMPLES_DISTRIBUTED_TABLE_NAME = "metric_samples"
@@ -38,6 +45,8 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{SERIES_T
     `series_fingerprint` UInt64 CODEC(DoubleDelta),
     `metric_type` LowCardinality(String),
     `unit` LowCardinality(String),
+    `aggregation_temporality` LowCardinality(String),
+    `is_monotonic` Bool DEFAULT false,
     `service_name` LowCardinality(String),
     `resource_attributes` Map(LowCardinality(String), String),
     `attributes` Map(LowCardinality(String), String),
@@ -48,6 +57,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{SERIES_T
 )
 ENGINE = {ReplacingMergeTree(SERIES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED, ver="last_seen")}
 ORDER BY (team_id, metric_name, series_fingerprint)
+TTL toDateTime(last_seen) + INTERVAL 90 DAY DELETE
 SETTINGS index_granularity = 8192
 """
 
@@ -61,6 +71,9 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{SAMPLES_
     `series_fingerprint` UInt64 CODEC(DoubleDelta),
     `timestamp` DateTime64(6) CODEC(DoubleDelta),
     `value` Float64 CODEC(Gorilla),
+    `count` UInt64 DEFAULT 1,
+    `histogram_bounds` Array(Float64),
+    `histogram_counts` Array(UInt64),
     `trace_id` String,
     `span_id` String,
     `trace_flags` Int32,

@@ -47,8 +47,8 @@ const WELCOME_TAB_KEY = 'welcome'
 type InboxTabBarKey = InboxTabKey | typeof WELCOME_TAB_KEY
 
 /**
- * Tab bar: Pull requests / Reports (everyone) + Not actionable and Runs (staff-only, each with a
- * "Staff" tag). Each report tab shows its own server-computed count. The Configuration tab is only
+ * Tab bar: Pull requests / Reports / Runs (everyone) + Not actionable (staff-only, with a
+ * "Staff" tag). Each flat report tab shows its own server-computed count. The Configuration tab is only
  * shown when `showConfigTab` is set – i.e. when the scene is too narrow for the setup rail; on wide
  * viewports the rail replaces it.
  *

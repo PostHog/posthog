@@ -9,6 +9,7 @@ from sqlparse.sql import Statement
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -119,11 +120,11 @@ class MySQLAdapter:
     def validate_source_config(
         self, source: "ExternalDataSource", team: "Team"
     ) -> tuple["MySQLImplementation", "MySQLSourceConfig"]:
+        from products.warehouse_sources.backend.facade.source_management import MySQLSource, SourceRegistry
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 
-        if not source.is_direct_mysql:
+        # Capability, not access_method: a synced source with the direct-query toggle on is valid too.
+        if not (is_direct_capable(source) and source.direct_engine == self.engine):
             raise ExposedHogQLError("Invalid direct MySQL connection.")
 
         mysql_source = cast(MySQLSource, SourceRegistry.get_source(ExternalDataSourceType.MYSQL))

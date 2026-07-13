@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import api, { ApiError } from 'lib/api'
 import { API_SCOPES } from 'lib/scopes'
 
 import { initKeaTests } from '~/test/init'
@@ -120,5 +121,29 @@ describe('cliAuthorizeLogic', () => {
         await expectLogic(logic).toMatchValues({ searchTerm: 'feature flag' })
         expect(logic.values.filteredScopes.map((scope) => scope.key)).toContain('feature_flag')
         expect(logic.values.filteredScopes.every((scope) => scope.key === 'feature_flag')).toBe(true)
+    })
+
+    it('surfaces the invalid_scope error from the backend on submit', async () => {
+        router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
+        logic.actions.setAuthorizeValues({
+            userCode: 'ABCD-1234',
+            organizationId: 'org-id',
+            projectId: 1,
+            scopes: ['llm_gateway:read'],
+        })
+        jest.spyOn(api, 'create').mockRejectedValueOnce(
+            new ApiError(undefined, 400, undefined, {
+                error: 'invalid_scope',
+                error_description: 'llm_gateway:read is not permitted',
+            })
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAuthorize()
+        }).toDispatchActions(['submitAuthorizeFailure'])
+
+        expect(logic.values.authorizeErrors.scopes).toBe(
+            'One or more selected scopes are not permitted. Try choosing a different preset.'
+        )
     })
 })

@@ -101,6 +101,192 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"]["run_id"], str(self.task_run.id))
         self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
 
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertIs(self.task_run.output.get("pr_merged"), True)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_publishes_stream_events(self, mock_capture, mock_get_secret):
+        # A live installation-progress view only learns about the merge through the stream;
+        # recording output.pr_merged without publishing leaves the UI stuck on "opened".
+        mock_get_secret.return_value = self.webhook_secret
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+            },
+        }
+
+        with patch.object(TaskRun, "publish_stream_event") as mock_publish:
+            response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        published = [c.args[0] for c in mock_publish.call_args_list if c.args]
+        progress = [e for e in published if e.get("notification", {}).get("method") == "_posthog/progress"]
+        self.assertEqual(len(progress), 1)
+        self.assertEqual(progress[0]["notification"]["params"]["label"], "Pull request merged")
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_from_fork_does_not_record_pr_merged(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/fork-merge",
+            output={},
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/attacker/posthog/pull/2",
+                "merged": True,
+                "head": {"ref": "feature/fork-merge", "repo": {"full_name": "attacker/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        self.assertEqual(run.output, {})
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_for_other_pr_on_same_branch_does_not_record_pr_merged(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            branch="feature/shared-branch",
+            output={"pr_url": "https://github.com/posthog/posthog/pull/10"},
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/11",
+                "merged": True,
+                "head": {"ref": "feature/shared-branch", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        self.assertEqual(run.output, {"pr_url": "https://github.com/posthog/posthog/pull/10"})
+
+    def _merged_pr_payload(self, pr_url: str) -> dict:
+        return {
+            "action": "closed",
+            "pull_request": {
+                "html_url": pr_url,
+                "merged": True,
+            },
+        }
+
+    @parameterized.expand(
+        [
+            ("wizard_run_in_progress", {"wizard_config": {}}, TaskRun.Status.IN_PROGRESS, {}, 1),
+            ("duplicate_merge_delivery", {"wizard_config": {}}, TaskRun.Status.IN_PROGRESS, {"pr_merged": True}, 0),
+            ("non_wizard_run", {}, TaskRun.Status.IN_PROGRESS, {}, 0),
+            ("already_terminal_run", {"wizard_config": {}}, TaskRun.Status.COMPLETED, {}, 0),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_signals_wizard_workflow_completion(
+        self, _name, state, status, extra_output, expected_signals, _mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/777"
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=status,
+            state=state,
+            output={"pr_url": pr_url, **extra_output},
+        )
+
+        with patch("products.tasks.backend.webhooks.signal_workflow_completion") as mock_signal:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._make_webhook_request(self._merged_pr_payload(pr_url))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_signal.call_count, expected_signals)
+        if expected_signals:
+            mock_signal.assert_called_once_with(run.id, TaskRun.Status.COMPLETED, None)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_resolves_to_active_run_when_resume_shares_pr(self, _mock_capture, mock_get_secret):
+        # A resumed wizard run shares its predecessor's PR; the merge must land on the
+        # live run (recording pr_merged and signaling wind-down), not the dead original.
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/779"
+        active_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"wizard_config": {}},
+            output={"pr_url": pr_url},
+        )
+        terminal_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.FAILED,
+            state={"wizard_config": {}},
+            output={"pr_url": pr_url},
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {"html_url": pr_url, "merged": True},
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        with patch("products.tasks.backend.webhooks.signal_workflow_completion") as mock_signal:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_signal.assert_called_once_with(active_run.id, TaskRun.Status.COMPLETED, None)
+        active_run.refresh_from_db()
+        terminal_run.refresh_from_db()
+        assert active_run.output is not None and terminal_run.output is not None
+        self.assertIs(active_run.output.get("pr_merged"), True)
+        self.assertNotIn("pr_merged", terminal_run.output)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_signal_failure_keeps_webhook_successful(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/778"
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"wizard_config": {}},
+            output={"pr_url": pr_url},
+        )
+
+        with patch(
+            "products.tasks.backend.webhooks.signal_workflow_completion",
+            side_effect=RuntimeError("temporal unreachable"),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._make_webhook_request(self._merged_pr_payload(pr_url))
+
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        assert run.output is not None
+        self.assertIs(run.output.get("pr_merged"), True)
+
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_closed_without_merge_webhook(self, mock_capture, mock_get_secret):
@@ -161,6 +347,36 @@ class TestGitHubPRWebhook(TestCase):
                 "html_url": pr_url,
                 "merged": False,
                 "head": {"ref": "feature/needs-pr-url", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        assert run.output is not None
+        self.assertEqual(run.output["pr_url"], pr_url)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_opened_backfills_pr_url_on_wizard_head_branch_match(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+            state={"wizard_head_branch": "posthog/instrumentation-ab12cd"},
+            output={},
+        )
+        pr_url = "https://github.com/posthog/posthog/pull/778"
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "html_url": pr_url,
+                "merged": False,
+                "head": {"ref": "posthog/instrumentation-ab12cd", "repo": {"full_name": "posthog/posthog"}},
             },
             "repository": {"full_name": "posthog/posthog"},
         }
@@ -519,6 +735,10 @@ class TestExternalPRWebhook(TestCase):
                 "title": "Internal customer change",
                 "base": {"ref": "main"},
                 "head": {"ref": "feature/x"},
+                "additions": 120,
+                "deletions": 30,
+                "changed_files": 5,
+                "commits": 3,
             },
         }
 
@@ -551,6 +771,10 @@ class TestExternalPRWebhook(TestCase):
         self.assertEqual(props["pr_number"], 7)
         self.assertEqual(props["pr_author"], "octocat")
         self.assertEqual(props["pr_base_ref"], "main")
+        self.assertEqual(props["pr_additions"], 120)
+        self.assertEqual(props["pr_deletions"], 30)
+        self.assertEqual(props["pr_changed_files"], 5)
+        self.assertEqual(props["pr_commits"], 3)
         self.assertIsNone(props["task_id"])
         self.assertIsNone(props["origin_product"])
         self.assertIsNone(props["title"])
@@ -635,6 +859,35 @@ class TestFindTaskRun(TestCase):
         result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/123")
         self.assertEqual(result, task_run)
 
+    def test_pr_url_prefers_active_run_over_terminal(self):
+        # A resumed wizard run inherits its predecessor's head branch, so two runs can
+        # claim the same PR URL; the lookup must resolve to the one still able to act.
+        pr_url = "https://github.com/posthog/posthog/pull/321"
+        active_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": pr_url},
+        )
+        # Created later, so a purely newest-first lookup would wrongly pick this one.
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": pr_url},
+        )
+        self.assertEqual(find_task_run(pr_url=pr_url), active_run)
+
+    def test_pr_url_does_not_match_other_repositories(self):
+        pr_url = "https://github.com/posthog/posthog/pull/322"
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": pr_url},
+        )
+        self.assertIsNone(find_task_run(pr_url=pr_url, repository="acme/other"))
+
     def test_finds_by_branch_when_no_pr_url_match(self):
         task_run = TaskRun.objects.create(
             task=self.task,
@@ -679,6 +932,35 @@ class TestFindTaskRun(TestCase):
             repository="posthog/posthog",
         )
         self.assertEqual(result, branch_run)
+
+    def test_finds_wizard_run_by_state_head_branch(self):
+        # Wizard cloud runs never have the PR head branch in TaskRun.branch (that column is
+        # the checkout base); the server-generated head branch lives in run state. Dropping
+        # this match leg silently unbinds every wizard PR from its run again.
+        wizard_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+            state={"wizard_head_branch": "posthog/instrumentation-ab12cd"},
+        )
+        result = find_task_run(branch="posthog/instrumentation-ab12cd", repository="posthog/posthog")
+        self.assertEqual(result, wizard_run)
+        # Same branch name from a foreign repository must not be attributed to this run.
+        self.assertIsNone(find_task_run(branch="posthog/instrumentation-ab12cd", repository="acme/other"))
+        # The run's `branch` column holds the checkout base, so a same-repo PR whose head
+        # ref equals it must not claim the wizard run through the plain branch leg.
+        self.assertIsNone(find_task_run(branch="main", repository="posthog/posthog"))
+
+    def test_wizard_head_branch_leg_ignores_terminal_runs(self):
+        # A reopened/re-PR'd wizard branch months later must not fire events on a dead run.
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"wizard_head_branch": "posthog/instrumentation-dead00"},
+        )
+        self.assertIsNone(find_task_run(branch="posthog/instrumentation-dead00", repository="posthog/posthog"))
 
     def test_returns_none_when_no_match(self):
         result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/999")

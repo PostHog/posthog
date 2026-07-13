@@ -17,12 +17,15 @@ import {
     TracingSpansValuesRetrieveQueryParams,
 } from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { pickResponseFields } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ApmAttributeBreakdownSchema = TracingSpansAttributeBreakdownCreateBody
 
-const apmAttributeBreakdown = (): ToolBase<typeof ApmAttributeBreakdownSchema, unknown> => ({
+const apmAttributeBreakdown = (): ToolBase<
+    typeof ApmAttributeBreakdownSchema,
+    Schemas._TracingAttributeBreakdownResponse
+> => ({
     name: 'apm-attribute-breakdown',
     schema: ApmAttributeBreakdownSchema,
     handler: async (context: Context, params: z.infer<typeof ApmAttributeBreakdownSchema>) => {
@@ -31,7 +34,7 @@ const apmAttributeBreakdown = (): ToolBase<typeof ApmAttributeBreakdownSchema, u
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingAttributeBreakdownResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/attribute-breakdown/`,
             body,
@@ -238,7 +241,7 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
-            return filtered
+            return await withPostHogUrl(context, filtered, `/tracing/?trace=${params.trace_id}`)
         },
     })
 

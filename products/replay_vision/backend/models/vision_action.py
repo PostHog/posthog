@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -42,6 +43,10 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
     )
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True)
+    is_scanner_digest = models.BooleanField(
+        default=False,
+        help_text="Marks the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one per scanner.",
+    )
 
     trigger_type = models.CharField(
         max_length=20,
@@ -76,6 +81,13 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         ),
     )
     synthesis_config = models.JSONField(default=dict, help_text="Synthesis options, e.g. {prompt_guide}.")
+    # How many observations may feed one group summary. When the window holds more, they're sampled
+    # evenly across it (not just the newest). Not exposed in the API/UI yet — tune via Django admin.
+    max_observations = models.PositiveIntegerField(
+        default=100,
+        validators=[MinValueValidator(1)],
+        help_text="Max observations included in one group summary; sampled across the window when exceeded.",
+    )
     delivery_config = models.JSONField(
         default=list,
         help_text="List of destination targets, e.g. [{type: 'slack', integration_id, channel}].",
@@ -98,6 +110,11 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "name"], name="vision_action_unique_team_name"),
+            models.UniqueConstraint(
+                fields=["scanner"],
+                condition=models.Q(is_scanner_digest=True),
+                name="vision_action_unique_scanner_digest",
+            ),
         ]
         indexes = [
             models.Index(

@@ -5,6 +5,14 @@ Drop-in replacement for `mprocs` — reads the same YAML config that `hogli dev:
 
 ## Install
 
+If you develop PostHog with **flox**, you already have phrocs: activation builds
+it from source (`make -C tools/phrocs build`) and `bin/start` runs that build
+directly from `tools/phrocs/dist/phrocs`. The source build is canonical — it
+always matches your checkout, so there's nothing to install or keep up to date,
+and a stray Homebrew/curl install can't shadow it.
+
+For **non-flox** setups, install a prebuilt binary:
+
 **Homebrew** (macOS and Linux):
 
 ```sh
@@ -16,6 +24,9 @@ brew tap posthog/tap && brew install phrocs
 ```sh
 curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/tools/phrocs/install.sh | bash
 ```
+
+`bin/start` resolves phrocs in this order: the in-repo `dist/phrocs` build if
+present, otherwise `phrocs` on `PATH`.
 
 ## Build
 
@@ -59,16 +70,20 @@ You typically run phrocs via `hogli start` rather than directly.
 | `pgup` | Scroll output up                                        |
 | `home` | Jump to top of output                                   |
 | `end`  | Jump to bottom of output                                |
+| `s`    | Start selected process                                  |
+| `x`    | Stop selected process                                   |
 | `r`    | Restart selected process                                |
 | `R`    | Restart all failed processes                            |
-| `s`    | Stop selected process                                   |
+| `l`    | Clear logs of selected process                          |
 | `c`    | Enter copy mode                                         |
 | `i`    | Show process info in pager                              |
 | `o`    | Sort processes by <name/CPU/RAM/status>                 |
 | `g`    | Cycle process grouping (from config `groups` field)     |
 | `a`    | Toggle show all registry processes                      |
+| `t`    | Enter setup mode (choose which services to run)         |
 | `/`    | Enter search mode (then `tab` to switch to filter mode) |
 | `esc`  | Exit copy, search, and filter modes                     |
+| `↵`    | Send keystrokes to the process (output pane)            |
 | `?`    | Toggle full help                                        |
 | `q`    | Quit                                                    |
 
@@ -79,6 +94,12 @@ Mouse clicks switch focus; mouse wheel scrolls the output pane.
 Press `c` to enter copy mode in the output pane.
 Navigate with `↑`/`↓`, press `c` again to mark the selection start, then extend with `↑`/`↓` and press `c` to copy to clipboard.
 Press `esc` to exit without copying.
+
+### Sending input to a process
+
+Some processes wait for input on stdin, like a `(y/n)` confirmation, a REPL, an interactive CLI. Focus the output pane (`tab`), then type to send keystrokes to the process's PTY.
+
+phrocs auto-detects a prompt when the last output didn't end in a newline, and starts forwarding keystrokes right away. That heuristic misses prompts that print a trailing newline, so you can also press `↵` to enter **input mode** explicitly: every key then goes to the process until you press `esc` to leave.
 
 ### Search and filter modes
 

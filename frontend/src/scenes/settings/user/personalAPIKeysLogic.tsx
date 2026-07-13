@@ -10,7 +10,13 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { APIScope, API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
+import {
+    APIScope,
+    API_SCOPES,
+    SCOPES_IMPLYING_FEATURE_FLAG_WRITE,
+    scopesArrayToObject,
+    scopesObjectToArray,
+} from 'lib/scopes'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -22,7 +28,7 @@ import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export type EditingKeyFormValues = Pick<
     PersonalAPIKeyType,
-    'label' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
+    'label' | 'description' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
 > & {
     preset?: string
     access_type?: 'all' | 'organizations' | 'teams'
@@ -48,6 +54,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         resetScopes: true,
         loadAllTeams: true,
+        showDescriptionField: true,
     }),
 
     reducers({
@@ -61,6 +68,14 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             '' as string,
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        // The description field is hidden behind an "Add description" button until used
+        isDescriptionFieldVisible: [
+            false,
+            {
+                showDescriptionField: () => true,
+                setEditingKeyId: () => false,
             },
         ],
     }),
@@ -104,6 +119,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         editingKey: {
             defaults: {
                 label: '',
+                description: '',
                 scopes: [],
                 scoped_organizations: [],
                 scoped_teams: [],
@@ -172,6 +188,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 // Hide agents scope unless the agent platform flag is enabled (hidden until GA)
                 if (!featureFlags[FEATURE_FLAGS.AGENT_PLATFORM]) {
                     scopes = scopes.filter((scope) => scope.key !== 'agents')
+                }
+
+                // Hide engineering analytics scope unless the product's rollout flag is enabled
+                if (!featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                    scopes = scopes.filter((scope) => scope.key !== 'engineering_analytics')
                 }
 
                 // Hide approvals scope unless the org has the APPROVALS feature
@@ -433,6 +454,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 const key = values.keys.find((key) => key.id === id)
                 const formValues: EditingKeyFormValues = {
                     label: key?.label ?? '',
+                    description: key?.description ?? '',
                     scopes: key?.scopes ?? [],
                     preset: key?.scopes.includes('*') ? 'all_access' : undefined,
                     scoped_organizations: key?.scoped_organizations ?? [],
@@ -447,6 +469,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 }
 
                 actions.resetEditingKey(formValues)
+                if (key?.description) {
+                    actions.showDescriptionField()
+                }
                 actions.setSearchTerm('')
             } else {
                 actions.setSearchTerm('')
@@ -466,6 +491,18 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 delete scopesObject[key]
             } else {
                 scopesObject[key] = action
+            }
+
+            // Survey and early access feature writes also write a feature flag (targeting / linked flag),
+            // so they imply feature_flag:write (see SCOPES_IMPLYING_FEATURE_FLAG_WRITE). Auto-select it so
+            // the key works out of the box. Scoped to this toggle action only — not every scopes change —
+            // so it stays visible and removable if the key only manages plain surveys.
+            if (
+                action === 'write' &&
+                key in SCOPES_IMPLYING_FEATURE_FLAG_WRITE &&
+                scopesObject['feature_flag'] !== 'write'
+            ) {
+                scopesObject['feature_flag'] = 'write'
             }
 
             // Convert back to array format

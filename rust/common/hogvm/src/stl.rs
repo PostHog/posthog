@@ -936,7 +936,10 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "toUnixTimestamp",
             native_func(|vm, args| {
                 assert(!args.is_empty(), "toUnixTimestamp requires at least one argument")?;
-                let secs = temporal_seconds(vm, &args[0], "toUnixTimestamp")?;
+                let secs = match unix_timestamp_seconds(vm, &args, "toUnixTimestamp")? {
+                    Some(secs) => secs,
+                    None => return Ok(HogLiteral::Null.into()),
+                };
                 Ok(HogLiteral::Number(Num::Float(secs)).into())
             }),
         ),
@@ -944,7 +947,10 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "toUnixTimestampMilli",
             native_func(|vm, args| {
                 assert(!args.is_empty(), "toUnixTimestampMilli requires at least one argument")?;
-                let secs = temporal_seconds(vm, &args[0], "toUnixTimestampMilli")?;
+                let secs = match unix_timestamp_seconds(vm, &args, "toUnixTimestampMilli")? {
+                    Some(secs) => secs,
+                    None => return Ok(HogLiteral::Null.into()),
+                };
                 Ok(HogLiteral::Number(Num::Integer((secs * 1000.0) as i64)).into())
             }),
         ),
@@ -1608,9 +1614,13 @@ fn naive_to_seconds(naive: NaiveDateTime, zone: Option<&str>) -> Result<f64, VmE
     }
 }
 
-/// `f64` epoch seconds with sub-second precision, matching Python's `datetime.timestamp()`.
+/// `f64` epoch seconds at millisecond precision, matching the reference VM (luxon
+/// `DateTime.fromISO(...).toSeconds()`), which parses to milliseconds and truncates finer digits.
+/// The Node HogVM is the ingestion shadow baseline, so preserving microseconds (as Python's
+/// `datetime.timestamp()` does) surfaced as a `result_mismatch` on any sub-millisecond event
+/// timestamp — e.g. `toUnixTimestamp(toDateTime(event.timestamp))` in a "first seen" transform.
 fn datetime_to_seconds<Tz: TimeZone>(dt: DateTime<Tz>) -> f64 {
-    dt.timestamp() as f64 + f64::from(dt.timestamp_subsec_nanos()) / 1_000_000_000.0
+    dt.timestamp_millis() as f64 / 1000.0
 }
 
 // Extract every element as a Num and return them sorted ascending. Single allocation + early error,
@@ -1884,6 +1894,31 @@ fn make_hog_datetime(dt: f64, zone: &str) -> Result<HogValue, VmError> {
 }
 
 // Epoch seconds of a Hog Date/DateTime value (the `dt` field, or UTC midnight for a Date).
+// toUnixTimestamp/toUnixTimestampMilli accept Date/DateTime like every temporal fn, but the
+// reference also parses ISO strings (honoring the optional zone arg) and yields NaN — observably
+// null once serialized — for unparseable ones, so a string that fails to parse maps to None.
+fn unix_timestamp_seconds(
+    vm: &HogVM,
+    args: &[HogValue],
+    name: &str,
+) -> Result<Option<f64>, VmError> {
+    if let HogLiteral::String(s) = args[0].deref(&vm.heap)? {
+        // The reference does `zone || 'UTC'`, so a null zone (an absent event
+        // property) silently falls back to UTC; any other non-string zone is an
+        // invalid luxon zone there, yielding NaN — observably null.
+        let zone = match args.get(1) {
+            Some(arg) => match arg.deref(&vm.heap)? {
+                HogLiteral::String(z) => Some(z.clone()),
+                HogLiteral::Null => None,
+                _ => return Ok(None),
+            },
+            None => None,
+        };
+        return Ok(parse_datetime_to_seconds(s, zone.as_deref()).ok());
+    }
+    temporal_seconds(vm, &args[0], name).map(Some)
+}
+
 fn temporal_seconds(vm: &HogVM, value: &HogValue, name: &str) -> Result<f64, VmError> {
     value
         .deref(&vm.heap)?

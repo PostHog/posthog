@@ -12,7 +12,6 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import {
@@ -25,13 +24,8 @@ import {
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
-import { LogsFullScreenButton } from 'products/logs/frontend/components/LogsViewer/LogsFullScreenButton'
-import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
 
-import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
-import { ServiceFilter } from '../ServiceFilter'
-import { SeverityLevelsFilter } from '../SeverityLevelsFilter'
 
 const taxonomicFilterLogicKey = 'logs'
 const taxonomicGroupTypes = [
@@ -40,53 +34,8 @@ const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.LogAttributes,
 ]
 
-export const LogsFilterBar = ({
-    showSavedViewsButton = false,
-    showFullScreenButton = false,
-}: {
-    showSavedViewsButton?: boolean
-    showFullScreenButton?: boolean
-}): JSX.Element => {
-    // When the facet rail is on, Level + Service live in the rail instead of this bar.
-    const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
-    const { setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
-    const { filters, utcDateRange, id } = useValues(logsViewerFiltersLogic)
-    const { severityLevels, serviceNames } = filters
-
-    return (
-        <LogsFilterGroup>
-            <div className="flex flex-col gap-2 w-full bg-primary">
-                <div className="flex gap-2 flex-wrap w-full justify-between">
-                    <div className="flex shrink-0 flex-1 gap-1.5">
-                        {!showFacetRail && (
-                            <>
-                                <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
-                                <ServiceFilter
-                                    value={serviceNames}
-                                    onChange={setServiceNames}
-                                    dateRange={utcDateRange}
-                                />
-                            </>
-                        )}
-                        <div className="min-w-[300px] max-w-[350px] w-full">
-                            <LogsFilterSearch />
-                        </div>
-                        <FilterHistoryDropdown />
-                        {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
-                    </div>
-                    <div className="flex shrink-0 gap-1.5">
-                        <LogsQueryControls />
-                        {showFullScreenButton && <LogsFullScreenButton id={id} />}
-                    </div>
-                </div>
-                <LogsAppliedFilters />
-            </div>
-        </LogsFilterGroup>
-    )
-}
-
 /**
- * Time range, zoom and refresh — the always-relevant "execute the query" controls shared by both bars.
+ * Time range, zoom and refresh — the always-relevant "execute the query" controls of the query bar.
  * Live tail lives in the results bar instead (LogsViewerToolbar): it's the one streaming control we
  * deliberately place with the Logs-only tools so it hides cleanly with that cluster in Patterns mode,
  * rather than collapsing in this top bar and shifting its layout.

@@ -62,7 +62,13 @@ from posthog.event_usage import EventSource, get_event_source, report_user_actio
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
-from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_FIELD,
+    MAX_SEARCH_LENGTH,
+    NAME_FIELD,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+)
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.quick_filter import QuickFilter
@@ -1005,11 +1011,15 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
-        return filters_override_requested_by_client(request, dashboard)
+        is_shared = self.context.get("is_shared", False)
+        return filters_override_requested_by_client(request, dashboard, is_shared=is_shared)
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")
-        return variables_override_requested_by_client(request, dashboard, list(self.context["insight_variables"]))
+        is_shared = self.context.get("is_shared", False)
+        return variables_override_requested_by_client(
+            request, dashboard, list(self.context["insight_variables"]), is_shared=is_shared
+        )
 
     def get_persisted_filters(self, dashboard: Dashboard) -> dict | None:
         return dashboard.filters if dashboard.filters else None
@@ -2042,12 +2052,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Optional. Match against dashboard `name`, `description`, and tag names. Returns "
-                    "case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, "
-                    "prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each "
-                    "result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered "
-                    "by pinned status then alphabetical name. Capped at 200 characters; longer queries return a "
-                    "400 error."
+                    "Optional. Match against dashboard `name`, `description`, and tag names. Returns exact "
+                    "(case-insensitive substring) matches only; if no exact match exists, returns similar "
+                    "(fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Results "
+                    "are then ordered by relevance, then pinned status, then name; each result's `search_match_type` is "
+                    "`exact` or `similar`. When omitted, dashboards are ordered by pinned status then "
+                    "alphabetical name. Capped at 200 characters; longer queries return a 400 error."
                 ),
             ),
             OpenApiParameter(
@@ -2072,6 +2082,8 @@ class DashboardsViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "dashboard"
+    # Record a tags change per dashboard when bulk_update_tags mutates it, matching the single-object path.
+    bulk_tag_activity_scope = "Dashboard"
     queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
@@ -2110,7 +2122,7 @@ class DashboardsViewSet(
         if folder is not None:
             queryset = self._apply_folder_filter(queryset, folder)
 
-        return queryset
+        return drop_similar_when_exact_exists(queryset)
 
     @staticmethod
     def _apply_folder_filter(queryset: QuerySet, folder: str) -> QuerySet:
@@ -2391,7 +2403,8 @@ class DashboardsViewSet(
         return sse_streaming_response(
             async_tile_stream_generator()
             if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-            else async_to_sync(lambda: async_tile_stream_generator())
+            else async_to_sync(lambda: async_tile_stream_generator()),
+            endpoint="dashboard_tile_stream",
         )
 
     def _get_layout_size_from_request(self, request: Request) -> str:

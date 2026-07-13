@@ -13,11 +13,18 @@ import { DataWarehouseSavedQuery, DataWarehouseSavedQueryFolder } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
 
+// Materialization is async: enabling it flips `is_materialized` either synchronously (the
+// /materialize action) or later, when the Temporal job runs (scheduled sync frequency). After
+// kicking it off we reload the saved-query list a few times so the sidebar reflects the settled
+// state without a manual refresh, then stop.
+const MATERIALIZATION_POLL_INTERVAL_MS = 5000
+const MATERIALIZATION_POLL_MAX_ATTEMPTS = 12
+
 export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSavedQueriesLogic']),
     connect(() => ({
         values: [userLogic, ['user'], databaseTableListLogic, ['views', 'databaseLoading']],
-        actions: [databaseTableListLogic, ['loadDatabase']],
+        actions: [databaseTableListLogic, ['refreshDatabaseSchema']],
     })),
     reducers({
         initialDataWarehouseSavedQueryLoading: [
@@ -35,12 +42,24 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 updateDataWarehouseSavedQueryFailure: () => false,
             },
         ],
+        // Views whose materialization is in flight. Reactive so the sidebar can show a spinner in
+        // place of the view icon while it materializes (a stable state, unlike the transient list
+        // loading flag), then flip to the materialized icon once it settles.
+        materializingViewIds: [
+            [] as string[],
+            {
+                addMaterializingViews: (state, { viewIds }) => Array.from(new Set([...state, ...viewIds])),
+                clearMaterializingView: (state, { viewId }) => state.filter((id) => id !== viewId),
+            },
+        ],
     }),
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         cancelDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         materializeDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         revertMaterialization: (viewId: string) => ({ viewId }),
+        addMaterializingViews: (viewIds: string[]) => ({ viewIds }),
+        clearMaterializingView: (viewId: string) => ({ viewId }),
     }),
     loaders(({ values }) => ({
         dataWarehouseSavedQueries: [
@@ -116,9 +135,54 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, cache }) => ({
+        loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
+            const materializing = values.materializingViewIds
+            if (materializing.length === 0) {
+                return
+            }
+            const settledIds = new Set(
+                dataWarehouseSavedQueries.filter((view) => view.id && view.is_materialized).map((view) => view.id)
+            )
+            // Per-view attempt counts so concurrent materializations don't share a budget — one view
+            // settling or capping out never clears another view's spinner early.
+            const attempts: Record<string, number> = cache.materializationPollAttempts ?? {}
+            const stillPending: string[] = []
+            for (const id of materializing) {
+                if (settledIds.has(id)) {
+                    // Settled → spinner flips to the materialized icon.
+                    actions.clearMaterializingView(id)
+                    delete attempts[id]
+                    continue
+                }
+                const nextAttempt = (attempts[id] ?? 0) + 1
+                if (nextAttempt >= MATERIALIZATION_POLL_MAX_ATTEMPTS) {
+                    // Give up waiting on this view so its spinner doesn't get stuck forever.
+                    actions.clearMaterializingView(id)
+                    delete attempts[id]
+                } else {
+                    attempts[id] = nextAttempt
+                    stillPending.push(id)
+                }
+            }
+            cache.materializationPollAttempts = attempts
+            if (stillPending.length === 0) {
+                cache.disposables.dispose('materializationPoll')
+                return
+            }
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(
+                    () => actions.loadDataWarehouseSavedQueries(),
+                    MATERIALIZATION_POLL_INTERVAL_MS
+                )
+                return () => clearTimeout(timeoutId)
+            }, 'materializationPoll')
+        },
         createDataWarehouseSavedQuerySuccess: () => {
-            actions.loadDatabase()
+            // The create loader already appends the new view optimistically, so the row appears
+            // without an extra reload. A reload here would also race the materialize reload below
+            // (create-with-materialize) and could revert is_materialized back to false.
+            actions.refreshDatabaseSchema()
         },
         createDataWarehouseSavedQueryFolderSuccess: () => {
             actions.loadDataWarehouseSavedQueries()
@@ -145,8 +209,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.runDataWarehouseSavedQuery(payload.id)
             }
 
+            // Enabling a sync frequency schedules materialization, whose is_materialized flip can
+            // land asynchronously — mark it materializing (spinner) and poll until it settles.
+            if (payload?.id && payload.sync_frequency) {
+                actions.addMaterializingViews([payload.id])
+            }
+
             actions.loadDataWarehouseSavedQueries()
-            actions.loadDatabase()
+            actions.refreshDatabaseSchema()
         },
         updateDataWarehouseSavedQueryError: () => {
             lemonToast.error('Failed to update view')
@@ -154,11 +224,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         deleteDataWarehouseSavedQuerySuccess: () => {
             lemonToast.success('View deleted')
+            // The delete loader already filters the view out of the list, so the sidebar row leaves
+            // immediately. Reloading the whole list here just replaces every row's identity and
+            // makes the tree flash — skip it and let refreshDatabaseSchema update the picker.
+            actions.refreshDatabaseSchema()
         },
         deleteDataWarehouseSavedQueryFolderSuccess: () => {
             lemonToast.success('Folder deleted')
             actions.loadDataWarehouseSavedQueries()
-            actions.loadDatabase()
+            actions.refreshDatabaseSchema()
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
             try {
@@ -185,8 +259,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 posthog.capture('materialized view created', {
                     sync_frequency: '24hour',
                 })
+                actions.addMaterializingViews([viewId])
                 actions.loadDataWarehouseSavedQueries()
-                actions.loadDatabase()
+                actions.refreshDatabaseSchema()
             } catch {
                 lemonToast.error(`Failed to materialize view`)
             }
@@ -195,8 +270,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             try {
                 await api.dataWarehouseSavedQueries.revertMaterialization(viewId)
                 lemonToast.success('Materialization reverted')
+                // No longer materializing — drop it so the spinner stops and we don't wait for a
+                // flag that will never flip.
+                actions.clearMaterializingView(viewId)
                 actions.loadDataWarehouseSavedQueries()
-                actions.loadDatabase()
+                actions.refreshDatabaseSchema()
             } catch {
                 lemonToast.error(`Failed to revert materialization`)
             }

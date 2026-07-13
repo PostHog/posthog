@@ -690,6 +690,91 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('tool_call_update collapse', () => {
+        it('retains one merged update entry per tool call without losing early-update fields or duplicating content', async () => {
+            // The agent re-sends the full accumulated output on every update — retaining each
+            // snapshot in the log is the memory balloon this pins. A verbatim keep-latest would pass
+            // the length check but drop the rawInput that arrived only on the first update.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 't1', rawInput: {}, status: 'pending' }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 't1',
+                    rawInput: { command: 'ls -la' },
+                    status: 'in_progress',
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 't1',
+                    content: [{ type: 'text', text: 'chunk1' }],
+                    rawOutput: 'chunk1',
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 't1',
+                    content: [
+                        { type: 'text', text: 'chunk1' },
+                        { type: 'text', text: 'chunk2' },
+                    ],
+                    rawOutput: 'chunk1chunk2',
+                }),
+                // Terminal status-only update: must not erase the accumulated content/output.
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            expect(logic.values.log.entries).toHaveLength(2)
+
+            const invocation = logic.values.toolInvocations.get('t1')
+            expect(invocation?.status).toEqual('completed')
+            expect(invocation?.input).toEqual({ command: 'ls -la' })
+            expect(invocation?.output).toEqual('chunk1chunk2')
+            // Cumulative content replaces — appending would render chunk1 twice.
+            expect(invocation?.contentBlocks).toEqual([
+                { type: 'text', text: 'chunk1' },
+                { type: 'text', text: 'chunk2' },
+            ])
+        })
+
+        it('collapses interleaved updates of concurrent tool calls independently', async () => {
+            // Dropping a superseded entry shifts later indexes — a stale toolUpdateIndex would merge
+            // one tool call's update into another's entry.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'a', rawInput: {}, status: 'in_progress' }),
+                sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'b', rawInput: {}, status: 'in_progress' }),
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'a', rawOutput: 'a1' }),
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'b', rawOutput: 'b1' }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 'a',
+                    rawOutput: 'a1a2',
+                    status: 'completed',
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 'b',
+                    rawOutput: 'b1b2',
+                    status: 'failed',
+                }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            expect(logic.values.log.entries).toHaveLength(4)
+            expect(logic.values.toolInvocations.get('a')).toEqual(
+                expect.objectContaining({ status: 'completed', output: 'a1a2' })
+            )
+            expect(logic.values.toolInvocations.get('b')).toEqual(
+                expect.objectContaining({ status: 'failed', output: 'b1b2' })
+            )
+        })
+    })
+
     describe('pushHumanMessage', () => {
         it('appends a human_message item ordered before subsequently ingested assistant frames', async () => {
             await expectLogic(logic, () => {

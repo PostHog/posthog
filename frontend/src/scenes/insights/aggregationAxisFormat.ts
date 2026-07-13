@@ -91,7 +91,14 @@ export const formatAggregationAxisValue = (
                 break
         }
     }
-    return `${aggregationAxisPrefix || ''}${formattedValue}${aggregationAxisPostfix || ''}`
+    // Currency format already embeds the symbol, so a matching prefix ("$" + "$94.02") would double it.
+    const effectivePrefix =
+        aggregationAxisFormat === 'currency' &&
+        aggregationAxisPrefix &&
+        formattedValue.startsWith(aggregationAxisPrefix)
+            ? ''
+            : aggregationAxisPrefix || ''
+    return `${effectivePrefix}${formattedValue}${aggregationAxisPostfix || ''}`
 }
 
 export const formatPercentStackAxisValue = (

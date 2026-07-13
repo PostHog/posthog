@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { INBOX_SCOPE_FOR_YOU, InboxScope, SignalReportPriority, SignalReportStatus } from '../types'
+import { INBOX_SCOPE_FOR_YOU, InboxScope, SignalReportPriority } from '../types'
 import type { inboxFiltersLogicType } from './inboxFiltersLogicType'
 
 /** A teammate who can be scoped to / suggested as a reviewer. Matches the `available_reviewers` API row. */
@@ -12,21 +12,6 @@ export interface InboxReviewerOption {
     name: string
     email: string
 }
-
-/**
- * Status set always sent to the list API: every in-flight pipeline status.
- * Mirrors desktop `INBOX_PIPELINE_STATUS_FILTER`. There is no user-facing status
- * filter (desktop dropped it in filter-store v2); status is a fixed request
- * constant, and tab membership does the rest of the partitioning client-side.
- */
-export const INBOX_PIPELINE_STATUS_FILTERS: SignalReportStatus[] = [
-    SignalReportStatus.POTENTIAL,
-    SignalReportStatus.CANDIDATE,
-    SignalReportStatus.IN_PROGRESS,
-    SignalReportStatus.READY,
-    SignalReportStatus.PENDING_INPUT,
-    SignalReportStatus.FAILED,
-]
 
 export type InboxSortField = 'priority' | 'created_at' | 'updated_at'
 export type InboxSortDirection = 'asc' | 'desc'
@@ -68,6 +53,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
 
     actions({
         setScope: (scope: InboxScope) => ({ scope }),
+        // Auto-select a default scope (e.g. Entire project when the user has no assigned reports)
+        // without marking it as an explicit user choice, so a later real choice still wins and persists.
+        applyDefaultScope: (scope: InboxScope) => ({ scope }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setSort: (field: InboxSortField, direction: InboxSortDirection) => ({ field, direction }),
         toggleSourceProduct: (source: string) => ({ source }),
@@ -104,6 +92,16 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             { persist: true },
             {
                 setScope: (_, { scope }) => scope,
+                applyDefaultScope: (_, { scope }) => scope,
+            },
+        ],
+        // Whether the user has explicitly picked a scope. Once true, the empty-inbox auto-default
+        // no longer fires, so a deliberate choice of "For you" is respected even with zero reports.
+        hasUserChosenScope: [
+            false,
+            { persist: true },
+            {
+                setScope: () => true,
             },
         ],
         // Not persisted – matches desktop (searchQuery is excluded from `partialize`).
