@@ -18,7 +18,6 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import User
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -2568,15 +2567,19 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 ]
             },
         )
-        original_get_existing_target_flag_for_copy = OrganizationFeatureFlagView._get_existing_target_flag_for_copy
+        original_copy_feature_flag_to_target = OrganizationFeatureFlagView._copy_feature_flag_to_target
 
-        def create_target_dependency_before_copy(
+        def create_target_dependency_during_copy(
             view: OrganizationFeatureFlagView,
-            user: User,
+            request: Any,
             source_flag: FeatureFlag,
             target_team: Team,
+            target_project_id: int,
+            copy_schedule: bool,
+            disable_copied_flag: bool,
             update_existing_target: bool = True,
-        ) -> FeatureFlag | None:
+            **kwargs: Any,
+        ) -> dict[str, Any]:
             if source_flag.key == source_dependency.key and target_team == self.team_2:
                 FeatureFlag.objects.get_or_create(
                     team=self.team_2,
@@ -2587,22 +2590,30 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                         "filters": {"groups": [{"rollout_percentage": 99}]},
                     },
                 )
-            return original_get_existing_target_flag_for_copy(
-                view, user, source_flag, target_team, update_existing_target=update_existing_target
+            return original_copy_feature_flag_to_target(
+                view,
+                request,
+                source_flag,
+                target_team,
+                target_project_id,
+                copy_schedule,
+                disable_copied_flag,
+                update_existing_target=update_existing_target,
+                **kwargs,
             )
 
         with patch.object(
             OrganizationFeatureFlagView,
-            "_get_existing_target_flag_for_copy",
+            "_copy_feature_flag_to_target",
             autospec=True,
-            side_effect=create_target_dependency_before_copy,
+            side_effect=create_target_dependency_during_copy,
         ):
             response = self._post_copy_flag(flag_to_copy, copy_dependencies=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["success"], [])
         self.assertEqual(len(response.json()["failed"]), 1)
-        self.assertIn("already exists", response.json()["failed"][0]["error_message"])
+        self.assertEqual(response.json()["failed"][0]["project_id"], self.team_2.id)
         self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
 
     def test_copy_feature_flag_with_dependencies_copies_dependency_schedules(self):
