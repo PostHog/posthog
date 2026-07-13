@@ -277,6 +277,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         options={tagFilterOptions}
                                         value={observationTagFilter}
                                         onChange={setObservationTagFilter}
+                                        searchable
+                                        searchPlaceholder="Search tags"
                                     />
                                 )}
                                 <LemonButton
