@@ -94,7 +94,9 @@ symbol stores. The rendezvous score is adjusted by the latest server load
 snapshot and the caller's own local in-flight count, so highly loaded pods
 become less likely to receive new work before they return overload outcomes.
 
-Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. Terminal `ErrorKind`s fail the current all-or-nothing rollout path.
+Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally.
+Terminal `ErrorKind`s (poison, invalid payload) still fail the current all-or-nothing rollout path.
+An item that instead exhausts its reroute budget against a transient capacity condition (pool empty, all endpoints ejected after overload, repeated `Retry`/overload outcomes) is not fatal: it degrades to its original unresolved exception so a saturated pool drops symbolication for that one item rather than failing the whole `/process` batch (counted by `cymbal_remote_resolution_unresolved_passthrough_total`).
 
 ### Disabling / rolling back
 
@@ -183,7 +185,7 @@ These metric names are exported by the cymbal client unless noted. Definitions l
 | `endpoint_admission_rejections_total{reason="queue_full"}` | Local mux queue saturated before the item reached gRPC | Scale endpoints or increase the mux queue only after checking memory. |
 | `transport_retry{reason="deadline_exceeded"}` with low load | Caller-side deadline shorter than worst-case resolution | Raise `CYMBAL_REMOTE_RESOLUTION_DEADLINE_MS`. |
 | `error_kinds_total{kind="invalid_payload"}` | Wire-format or metadata mismatch | Check deploy skew and the metadata JSON convention. |
-| `requests_total{outcome="exhausted"}` sustained | Pool unhealthy or reroute budget too small for current failures | Investigate server health; consider rollback. |
+| `requests_total{outcome="exhausted"}` / `unresolved_passthrough_total` sustained | Pool unhealthy or reroute budget too small for current load — exhausted items degrade to unresolved frames instead of failing the batch | Scale the resolution fleet and/or tune `overload_ejection_*`; investigate server health. |
 | `pool_size` drops on a stable cluster | DNS refresh evicting endpoints | Confirm the headless service still resolves; check for pod restarts. |
 | `pool_empty` with `pool_size > 0` | Snapshot-required routing excluded every pod | Inspect the `reason` label plus `load_subscriptions_total{outcome="reconnect"}` and Subscribe logs. |
 
@@ -201,6 +203,7 @@ Client-side warnings on the cymbal pods:
 - `remote resolution dns refresh failed` — DNS refresh task swallowed an error and will retry next tick.
 - `remote resolution transport-level retry` — caller-side transport retry classification, tagged with a bounded reason.
 - `remote resolution returned item overload` — an overloaded result was escalated into a per-item reroute.
+- `remote resolution exhausted retries under load; passing exception through unresolved` — the item ran out of reroute budget against a transient capacity condition and degraded to its original unresolved exception instead of failing the batch.
 - `remote resolution outcome id did not match submitted item` — the mux ignored an outcome for another id.
 
 Logs intentionally do not include raw routing keys as metric labels. Routing keys can contain symbol-set references, so cymbal uses bounded counters/histograms and endpoint labels only where the endpoint set is bounded by discovery.

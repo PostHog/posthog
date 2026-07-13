@@ -1,6 +1,9 @@
 //! Per-exception reroute layer: submit one logical item to the selected
 //! endpoint mux, classify its terminal outcome, and retry/reroute only that
-//! item until its shared deadline or retry budget is exhausted.
+//! item until its shared deadline or retry budget is exhausted. Terminal item
+//! errors fail the batch; exhausting the budget against a transient capacity
+//! condition instead returns a soft outcome so the item degrades to unresolved
+//! frames without sinking the batch.
 
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -22,13 +25,16 @@ use crate::types::Exception;
 
 use crate::stages::resolution::remote::{client::RemoteCallError, mux::ResolveItemSession};
 
-use super::{RemoteResolutionContext, RemoteWorkItem, ResolvedRemoteItem};
+use super::{
+    ExhaustedRemoteItem, RemoteItemOutcome, RemoteResolutionContext, RemoteWorkItem,
+    ResolvedRemoteItem,
+};
 
 pub(super) async fn resolve_work_item(
     ctx: &RemoteResolutionContext,
     work_item: RemoteWorkItem,
     deadline: Instant,
-) -> Result<ResolvedRemoteItem, UnhandledError> {
+) -> Result<RemoteItemOutcome, UnhandledError> {
     let max_attempts = ctx.config.max_retries.saturating_add(1);
     let mut excluded_endpoints: Vec<SocketAddr> = Vec::new();
     let mut last_error: Option<String> = None;
@@ -150,11 +156,11 @@ pub(super) async fn resolve_work_item(
             ItemDecision::Done(exception) => {
                 metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "ok").increment(1);
                 record_reroute_depth("ok", attempts_used);
-                return Ok(ResolvedRemoteItem {
+                return Ok(RemoteItemOutcome::Resolved(ResolvedRemoteItem {
                     event_slot: work_item.event_slot,
                     exception_slot: work_item.exception_slot,
                     exception,
-                });
+                }));
             }
             ItemDecision::Overloaded(message) => {
                 metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "overloaded_item")
@@ -200,14 +206,22 @@ pub(super) async fn resolve_work_item(
         }
     }
 
+    // Exhaustion here is always a transient capacity condition — terminal item
+    // errors (poison, invalid payload) short-circuit as `Err` above. Rather
+    // than failing the whole batch, surface a soft outcome so the orchestration
+    // layer falls back to the unresolved exception for this one item.
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "exhausted").increment(1);
     record_reroute_depth("exhausted", attempts_used);
-    Err(UnhandledError::Other(format!(
-        "remote resolution exhausted retries for item {} ({} attempt(s)): {}",
-        work_item.token,
-        max_attempts,
-        last_error.unwrap_or_else(|| "no recorded cause".to_string()),
-    )))
+    Ok(RemoteItemOutcome::Exhausted(ExhaustedRemoteItem {
+        event_slot: work_item.event_slot,
+        exception_slot: work_item.exception_slot,
+        last_error: format!(
+            "remote resolution exhausted retries for item {} ({} attempt(s)): {}",
+            work_item.token,
+            max_attempts,
+            last_error.unwrap_or_else(|| "no recorded cause".to_string()),
+        ),
+    }))
 }
 
 async fn wait_for_terminal_or_acceptance(

@@ -163,23 +163,49 @@ async fn endpoint_refresh_closes_draining_mux_and_reroutes_in_flight_item() {
 }
 
 #[tokio::test]
-async fn pool_with_only_draining_endpoints_fails_fast_without_local_fallback() {
+async fn pool_with_only_draining_endpoints_degrades_fast_without_local_fallback() {
     let ctx = make_ctx(&[], 0, Duration::from_millis(50)).await;
     let evt = build_event(1);
 
+    // An unroutable pool must degrade fast to an unresolved passthrough — never
+    // hang, never sink the batch, never silently fall back to local resolution.
     let start = std::time::Instant::now();
-    let err = process_one(remote_stage(ctx), evt)
+    let resolved = process_one(remote_stage(ctx), evt)
         .await
-        .expect_err("empty pool must fail fast");
+        .expect("unroutable pool must degrade to unresolved passthrough, not fail the batch");
     let elapsed = start.elapsed();
 
+    assert_eq!(resolved.exception_list.len(), 1);
     assert!(
         elapsed < Duration::from_millis(200),
-        "fast-fail expected, took {elapsed:?}"
+        "fast degrade expected, took {elapsed:?}"
     );
+}
+
+#[tokio::test]
+async fn sustained_overload_ejects_all_endpoints_and_passes_items_through_unresolved() {
+    // Every endpoint reports per-item Overloaded, so overload ejection empties
+    // the pool (AllEndpointsEjected). This is the exact production episode the
+    // soft-fallback targets: the batch must still succeed, with the saturated
+    // item degraded to its unresolved exception rather than sinking the batch.
+    let (overloaded, overloaded_items) = spawn_stub_server(ServerBehavior::Overloaded).await;
+    let mut config = make_config(2, Duration::from_secs(2));
+    config.overload_ejection_initial = Duration::from_secs(30);
+    config.overload_ejection_max = Duration::from_secs(30);
+    let pool =
+        cymbal::stages::resolution::remote::EndpointPool::from_addrs(config.clone(), &[overloaded])
+            .expect("build pool");
+    wait_until_routable(&pool).await;
+    let ctx = RemoteResolutionContext::new(pool, config);
+
+    let resolved = process_one(remote_stage(ctx), build_event(1))
+        .await
+        .expect("overloaded pool must degrade to unresolved passthrough, not fail the batch");
+
+    assert_eq!(resolved.exception_list.len(), 1);
     assert!(
-        format!("{err}").contains("pool unavailable"),
-        "expected pool-unavailable error: {err}"
+        !overloaded_items.lock().unwrap().is_empty(),
+        "the overloaded endpoint should have been tried at least once before ejection"
     );
 }
 

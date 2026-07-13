@@ -155,5 +155,7 @@ pub const REMOTE_RESOLUTION_ERROR_KINDS: &str = "cymbal_remote_resolution_error_
 pub const REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS: &str =
     "cymbal_remote_resolution_overload_escalations_total";
 pub const REMOTE_RESOLUTION_REROUTE_DEPTH: &str = "cymbal_remote_resolution_reroute_depth";
+pub const REMOTE_RESOLUTION_UNRESOLVED_PASSTHROUGH: &str =
+    "cymbal_remote_resolution_unresolved_passthrough_total";
 pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
     "cymbal_remote_resolution_load_subscriptions_total";
