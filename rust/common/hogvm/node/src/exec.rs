@@ -8,8 +8,13 @@ use rayon::prelude::*;
 use serde_json::Value;
 
 use crate::ext_fns::transformation_ext_fns;
+use crate::logs;
 
 const PARALLEL_CHUNK_SIZE: usize = 500;
+
+// The Node VM has no heap ceiling; the crate's 1MB default trips on real events with large
+// properties. A cap (not a preallocation), and rayon bounds how many contexts run at once.
+const MAX_HEAP_SIZE_BYTES: usize = 64 * 1024 * 1024;
 
 #[napi(object)]
 pub struct HogExecResult {
@@ -17,6 +22,10 @@ pub struct HogExecResult {
     pub result: Option<Value>,
     pub error: Option<String>,
     pub duration_us: f64,
+    /// Messages from `print()` calls, in call order, capped at `logs::MAX_CAPTURED_LOGS`.
+    pub logs: Vec<String>,
+    /// True when `print()` was called past the cap and messages were dropped.
+    pub logs_truncated: bool,
 }
 
 pub fn run_batch(
@@ -55,7 +64,12 @@ fn run_chunk(tokens: &[Value], chunk: &[Value], max_steps: Option<usize>) -> Vec
         }
     };
 
-    let mut ctx = ExecutionContext::with_defaults(program).with_ext_fns(transformation_ext_fns());
+    // Coercing comparisons are the TS reference's semantics (unifyComparisonTypes): ordering
+    // coerces across number/string/boolean/null instead of erroring.
+    let mut ctx = ExecutionContext::with_defaults(program)
+        .with_ext_fns(transformation_ext_fns())
+        .with_coercing_comparisons();
+    ctx.max_heap_size = MAX_HEAP_SIZE_BYTES;
     if let Some(max_steps) = max_steps {
         ctx.max_steps = max_steps;
     }
@@ -64,16 +78,26 @@ fn run_chunk(tokens: &[Value], chunk: &[Value], max_steps: Option<usize>) -> Vec
         .iter()
         .map(|event| {
             ctx.set_globals(event.clone());
+            logs::reset();
             let start = Instant::now();
             let outcome = sync_execute(&ctx, false);
             let duration_us = start.elapsed().as_secs_f64() * 1_000_000.0;
+            let (captured_logs, logs_truncated) = logs::take();
             match outcome {
                 Ok(value) => HogExecResult {
                     result: Some(value),
                     error: None,
                     duration_us,
+                    logs: captured_logs,
+                    logs_truncated,
                 },
-                Err(failure) => error_result(&failure.error.to_string(), duration_us),
+                Err(failure) => HogExecResult {
+                    result: None,
+                    error: Some(failure.error.to_string()),
+                    duration_us,
+                    logs: captured_logs,
+                    logs_truncated,
+                },
             }
         })
         .collect()
@@ -84,6 +108,8 @@ fn error_result(error: &str, duration_us: f64) -> HogExecResult {
         result: None,
         error: Some(error.to_string()),
         duration_us,
+        logs: Vec::new(),
+        logs_truncated: false,
     }
 }
 
@@ -181,6 +207,37 @@ mod tests {
     }
 
     #[test]
+    fn comparisons_coerce_booleans_and_nulls_like_the_reference() {
+        // rev > 0 where rev is boolean (or-chains yield booleans): true coerces to 1.
+        let gt_true_zero = vec![
+            json!("_H"),
+            json!(1),
+            json!(33),
+            json!(0),
+            json!(29),
+            json!(13),
+            json!(38),
+        ];
+        let results = run_batch(&gt_true_zero, &[json!({})], false, None);
+        assert_eq!(results[0].error, None);
+        assert_eq!(results[0].result, Some(json!(true)));
+
+        // octet < 0 where octet is null: null coerces to 0.
+        let lt_zero_null = vec![
+            json!("_H"),
+            json!(1),
+            json!(33),
+            json!(0),
+            json!(31),
+            json!(15),
+            json!(38),
+        ];
+        let results = run_batch(&lt_zero_null, &[json!({})], false, None);
+        assert_eq!(results[0].error, None);
+        assert_eq!(results[0].result, Some(json!(false)));
+    }
+
+    #[test]
     fn max_steps_budget_is_enforced() {
         let results = run_batch(&add_program(), &[json!({})], false, Some(1));
         assert!(results[0].error.is_some());
@@ -234,8 +291,33 @@ mod tests {
             .contains("unsupported_ext_fn:geoipLookup"));
     }
 
+    // Pins the hogvm crate's error formats the Node callers (rust-vm.ts isUnsupportedByRustVm)
+    // match on to fall back to the Node VM: `Unknown function <name>` for calling a function the
+    // VM doesn't know, `Unknown Global <chain>` for an unresolvable global chain.
     #[test]
-    fn print_is_a_noop_and_execution_continues() {
+    fn unknown_name_error_prefixes_are_the_node_fallback_contract() {
+        let results = run_batch(
+            &call_fn_program("someFunctionNobodyImplements", "x"),
+            &[json!({})],
+            false,
+            None,
+        );
+        assert!(results[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .starts_with("Unknown function "));
+
+        let results = run_batch(&get_global_program("missing"), &[json!({})], false, None);
+        assert!(results[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .starts_with("Unknown Global "));
+    }
+
+    #[test]
+    fn print_is_captured_as_a_log_and_execution_continues() {
         // print("x") (POP the call result), then return 1+2
         let mut program = vec![
             json!("_H"),
@@ -251,6 +333,90 @@ mod tests {
         let results = run_batch(&program, &[json!({})], false, None);
         assert_eq!(results[0].error, None);
         assert_eq!(results[0].result, Some(json!(3)));
+        assert_eq!(results[0].logs, vec!["x".to_string()]);
+        assert!(!results[0].logs_truncated);
+    }
+
+    // print(globals.g) — non-string args are JSON-serialized like the Node executor's handler.
+    #[test]
+    fn print_serializes_non_string_args_and_does_not_leak_across_events() {
+        let program = vec![
+            json!("_H"),
+            json!(1),
+            json!(32),
+            json!("g"),
+            json!(1),
+            json!(1),
+            json!(2),
+            json!("print"),
+            json!(1),
+            json!(38),
+        ];
+        let events = vec![json!({ "g": { "a": 1 } }), json!({ "g": "plain" })];
+        let results = run_batch(&program, &events, false, None);
+        assert_eq!(results[0].logs, vec![r#"{"a":1}"#.to_string()]);
+        assert_eq!(results[1].logs, vec!["plain".to_string()]);
+    }
+
+    // print(globals.g) (POP), then return 1+2 — the marker only surfaces through the log buffer.
+    fn print_global_program(name: &str) -> Vec<Value> {
+        let mut program = vec![
+            json!("_H"),
+            json!(1),
+            json!(32),
+            json!(name),
+            json!(1),
+            json!(1),
+            json!(2),
+            json!("print"),
+            json!(1),
+            json!(35),
+        ];
+        program.extend(add_program().into_iter().skip(2));
+        program
+    }
+
+    #[test]
+    fn parallel_execution_does_not_mix_print_logs_across_events() {
+        // Enough events for several PARALLEL_CHUNK_SIZE chunks spread over rayon workers.
+        let events: Vec<Value> = (0..1500)
+            .map(|i| json!({ "g": format!("marker-{i}") }))
+            .collect();
+        let results = run_batch(&print_global_program("g"), &events, true, None);
+        assert_eq!(results.len(), events.len());
+        for (i, r) in results.iter().enumerate() {
+            assert_eq!(r.error, None);
+            assert_eq!(r.logs, vec![format!("marker-{i}")]);
+            assert!(!r.logs_truncated);
+        }
+    }
+
+    #[test]
+    fn print_logs_are_capped_and_flagged_truncated() {
+        // A loop would need more opcodes; just chain MAX_CAPTURED_LOGS + 1 print calls.
+        let mut program = vec![json!("_H"), json!(1)];
+        for _ in 0..(crate::logs::MAX_CAPTURED_LOGS + 1) {
+            program.extend([
+                json!(32),
+                json!("m"),
+                json!(2),
+                json!("print"),
+                json!(1),
+                json!(35),
+            ]);
+        }
+        program.extend(add_program().into_iter().skip(2));
+        let results = run_batch(&program, &[json!({})], false, None);
+        assert_eq!(results[0].error, None);
+        assert_eq!(results[0].logs.len(), crate::logs::MAX_CAPTURED_LOGS);
+        assert!(results[0].logs_truncated);
+
+        // Sequential run_batch executes on the calling thread — the same thread-local buffer the
+        // truncating execution above just used. Nothing may carry over into the next execution
+        // (this is the back-to-back executeSync shape of the primary path).
+        let results = run_batch(&add_program(), &[json!({})], false, None);
+        assert_eq!(results[0].logs, Vec::<String>::new());
+        assert!(!results[0].logs_truncated);
     }
 
     #[test]

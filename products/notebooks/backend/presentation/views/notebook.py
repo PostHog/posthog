@@ -3,9 +3,12 @@ import hashlib
 from datetime import timedelta
 from typing import Any, cast
 
+from django.conf import settings
+from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.utils.timezone import now
 
 import structlog
@@ -19,6 +22,7 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -30,6 +34,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
+from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -44,11 +49,27 @@ from posthog.utils import relative_date_parse
 
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
+from products.notebooks.backend.analytics import NotebookCreationSource, capture_notebook_created, notebook_node_count
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
-from products.notebooks.backend.models import KernelRuntime, Notebook
+from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
+from products.notebooks.backend.sql_v2 import (
+    PAGE_LOCK_TTL_SECONDS,
+    SQLV2KernelNotRunning,
+    SQLV2PageError,
+    fetch_sql_v2_page,
+    is_sql_v2_enabled,
+    sql_v2_page_lock_key,
+)
+from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
+from products.notebooks.backend.sql_v2_serializers import (
+    NotebookSQLV2PageRequestSerializer,
+    NotebookSQLV2RunRequestSerializer,
+)
+from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
+from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -68,6 +89,24 @@ def depluralize(string: str | None) -> str | None:
         return string[:-1]
     else:
         return string
+
+
+def classify_request_source(request: Request) -> tuple[str, dict[str, str | None]]:
+    """Classify a notebook request as a browser action (``ui``) vs a programmatic client (``mcp``/API).
+
+    Session-cookie requests are the browser; anything else (personal API key, OAuth app) is a
+    programmatic client. The PostHog MCP server forwards the client identity so PostHog Code can be
+    told apart from a customer's own MCP client: ``mcp_consumer`` is ``posthog-code``/``posthog-cli``
+    for first-party PostHog Code, and ``mcp_oauth_client`` is the OAuth app name (e.g. Claude) for
+    third-party clients. Shared by the create and read events."""
+    authenticator = getattr(request, "successful_authenticator", None)
+    if authenticator is None or isinstance(authenticator, SessionAuthentication):
+        return NotebookCreationSource.UI, {}
+    return NotebookCreationSource.MCP, {
+        "api_key_type": type(authenticator).__name__,
+        "mcp_consumer": request.META.get("HTTP_X_POSTHOG_MCP_CONSUMER"),
+        "mcp_oauth_client": request.META.get("HTTP_X_POSTHOG_MCP_OAUTH_CLIENT_NAME"),
+    }
 
 
 _NOTEBOOK_FIELD_HELP_TEXTS = {
@@ -203,6 +242,20 @@ class NotebookSerializer(NotebookMinimalSerializer):
             was_impersonated=is_impersonated(request),
         )
 
+        creation_source, source_props = classify_request_source(request)
+        capture_notebook_created(
+            short_id=notebook.short_id,
+            creation_source=creation_source,
+            team_id=team.id,
+            user=request.user,
+            request=request,
+            visibility=notebook.visibility,
+            node_count=notebook_node_count(notebook.content),
+            mcp_consumer=source_props.get("mcp_consumer"),
+            mcp_oauth_client=source_props.get("mcp_oauth_client"),
+            api_key_type=source_props.get("api_key_type"),
+        )
+
         return notebook
 
     def update(self, instance: Notebook, validated_data: dict, **kwargs) -> Notebook:
@@ -272,6 +325,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
             raise serializers.ValidationError(str(err))
+
+
+class NotebookMarkdownSerializer(serializers.Serializer):
+    markdown = serializers.CharField(
+        allow_blank=True,
+        allow_null=True,
+        read_only=True,
+        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
+    )
 
 
 class NotebookKernelExecuteSerializer(serializers.Serializer):
@@ -510,8 +572,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return self.get_object()
 
+    def _require_query_access(self) -> None:
+        # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
+        # enough — a notebook editor whose query access is denied must not read data through it.
+        # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
+        # (which carry no scopes) and enforces real RBAC for tokens too.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to run SQL in a notebook.")
+
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], url_path="markdown", detail=True, required_scopes=["notebook:read"])
+    def markdown(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        serializer = NotebookMarkdownSerializer(
+            {"markdown": markdown_collab.get_markdown_notebook_markdown(notebook.content)}
+        )
+        return Response(serializer.data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -860,6 +939,183 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to fetch dataframe data."}, status=503)
 
         return Response(data)
+
+    # Experimental, flag-gated slice — kept out of the public OpenAPI schema (no generated FE/MCP types yet).
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
+    def sql_v2_run(self, request: Request, **kwargs):
+        user = self._current_user()
+        # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+            raise Http404()
+
+        serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
+
+        # Resolve each referenced node to its last-run query (not its live editor text), so a
+        # join recomputes against the definitions that produced the results on screen. Inlining
+        # happens once here, so the run stores a self-contained query and paging re-queries it
+        # without re-resolving refs.
+        ref_node_ids: dict[str, str] = serializer.validated_data.get("refs") or {}
+        # One DISTINCT ON query fetches the latest DONE run for every referenced node at once.
+        code_by_node_id: dict[str, str] = dict(
+            NotebookNodeRun.objects.for_team(self.team_id)
+            .filter(notebook=notebook, node_id__in=set(ref_node_ids.values()), status=NotebookNodeRun.Status.DONE)
+            .order_by("node_id", "-created_at")
+            .distinct("node_id")
+            .values_list("node_id", "code")
+        )
+        last_run_code: dict[str, str | None] = {
+            name: code_by_node_id.get(node_id) for name, node_id in ref_node_ids.items()
+        }
+        try:
+            resolved_code = resolve_sql_v2_references(serializer.validated_data["code"], last_run_code)
+        except SQLV2ReferenceError as e:
+            return Response({"detail": str(e)}, status=400)
+
+        run = NotebookNodeRun.objects.create(
+            team_id=self.team_id,
+            notebook=notebook,
+            node_id=serializer.validated_data["node_id"],
+            code=resolved_code,
+            status=NotebookNodeRun.Status.RUNNING,
+        )
+
+        try:
+            start_sql_v2_run_workflow(
+                SQLV2RunInput(
+                    run_id=str(run.id),
+                    notebook_short_id=notebook.short_id,
+                    team_id=self.team_id,
+                    user_id=user.id if isinstance(user, User) else None,
+                    code=resolved_code,
+                )
+            )
+        except Exception:
+            logger.exception("notebook_sql_v2_run_start_failed", notebook_short_id=notebook.short_id)
+            run.status = NotebookNodeRun.Status.FAILED
+            run.error = "Failed to start run."
+            run.save(update_fields=["status", "error", "updated_at"])
+            return Response({"detail": "Failed to start run."}, status=503)
+
+        return Response({"run_id": str(run.id)})
+
+    @extend_schema(exclude=True)
+    @action(
+        methods=["GET"],
+        url_path="sql_v2/runs/(?P<run_id>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def sql_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
+        # The node short-polls this durable read to learn when its run finishes. One indexed
+        # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+            raise Http404()
+
+        # Scope to the notebook (via get_object → per-notebook access control), not just the
+        # team: a team-only lookup lets a user read a run from a notebook they can't access.
+        notebook = self._get_notebook_for_kernel()
+        # The result envelope is analytics rows, so gate reads on query access too — a
+        # notebook-reader whose query access is denied must not read the rows back.
+        self._require_query_access()
+        try:
+            run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if run is None:
+            raise Http404()
+
+        return Response(
+            {
+                "status": run.status,
+                "result": run.envelope if run.status == NotebookNodeRun.Status.DONE else None,
+                "error": run.error or None,
+            }
+        )
+
+    @extend_schema(exclude=True)
+    @action(
+        methods=["GET"],
+        url_path="sql_v2/runs/(?P<run_id>[^/.]+)/page",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def sql_v2_run_page(self, request: Request, run_id: str | None = None, **kwargs):
+        # A page fetch is not a run (see sql_v2_result_delivery.md): a bounded synchronous
+        # re-query of the run's code with LIMIT/OFFSET, proxied through the running kernel.
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+            raise Http404()
+
+        serializer = NotebookSQLV2PageRequestSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        # Paging re-queries ClickHouse and returns analytics rows, so gate it on query access
+        # too — a notebook editor whose query access is denied must not read rows through it.
+        self._require_query_access()
+
+        try:
+            run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if run is None:
+            raise Http404()
+        if run.status != NotebookNodeRun.Status.DONE:
+            return Response({"detail": "Run has no result to page."}, status=400)
+
+        # Stale run: the node produced a newer result since — the client must reload from
+        # the new envelope rather than mix pages from two executions.
+        is_stale = (
+            NotebookNodeRun.objects.for_team(self.team_id)
+            .filter(
+                notebook=notebook,
+                node_id=run.node_id,
+                status=NotebookNodeRun.Status.DONE,
+                created_at__gt=run.created_at,
+            )
+            .exists()
+        )
+        if is_stale:
+            return Response({"detail": "stale"}, status=409)
+
+        # Runs recorded before the code column existed (default "") have no query to page.
+        # Send that to the kernel and it round-trips into an opaque "page fetch failed"; catch
+        # it here with guidance instead.
+        if not run.code.strip():
+            return Response(
+                {"detail": "This result predates page support — re-run the query to page through it."},
+                status=400,
+            )
+
+        # An out-of-cache page holds this worker synchronously for up to the kernel timeout,
+        # so cap each user at one in-flight page fetch — otherwise parallel paging requests
+        # could occupy many web workers at once.
+        lock_key = sql_v2_page_lock_key(self.team_id, user.id if isinstance(user, User) else None)
+        if not cache.add(lock_key, True, timeout=PAGE_LOCK_TTL_SECONDS):
+            return Response({"detail": "Another page fetch is already in progress — try again shortly."}, status=429)
+        try:
+            page = fetch_sql_v2_page(
+                notebook,
+                user if isinstance(user, User) else None,
+                run,
+                offset=serializer.validated_data["offset"],
+                limit=serializer.validated_data["limit"],
+            )
+        except SQLV2KernelNotRunning:
+            return Response({"detail": "Kernel is not running. Re-run the query first."}, status=503)
+        except SQLV2PageError as e:
+            return Response({"detail": str(e)}, status=400)
+        except Exception:
+            logger.exception("notebook_sql_v2_page_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to fetch page."}, status=503)
+        finally:
+            cache.delete(lock_key)
+
+        return Response(page)
 
     @extend_schema(request=NotebookCollabSaveSerializer)
     @action(methods=["POST"], url_path="collab/save", detail=True, required_scopes=["notebook:write"])

@@ -18,12 +18,12 @@ This is a living reference — add a pattern when a genuinely new shape proves i
 
 The single most useful thing to internalize: **a scout is not limited to PostHog analytics events.** It can watch anything the project can see, and the report / dedupe / memory contract is identical regardless of where the data comes from.
 
-| Source                       | How the scout reads it                                                                                                                                                  |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Collected events**         | `read-data-schema` to confirm the event + properties, then `query-*` tools or `execute-sql`. The common case.                                                           |
-| **The data warehouse**       | `read-data-warehouse-schema` to confirm columns, then `execute-sql`. **Any source PostHog ingests becomes a queryable table** — see the warehouse-backed pattern below. |
-| **PostHog product entities** | dedicated list/get tools (insights, dashboards, surveys, error issues, experiments, flags) plus `execute-sql` over `system.*`.                                          |
-| **External systems**         | from inside the sandbox, when it runs with a TRUSTED network — a CLI tool, a public git repo, an HTTP API. See the external-tool pattern.                               |
+| Source                       | How the scout reads it                                                                                                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Collected events**         | `read-data-schema` to confirm the event + properties, then `query-*` tools or `execute-sql`. The common case.                                                                               |
+| **The data warehouse**       | `execute-sql` over `system.information_schema.*` to confirm columns, then `execute-sql`. **Any source PostHog ingests becomes a queryable table** — see the warehouse-backed pattern below. |
+| **PostHog product entities** | dedicated list/get tools (insights, dashboards, surveys, error issues, experiments, flags) plus `execute-sql` over `system.*`.                                                              |
+| **External systems**         | from inside the sandbox, when it runs with a TRUSTED network — a CLI tool, a public git repo, an HTTP API. See the external-tool pattern.                                                   |
 
 The warehouse row is the big unlock: once a Slack channel, a Stripe account, a CRM, a billing system, a support inbox, a social-listening feed, or an app database (via CDC) is synced into the warehouse, a scout queries it with `execute-sql` exactly like it queries events — and the watched surface need not be PostHog analytics at all.
 
@@ -107,7 +107,7 @@ Files P3 recommendations rather than P0–P2 anomalies.
 The watched surface is not analytics data at all — it's whatever that upstream system produces.
 
 - **Watched data:** one (or a few) warehouse tables.
-  Always confirm columns with `read-data-warehouse-schema` first — column names are source-defined and often opaque.
+  Always confirm columns with `execute-sql` against `system.information_schema.columns` first — column names are source-defined and often opaque.
 - **Discriminator — pre-classified vs derived, and know which you have:**
   - **Pre-classified** — if the upstream tool already labels rows (a sentiment field, a category, a status, a priority), anchor on that.
     It's a free, high-signal discriminator — e.g. a social-listening feed that ships a per-item sentiment.

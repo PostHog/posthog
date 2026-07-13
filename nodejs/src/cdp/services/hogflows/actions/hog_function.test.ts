@@ -16,6 +16,7 @@ import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
+import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
@@ -32,6 +33,7 @@ describe('HogFunctionHandler', () => {
     let mockHogFunctionTemplateManager: HogFunctionTemplateManagerService
     let mockHogFlowFunctionsService: HogFlowFunctionsService
     let mockRecipientPreferencesService: RecipientPreferencesService
+    let mockEmailValidationService: EmailValidationService
 
     let invocation: CyclotronJobInvocationHogFlow
     let action: Extract<HogFlowAction, { type: 'function' }>
@@ -64,7 +66,6 @@ describe('HogFunctionHandler', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -80,9 +81,13 @@ describe('HogFunctionHandler', () => {
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(false),
         } as any
+        mockEmailValidationService = {
+            getSkipReason: jest.fn().mockResolvedValue(null),
+        } as any
         hogFunctionHandler = new HogFunctionHandler(
             mockHogFlowFunctionsService,
             mockRecipientPreferencesService,
+            mockEmailValidationService,
             'fetch'
         )
 
@@ -325,6 +330,34 @@ describe('HogFunctionHandler', () => {
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
+    it('should skip the send and emit email_bounce_prevented when validation predicts a hard bounce', async () => {
+        ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(
+            'Skipping send: the domain "dead.invalid" has no reachable mail servers, so this message would hard bounce.'
+        )
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        // Flow continues to the next action (a skip, not a failure branch), and nothing was sent.
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(mockFetch).not.toHaveBeenCalled()
+        expect(invocationResult.logs[0].message).toContain('no reachable mail servers')
+        expect(invocationResult.metrics).toEqual([
+            {
+                team_id: team.id,
+                app_source_id: invocation.functionId,
+                instance_id: action.id,
+                metric_kind: 'email',
+                metric_name: 'email_bounce_prevented',
+                count: 1,
+            },
+        ])
+    })
+
     it('should emit a single billable_invocation metric upon function completion', async () => {
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
@@ -353,6 +386,7 @@ describe('HogFunctionHandler', () => {
         hogFunctionHandler = new HogFunctionHandler(
             mockHogFlowFunctionsService,
             mockRecipientPreferencesService,
+            mockEmailValidationService,
             'email'
         )
 

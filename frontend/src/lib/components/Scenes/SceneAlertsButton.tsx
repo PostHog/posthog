@@ -9,7 +9,8 @@ import { urls } from 'scenes/urls'
 
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { insightAlertsLogic } from '../Alerts/insightAlertsLogic'
+import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+
 import { SceneDataAttrKeyProps } from './utils'
 
 interface SceneAlertsButtonProps extends SceneDataAttrKeyProps {

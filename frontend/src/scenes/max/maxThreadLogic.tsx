@@ -82,7 +82,7 @@ import {
     getModeDisplayName,
 } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
-import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
+import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
@@ -2124,20 +2124,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         filteredCommands: [
-            (s) => [s.question, s.featureFlags, s.threadLoading, s.billingContext, s.conversation],
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.conversation],
             (
                 question: string,
                 featureFlags: Record<string, boolean | string>,
                 threadLoading: boolean,
-                billingContext: MaxBillingContext | null,
                 conversation: Conversation | null
             ): SlashCommand[] => {
-                const hasPaidPlan =
-                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.PAID ||
-                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.CUSTOM ||
-                    billingContext?.trial?.is_active ||
-                    process.env.NODE_ENV === 'development'
-
                 // Sandbox runtime drops core-memory commands; LangGraph keeps the full set.
                 const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
 
@@ -2146,7 +2139,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         command.name.toLowerCase().startsWith(question.toLowerCase()) &&
                         (!command.flag || featureFlags[command.flag]) &&
                         (!command.requiresIdle || !threadLoading) &&
-                        (!command.requiresPaidPlan || hasPaidPlan) &&
                         (!command.hiddenInSandbox || !isSandboxRuntime)
                 )
             },

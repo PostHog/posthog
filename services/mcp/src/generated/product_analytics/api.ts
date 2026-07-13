@@ -3,10 +3,58 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain
+ * they occurred on, ordered by count. Defaults to all three event types; narrow with the
+ * include parameter.
+ */
+export const ElementsStatsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    data_attributes: zod
+        .string()
+        .optional()
+        .describe(
+            "Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response."
+        ),
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.'),
+    date_to: zod.string().optional().describe('End of the date range (e.g. 2024-01-31). Defaults to now.'),
+    filter_test_accounts: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored."
+        ),
+    include: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.'
+        ),
+    limit: zod.number().optional().describe('Maximum rows per page'),
+    offset: zod.number().optional().describe('Pagination offset'),
+    properties: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.'
+        ),
+    sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
+})
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -101,7 +149,7 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`."
+            "Search term matched across name, derived_name, description, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram) matches instead. Each result's `search_match_type` is `exact` or `similar`."
         ),
     short_id: zod.string().optional(),
     tags: zod

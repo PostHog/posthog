@@ -1,5 +1,5 @@
 import json
-from typing import Any, cast
+from typing import Any
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -19,21 +19,20 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
-from ..feature_flags import is_sentiment_evaluations_enabled
 from ..hog import compile_ai_observability_hog
+from ..llm import DEFAULT_MODEL_BY_PROVIDER, TRIAL_MODEL_IDS
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_WINDOW_SECONDS,
     TRACE_EVAL_MIN_WINDOW_SECONDS,
     EvaluationType,
-    OutputType,
     evaluation_supports_reports,
     evaluation_uses_model_configuration,
     get_evaluation_config_content_key,
@@ -41,21 +40,12 @@ from ..models.evaluation_configs import (
     validate_target_config,
 )
 from ..models.evaluation_reports import EvaluationReport
-from ..models.evaluations import Evaluation, EvaluationStatusReason, EvaluationTarget
+from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
-
-
-PROVIDER_KEY_ERROR_STATUS_REASONS = {
-    EvaluationStatusReason.PROVIDER_KEY_DELETED,
-    EvaluationStatusReason.PROVIDER_KEY_INVALID,
-    EvaluationStatusReason.PROVIDER_KEY_PERMISSION_DENIED,
-    EvaluationStatusReason.PROVIDER_KEY_QUOTA_EXCEEDED,
-    EvaluationStatusReason.PROVIDER_KEY_RATE_LIMITED,
-}
 
 
 @extend_schema_field(
@@ -295,11 +285,6 @@ class EvaluationSerializer(serializers.ModelSerializer):
             getattr(self.instance, "model_configuration", None) if self.instance else None,
         )
 
-        if self._requires_sentiment_evaluations_feature(data) and not self._sentiment_evaluations_enabled():
-            raise serializers.ValidationError(
-                {"evaluation_type": "Sentiment evaluations are not available for this project."}
-            )
-
         if not evaluation_uses_model_configuration(evaluation_type) and model_configuration is not None:
             raise serializers.ValidationError(
                 {"model_configuration": "This evaluation type does not use model configuration."}
@@ -351,97 +336,42 @@ class EvaluationSerializer(serializers.ModelSerializer):
             except ValueError as e:
                 raise serializers.ValidationError({"target_config": str(e)})
 
-        # Guard re-enable transitions: if the eval is currently disabled and the caller is flipping
-        # `enabled=True`, make sure whatever caused the disabled state has actually been resolved.
-        # Without this check, a caller (UI, API, MCP, agent) can flip enabled=True, see a 200, and
-        # then watch the next Temporal run silently re-disable the eval for the same reason.
-        if data.get("enabled") and self.instance and not self.instance.enabled:
-            self._validate_re_enable(data)
+        if data.get("enabled"):
+            if self.instance is None:
+                self._validate_can_run(data)
+            elif not self.instance.enabled:
+                self._validate_re_enable(data)
 
         return data
 
-    def _requires_sentiment_evaluations_feature(self, data: dict) -> bool:
-        if self.instance is None:
-            return (
-                data.get("evaluation_type") == EvaluationType.SENTIMENT.value
-                or data.get("output_type") == OutputType.SENTIMENT.value
-            )
-        if (
-            data.get("evaluation_type") == EvaluationType.SENTIMENT.value
-            and self.instance.evaluation_type != EvaluationType.SENTIMENT.value
-        ):
-            return True
-        if (
-            data.get("output_type") == OutputType.SENTIMENT.value
-            and self.instance.output_type != OutputType.SENTIMENT.value
-        ):
-            return True
-        return (
-            data.get("enabled") is True
-            and not self.instance.enabled
-            and self.instance.evaluation_type == EvaluationType.SENTIMENT.value
-        )
-
-    def _sentiment_evaluations_enabled(self) -> bool:
-        return is_sentiment_evaluations_enabled(
-            cast(User, self.context["request"].user),
-            self.context["get_team"](),
-        )
-
-    def _validate_re_enable(self, data: dict) -> None:
-        provider_key = self._effective_provider_key(data)
-        has_byok = provider_key is not None
-        has_usable_byok = provider_key is not None and provider_key.state == LLMProviderKey.State.OK
-        status_reason = getattr(self.instance, "status_reason", None)
+    def _validate_can_run(self, data: dict) -> None:
+        """An eval being turned on — created enabled or re-enabled — must be able to resolve a
+        model at runtime; otherwise the caller gets a 200/201 and the first Temporal run silently
+        disables it again."""
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
-        # Non-model evals never call an LLM provider, consume trial quota, or need a BYOK key.
-        # The trial-limit / model-allowlist / provider-key-deleted gates below assume an
-        # LLM-judge call path, so skip them entirely.
         if not evaluation_uses_model_configuration(evaluation_type):
             return
 
-        if has_byok and not has_usable_byok:
-            raise serializers.ValidationError(
-                {"enabled": "Attach a working provider API key before re-enabling this evaluation."}
-            )
-
-        # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
-        if status_reason == "trial_limit_reached" or not status_reason:
-            team = self.context["get_team"]()
-            config = EvaluationConfig.objects.filter(team=team).first()
-            if config and config.trial_limit_reached and not has_usable_byok:
+        provider_key = self._effective_provider_key(data)
+        if provider_key is not None:
+            if provider_key.state != LLMProviderKey.State.OK:
                 raise serializers.ValidationError(
-                    {"enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."}
+                    {"enabled": "Attach a working provider API key to enable this evaluation."}
                 )
+            return
 
-        # Model-not-allowed: the eval's current model must now be on the trial allowlist, or they
-        # must have attached a BYOK key (BYOK bypasses the allowlist entirely).
-        if status_reason == "model_not_allowed" and not has_usable_byok:
-            from products.ai_observability.backend.llm import TRIAL_MODEL_IDS
+        self._validate_keyless_resolution(data)
 
-            model_config_data = data.get("model_configuration")
-            if model_config_data is not None:
-                model = model_config_data.get("model")
-            elif self.instance and self.instance.model_configuration:
-                model = self.instance.model_configuration.model
-            else:
-                model = None
-            if model and model not in TRIAL_MODEL_IDS:
-                raise serializers.ValidationError(
-                    {
-                        "enabled": (
-                            f"Model '{model}' is not available on the trial plan. "
-                            "Either choose a supported trial model or add a provider API key."
-                        )
-                    }
-                )
+    def _validate_re_enable(self, data: dict) -> None:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if not evaluation_uses_model_configuration(evaluation_type):
+            return
 
-        # Provider key failures: the eval must now point at a usable provider key.
-        if status_reason in PROVIDER_KEY_ERROR_STATUS_REASONS:
-            if not has_usable_byok:
-                raise serializers.ValidationError(
-                    {"enabled": "Attach a working provider API key before re-enabling this evaluation."}
-                )
+        # _validate_can_run mirrors runtime resolution, so it already rejects a re-enable whose key is
+        # missing/unhealthy or whose keyless config can't resolve — no separate provider-key gate needed.
+        self._validate_can_run(data)
+
+        status_reason = getattr(self.instance, "status_reason", None)
 
         if status_reason == "model_not_found" and not self._has_model_configuration_after_update(data):
             raise serializers.ValidationError(
@@ -458,23 +388,87 @@ class EvaluationSerializer(serializers.ModelSerializer):
                     }
                 )
 
+    def _validate_keyless_resolution(self, data: dict) -> None:
+        """Mirror the runtime model resolution for evals with no usable provider key (see
+        `posthog/temporal/ai_observability/model_resolution.py`). A pinned key, or an explicit
+        config's active-key fallback, is already handled by `_validate_can_run`; this covers what
+        is left: a null config resolves via the team's active key, else PostHog-funded trial
+        inference while the team is still grandfathered; an explicit config that reached here has
+        no active-key fallback, so it resolves via funded inference only, and only for models on
+        the trial allowlist."""
+        add_key_message = "Add a provider API key to enable this evaluation."
+        team = self.context["get_team"]()
+        config = EvaluationConfig.objects.filter(team=team).first()
+        is_grandfathered = config is not None and config.is_trial_grandfathered
+
+        explicit_config = self._effective_model_configuration(data)
+        if explicit_config is None:
+            active_key = config.active_provider_key if config else None
+            if active_key is not None:
+                # DefaultModelSpec never falls back to funded inference when an active key exists,
+                # so an unhealthy key blocks the enable regardless of grandfathering.
+                if active_key.state != LLMProviderKey.State.OK:
+                    raise serializers.ValidationError(
+                        {"enabled": "Attach a working provider API key to enable this evaluation."}
+                    )
+                if DEFAULT_MODEL_BY_PROVIDER.get(active_key.provider) is None:
+                    raise serializers.ValidationError(
+                        {
+                            "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
+                        }
+                    )
+                return
+            if is_grandfathered:
+                return
+            raise serializers.ValidationError({"enabled": add_key_message})
+
+        if not is_grandfathered:
+            raise serializers.ValidationError({"enabled": add_key_message})
+
+        model = explicit_config.get("model")
+        if model and model not in TRIAL_MODEL_IDS:
+            raise serializers.ValidationError(
+                {
+                    "enabled": (
+                        f"Model '{model}' is not available on the trial plan. "
+                        "Either choose a supported trial model or add a provider API key."
+                    )
+                }
+            )
+
+    def _effective_model_configuration(self, data: dict) -> dict[str, Any] | None:
+        """The explicit model configuration the evaluation will have after this update, or None
+        when it defers to the team default (null config). An explicit `model_configuration: null`
+        detaches the stored config (see update()), so payload presence wins — membership, not
+        truthiness."""
+        if "model_configuration" in data:
+            return data["model_configuration"]
+        if self.instance is not None and self.instance.model_configuration is not None:
+            mc = self.instance.model_configuration
+            return {
+                "provider": mc.provider,
+                "model": mc.model,
+                "provider_key_id": str(mc.provider_key_id) if mc.provider_key_id else None,
+            }
+        return None
+
     def _has_model_configuration_after_update(self, data: dict) -> bool:
         return bool(data.get("model_configuration")) or bool(self.instance and self.instance.model_configuration_id)
 
     def _effective_provider_key(self, data: dict) -> LLMProviderKey | None:
-        """Return the provider key the evaluation will use after this update."""
-        model_config_data = data.get("model_configuration")
-        if model_config_data is not None:
-            provider_key_id = model_config_data.get("provider_key_id")
-            if not provider_key_id:
-                return None
-            return LLMProviderKey.objects.filter(
-                id=provider_key_id,
-                team=self.context["get_team"](),
-            ).first()
-        if self.instance and self.instance.model_configuration:
-            return self.instance.model_configuration.provider_key
-        return None
+        """The provider key the evaluation will use after this update. With no pinned key, an
+        explicit config falls back to the team's active key for the same provider, mirroring
+        `active_key_fallback` in model_resolution.py."""
+        team = self.context["get_team"]()
+        model_config = self._effective_model_configuration(data)
+        if not model_config:
+            return None
+        provider_key_id = model_config.get("provider_key_id")
+        if provider_key_id:
+            return LLMProviderKey.objects.filter(id=provider_key_id, team=team).first()
+        provider = model_config.get("provider")
+        config = EvaluationConfig.objects.filter(team=team).first()
+        return active_key_fallback(config, provider) if config and provider else None
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int
@@ -687,10 +681,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 # Auto-create a default report config so reports are generated from the start.
                 # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
                 # and users add email/Slack delivery targets later if they want notifications.
-                EvaluationReport.objects.create(
-                    team=self.team,
-                    evaluation=instance,
-                )
+                EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
 
         # Calculate properties for tracking
         conditions = instance.conditions or []

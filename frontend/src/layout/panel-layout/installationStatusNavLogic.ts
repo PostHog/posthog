@@ -1,8 +1,8 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/wizardActiveSessionDetectorLogic'
-import { activeCloudRunLogic } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
-import { wizardSyncUiLogic } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/WizardSync/wizardSyncUiLogic'
+import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
+import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
+import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

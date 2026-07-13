@@ -2,20 +2,24 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
-import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { dayjs } from 'lib/dayjs'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
-
+import type { ActivityRun } from '../components/RunActivityChart'
 import {
     engineeringAnalyticsMasterFailures,
     engineeringAnalyticsRepoOverview,
+    engineeringAnalyticsRepoRunActivity,
     engineeringAnalyticsRunFailureLogs,
 } from '../generated/api'
-import type { MasterFailureGroupApi, RepoOverviewApi, RunFailureLogsApi } from '../generated/api.schemas'
+import type {
+    MasterFailureGroupApi,
+    RepoOverviewApi,
+    RunFailureLogsApi,
+    WorkflowRunActivityApi,
+} from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
+import { HUB_PREVIEW_MAX, HUB_PREVIEW_ROWS, HUB_PREVIEW_STEP } from '../lib/preview'
+import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { PullRequestRow, STUCK_AFTER_DAYS, engineeringAnalyticsLogic, isStuck } from './engineeringAnalyticsLogic'
 import type { repoOverviewLogicType } from './repoOverviewLogicType'
 
@@ -32,65 +36,6 @@ export interface CostShareRow {
     share: number
 }
 
-// Warehouse timestamps are strings — parse like the curated builders do (repo_overview._BUCKET_SELECT).
-const RUN_STARTED_AT = 'parseDateTimeBestEffort(run_started_at)'
-
-// Refuse to interpolate anything but a plain identifier into SQL.
-const TABLE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
-
-// Backend granularity ladder (workflow_health._pick_granularity): hour ≤48h, day ≤90d, else week.
-function bucketExpr(from: Dayjs, to: Dayjs): string {
-    const spanHours = to.diff(from, 'hour')
-    if (spanHours <= 48) {
-        return `toStartOfHour(${RUN_STARTED_AT})`
-    }
-    if (spanHours <= 90 * 24) {
-        return `toStartOfDay(${RUN_STARTED_AT})`
-    }
-    return `toStartOfWeek(${RUN_STARTED_AT}, 1)`
-}
-
-function masterHealthSql(
-    metricSelect: string,
-    table: string,
-    branch: string,
-    dateFrom: string | null,
-    dateTo: string | null
-): string | null {
-    const from = dateStringToDayJs(dateFrom ?? SHARED_DEFAULT_DATE_FROM)
-    if (!from) {
-        return null
-    }
-    const to = dateTo ? dateStringToDayJs(dateTo) : null
-    const where = [
-        `status = 'completed'`,
-        `head_branch = '${branch}'`,
-        `${RUN_STARTED_AT} >= toDateTime('${from.format('YYYY-MM-DD HH:mm:ss')}')`,
-    ]
-    if (to) {
-        where.push(`${RUN_STARTED_AT} <= toDateTime('${to.format('YYYY-MM-DD HH:mm:ss')}')`)
-    }
-    return [
-        'SELECT',
-        `    ${bucketExpr(from, to ?? dayjs())} AS bucket_start,`,
-        `    ${metricSelect}`,
-        `FROM ${table}`,
-        `WHERE ${where.join('\n    AND ')}`,
-        'GROUP BY bucket_start',
-        'ORDER BY bucket_start',
-        'LIMIT 400',
-    ].join('\n')
-}
-
-function masterHealthNode(sql: string, display: ChartDisplayType, yColumn: string): DataVisualizationNode {
-    return {
-        kind: NodeKind.DataVisualizationNode,
-        source: { kind: NodeKind.HogQLQuery, query: sql },
-        display,
-        chartSettings: { xAxis: { column: 'bucket_start' }, yAxis: [{ column: yColumn }] },
-    }
-}
-
 export const repoOverviewLogic = kea<repoOverviewLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'repoOverviewLogic']),
 
@@ -101,7 +46,6 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
             engineeringAnalyticsLogic,
             [
                 'sourceId',
-                'activeSource',
                 'pullRequests',
                 'pullRequestsLoading',
                 'cards',
@@ -114,6 +58,8 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
 
     actions({
         loadLogsForRun: (runId: number) => ({ runId }),
+        showMorePrs: true,
+        showMoreWorkflows: true,
     }),
 
     loaders(({ values }) => ({
@@ -134,6 +80,19 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadMasterFailures: async (): Promise<MasterFailureGroupApi[]> =>
                     await engineeringAnalyticsMasterFailures(projectId(), {
                         date_from: MASTER_FAILURES_WINDOW,
+                        source_id: values.sourceId ?? undefined,
+                    }),
+            },
+        ],
+        // One collapsed point per default-branch commit (all its workflows folded together) for the
+        // master-health scatter — the backend owns the collapse, so the UI just plots the points.
+        repoActivity: [
+            { points: [], truncated: false, limit: 0 } as WorkflowRunActivityApi,
+            {
+                loadRepoActivity: async (): Promise<WorkflowRunActivityApi> =>
+                    await engineeringAnalyticsRepoRunActivity(projectId(), {
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
                         source_id: values.sourceId ?? undefined,
                     }),
             },
@@ -171,6 +130,28 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadOverviewFailure: () => true,
             },
         ],
+        // Without this, a failed activity fetch is indistinguishable from a quiet branch — the scene
+        // would show the "no runs" empty state over a real error.
+        repoActivityFailed: [
+            false,
+            {
+                loadRepoActivity: () => false,
+                loadRepoActivitySuccess: () => false,
+                loadRepoActivityFailure: () => true,
+            },
+        ],
+        // How many rows the hub's preview tables show. Start short (HUB_PREVIEW_ROWS), grow by a fixed
+        // step on "Show more", capped so the hub stays a preview — the full tables live on the dedicated
+        // pages. No reset on reload: slicing tolerates any list length, and keeping the user's expansion
+        // across a window change is less surprising than snapping back.
+        prPreviewCount: [
+            HUB_PREVIEW_ROWS,
+            { showMorePrs: (count) => Math.min(HUB_PREVIEW_MAX, count + HUB_PREVIEW_STEP) },
+        ],
+        workflowPreviewCount: [
+            HUB_PREVIEW_ROWS,
+            { showMoreWorkflows: (count) => Math.min(HUB_PREVIEW_MAX, count + HUB_PREVIEW_STEP) },
+        ],
     }),
 
     selectors({
@@ -180,50 +161,22 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
             (s) => [s.masterFailures],
             (masterFailures): number => new Set(masterFailures.map((group) => group.workflow_name)).size,
         ],
-        // The warehouse table behind the master-health embeds, mirroring the backend's per-team
-        // `prefix + github_workflow_runs` resolution (logic/sources.py).
-        runsTableName: [
-            (s) => [s.activeSource],
-            (activeSource): string | null => {
-                if (!activeSource) {
-                    return null
-                }
-                const table = `${activeSource.prefix}github_workflow_runs`
-                return TABLE_IDENTIFIER.test(table) ? table : null
-            },
+        // Backend-collapsed commit points, mapped to the shared chart shape (one dot per default-branch
+        // commit: start time, wall-clock CI duration, overall verdict).
+        activityRuns: [
+            (s) => [s.repoActivity],
+            (repoActivity): ActivityRun[] =>
+                repoActivity.points.map((point) => ({
+                    runId: point.run_id,
+                    conclusion: point.conclusion,
+                    startedAt: point.run_started_at,
+                    durationSeconds: point.duration_seconds,
+                    headBranch: point.head_branch,
+                    prNumber: point.pr_number,
+                    headSha: point.head_sha,
+                })),
         ],
-        masterSuccessRateQuery: [
-            (s) => [s.runsTableName, s.defaultBranch, s.dateFrom, s.dateTo],
-            (runsTableName, defaultBranch, dateFrom, dateTo): DataVisualizationNode | null => {
-                if (!runsTableName) {
-                    return null
-                }
-                const sql = masterHealthSql(
-                    `round(100 * countIf(conclusion = 'success') / count(), 1) AS success_rate`,
-                    runsTableName,
-                    defaultBranch,
-                    dateFrom,
-                    dateTo
-                )
-                return sql ? masterHealthNode(sql, ChartDisplayType.ActionsLineGraph, 'success_rate') : null
-            },
-        ],
-        masterFailedRunsQuery: [
-            (s) => [s.runsTableName, s.defaultBranch, s.dateFrom, s.dateTo],
-            (runsTableName, defaultBranch, dateFrom, dateTo): DataVisualizationNode | null => {
-                if (!runsTableName) {
-                    return null
-                }
-                const sql = masterHealthSql(
-                    `countIf(conclusion != 'success') AS failed_runs`,
-                    runsTableName,
-                    defaultBranch,
-                    dateFrom,
-                    dateTo
-                )
-                return sql ? masterHealthNode(sql, ChartDisplayType.ActionsBar, 'failed_runs') : null
-            },
-        ],
+        activityTruncated: [(s) => [s.repoActivity], (repoActivity): boolean => repoActivity.truncated],
         // Open PRs with failing CI or stuck (open >7d, non-draft, non-bot) — not the full open list.
         attentionPrs: [
             (s) => [s.pullRequests],
@@ -271,6 +224,97 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     workflowHealth.filter((row) => (row.estimatedCostUsd ?? 0) > 0).length - TOP_COST_WORKFLOWS
                 ),
         ],
+        // Cost-per-merged-PR trend for the Cost section — the "is CI spend per shipped change creeping
+        // up" chart. The backend delivers a trailing rolling ratio, so a null only means the whole
+        // trailing window shipped nothing; plotted as 0 to keep the axis anchored. Null when the series
+        // is empty (job source unsynced), so the section falls back to its existing empty state.
+        // Labels stay ISO — the quill time-series chart owns tick/tooltip date formatting.
+        costPerMergeSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[]; interval: 'hour' | 'day' | 'week' } | null => {
+                const series = overview?.cost_series ?? []
+                const firstData = series.findIndex((bucket) => bucket.cost_per_merge_usd != null)
+                if (firstData === -1) {
+                    return null
+                }
+                const granularity = overview?.cost_series_granularity
+                return {
+                    values: series.map((bucket) => bucket.cost_per_merge_usd ?? 0),
+                    labels: series.map((bucket) => bucket.bucket_start),
+                    interval: granularity === 'hour' ? 'hour' : granularity === 'week' ? 'week' : 'day',
+                }
+            },
+        ],
+        // Time-to-green trend (median success-only PR CI duration) in minutes. Empty buckets carry the last
+        // known value forward — a gap means "no new PR run to time", not 0 min, so zero-filling would draw a
+        // false dip. Trimmed to start at the first bucket with data so the line doesn't open on flat zeros.
+        // Null when no bucket has a successful PR run, so the card shows its own empty state.
+        timeToGreenSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.time_to_green_series ?? []
+                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
+                if (firstData === -1) {
+                    return null
+                }
+                const fmt = overview?.time_to_green_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const trimmed = series.slice(firstData)
+                let last = 0
+                const values = trimmed.map((bucket) => {
+                    if (bucket.p50_seconds != null) {
+                        last = Math.round((bucket.p50_seconds / 60) * 10) / 10
+                    }
+                    return last
+                })
+                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
+            },
+        ],
+        // Pass-rate trend (0-1). Empty buckets carry the last known value forward so a gap (no completed
+        // run) draws no false dip to zero; trimmed to start at the first bucket with data. Null when no
+        // bucket has a completed run, so the card shows its own empty state.
+        passRateSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.success_rate_series ?? []
+                const firstData = series.findIndex((bucket) => bucket.success_rate != null)
+                if (firstData === -1) {
+                    return null
+                }
+                const fmt = overview?.success_rate_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const trimmed = series.slice(firstData)
+                let last = 0
+                const values = trimmed.map((bucket) => {
+                    if (bucket.success_rate != null) {
+                        last = bucket.success_rate
+                    }
+                    return last
+                })
+                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
+            },
+        ],
+        // Time-to-merge trend in seconds (median open→merge, bots/drafts excluded). Same carry-forward +
+        // trim as time-to-green: a gap means "nothing merged", not instant merges, so zero-filling would
+        // draw a false dip. Null when no bucket had a qualifying merge.
+        openToMergeSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.open_to_merge_series ?? []
+                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
+                if (firstData === -1) {
+                    return null
+                }
+                const fmt = overview?.open_to_merge_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const trimmed = series.slice(firstData)
+                let last = 0
+                const values = trimmed.map((bucket) => {
+                    if (bucket.p50_seconds != null) {
+                        last = bucket.p50_seconds
+                    }
+                    return last
+                })
+                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -279,22 +323,27 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 actions.loadFailureLogs({ runId })
             }
         },
-        // The failures feed is pinned to -24h, so it only re-reads on source change / refresh.
+        // The failures feed is pinned to -24h, so it only re-reads on source change / refresh; the
+        // activity scatter follows the shared window like the overview tiles.
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
             actions.loadOverview()
+            actions.loadRepoActivity()
         },
         [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => {
             actions.loadOverview()
             actions.loadMasterFailures()
+            actions.loadRepoActivity()
         },
         [engineeringAnalyticsLogic.actionTypes.refresh]: () => {
             actions.loadOverview()
             actions.loadMasterFailures()
+            actions.loadRepoActivity()
         },
     })),
 
     afterMount(({ actions }) => {
         actions.loadOverview()
         actions.loadMasterFailures()
+        actions.loadRepoActivity()
     }),
 ])

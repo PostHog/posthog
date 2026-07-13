@@ -119,9 +119,8 @@ class MySQLAdapter:
     def validate_source_config(
         self, source: "ExternalDataSource", team: "Team"
     ) -> tuple["MySQLImplementation", "MySQLSourceConfig"]:
+        from products.warehouse_sources.backend.facade.source_management import MySQLSource, SourceRegistry
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 
         if not source.is_direct_mysql:
             raise ExposedHogQLError("Invalid direct MySQL connection.")

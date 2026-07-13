@@ -29,6 +29,7 @@ export const SECTIONS = [
     { id: 'hogql-parser-npm', title: '@posthog/hogql-parser version' },
     { id: 'hogql-parser-rs', title: 'hogql-parser-rs version' },
     { id: 'generated-docs', title: 'Generated docs' },
+    { id: 'hobby-deploy', title: 'Hobby deploy smoke test' },
     { id: 'survey-sdk', title: 'Survey SDK reminder' },
 ]
 

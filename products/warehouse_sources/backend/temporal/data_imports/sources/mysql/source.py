@@ -72,6 +72,12 @@ _VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
     ("Unknown database", "Database does not exist. Check the database name is correct."),
 ]
 
+_HOST_IS_URL_ERROR = (
+    "Enter just the hostname in the host field (for example, db.example.com), not a full URL or "
+    "connection string. Remove any scheme (like http:// or mysql://) and any username, password, "
+    "port, or path."
+)
+
 
 @SourceRegistry.register
 class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
@@ -285,6 +291,12 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
+
+        # A pasted URL or connection string in the host field otherwise fails DNS resolution with a
+        # misleading "check the spelling" message that echoes the raw value back (which can embed
+        # credentials). Catch it early with an actionable message that never reflects the input.
+        if "://" in config.host:
+            return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False

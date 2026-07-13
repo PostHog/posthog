@@ -3,6 +3,12 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    AccountRelationshipDefinitionsCreateBody,
+    AccountRelationshipDefinitionsDestroyParams,
+    AccountRelationshipDefinitionsListQueryParams,
+    AccountRelationshipDefinitionsPartialUpdateBody,
+    AccountRelationshipDefinitionsPartialUpdateParams,
+    AccountRelationshipDefinitionsRetrieveParams,
     AccountsCreateBody,
     AccountsCustomPropertyValuesCreateBody,
     AccountsCustomPropertyValuesCreateParams,
@@ -17,6 +23,11 @@ import {
     AccountsNotebooksRetrieveParams,
     AccountsPartialUpdateBody,
     AccountsPartialUpdateParams,
+    AccountsRelationshipsCreateBody,
+    AccountsRelationshipsCreateParams,
+    AccountsRelationshipsEndCreateParams,
+    AccountsRelationshipsListParams,
+    AccountsRelationshipsListQueryParams,
     AccountsRetrieveParams,
     CustomPropertyDefinitionsCreateBody,
     CustomPropertyDefinitionsDestroyParams,
@@ -36,6 +47,128 @@ import {
 import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const AccountRelationshipDefinitionsCreateSchema = AccountRelationshipDefinitionsCreateBody
+
+const accountRelationshipDefinitionsCreate = (): ToolBase<
+    typeof AccountRelationshipDefinitionsCreateSchema,
+    Schemas.AccountRelationshipDefinition
+> => ({
+    name: 'account-relationship-definitions-create',
+    schema: AccountRelationshipDefinitionsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountRelationshipDefinitionsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.is_single_holder !== undefined) {
+            body['is_single_holder'] = params.is_single_holder
+        }
+        const result = await context.api.request<Schemas.AccountRelationshipDefinition>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/account_relationship_definitions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AccountRelationshipDefinitionsDestroySchema = AccountRelationshipDefinitionsDestroyParams.omit({
+    project_id: true,
+})
+
+const accountRelationshipDefinitionsDestroy = (): ToolBase<
+    typeof AccountRelationshipDefinitionsDestroySchema,
+    unknown
+> => ({
+    name: 'account-relationship-definitions-destroy',
+    schema: AccountRelationshipDefinitionsDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof AccountRelationshipDefinitionsDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/account_relationship_definitions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const AccountRelationshipDefinitionsListSchema = AccountRelationshipDefinitionsListQueryParams
+
+const accountRelationshipDefinitionsList = (): ToolBase<
+    typeof AccountRelationshipDefinitionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedAccountRelationshipDefinitionList>
+> => ({
+    name: 'account-relationship-definitions-list',
+    schema: AccountRelationshipDefinitionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountRelationshipDefinitionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountRelationshipDefinitionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/account_relationship_definitions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const AccountRelationshipDefinitionsPartialUpdateSchema = AccountRelationshipDefinitionsPartialUpdateParams.omit({
+    project_id: true,
+}).extend(AccountRelationshipDefinitionsPartialUpdateBody.shape)
+
+const accountRelationshipDefinitionsPartialUpdate = (): ToolBase<
+    typeof AccountRelationshipDefinitionsPartialUpdateSchema,
+    Schemas.AccountRelationshipDefinition
+> => ({
+    name: 'account-relationship-definitions-partial-update',
+    schema: AccountRelationshipDefinitionsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountRelationshipDefinitionsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.is_single_holder !== undefined) {
+            body['is_single_holder'] = params.is_single_holder
+        }
+        const result = await context.api.request<Schemas.AccountRelationshipDefinition>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/account_relationship_definitions/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AccountRelationshipDefinitionsRetrieveSchema = AccountRelationshipDefinitionsRetrieveParams.omit({
+    project_id: true,
+})
+
+const accountRelationshipDefinitionsRetrieve = (): ToolBase<
+    typeof AccountRelationshipDefinitionsRetrieveSchema,
+    Schemas.AccountRelationshipDefinition
+> => ({
+    name: 'account-relationship-definitions-retrieve',
+    schema: AccountRelationshipDefinitionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountRelationshipDefinitionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AccountRelationshipDefinition>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/account_relationship_definitions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
 
 const AccountsCreateSchema = AccountsCreateBody.extend({
     properties: AccountsCreateBody.shape['properties'].describe(
@@ -286,6 +419,75 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
     },
 })
 
+const AccountsRelationshipsCreateSchema = AccountsRelationshipsCreateParams.omit({ project_id: true }).extend(
+    AccountsRelationshipsCreateBody.shape
+)
+
+const accountsRelationshipsCreate = (): ToolBase<
+    typeof AccountsRelationshipsCreateSchema,
+    Schemas.AccountRelationship
+> => ({
+    name: 'accounts-relationships-create',
+    schema: AccountsRelationshipsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsRelationshipsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.definition !== undefined) {
+            body['definition'] = params.definition
+        }
+        if (params.user !== undefined) {
+            body['user'] = params.user
+        }
+        const result = await context.api.request<Schemas.AccountRelationship>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/relationships/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AccountsRelationshipsEndCreateSchema = AccountsRelationshipsEndCreateParams.omit({ project_id: true })
+
+const accountsRelationshipsEndCreate = (): ToolBase<
+    typeof AccountsRelationshipsEndCreateSchema,
+    Schemas.AccountRelationship
+> => ({
+    name: 'accounts-relationships-end-create',
+    schema: AccountsRelationshipsEndCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsRelationshipsEndCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AccountRelationship>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/relationships/${encodeURIComponent(String(params.id))}/end/`,
+        })
+        return result
+    },
+})
+
+const AccountsRelationshipsListSchema = AccountsRelationshipsListParams.omit({ project_id: true }).extend(
+    AccountsRelationshipsListQueryParams.shape
+)
+
+const accountsRelationshipsList = (): ToolBase<
+    typeof AccountsRelationshipsListSchema,
+    WithPostHogUrl<Schemas.AccountRelationship[]>
+> => ({
+    name: 'accounts-relationships-list',
+    schema: AccountsRelationshipsListSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsRelationshipsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AccountRelationship[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/relationships/`,
+            query: {
+                include_history: params.include_history,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
 const AccountsRetrieveSchema = AccountsRetrieveParams.omit({ project_id: true })
 
 const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Account> => ({
@@ -323,6 +525,9 @@ const customPropertyDefinitionsCreate = (): ToolBase<
         }
         if (params.is_big_number !== undefined) {
             body['is_big_number'] = params.is_big_number
+        }
+        if (params.options !== undefined) {
+            body['options'] = params.options
         }
         const result = await context.api.request<Schemas.CustomPropertyDefinition>({
             method: 'POST',
@@ -394,6 +599,9 @@ const customPropertyDefinitionsPartialUpdate = (): ToolBase<
         }
         if (params.is_big_number !== undefined) {
             body['is_big_number'] = params.is_big_number
+        }
+        if (params.options !== undefined) {
+            body['options'] = params.options
         }
         const result = await context.api.request<Schemas.CustomPropertyDefinition>({
             method: 'PATCH',
@@ -585,6 +793,11 @@ const usageMetricsRetrieve = (): ToolBase<typeof UsageMetricsRetrieveSchema, Sch
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'account-relationship-definitions-create': accountRelationshipDefinitionsCreate,
+    'account-relationship-definitions-destroy': accountRelationshipDefinitionsDestroy,
+    'account-relationship-definitions-list': accountRelationshipDefinitionsList,
+    'account-relationship-definitions-partial-update': accountRelationshipDefinitionsPartialUpdate,
+    'account-relationship-definitions-retrieve': accountRelationshipDefinitionsRetrieve,
     'accounts-create': accountsCreate,
     'accounts-custom-property-values-create': accountsCustomPropertyValuesCreate,
     'accounts-custom-property-values-list': accountsCustomPropertyValuesList,
@@ -595,6 +808,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-notebooks-list': accountsNotebooksList,
     'accounts-notebooks-retrieve': accountsNotebooksRetrieve,
     'accounts-partial-update': accountsPartialUpdate,
+    'accounts-relationships-create': accountsRelationshipsCreate,
+    'accounts-relationships-end-create': accountsRelationshipsEndCreate,
+    'accounts-relationships-list': accountsRelationshipsList,
     'accounts-retrieve': accountsRetrieve,
     'custom-property-definitions-create': customPropertyDefinitionsCreate,
     'custom-property-definitions-destroy': customPropertyDefinitionsDestroy,

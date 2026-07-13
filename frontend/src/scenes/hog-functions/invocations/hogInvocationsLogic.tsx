@@ -17,7 +17,7 @@ import { hogFlowsRerunCreate } from 'products/workflows/frontend/generated/api'
 
 import type { hogInvocationsLogicType } from './hogInvocationsLogicType'
 
-export const HOG_INVOCATIONS_PAGE_SIZE = 200
+export const HOG_INVOCATIONS_PAGE_SIZE = 100
 
 /** Display-side mirror of the backend cap. Backend enforces the actual limit via the
  * `HOG_INVOCATION_RERUN_MAX_COUNT` env var (Django serializer + Node CDP config). */
@@ -177,7 +177,7 @@ const DEFAULT_FILTERS: HogInvocationsFilters = {
     order_by: 'first_scheduled',
 }
 
-const AUTO_REFRESH_INTERVAL_MS = 5000
+const AUTO_REFRESH_INTERVAL_MS = 10000
 // After a rerun is enqueued the matching rows aren't `running` yet (the worker
 // drains asynchronously), so the `hasRunningRows` guard alone wouldn't restart
 // polling. Force a short polling window so the re-run rows surface on their own.
@@ -189,14 +189,22 @@ const scheduleAutoRefresh = (
     // dynamic so the narrow type isn't visible at this call site.
     cache: Record<string, any>,
     actions: { loadRuns: (payload: null) => void },
-    values: { hasRunningRows: boolean }
+    values: { hasRunningRows: boolean; runsLoading: boolean }
 ): void => {
     const forcing = typeof cache.forceRefreshUntil === 'number' && Date.now() < cache.forceRefreshUntil
     if (!values.hasRunningRows && !forcing) {
         return
     }
     cache.disposables.add(() => {
-        const timeoutId = setTimeout(() => actions.loadRuns(null), AUTO_REFRESH_INTERVAL_MS)
+        const timeoutId = setTimeout(() => {
+            // Skip this tick if a load is still in flight — don't stack a second
+            // heavy aggregation on ClickHouse. Re-arm so polling resumes once it settles.
+            if (values.runsLoading) {
+                scheduleAutoRefresh(cache, actions, values)
+            } else {
+                actions.loadRuns(null)
+            }
+        }, AUTO_REFRESH_INTERVAL_MS)
         return () => clearTimeout(timeoutId)
     }, 'autoRefresh')
 }
@@ -590,40 +598,44 @@ async function fetchRunsPage(
         }
     })
 
-    // Enrich the page with the worst log-entry level per invocation. An SES bounce/complaint
-    // (and similar async failures) writes an error/warn log entry after the invocation already
-    // finished `succeeded`, so without this a delivery failure reads as a clean success here.
-    // Best-effort: a failed lookup just leaves the rows without the indicator.
-    const ids = rows.map((r) => r.invocation_id)
-    if (ids.length > 0) {
-        const idClause = hogql.raw(`instance_id IN (${ids.map(escapeHogQLString).join(',')})`)
-        const severityQuery = hogql`
-            SELECT instance_id, max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev
-            FROM log_entries
-            WHERE log_source = ${props.functionKind}
-              AND log_source_id = ${props.id}
-              AND ${idClause}
-            GROUP BY instance_id
-            HAVING sev > 0
-        `
-        try {
-            const severityResponse = await api.queryHogQL(severityQuery, {
-                scene: 'HogInvocations',
-                productKey: 'pipeline_destinations',
-            })
-            const levelByInvocationId: Record<string, 'warn' | 'error'> = {}
-            for (const severityRow of severityResponse.results ?? []) {
-                const [instanceId, sev] = severityRow as unknown as [string, number]
-                levelByInvocationId[instanceId] = Number(sev) >= 2 ? 'error' : 'warn'
-            }
-            for (const row of rows) {
-                row.problem_log_level = levelByInvocationId[row.invocation_id] ?? null
-            }
-        } catch {
-            // Leave problem_log_level as null — the run statuses are still accurate.
-        }
-    }
+    // Problem-level enrichment is deferred to `enrichProblems` so the table renders
+    // on the main query alone — the severity lookup patches the rows in afterwards.
     return rows
+}
+
+/**
+ * Worst log-entry level (`warn`/`error`) per invocation for the given page ids.
+ * An SES bounce/complaint (and similar async failures) writes an error/warn log entry
+ * after the invocation already finished `succeeded`, so without this a delivery failure
+ * reads as a clean success. Kept off the runs query's critical path — see `enrichProblems`.
+ */
+async function fetchProblemLevels(
+    props: HogInvocationsLogicProps,
+    ids: string[]
+): Promise<Record<string, 'warn' | 'error'>> {
+    if (ids.length === 0) {
+        return {}
+    }
+    const idClause = hogql.raw(`instance_id IN (${ids.map(escapeHogQLString).join(',')})`)
+    const severityQuery = hogql`
+        SELECT instance_id, max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev
+        FROM log_entries
+        WHERE log_source = ${props.functionKind}
+          AND log_source_id = ${props.id}
+          AND ${idClause}
+        GROUP BY instance_id
+        HAVING sev > 0
+    `
+    const severityResponse = await api.queryHogQL(severityQuery, {
+        scene: 'HogInvocations',
+        productKey: 'pipeline_destinations',
+    })
+    const levelByInvocationId: Record<string, 'warn' | 'error'> = {}
+    for (const severityRow of severityResponse.results ?? []) {
+        const [instanceId, sev] = severityRow as unknown as [string, number]
+        levelByInvocationId[instanceId] = Number(sev) >= 2 ? 'error' : 'warn'
+    }
+    return levelByInvocationId
 }
 
 /**
@@ -703,7 +715,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         ],
     }),
 
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values, actions, cache }) => ({
         runs: [
             [] as HogInvocationRow[],
             {
@@ -711,6 +723,12 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     await breakpoint(100)
                     const rows = await fetchRunsPage(props, values.filters, 0)
                     breakpoint()
+                    // Carry forward already-resolved problem levels so the indicator
+                    // doesn't flicker off each refresh before `enrichProblems` re-resolves it.
+                    const priorLevels = new Map(values.runs.map((r) => [r.invocation_id, r.problem_log_level]))
+                    for (const row of rows) {
+                        row.problem_log_level = priorLevels.get(row.invocation_id) ?? null
+                    }
                     actions.setHasMore(rows.length >= HOG_INVOCATIONS_PAGE_SIZE)
                     return rows
                 },
@@ -720,7 +738,35 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     const newRows = await fetchRunsPage(props, values.filters, offset)
                     breakpoint()
                     actions.setHasMore(newRows.length >= HOG_INVOCATIONS_PAGE_SIZE)
+                    // Prior pages are already enriched — stash the new ids so
+                    // `loadMoreSuccess` scopes the severity query to this page only.
+                    cache.lastPageInvocationIds = newRows.map((r) => r.invocation_id)
                     return [...values.runs, ...newRows]
+                },
+                // Deferred, best-effort enrichment — runs after the table renders and
+                // patches the worst log level onto each row without blocking the load.
+                // `invocationIds` scopes the severity query (Load More passes just the
+                // new page); null enriches every loaded row (refresh path).
+                enrichProblems: async (invocationIds: string[] | null, breakpoint) => {
+                    const ids = invocationIds ?? values.runs.map((r) => r.invocation_id)
+                    if (ids.length === 0) {
+                        return values.runs
+                    }
+                    let levelByInvocationId: Record<string, 'warn' | 'error'>
+                    try {
+                        levelByInvocationId = await fetchProblemLevels(props, ids)
+                    } catch {
+                        // Leave levels as-is — the run statuses are still accurate.
+                        return values.runs
+                    }
+                    breakpoint()
+                    // Patch onto the *current* runs (not a pre-await snapshot) so a refresh
+                    // that landed mid-flight isn't clobbered with a stale page; unresolved
+                    // rows keep any carried-forward level.
+                    return values.runs.map((row) => ({
+                        ...row,
+                        problem_log_level: levelByInvocationId[row.invocation_id] ?? row.problem_log_level ?? null,
+                    }))
                 },
             },
         ],
@@ -847,6 +893,8 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         },
         loadRunsSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)
+            // Full-list enrichment: a 10s poll can surface brand-new invocation ids.
+            actions.enrichProblems(null)
             const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
             if (personIds.length > 0) {
                 actions.hydratePeople(personIds)
@@ -854,6 +902,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         },
         loadMoreSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)
+            actions.enrichProblems((cache.lastPageInvocationIds as string[] | undefined) ?? null)
             const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
             if (personIds.length > 0) {
                 actions.hydratePeople(personIds)

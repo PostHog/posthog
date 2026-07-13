@@ -1,7 +1,13 @@
 import { color as d3Color } from 'd3-color'
 import React, { useCallback, useMemo } from 'react'
 
-import { applyOuterStackCaps, bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from '../../core/bar-layout'
+import {
+    applyOuterStackCaps,
+    bandCenter,
+    buildBarLayers,
+    computeBarAtIndex,
+    groupedBarCenter,
+} from '../../core/bar-layout'
 import {
     BAR_HIGHLIGHT_DARKEN,
     DEFAULT_BAR_CORNER_RADIUS,
@@ -46,7 +52,7 @@ import type {
     SeriesType,
     TooltipContext,
 } from '../../core/types'
-import { DEFAULT_SERIES_TYPE, DEFAULT_Y_AXIS_ID } from '../../core/types'
+import { DEFAULT_SERIES_TYPE, DEFAULT_Y_AXIS_ID, resolveAxisLines } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { resolveBarsAtCursor } from '../BarChart/utils/bars-under-cursor'
 
@@ -93,8 +99,11 @@ function ComboChartInner<Meta = unknown>({
         xTickFormatter,
         valueDomain,
         curve,
+        yAxes: configYAxes,
     } = config ?? {}
     const smooth = curve === 'monotone'
+    const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
+    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
 
     const seriesTypeOf = useCallback(
         (s: Pick<Series, 'type'>): SeriesType => resolveSeriesType(s, defaultSeriesType),
@@ -134,6 +143,7 @@ function ComboChartInner<Meta = unknown>({
                 seriesTypeOf,
                 barStackedData,
                 valueDomain,
+                axes: configYAxes,
             })
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
@@ -166,7 +176,7 @@ function ComboChartInner<Meta = unknown>({
                 _private: comboPrivate,
             }
         },
-        [yScaleType, barLayout, seriesTypeOf, barStackedData, valueDomain]
+        [yScaleType, barLayout, seriesTypeOf, barStackedData, valueDomain, configYAxes]
     )
 
     const drawStatic = useCallback(
@@ -188,10 +198,11 @@ function ComboChartInner<Meta = unknown>({
 
             // Grid sits behind the data; the L-axis is drawn after the series (below) so neither bars
             // nor lines paint over the baseline where they meet the axis.
+            const axisLineStyle = axisLines.x || axisLines.y
             if (showGrid) {
                 // In the axis-line style only the value-axis grid guides reading; category lines
                 // through the band gaps are noise (line charts never draw them either).
-                const categoryTicks = showAxisLines
+                const categoryTicks = axisLineStyle
                     ? []
                     : computeVisibleXLabels(drawLabels, (label) => bandCenter(comboScales, label), xTickFormatter).map(
                           (entry) => entry.x
@@ -199,7 +210,7 @@ function ComboChartInner<Meta = unknown>({
                 drawGrid(baseDrawCtx, {
                     gridColor: theme.gridColor,
                     gridDash: theme.gridDashPattern,
-                    frame: !showAxisLines,
+                    frame: !axisLineStyle,
                     categoryTicks,
                 })
             }
@@ -244,20 +255,24 @@ function ComboChartInner<Meta = unknown>({
                 smooth,
                 // Rest baseline-hugging strokes on the axis line, and trim the first point's
                 // stroke at the y-axis, instead of straddling either axis line.
-                yFloor: showAxisLines
-                    ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2
-                    : undefined,
-                clipLeftEdge: showAxisLines,
+                yFloor: axisLines.x ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
+                clipLeftEdge: axisLines.y,
             })
 
-            if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: resolveAxisLineColor(theme) })
+            if (axisLineStyle) {
+                const hasRightAxis = Object.values(comboScales.yAxes).some((axis) => axis.position === 'right')
+                drawAxes(baseDrawCtx, {
+                    axisColor: resolveAxisLineColor(theme),
+                    xLine: axisLines.x,
+                    yLine: axisLines.y,
+                    rightAxis: hasRightAxis,
+                })
             }
         },
         [
             seriesTypeOf,
             showGrid,
-            showAxisLines,
+            axisLines,
             xTickFormatter,
             barLayout,
             barStackedData,

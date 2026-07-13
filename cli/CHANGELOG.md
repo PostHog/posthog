@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.8.1 — 2026-07-06
+
+### Patch changes
+
+- [d57bdcce6d](https://github.com/PostHog/posthog/commit/d57bdcce6dc77adde629de5ffbbad10a6a99b850) Capture CLI errors with PostHog telemetry — Thanks @hpouillot!
+
 ## 0.8.0 — 2026-07-03
 
 ### Minor changes

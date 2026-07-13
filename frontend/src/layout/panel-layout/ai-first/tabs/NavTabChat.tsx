@@ -1,7 +1,7 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 
 import { IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
@@ -58,6 +58,9 @@ export function NavTabChat({
     inPanel?: boolean
     onItemClick?: () => void
 }): JSX.Element {
+    // The chat surface can be mounted twice at once (nav tab, kept mounted, plus the side panel),
+    // so the search input's id must be per-instance to keep label/htmlFor pairing valid.
+    const searchInputId = useId()
     const { conversationHistory, conversationHistoryLoading, currentConversationId } = useValues(maxGlobalLogic)
     const [inputValue, setInputValue] = useState('')
 
@@ -91,7 +94,7 @@ export function NavTabChat({
                 <div className="flex flex-col h-full min-h-0">
                     <div className={cn('flex items-center gap-1 p-2 shrink-0', inPanel && 'p-1')}>
                         <label
-                            htmlFor="nav-search-chats"
+                            htmlFor={searchInputId}
                             className={cn(
                                 'input-like flex items-center flex-1 px-1 gap-1 group h-[30px]',
                                 inPanel && 'bg-fill-input'
@@ -99,7 +102,7 @@ export function NavTabChat({
                         >
                             <IconSearch className="size-4 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
                             <Combobox.Input
-                                id="nav-search-chats"
+                                id={searchInputId}
                                 placeholder="Chat history"
                                 aria-label="Chat history"
                                 className="w-full text-sm bg-transparent border-none focus:outline-none focus:ring-0 transition-[width] duration-100 h-[30px]"

@@ -6,10 +6,14 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from django.conf import settings
+from django.db import close_old_connections
+
 import httpx
 import httpx_sse
 import structlog
 import temporalio.client
+from asgiref.sync import sync_to_async
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -17,6 +21,10 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.permission_broker import (
+    parse_permission_request,
+    try_auto_respond_permission_request,
+)
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
     Task as TaskModel,
@@ -24,6 +32,11 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
+from products.tasks.backend.temporal.process_task.utils import (
+    get_actor_distinct_id,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
+)
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -69,7 +82,7 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     if validation_error:
         raise ValueError(f"Invalid sandbox URL: {validation_error}")
 
-    task_run = await TaskRunModel.objects.select_related("task__created_by").aget(id=input.run_id)
+    task_run = await TaskRunModel.objects.select_related("task__created_by", "task__team").aget(id=input.run_id)
 
     # Match the freshness window to the workflow's inactivity timeout for this run
     # so the heartbeat suppression below never resets a timer it shouldn't.
@@ -83,11 +96,19 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     redis_stream = TaskRunRedisStream(stream_key, run_uses_dedicated_stream(task_run.state))
     await redis_stream.initialize()
 
-    created_by = task_run.task.created_by
+    actor_user = await sync_to_async(get_task_run_credential_user)(task_run.task, task_run.state)
+    if is_slack_interaction_state(task_run.state) and actor_user is None:
+        # Deterministic: the recorded Slack actor no longer resolves, so every retry
+        # would fail identically. Write the error sentinel and fail for good instead
+        # of retrying until the run dies on the inactivity timeout with no reason.
+        error_message = "Slack task run is missing an acting user"
+        logger.error("relay_sandbox_events_missing_actor", run_id=input.run_id)
+        await redis_stream.mark_error(error_message)
+        raise ApplicationError(error_message, non_retryable=True)
     connection_token = create_sandbox_connection_token(
         task_run=task_run,
-        user_id=created_by.id if created_by else 0,
-        distinct_id=input.distinct_id,
+        user_id=actor_user.id if actor_user else 0,
+        distinct_id=get_actor_distinct_id(actor_user) if actor_user else input.distinct_id,
     )
 
     headers = {
@@ -336,6 +357,10 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if task_run is not None:
+                                permission_request = parse_permission_request(event_data)
+                                if permission_request is not None:
+                                    await asyncio.to_thread(_broker_permission_request, task_run, permission_request)
                             reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
@@ -670,6 +695,44 @@ def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
     except Exception:
         logger.warning(
             "relay_sandbox_events_push_dispatch_failed",
+            run_id=str(task_run.id),
+            exc_info=True,
+        )
+
+
+def _broker_permission_request(task_run: TaskRunModel, permission_request: dict) -> None:
+    """Answer a sandbox permission request from the run's permission mode, or escalate to a human.
+
+    A broker failure falls through to the prompt path so a broker bug degrades to
+    human approval instead of a stalled agent.
+    """
+    try:
+        # The relay holds `task_run` from its start, but the permission mode can be
+        # changed mid-run from the Slack card — re-read state per request so a mode
+        # downgrade stops auto-approving immediately. A failed refresh falls through
+        # to the human prompt rather than answering from stale state. The
+        # close_old_connections guard mirrors event_ingest: this thread's pooled
+        # connection is never health-checked by Django (gated off in tests, where
+        # it would close the test transaction's connection).
+        if not settings.TEST:
+            close_old_connections()
+        task_run.refresh_from_db(fields=["state"])
+        if try_auto_respond_permission_request(task_run, permission_request):
+            return
+    except Exception:
+        logger.warning(
+            "relay_sandbox_events_permission_broker_failed",
+            run_id=str(task_run.id),
+            exc_info=True,
+        )
+
+    try:
+        from products.slack_app.backend.services.agent_permissions import post_slack_permission_request_for_task_run
+
+        post_slack_permission_request_for_task_run(task_run, permission_request)
+    except Exception:
+        logger.warning(
+            "relay_sandbox_events_slack_permission_prompt_failed",
             run_id=str(task_run.id),
             exc_info=True,
         )

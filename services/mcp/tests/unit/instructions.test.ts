@@ -60,15 +60,15 @@ describe('buildToolDomainsBlock', () => {
     it('keeps a singleton tool whole but collapses siblings to a shared root', () => {
         const tools = [
             { name: 'execute-sql', category: 'SQL' },
-            { name: 'read-data-schema', category: 'Data schema' },
-            { name: 'read-data-warehouse-schema', category: 'Data schema' },
+            { name: 'external-data-schemas-list', category: 'Data warehouse' },
+            { name: 'external-data-sources-list', category: 'Data warehouse' },
         ]
         const result = buildToolDomainsBlock(tools)
         expect(result).toContain('- execute-sql')
-        // read-data-* siblings collapse to their shared prefix, not listed verbatim
-        expect(result).toContain('- read-data')
-        expect(result).not.toContain('- read-data-schema')
-        expect(result).not.toContain('- read-data-warehouse-schema')
+        // external-data-* siblings collapse to their shared prefix, not listed verbatim
+        expect(result).toContain('- external-data')
+        expect(result).not.toContain('- external-data-schemas-list')
+        expect(result).not.toContain('- external-data-sources-list')
     })
 
     it('splits an oversized family into sub-family roots, one level deep', () => {

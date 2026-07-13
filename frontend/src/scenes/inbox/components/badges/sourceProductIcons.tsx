@@ -32,62 +32,62 @@ interface SourceProductMeta {
  * `getSourceProductMeta`, which returns `null` for unknown keys.
  */
 export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProductMeta>> = {
-    [SignalSourceProduct.SESSION_REPLAY]: {
+    [SignalSourceProduct.SessionReplay]: {
         Icon: IconRewindPlay,
         color: 'var(--warning)',
         label: 'Session replay',
     },
-    [SignalSourceProduct.ERROR_TRACKING]: {
+    [SignalSourceProduct.ErrorTracking]: {
         Icon: IconBug,
         color: 'var(--danger)',
         label: 'Error tracking',
     },
-    [SignalSourceProduct.LLM_ANALYTICS]: {
+    [SignalSourceProduct.LlmAnalytics]: {
         Icon: IconBrain,
         color: 'var(--purple)',
         label: 'AI observability',
     },
-    [SignalSourceProduct.GITHUB]: {
+    [SignalSourceProduct.Github]: {
         Icon: IconGithub,
         color: 'var(--text-secondary)',
         label: 'GitHub',
     },
-    [SignalSourceProduct.LINEAR]: {
+    [SignalSourceProduct.Linear]: {
         Icon: IconStack,
         color: 'var(--blue)',
         label: 'Linear',
     },
-    [SignalSourceProduct.ZENDESK]: {
+    [SignalSourceProduct.Zendesk]: {
         Icon: IconReceipt,
         color: 'var(--success)',
         label: 'Zendesk',
     },
-    [SignalSourceProduct.CONVERSATIONS]: {
+    [SignalSourceProduct.Conversations]: {
         Icon: IconSupport,
         color: 'var(--blue)',
         label: 'Conversations',
     },
-    [SignalSourceProduct.PGANALYZE]: {
+    [SignalSourceProduct.Pganalyze]: {
         Icon: IconDatabase,
         color: 'var(--text-primary)',
         label: 'pganalyze',
     },
-    [SignalSourceProduct.SIGNALS_SCOUT]: {
+    [SignalSourceProduct.SignalsScout]: {
         Icon: IconCompass,
         color: 'var(--purple)',
         label: 'Scout',
     },
-    [SignalSourceProduct.ENDPOINTS]: {
+    [SignalSourceProduct.Endpoints]: {
         Icon: IconBolt,
         color: 'var(--warning)',
         label: 'Endpoints',
     },
-    [SignalSourceProduct.LOGS]: {
+    [SignalSourceProduct.Logs]: {
         Icon: IconList,
         color: 'var(--text-secondary)',
         label: 'Logs',
     },
-    [SignalSourceProduct.HEALTH_CHECKS]: {
+    [SignalSourceProduct.HealthChecks]: {
         Icon: IconHeartPlus,
         color: 'var(--danger)',
         label: 'Health checks',

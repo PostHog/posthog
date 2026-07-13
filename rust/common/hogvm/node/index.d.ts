@@ -12,12 +12,21 @@ export interface HogExecResult {
     result?: unknown
     error?: string
     durationUs: number
+    /** Messages from print() calls, in call order, capped at 24 entries. */
+    logs?: string[]
+    /** True when print() was called past the cap and messages were dropped. */
+    logsTruncated?: boolean
 }
 
 export interface ExecuteBatchOptions {
     /** Fan the batch out over a rayon thread pool instead of running sequentially. */
     parallel?: boolean
     /** Step budget per execution (the Rust VM has no wall-clock timeout). */
+    maxSteps?: number
+}
+
+export interface ExecuteSyncOptions {
+    /** Step budget for the execution (the Rust VM has no wall-clock timeout). */
     maxSteps?: number
 }
 
@@ -36,3 +45,10 @@ export function executeBatch(
     events: unknown[],
     options?: ExecuteBatchOptions
 ): Promise<HogExecResult[]>
+
+/**
+ * Run one Hog program against one event-globals synchronously on the calling thread. This is the
+ * primary-execution path for ingestion transformations: it matches the Node VM's synchronous
+ * exec, with no threadpool round-trip.
+ */
+export function executeSync(program: unknown[], globals: unknown, options?: ExecuteSyncOptions): HogExecResult

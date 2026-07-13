@@ -533,6 +533,19 @@ class TestFetchAverageRowSize:
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None
 
+    def test_does_not_capture_handled_probe_failures(self, impl, cursor, logger, mocker):
+        # Row-size sampling is best-effort: on failure the caller falls back to the default chunk
+        # size, so handled failures must not flood error tracking. pymysql raises InterfaceError(0, "")
+        # when the connection socket was already closed (a transient drop). Mirrors the get_rows_to_sync
+        # and explain_query probe guards.
+        cursor.execute.side_effect = pymysql.err.InterfaceError(0, "")
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.capture_exception"
+        )
+
+        assert impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger) is None
+        capture.assert_not_called()
+
 
 def _show_index_rows(*triples: tuple[str, str, int]) -> list[tuple]:
     """Build fake SHOW INDEX rows from (key_name, column_name, seq_in_index) triples."""
@@ -1686,6 +1699,25 @@ class TestMySQLSourceValidateCredentials:
         assert valid is False
         assert error == expected_error
         capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "https://db.example.com/",
+            "mysql://root:secret@db.example.com:3306/mydb",
+        ],
+    )
+    def test_url_in_host_field_rejected_without_echoing_input(self, source, mocker, host):
+        # If the guard is dropped, the raw host reaches host validation / DNS and the
+        # message would echo it (leaking a pasted password), so assert it is never reached.
+        mocker.patch.object(source, "is_database_host_valid", side_effect=AssertionError("should not resolve"))
+        mocker.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect"))
+
+        valid, error = source.validate_credentials(_make_config(host=host), team_id=1)
+
+        assert valid is False
+        assert host not in (error or "")
+        assert "hostname" in (error or "")
 
     def test_unexpected_errors_are_still_captured(self, source, mocker):
         capture = mocker.patch(

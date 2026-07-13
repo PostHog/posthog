@@ -10,6 +10,7 @@ import {
     legendItemsFromSeries,
 } from '@posthog/quill-charts'
 
+import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
@@ -18,10 +19,13 @@ import { type DailyChartData } from '../mcpAnalyticsToolQualityLogic'
 
 function buildConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
     return {
-        yAxis: { showGrid: false, ...yAxis },
+        curve: 'monotone',
         showAxisLines: true,
-        xAxis: { interval: 'day', timezone },
+        showTickMarks: true,
         showCrosshair: true,
+        showGrid: true,
+        yAxis,
+        xAxis: { interval: 'day', timezone },
         tooltip: { placement: 'cursor' },
     }
 }
@@ -91,12 +95,12 @@ export function ToolQualityCharts({
         [data, theme]
     )
 
-    const countsConfig = useMemo(() => buildConfig(timezone), [timezone])
-    const percentConfig = useMemo(
+    const countsConfig = useChartConfig(() => buildConfig(timezone), [timezone])
+    const percentConfig = useChartConfig(
         () => buildConfig(timezone, { tickFormatter: (value: number) => formatPercentage(value, { compact: true }) }),
         [timezone]
     )
-    const latencyConfig = useMemo(() => buildConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
+    const latencyConfig = useChartConfig(() => buildConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
 
     return (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

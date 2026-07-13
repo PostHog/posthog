@@ -111,6 +111,7 @@ export enum NodeKind {
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
+    MetricsQuery = 'MetricsQuery',
     TraceSpansQuery = 'TraceSpansQuery',
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
@@ -179,6 +180,7 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
+    SessionQuery = 'SessionQuery',
     TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
@@ -248,6 +250,7 @@ export type AnyDataNode =
     | LogsQuery
     | LogAttributesQuery
     | LogValuesQuery
+    | MetricsQuery
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
@@ -258,6 +261,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | TraceQuery
+    | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
@@ -358,6 +362,9 @@ export type QuerySchema =
     | LogAttributesQuery
     | LogValuesQuery
 
+    // Metrics
+    | MetricsQuery
+
     // Tracing
     | TraceSpansQuery
     | TraceSpansAggregationQuery
@@ -371,6 +378,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | TraceQuery
+    | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
 
@@ -431,6 +439,7 @@ export type AnyResponseType =
     | LogsQueryResponse
     | LogAttributesQueryResponse
     | LogValuesQueryResponse
+    | MetricsQueryResponse
     | TraceSpansQueryResponse
     | TraceSpansAggregationQueryResponse
     | TraceSpansTreeQueryResponse
@@ -511,6 +520,8 @@ export interface DataWarehouseEventsModifier {
 }
 
 export interface DataWarehouseSyncWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'warehouse_sync'
     /** Name of the warehouse table the warning refers to */
     table_name: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
@@ -521,6 +532,15 @@ export interface DataWarehouseSyncWarning {
     source_id?: string | null
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
     status: string
+    /** Human-readable warning shown to the user */
+    message: string
+}
+
+export interface AccessControlFilterWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'access_control'
+    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
+    resources: string[]
     /** Human-readable warning shown to the user */
     message: string
 }
@@ -542,8 +562,9 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     /**
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
+     * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: DataWarehouseSyncWarning[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1097,6 +1118,7 @@ export interface DataTableNode
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
+                    | SessionQuery
                     | EndpointsUsageTableQuery
                     | AccountsQuery
                 )['response']
@@ -1136,6 +1158,7 @@ export interface DataTableNode
         | ExperimentTrendsQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | EndpointsUsageTableQuery
         | AccountsQuery
     /** Columns shown in the table, unless the `source` provides them. */
@@ -1453,6 +1476,13 @@ export type TrendsFormulaNode = {
     custom_name?: string
 }
 
+/** Per-insight chart rendering style. Pure presentation — no field changes the computed values.
+ * Every field is optional; unset fields fall through to the app-level chart defaults. */
+export interface ChartStyle {
+    /** Line interpolation: straight segments or a smoothed curve through the points. */
+    curve?: 'linear' | 'smooth'
+}
+
 export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
@@ -1558,6 +1588,8 @@ export type TrendsFilter = {
      * is on; latest compares first→last of the series.
      * @default total */
     metricSummary?: 'total' | 'average' | 'latest'
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyle
 }
 
 export type CalendarHeatmapFilter = {
@@ -1598,6 +1630,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'metricLineIncreaseColor',
     'metricLineDecreaseColor',
     'metricSummary',
+    'chartStyle',
 ])
 
 export interface BoxPlotDatum {
@@ -1784,6 +1817,8 @@ export type FunnelsFilter = {
      * @default false
      */
     hideIncompleteConversionWindowPeriods?: boolean
+    /** Chart rendering style overrides (line shape). Only applies to historical-trends funnels. */
+    chartStyle?: ChartStyle
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -1861,6 +1896,8 @@ export type RetentionFilter = {
     /** @description Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations.
      * @default 0 */
     cohortLabelStartIndex?: integer
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyle
 }
 
 export interface RetentionValue {
@@ -1989,6 +2026,8 @@ export type StickinessFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyle
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
@@ -1997,6 +2036,7 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'legendPosition',
     'showValuesOnSeries',
     'hiddenLegendIndexes',
+    'chartStyle',
 ])
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
@@ -2079,6 +2119,11 @@ export interface EndpointRequest {
     deleted?: boolean
     /** Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched. */
     tags?: string[]
+    /**
+     * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of
+     * that breakdown.
+     */
+    optional_breakdown_properties?: string[]
 }
 
 /**
@@ -2219,8 +2264,9 @@ export interface AnalyticsQueryResponseBase {
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
      * Accumulated across every HogQL execution that contributes to this response — so insights backed
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
+     * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: DataWarehouseSyncWarning[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
 }
 
 interface CachedQueryResponseMixin {
@@ -2292,6 +2338,11 @@ export type QueryStatus = {
     complete: boolean
     /**  @default null */
     error_message: string | null
+    /**
+     * Stable machine-readable code for the error (the DRF exception code), when known.
+     * @default null
+     */
+    error_code: string | null
     results?: any
     /**
      * When was the query execution task picked up by a worker.
@@ -2415,8 +2466,9 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
-    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: integer[]
+    /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
@@ -2793,6 +2845,8 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -3386,6 +3440,13 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
+    /**
+     * Custom column expressions evaluated per log row. Each entry is either a source-prefixed
+     * shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar
+     * HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`).
+     * Values come back on each result row keyed by the aliases in `LogsQueryResponse.columns`.
+     */
+    customColumns?: string[]
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3449,6 +3510,82 @@ export interface LogValuesQuery extends DataNode<LogValuesQueryResponse> {
     serviceNames?: string[]
     attributeKey: string
     attributeType: string
+}
+
+/** Which attribute map a metric label key lives in; `auto` resolves resource attributes first, then datapoint attributes. */
+export type MetricsAttributeScope = 'resource' | 'attribute' | 'auto'
+
+export type MetricsFilterOp = 'eq' | 'neq' | 'regex' | 'not_regex'
+
+/** OTel metric type; matches what ingest writes to `metric_type` */
+export type MetricsOtelType = 'gauge' | 'sum' | 'histogram' | 'exponential_histogram' | 'summary'
+
+export type MetricsAggregation =
+    | 'sum'
+    | 'avg'
+    | 'count'
+    | 'min'
+    | 'max'
+    | 'quantile'
+    | 'rate'
+    | 'increase'
+    | 'histogram_quantile'
+
+export interface MetricsQueryFilter {
+    key: string
+    op: MetricsFilterOp
+    value: string
+    scope?: MetricsAttributeScope
+}
+
+export interface MetricsQueryGroupBy {
+    key: string
+    scope?: MetricsAttributeScope
+}
+
+export interface MetricsQueryClause {
+    /** Alias a formula refers to (e.g. "a"); must be unique within the query */
+    name: string
+    metricName: string
+    aggregation: MetricsAggregation
+    /** Series identity includes the OTel type — one name can exist as e.g. both a
+     * counter and a gauge — so a clause pins it to avoid blending distinct series. */
+    metricType?: MetricsOtelType
+    filters?: MetricsQueryFilter[]
+    groupBy?: MetricsQueryGroupBy[]
+    /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
+    quantile?: number
+}
+
+export interface MetricsQueryPoint {
+    /** Bucket start, ISO 8601 */
+    time: string
+    value: number
+}
+
+export interface MetricsQuerySeries {
+    /** Label values identifying this series; empty for an ungrouped query */
+    labels: Record<string, string>
+    points: MetricsQueryPoint[]
+    metricName?: string
+    /** Clause alias that produced this series (`formula` for the formula result) */
+    clause?: string
+}
+
+export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MetricsQuerySeries[]
+}
+export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
+
+export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
+    kind: NodeKind.MetricsQuery
+    clauses: MetricsQueryClause[]
+    /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
+    dateRange?: DateRange
+    /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
+    interval?: string
+    /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
+    formula?: string
 }
 
 export interface SessionEventsItem {
@@ -3639,15 +3776,18 @@ export interface AttributeBreakdownRow {
     p95_duration_nano: number
 }
 
-export type TraceSpanBreakdownType = 'span_attribute' | 'span_resource_attribute'
+export type TraceSpanBreakdownType = 'span' | 'span_attribute' | 'span_resource_attribute'
 export type TraceSpanBreakdownOrderBy = 'count' | 'error_count'
 
 export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAttributeBreakdownQueryResponse> {
     kind: NodeKind.TraceSpansAttributeBreakdownQuery
     dateRange: DateRange
-    /** Attribute key to group by (e.g. `http.response.status_code`, `server.address`). */
+    /**
+     * Attribute key to group by (e.g. `http.response.status_code`, `server.address`).
+     * For the `span` breakdown type, must be an allowlisted top-level column (`service_name`, `status_code`).
+     */
     breakdownKey: string
-    /** Where the key lives: span-level attributes or resource-level attributes. */
+    /** Where the key lives: an allowlisted top-level span column, span-level attributes, or resource-level attributes. */
     breakdownType: TraceSpanBreakdownType
     /** Order rows by span count or error count, descending. Defaults to count. */
     orderBy?: TraceSpanBreakdownOrderBy
@@ -3655,6 +3795,11 @@ export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAt
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
+    /**
+     * Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name`
+     * breakdown) so a facet's value list stays complete while one of its values is selected.
+     */
+    excludeBreakdownFilter?: boolean
 }
 
 export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQueryResponseBase {
@@ -3829,6 +3974,8 @@ export interface FileSystemEntry {
     tags?: ('alpha' | 'beta')[]
     /** Order of object in tree */
     visualOrder?: number
+    /** Access level the user has for the referenced object ('none' means no access); null/absent when access controls don't apply */
+    user_access_level?: string | null
 }
 
 export type FileSystemIconType =
@@ -4200,24 +4347,9 @@ export interface ExperimentApiMetric {
     start_handling?: 'first_seen' | 'last_seen'
 }
 
-export interface ExperimentVariant {
-    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
-    key: string
-    /** Human-readable variant name. */
-    name?: string
-    /** @deprecated Use split_percent instead. Accepted for backward compatibility. */
-    rollout_percentage?: number
-    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided. */
-    split_percent?: number
-}
-
 export interface ExperimentParameters {
-    /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
-    feature_flag_variants?: ExperimentVariant[]
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number
-    /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
-    rollout_percentage?: number
     /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
     variant_notes?: Record<string, string>
 }
@@ -4985,6 +5117,20 @@ export interface DateRange {
      * @default false
      * */
     explicitDate?: boolean | null
+    /**
+     * Restrict the query to events occurring on these ISO days of week
+     * (1=Monday to 7=Sunday), evaluated in the project timezone.
+     * Omit or empty for all days. Only applied by insight queries.
+     */
+    daysOfWeek?: (1 | 2 | 3 | 4 | 5 | 6 | 7)[] | null
+    /**
+     * Exclude the current, still-collecting period by clipping date_to to the
+     * end of the last complete interval (evaluated in the project timezone).
+     * No-op when the range contains no complete interval. Only applied by
+     * insight queries.
+     * @default false
+     */
+    excludeIncompletePeriods?: boolean | null
 }
 
 export interface ResolvedDateRangeResponse {
@@ -5039,6 +5185,10 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
     breakdown_filter?: BreakdownFilter | null
     explicitDate?: boolean
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    interval?: IntervalType | null
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    filterTestAccounts?: boolean | null
 }
 
 export interface TileFilters {
@@ -5047,6 +5197,8 @@ export interface TileFilters {
     properties?: AnyPropertyFilter[] | null | undefined
     breakdown_filter?: BreakdownFilter | null | undefined
     explicitDate?: boolean | undefined
+    interval?: IntervalType | null | undefined
+    filterTestAccounts?: boolean | null | undefined
 }
 
 export interface InsightsThresholdBounds {
@@ -5602,6 +5754,7 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     includeSentiment?: boolean
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean
+    searchTerm?: string
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -5620,6 +5773,24 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     includeSentiment?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+}
+
+export interface SessionQueryResponse extends AnalyticsQueryResponseBase {
+    results: LLMTrace[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface SessionQuery extends DataNode<SessionQueryResponse> {
+    kind: NodeKind.SessionQuery
+    sessionId: string
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+    /** Include stored sentiment evaluation results for returned traces and generation events. */
+    includeSentiment?: boolean
 }
 
 export interface TraceNeighborsQueryResponse {
@@ -5652,6 +5823,7 @@ export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryRespons
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
+export type CachedSessionQueryResponse = CachedQueryResponse<SessionQueryResponse>
 export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
@@ -6421,6 +6593,19 @@ export interface SourceFieldInputConfig {
     secret: boolean
 }
 
+export interface SourceFieldOauthAccountSelectConfig {
+    type: 'oauth-account-select'
+    name: string
+    label: string
+    /** Name of the OAuth integration id field this account selector reads from. */
+    integrationField: string
+    /** Integration kind to validate and route the account fetch through. */
+    integrationKind: string
+    placeholder?: string
+    caption?: string
+    required?: boolean
+}
+
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 
 export interface SourceFieldSelectConfigOption {
@@ -6466,6 +6651,7 @@ export type SourceFieldConfig =
     | SourceFieldSwitchGroupConfig
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
+    | SourceFieldOauthAccountSelectConfig
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 
@@ -7210,6 +7396,101 @@ export const externalDataSources = [
     'Mercury',
     'Gojiberry',
     'Teachable',
+    'PeecAI',
+    'Healthchecks',
+    'Impact',
+    'AikidoSecurity',
+    'Alguna',
+    'Anthropic',
+    'Appwrite',
+    'BlandAI',
+    'BrowseAI',
+    'BrowserUse',
+    'ChartHop',
+    'Cody',
+    'Cursor',
+    'Decagon',
+    'Deepgram',
+    'ElevenLabs',
+    'Harvey',
+    'Hyperspell',
+    'Langfuse',
+    'LingoDev',
+    'M3ter',
+    'Maxio',
+    'Metorial',
+    'OpenRouter',
+    'TogetherAI',
+    'Vapi',
+    'Vespa',
+    'Writesonic',
+    'Aiven',
+    'Aviator',
+    'Backblaze',
+    'Baseten',
+    'Browserbase',
+    'Cohere',
+    'DenoDeploy',
+    'DigitalOcean',
+    'E2B',
+    'Fintoc',
+    'Firecrawl',
+    'FireworksAI',
+    'FlyIo',
+    'Groq',
+    'GrowthBook',
+    'Gumloop',
+    'Hatchet',
+    'Helicone',
+    'Heroku',
+    'Hetzner',
+    'HeyGen',
+    'Infisical',
+    'Inngest',
+    'KapaAI',
+    'Kernel',
+    'Koyeb',
+    'LambdaLabs',
+    'LangSmith',
+    'Linode',
+    'LlamaCloud',
+    'Mem0',
+    'Metriport',
+    'Mintlify',
+    'MistralAI',
+    'Mono',
+    'Netlify',
+    'Northflank',
+    'OpenAI',
+    'Pinecone',
+    'PlatformSh',
+    'PromptingCompany',
+    'Qdrant',
+    'Render',
+    'Replicate',
+    'RetellAI',
+    'Roark',
+    'RunPod',
+    'ScaleAI',
+    'Scaleway',
+    'SigNoz',
+    'Sim',
+    'Skyvern',
+    'Slash',
+    'Synthesia',
+    'Telli',
+    'TerraApi',
+    'TriggerDev',
+    'Turso',
+    'TwelveLabs',
+    'Twenty',
+    'Unstructured',
+    'Upstash',
+    'Vellum',
+    'Vultr',
+    'Windmill',
+    'Zep',
+    'Hex',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -7819,6 +8100,10 @@ export enum ProductIntentContext {
 
     // Metrics
     METRICS_DOCS_VIEWED = 'metrics_docs_viewed',
+    METRICS_VIEWER_QUERY_RUN = 'metrics_viewer_query_run',
+    METRICS_SQL_QUERY_RUN = 'metrics_sql_query_run',
+    METRICS_QUERY_SAVED = 'metrics_query_saved',
+    METRICS_FIRST_INGESTED = 'metrics_first_ingested',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',

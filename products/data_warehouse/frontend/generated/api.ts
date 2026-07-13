@@ -18,6 +18,7 @@ import type {
     DataWarehouseSavedQueryColumnAnnotationApi,
     DataWarehouseSavedQueryDraftApi,
     DataWarehouseSavedQueryFolderApi,
+    DeleteWarehouseOrgResponseApi,
     DeprovisionWarehouseResponseApi,
     EnableWarehouseBackfillRequestApi,
     EnableWarehouseBackfillResponseApi,
@@ -248,6 +249,27 @@ export const dataWarehouseDataOpsDashboardRetrieve = async (
     return apiMutator<void>(getDataWarehouseDataOpsDashboardRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDataWarehouseDeleteOrgDestroyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/delete-org/`
+}
+
+/**
+ * Remove the organization's provisioning record after teardown, freeing its warehouse name.
+ *
+ * Called once the warehouse status reports `deleted`: deprovision tears the warehouse
+ * down, this removes the now-empty org row so the database_name can be reused. Restricted
+ * to organization admins.
+ */
+export const dataWarehouseDeleteOrgDestroy = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DeleteWarehouseOrgResponseApi> => {
+    return apiMutator<DeleteWarehouseOrgResponseApi>(getDataWarehouseDeleteOrgDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -589,17 +611,6 @@ export const insightVariablesDestroy = async (projectId: string, id: string, opt
     return apiMutator<void>(getInsightVariablesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getLineageGetUpstreamRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/lineage/get_upstream/`
-}
-
-export const lineageGetUpstreamRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLineageGetUpstreamRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
     })
 }
 
