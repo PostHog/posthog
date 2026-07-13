@@ -121,6 +121,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     summary_enabled: false,
     summary_prompt_guide: '',
     ai_prompt_config: { window: { mode: 'since_last_sent' } },
+    send_test_now: true,
 }
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
@@ -181,6 +182,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     // so the analysis window select renders the effective default instead of empty.
                     return {
                         ...subscription,
+                        // Write-only, so never present on the API response: default the edit form's
+                        // "Send a test run now" toggle to on, matching the create flow.
+                        send_test_now: true,
                         ai_prompt_config: {
                             ...subscription.ai_prompt_config,
                             window: {
@@ -257,8 +261,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 // If a subscriptionsLogic for this insight/dashboard is mounted already, refresh both
                 // its resource-scoped list and the AI subscriptions section so new entries show up
                 const mountedSubscriptionsLogic = subscriptionsLogic.findMounted(props)
-                mountedSubscriptionsLogic?.actions.loadSubscriptions()
-                mountedSubscriptionsLogic?.actions.loadAiSubscriptions()
+                mountedSubscriptionsLogic?.actions.loadAllSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
                 actions.loadSummaryQuota()
                 lemonToast.success(`Subscription saved.`)

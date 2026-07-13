@@ -2,6 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
+    LemonButton,
     LemonBanner,
     LemonInputSelect,
     LemonSegmentedButton,
@@ -10,6 +11,7 @@ import {
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
+import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
@@ -39,9 +41,9 @@ import {
     RECOMMENDED_AGGREGATION_BY_TYPE,
 } from './metricsViewerLogic'
 
-const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string }[] = [
-    { value: 'chart', label: 'Chart' },
-    { value: 'stat', label: 'Stat' },
+const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string; 'data-attr': string }[] = [
+    { value: 'chart', label: 'Chart', 'data-attr': 'metrics-viewer-view-mode-chart' },
+    { value: 'stat', label: 'Stat', 'data-attr': 'metrics-viewer-view-mode-stat' },
 ]
 
 // How the stat card summarizes the series into one headline value.
@@ -111,6 +113,8 @@ export const MetricsViewer = (): JSX.Element => {
         viewMode,
         statSummary,
         groupByKeys,
+        attributeKeyOptions,
+        attributeKeyOptionsLoading,
         filterGroup,
         attributeEndpointFilters,
         chartSeries,
@@ -121,6 +125,9 @@ export const MetricsViewer = (): JSX.Element => {
         liveRefresh,
         queryResultsLoading,
         queryError,
+        savedInsightLoading,
+        savedInsight,
+        isAddToDashboardModalOpen,
         hasMetricName,
     } = useValues(logic)
     const {
@@ -131,11 +138,16 @@ export const MetricsViewer = (): JSX.Element => {
         setViewMode,
         setStatSummary,
         setGroupByKeys,
+        setGroupBySearch,
+        loadAttributeKeyOptions,
         setFilterGroup,
         setLiveRefresh,
         fetchQueryResults,
         fetchAnomaly,
         clearAnomaly,
+        saveAsInsight,
+        addToDashboard,
+        closeAddToDashboardModal,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
 
@@ -219,6 +231,7 @@ export const MetricsViewer = (): JSX.Element => {
                     value={aggregation}
                     options={AGGREGATION_OPTIONS}
                     onChange={(value) => setAggregation(value as MetricAggregation)}
+                    data-attr="metrics-viewer-aggregation"
                 />
                 <LemonInputSelect
                     mode="multiple"
@@ -226,9 +239,13 @@ export const MetricsViewer = (): JSX.Element => {
                     allowCustomValues
                     value={groupByKeys}
                     onChange={setGroupByKeys}
-                    options={[]}
+                    options={attributeKeyOptions}
+                    loading={attributeKeyOptionsLoading}
+                    onInputChange={setGroupBySearch}
+                    onFocus={() => loadAttributeKeyOptions({})}
                     placeholder="Group by attribute…"
                     className="min-w-[12rem]"
+                    data-attr="metrics-viewer-group-by"
                 />
                 <UniversalFilters
                     rootKey="metrics-viewer-filters"
@@ -265,6 +282,7 @@ export const MetricsViewer = (): JSX.Element => {
                         value={statSummary}
                         options={SUMMARY_OPTIONS}
                         onChange={(value) => setStatSummary(value)}
+                        data-attr="metrics-viewer-stat-summary"
                     />
                 )}
                 <LemonSwitch
@@ -273,8 +291,37 @@ export const MetricsViewer = (): JSX.Element => {
                     onChange={setLiveRefresh}
                     tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
                     bordered
+                    data-attr="metrics-viewer-live-toggle"
                 />
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() => saveAsInsight()}
+                    loading={savedInsightLoading}
+                    disabledReason={!hasMetricName ? 'Pick a metric first' : undefined}
+                >
+                    Save as insight
+                </LemonButton>
+                <LemonButton
+                    size="small"
+                    type="primary"
+                    onClick={() => addToDashboard()}
+                    loading={savedInsightLoading}
+                    disabledReason={!hasMetricName ? 'Pick a metric first' : undefined}
+                    data-attr="metrics-viewer-add-to-dashboard"
+                >
+                    Add to dashboard
+                </LemonButton>
             </div>
+            {savedInsight && (
+                <AddToDashboardModal
+                    isOpen={isAddToDashboardModalOpen}
+                    closeModal={closeAddToDashboardModal}
+                    insightProps={{ dashboardItemId: savedInsight.short_id, cachedInsight: savedInsight }}
+                    canEditInsight
+                    data-attr="metrics-viewer-add-to-dashboard-modal"
+                />
+            )}
             <div className="flex flex-col xl:flex-row gap-3 items-stretch">
                 <div className="flex-1 min-w-0">
                     <div className="relative h-[360px] border rounded p-3">

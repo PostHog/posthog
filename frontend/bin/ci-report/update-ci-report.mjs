@@ -22,6 +22,7 @@ export const SECTIONS = [
     { id: 'storybook-snapshots', title: 'Storybook snapshots' },
     { id: 'playwright-snapshots', title: 'Playwright snapshots' },
     { id: 'backend-snapshots', title: 'Backend snapshots' },
+    { id: 'backend-coverage', title: 'Backend coverage' },
     { id: 'mcp-snapshots', title: 'MCP snapshots' },
     { id: 'ai-evals', title: 'AI evals' },
     { id: 'ch-migration-sql', title: 'ClickHouse migration SQL' },

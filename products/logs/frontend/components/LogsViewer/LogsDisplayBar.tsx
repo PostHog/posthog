@@ -40,7 +40,7 @@ export const LogsDisplayBar = ({
     totalLogsCount,
 }: LogsDisplayBarProps): JSX.Element => {
     const { facetRailCollapsed, viewMode, groupBy } = useValues(logsViewerConfigLogic)
-    const { setFacetRailCollapsed, setViewMode, setGroupBy } = useActions(logsViewerConfigLogic)
+    const { setFacetRailCollapsed, setViewMode, setGroupBy, openPatternsComparison } = useActions(logsViewerConfigLogic)
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
     const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
 
@@ -124,6 +124,16 @@ export const LogsDisplayBar = ({
                         <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
                     )
                 )}
+                {showPatternsView && !inPatternsMode && !inGroupByMode && (
+                    <LemonButton
+                        size="small"
+                        onClick={() => openPatternsComparison('preceding')}
+                        tooltip="Mine this window's log patterns and compare them against the period just before it — new and shifted message templates first. Drag-select a spike on the chart first to explain exactly that range."
+                        data-attr="logs-explain-changes"
+                    >
+                        Explain changes
+                    </LemonButton>
+                )}
             </div>
             {!inPatternsMode && !inGroupByMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />}
         </div>
@@ -135,7 +145,14 @@ export const LogsDisplayBar = ({
  * mounted while Patterns is active — mounting it in Logs mode would kick off the heavier patterns query.
  */
 const PatternsCountIndicator = ({ id }: { id: string }): JSX.Element | null => {
-    const { patterns } = useValues(logsPatternsLogic({ id }))
+    const { patterns, compareEnabled, diffResponse } = useValues(logsPatternsLogic({ id }))
+
+    // In compare mode the table renders diff entries, not the plain mine — counting `patterns`
+    // there would show a number from a different dataset than the rows on screen.
+    if (compareEnabled) {
+        const count = diffResponse?.entries.length ?? 0
+        return count > 0 ? <span className="text-muted text-xs">{humanFriendlyNumber(count)} changes</span> : null
+    }
 
     if (patterns.length === 0) {
         return null

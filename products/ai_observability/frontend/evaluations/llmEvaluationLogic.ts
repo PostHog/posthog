@@ -709,6 +709,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const reportLogicKey = isNew ? 'new' : props.evaluationId
                 const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
                 if (response?.id && evaluationSupportsReports(response) && reportLogic.isMounted()) {
+                    const reportConfigStillLoading =
+                        !isNew && reportLogic.values.reportsLoading && !reportLogic.values.activeReport
+                    if (reportConfigStillLoading) {
+                        router.actions.push(urls.aiObservabilityEvaluations(), router.values.searchParams)
+                        return
+                    }
+
                     try {
                         await persistReportDraft(
                             teamId,

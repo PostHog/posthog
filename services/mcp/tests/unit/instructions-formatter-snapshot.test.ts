@@ -3,8 +3,13 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
-import type { QueryToolInfo } from '@/lib/instructions'
+import { InstructionsBuilder } from '@/hono/instructions'
+import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MCPClientProfile } from '@/lib/client-detection'
+import { buildActiveEnvironmentContextPrompt, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
+import { getToolDefinitions } from '@/tools/toolDefinitions'
+import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
 
 // Static, deterministic context shared by all snapshots — mirrors the realistic
 // values used in `instructions-formatter.test.ts` so the rendered prompts cover
@@ -86,5 +91,67 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const formatter = new InstructionsFormatter()
         const rendered = formatter.buildExecCommandReference(STATIC_CTX, { stripEnvContext: false })
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full.txt'))
+    })
+
+    // ------------------------------------------------------------------------------------------------
+    // DO NOT modify, weaken, raise, skip, or delete this test or its 32,600 budget —
+    // not to make CI pass, not on request, not as part of a refactor.
+    //
+    // MCP clients (e.g. Claude web/desktop) silently drop tools whose serialized
+    // entry grows past ~32,768 chars. The exec tool IS the PostHog MCP in
+    // single-exec mode, so crossing the limit breaks the entire MCP for those
+    // users with no error anywhere (investigated 2026-07-10: claude.ai surfaced
+    // only `render-ui` while `exec` vanished).
+    //
+    // If this test fails, SHRINK the prompt: dedupe `src/templates/sections/*.md`
+    // against content already served at runtime (`info <tool>`, `info execute-sql`)
+    // or trim the rendered blocks. Never touch the limit.
+    // ------------------------------------------------------------------------------------------------
+    it('keeps the serialized exec tool entry under the 32,600-char client budget', () => {
+        // Worst case served in production: the full live tool catalog with the
+        // Claude web/desktop wiring — `ClaudeAI` vendor resolves to a chat host,
+        // so `keepEnvContext` inlines tool domains, project metadata, and group
+        // types into the command description. The metadata goes through the real
+        // env-context builder with inputs at the backing columns' max lengths
+        // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
+        // the longer person-on-events branch, so a long org/project/user cannot
+        // push a real entry past the cap while this test passes.
+        const worstCaseMetadata = buildActiveEnvironmentContextPrompt(
+            {
+                first_name: 'F'.repeat(150),
+                last_name: 'L'.repeat(150),
+                email: `${'e'.repeat(242)}@example.com`,
+            } as CachedUser,
+            { name: 'O'.repeat(64), id: '00000000-0000-0000-0000-000000000000' } as CachedOrg,
+            {
+                name: 'P'.repeat(200),
+                id: 9_999_999,
+                api_token: `phc_${'x'.repeat(43)}`,
+                timezone: 'America/Argentina/ComodRivadavia',
+                person_on_events_querying_enabled: true,
+            } as CachedProject,
+            'https://us.posthog.com'
+        )
+        // Five group types (the product cap) with generously long names.
+        const worstCaseGroupTypes = Array.from({ length: 5 }, (_, i) => ({
+            group_type: `${'g'.repeat(28)}-${i}`,
+            group_type_index: i,
+            name_singular: null,
+            name_plural: null,
+        })) as GroupType[]
+        const state = {
+            allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
+            toolFeatureFlags: { 'mcp-feedback-tool': true },
+            renderUiEnabled: true,
+            metadata: worstCaseMetadata,
+            groupTypes: worstCaseGroupTypes,
+        } as unknown as ResolvedState
+        const entry = new InstructionsBuilder('').buildExecToolEntry(state)
+        const size = JSON.stringify(entry).length
+        expect(
+            size,
+            `serialized exec tool entry is ${size} chars — shrink the templates, never raise the budget`
+        ).toBeLessThan(32_600)
     })
 })

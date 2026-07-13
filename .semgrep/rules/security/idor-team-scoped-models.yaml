@@ -213,6 +213,7 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationLabel
+                              |ReplayObservationUsage
                               |ReplayScanner
                               |ReplayScannerPromptSuggestion
                               |Repo
@@ -495,6 +496,7 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationLabel
+                        |ReplayObservationUsage
                         |ReplayScanner
                         |ReplayScannerPromptSuggestion
                         |Repo
@@ -665,7 +667,6 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
-                              |ReplayObservationUsage
                               |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
@@ -734,7 +735,6 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
-                        |ReplayObservationUsage
                         |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference

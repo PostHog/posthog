@@ -12,16 +12,17 @@ import { SubscriptionResourceTypes, SubscriptionType } from '~/types'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
 import { toggleSubscriptionEnabled } from './toggleSubscriptionEnabled'
-import { SubscriptionBaseProps } from './utils'
+import { SubscriptionsLogicProps } from './utils'
 
 export const subscriptionsLogic = kea<subscriptionsLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionsLogic']),
-    props({} as SubscriptionBaseProps),
+    props({} as SubscriptionsLogicProps),
     key(({ insightShortId, dashboardId }) =>
         insightShortId ? `insight-${insightShortId}` : dashboardId ? `dashboard-${dashboardId}` : 'subscriptions'
     ),
     connect({ values: [featureFlagLogic, ['featureFlags']] }),
     actions({
+        loadAllSubscriptions: true,
         deleteSubscription: (id: number) => ({ id }),
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
@@ -44,7 +45,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
                 const response = await api.subscriptions.list({
                     dashboardId: props.dashboardId,
-                    insightId: insightId,
+                    insights: insightId ? [insightId] : undefined,
                 })
                 breakpoint?.()
                 return response.results
@@ -65,6 +66,20 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 return response.results
             },
         },
+        // Subscriptions on the dashboard's insight tiles. The backend resolves the tile set from
+        // dashboardId, so the count doesn't depend on the dashboard's tiles being loaded client-side.
+        insightSubscriptions: {
+            __default: [] as SubscriptionType[],
+            loadInsightSubscriptions: async (_?: any, breakpoint?: BreakPointFunction) => {
+                if (!props.dashboardId) {
+                    return []
+                }
+                breakpoint?.()
+                const response = await api.subscriptions.list({ dashboardTiles: props.dashboardId })
+                breakpoint?.()
+                return response.results
+            },
+        },
     })),
 
     reducers({
@@ -72,6 +87,9 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
             deleteSubscription: (state, { id }) => state.filter((a) => a.id !== id),
         },
         aiSubscriptions: {
+            deleteSubscription: (state, { id }) => state.filter((a) => a.id !== id),
+        },
+        insightSubscriptions: {
             deleteSubscription: (state, { id }) => state.filter((a) => a.id !== id),
         },
         deliveringSubscriptionId: [
@@ -93,13 +111,17 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
     }),
 
     listeners(({ actions }) => ({
+        loadAllSubscriptions: () => {
+            actions.loadSubscriptions()
+            actions.loadAiSubscriptions()
+            actions.loadInsightSubscriptions()
+        },
         deleteSubscription: async ({ id }) => {
             await deleteWithUndo({
                 endpoint: api.subscriptions.determineDeleteEndpoint(),
                 object: { name: 'Subscription', id },
                 callback: () => {
-                    actions.loadSubscriptions()
-                    actions.loadAiSubscriptions()
+                    actions.loadAllSubscriptions()
                 },
             })
         },
@@ -120,13 +142,11 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
             }
         },
         setSubscriptionEnabledSuccess: () => {
-            actions.loadSubscriptions()
-            actions.loadAiSubscriptions()
+            actions.loadAllSubscriptions()
         },
     })),
 
     afterMount(({ actions }) => {
-        actions.loadSubscriptions()
-        actions.loadAiSubscriptions()
+        actions.loadAllSubscriptions()
     }),
 ])
