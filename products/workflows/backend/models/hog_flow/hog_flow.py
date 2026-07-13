@@ -7,7 +7,7 @@ from django.dispatch.dispatcher import receiver
 import structlog
 
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 from products.actions.backend.models.action import Action
@@ -94,9 +94,37 @@ class HogFlow(UUIDTModel):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
 
+class HogFlowIntegration(UUIDModel):
+    """Join row recording that a hog flow's live action config references an integration.
+
+    Derived from the flow's JSON actions (which stay the runtime source of truth) and kept
+    in sync on save — see products/workflows/backend/services/integration_usage.py. Exists so
+    reverse lookups ("what uses this integration?") don't need to scan JSON blobs.
+    """
+
+    hog_flow = models.ForeignKey("workflows.HogFlow", on_delete=models.CASCADE, related_name="integration_links")
+    integration = models.ForeignKey("posthog.Integration", on_delete=models.CASCADE, related_name="hog_flow_links")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["hog_flow", "integration"], name="unique_hog_flow_integration"),
+        ]
+
+    def __str__(self):
+        return f"HogFlowIntegration {self.hog_flow_id} -> {self.integration_id}"
+
+
 @receiver(post_save, sender=HogFlow)
 def hog_flow_saved(sender, instance: HogFlow, created, **kwargs):
     reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
+
+
+@receiver(post_save, sender=HogFlow)
+def hog_flow_integration_links_synced(sender, instance: HogFlow, created, **kwargs):
+    # The service imports this module's models — import at call time to break the cycle.
+    from products.workflows.backend.services.integration_usage import sync_hog_flow_integrations  # noqa: PLC0415
+
+    sync_hog_flow_integrations(instance)
 
 
 @receiver(post_delete, sender=HogFlow)

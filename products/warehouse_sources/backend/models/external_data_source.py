@@ -7,12 +7,34 @@ import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.integration import Integration
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+# References CustomOAuth2Integration, a different model from posthog.Integration.
+_NON_POSTHOG_INTEGRATION_JOB_INPUT_KEYS = frozenset({"auth_oauth2_integration_id"})
+
+
+def integration_id_from_job_inputs(job_inputs: object) -> int | None:
+    """The posthog.Integration ID a source's job_inputs reference, if any.
+
+    OAuth-backed source configs store their credentials reference as a single
+    `<source>_integration_id` key in job_inputs.
+    """
+    if not isinstance(job_inputs, dict):
+        return None
+    for key in sorted(job_inputs):
+        if not key.endswith("_integration_id") or key in _NON_POSTHOG_INTEGRATION_JOB_INPUT_KEYS:
+            continue
+        try:
+            return int(str(job_inputs[key]))
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 class ExternalDataSourceManager(models.Manager):
@@ -56,6 +78,15 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400)
     source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
     job_inputs = EncryptedJSONField(null=True, blank=True)
+    # Derived from job_inputs on save — job_inputs stays the runtime source of truth. Exists so
+    # reverse lookups ("what uses this integration?") don't need to decrypt and scan job_inputs.
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="external_data_sources",
+    )
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
@@ -76,6 +107,24 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     class Meta:
         db_table = "posthog_externaldatasource"
+
+    def save(self, *args, **kwargs):
+        if "job_inputs" not in self.get_deferred_fields():
+            self._derive_integration_link(kwargs)
+        super().save(*args, **kwargs)
+
+    def _derive_integration_link(self, save_kwargs: dict) -> None:
+        derived_id = integration_id_from_job_inputs(self.job_inputs)
+        if derived_id is not None and derived_id != self.integration_id:
+            # job_inputs is user-controlled — never link a dangling or cross-team integration ID.
+            if not Integration.objects.filter(id=derived_id, team_id=self.team_id).exists():
+                derived_id = None
+        if derived_id == self.integration_id:
+            return
+        self.integration_id = derived_id
+        update_fields = save_kwargs.get("update_fields")
+        if update_fields is not None:
+            save_kwargs["update_fields"] = [*update_fields, "integration"]
 
     @property
     def is_direct_query(self) -> bool:
