@@ -197,6 +197,11 @@ class SignalReport(UUIDModel):
         POSTHOG_ONBOARDING = "posthog_onboarding", "PostHog onboarding"
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
+    # Statuses hidden from the default inbox list surface (and from cross-product reads of it):
+    # deleted reports are terminal, suppressed (archived) reports are hidden unless explicitly
+    # requested. Shared so a future terminal status can't diverge the surfaces.
+    INBOX_HIDDEN_STATUSES: tuple[str, ...] = (Status.DELETED, Status.SUPPRESSED)
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
     # System billing exemption: non-null means this report's implementation PRs must never be

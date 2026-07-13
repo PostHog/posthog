@@ -17,6 +17,7 @@ class EvidenceType(StrEnum):
     ALERT = "alert"
     SUBSCRIPTION = "subscription"
     EVENT = "event"
+    SIGNAL_REPORT = "signal_report"
 
 
 class SourceItemKind(StrEnum):
@@ -24,6 +25,8 @@ class SourceItemKind(StrEnum):
     # Background that may explain movements (annotations, deploy markers); never an opportunity on its own.
     CONTEXT = "context"
     HEALTH = "health"
+    # Pre-analyzed findings from PostHog's scout agents (signals inbox); weighed as evidence.
+    SIGNAL = "signal"
 
 
 @dataclass(frozen=True)

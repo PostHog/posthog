@@ -36,6 +36,11 @@ MAX_ITEMS = 50
 
 # Per-source gather caps — safety bounds on query/payload size.
 MAX_ITEMS_PER_DETECTOR = 10
+# Signals-inbox reports fed into briefs as evidence: how many to pull, and the char bounds that
+# keep each SourceItem under the Temporal payload limit.
+SIGNAL_REPORTS_MAX = 20
+SIGNAL_REPORT_TITLE_MAX_CHARS = 200
+SIGNAL_REPORT_SUMMARY_MAX_CHARS = 1000
 # Mirrors posthog.caching.insight_cache.MAX_ATTEMPTS (not imported — that module pulls the celery
 # task graph onto the pulse import path). The point at which the cache updater has given up.
 STUCK_REFRESH_ATTEMPTS = 3

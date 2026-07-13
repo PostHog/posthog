@@ -780,7 +780,9 @@ class SignalReportViewSet(
             return queryset
         if self._include_all_statuses_requested():
             return queryset
-        return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
+        # DELETED is already stripped upstream (_exclude_deleted_signal_reports); excluding the
+        # full hidden set here keeps this surface aligned with INBOX_HIDDEN_STATUSES consumers.
+        return queryset.exclude(status__in=SignalReport.INBOX_HIDDEN_STATUSES)
 
     def _include_all_statuses_requested(self) -> bool:
         # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID

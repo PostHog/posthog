@@ -1,5 +1,5 @@
 import dataclasses
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.conf import settings
 
@@ -15,7 +15,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
-from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.models import SignalReport, SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -170,6 +170,55 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
                 ).update(enabled=False)
     return blocked
+
+
+@dataclasses.dataclass(frozen=True)
+class SignalReportSummary:
+    """Read-only snapshot of an inbox report, for cross-product consumers."""
+
+    id: str
+    title: str
+    summary: str
+    total_weight: float
+    signal_count: int
+
+
+def get_recent_reports(team_id: int, since: datetime, limit: int = 20) -> list[SignalReportSummary]:
+    """Recent inbox-visible reports with authored content, newest first.
+
+    Covers every signal source product (scout, replay-vision, ...). Hidden statuses mirror the
+    inbox list surface. Report content is LLM-authored, so this returns [] when the organization
+    has not approved AI data processing — mirroring emit_signal's gate.
+    """
+    from products.signals.backend.temporal.signal_queries import (
+        fetch_report_ids_for_source_products,  # noqa: PLC0415 — module-level import forms a cycle (signal_queries -> temporal stack -> facade)
+    )
+
+    team = Team.objects.filter(id=team_id).select_related("organization").first()
+    if team is None or not team.organization.is_ai_data_processing_approved:
+        return []
+    report_ids = fetch_report_ids_for_source_products(team, [p.value for p in SignalSourceConfig.SourceProduct])
+    if not report_ids:
+        return []
+    reports = (
+        SignalReport.objects.filter(id__in=report_ids, team_id=team_id, created_at__gte=since)
+        .exclude(status__in=SignalReport.INBOX_HIDDEN_STATUSES)
+        .exclude(title__isnull=True)
+        .exclude(title="")
+        .exclude(summary__isnull=True)
+        .exclude(summary="")
+        .order_by("-created_at")[:limit]
+    )
+    return [
+        SignalReportSummary(
+            id=str(report.id),
+            title=report.title or "",
+            summary=report.summary or "",
+            total_weight=report.total_weight,
+            signal_count=report.signal_count,
+        )
+        for report in reports
+    ]
 
 
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
