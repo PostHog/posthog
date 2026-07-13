@@ -17069,6 +17069,8 @@ export namespace Schemas {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -17828,6 +17830,8 @@ export namespace Schemas {
       TerraApi: 'TerraApi',
       TriggerDev: 'TriggerDev',
       Turso: 'Turso',
+      Singular: 'Singular',
+      Swonkie: 'Swonkie',
       TwelveLabs: 'TwelveLabs',
       Twenty: 'Twenty',
       Unstructured: 'Unstructured',
@@ -18601,6 +18605,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -25056,6 +25062,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -53356,6 +53364,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -54155,6 +54165,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -54946,6 +54958,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
