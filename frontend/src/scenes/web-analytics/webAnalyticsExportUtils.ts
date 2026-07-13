@@ -70,7 +70,7 @@ export function buildCsvFilenames(titles: string[]): string[] {
     })
 }
 
-export function downloadTilesAsCsvZip(sections: TileExportSection[], filename: string): void {
+export function downloadTilesAsCsvZip(sections: TileExportSection[], filename: string): boolean {
     try {
         const populated = sections.filter((section) => section.tableData.length > 0)
         const filenames = buildCsvFilenames(populated.map((section) => section.title))
@@ -80,8 +80,10 @@ export function downloadTilesAsCsvZip(sections: TileExportSection[], filename: s
         })
         const zipped = zipSync(entries)
         downloadFile(new File([zipped as BlobPart], filename, { type: 'application/zip' }))
+        return true
     } catch {
         lemonToast.error('Export failed')
+        return false
     }
 }
 
@@ -142,7 +144,9 @@ export function exportAllTilesAsCsvZip(tiles: WebAnalyticsTile[], filename = 'we
         lemonToast.warning('No data to export yet')
         return false
     }
-    downloadTilesAsCsvZip(sections, filename)
+    if (!downloadTilesAsCsvZip(sections, filename)) {
+        return false
+    }
     if (anyTileStillLoading(tiles)) {
         lemonToast.warning('Some tiles are still loading, so this export may be incomplete')
     }
