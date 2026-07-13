@@ -641,7 +641,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_in_period": 44,
-                    "mcp_tool_calls_count_in_period": 0,
                     "enhanced_persons_event_count_in_period": 43,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
@@ -719,7 +718,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "teams": {
                         str(self.org_1_team_1.id): {
                             "event_count_in_period": 33,
-                            "mcp_tool_calls_count_in_period": 0,
                             "enhanced_persons_event_count_in_period": 32,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
@@ -791,7 +789,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
-                            "mcp_tool_calls_count_in_period": 0,
                             "enhanced_persons_event_count_in_period": 11,
                             "event_count_with_groups_in_period": 0,
                             "event_count_from_keywords_ai_in_period": 0,
@@ -886,7 +883,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_in_period": 10,
-                    "mcp_tool_calls_count_in_period": 0,
                     "enhanced_persons_event_count_in_period": 10,
                     "event_count_with_groups_in_period": 0,
                     "event_count_from_keywords_ai_in_period": 0,
@@ -964,7 +960,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "teams": {
                         str(self.org_2_team_3.id): {
                             "event_count_in_period": 10,
-                            "mcp_tool_calls_count_in_period": 0,
                             "enhanced_persons_event_count_in_period": 10,
                             "event_count_with_groups_in_period": 0,
                             "event_count_from_keywords_ai_in_period": 0,
@@ -1431,8 +1426,6 @@ class TestQueryUsageReportSQL:
         assert "event LIKE 'helicone%%'" in main_query
         assert "event LIKE 'traceloop%%'" in main_query
         assert "OR lib_expr IN (" in main_query
-        assert "event = '$mcp_tool_call'" in main_query
-        assert "uniqExactIf(" in main_query
         assert "'posthog-node'" in main_query
         assert "'posthog-node-mcp'" in main_query
         assert "'posthog-rs'" in main_query
@@ -5400,7 +5393,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Should still be 15 since we created 15 distinct billable events (excluding AI events)
         self.assertEqual(result_distinct[0][1], 15)
 
-    def test_mcp_tool_calls_are_reported_and_remain_billable_events(self) -> None:
+    def test_mcp_sdk_events_are_reported_and_remain_billable_events(self) -> None:
         from posthog.tasks.usage_report import (
             get_all_event_metrics_in_period,
             get_teams_with_billable_event_count_in_period,
@@ -5424,7 +5417,6 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 2)])
-        self.assertEqual(event_metrics["mcp_tool_calls"], [(self.team.id, 2)])
         self.assertEqual(dict(event_metrics["mcp_events"]).get(self.team.id), 2)
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(
