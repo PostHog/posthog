@@ -15602,6 +15602,92 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * Normalized envelope returned by the metric-run endpoint.
+     */
+    export interface DataCatalogMetricRun {
+      /** Lifecycle state of the metric that produced these results. */
+      status: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). Only status 'approved' with is_drifted false is canonical. */
+      is_drifted: boolean;
+      /**
+         * Unit of the result, e.g. usd, percent.
+         * @nullable
+         */
+      unit: string | null;
+      /**
+         * Query kind that was executed.
+         * @nullable
+         */
+      kind: string | null;
+      /** The query results, for an executable metric. Null for a markdown metric. */
+      results: unknown;
+      /**
+         * The compiled HogQL, when available.
+         * @nullable
+         */
+      compiled_query: string | null;
+      /** Async query status, when the run is not blocking. */
+      query_status: unknown;
+      /**
+         * Deep link to open the query in the app (SQL editor or insight).
+         * @nullable
+         */
+      posthog_url: string | null;
+      /**
+         * For a markdown (agent-calculated) metric, the steps to follow to compute it. Null for an executable metric.
+         * @nullable
+         */
+      instructions: string | null;
+    }
+
+    /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type DataCatalogMetricRunRequestIntervalEnum = typeof DataCatalogMetricRunRequestIntervalEnum[keyof typeof DataCatalogMetricRunRequestIntervalEnum];
+
+
+    export const DataCatalogMetricRunRequestIntervalEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    /**
+     * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
+     */
+    export interface DataCatalogMetricRunRequest {
+      /** Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL. */
+      date_from?: string;
+      /** Override the end of the query window. */
+      date_to?: string;
+      /** Override the bucket interval. Rejected for HogQLQuery metrics.
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `hour` - hour
+       * * `day` - day
+       * * `week` - week
+       * * `month` - month
+       * * `quarter` - quarter
+       * * `year` - year */
+      interval?: DataCatalogMetricRunRequestIntervalEnum;
+      /** Client-supplied id to correlate or cancel the run. */
+      query_id?: string;
+    }
+
     export interface DataColorTheme {
       readonly id: number;
       /** @maxLength 100 */
@@ -67922,6 +68008,33 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type DataCatalogMetricsRunCreateParams = {
+    /**
+     * Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.
+     *
+     * * `blocking` - blocking
+     * * `async` - async
+     * * `lazy_async` - lazy_async
+     * * `force_blocking` - force_blocking
+     * * `force_async` - force_async
+     * * `force_cache` - force_cache
+     * @minLength 1
+     */
+    refresh?: DataCatalogMetricsRunCreateRefresh;
+    };
+
+    export type DataCatalogMetricsRunCreateRefresh = typeof DataCatalogMetricsRunCreateRefresh[keyof typeof DataCatalogMetricsRunCreateRefresh];
+
+
+    export const DataCatalogMetricsRunCreateRefresh = {
+      Blocking: 'blocking',
+      Async: 'async',
+      LazyAsync: 'lazy_async',
+      ForceBlocking: 'force_blocking',
+      ForceAsync: 'force_async',
+      ForceCache: 'force_cache',
+    } as const;
 
     export type DataColorThemesListParams = {
     /**
