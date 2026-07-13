@@ -12961,18 +12961,59 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Cannot provide both distinct_id and person_id", response.json()["detail"])
 
-    def test_test_evaluation_person_not_found(self):
-        """Test 404 when person doesn't exist."""
+    def test_test_evaluation_person_id_not_found(self):
+        """A person_id we can't resolve still 404s — there's no distinct_id to bucket on."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
 
+        missing_person_id = "00000000-0000-0000-0000-000000000000"
         response = self.client.post(
             f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-            {"distinct_id": "nonexistent-user"},
+            {"person_id": missing_person_id},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
+        self.assertEqual(response.json()["detail"], f"Person not found for person_id: {missing_person_id}")
+
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_distinct_id_without_person(self, mock_get_person, mock_get_flags):
+        """A synthetic distinct_id with no person (server-to-server / webhook automation,
+        groups-only) must still evaluate instead of 404ing — bucketing on the given
+        distinct_id with empty person properties."""
+        flag = FeatureFlag.objects.create(team=self.team, key="org-flag")
+
+        # No person resolves for this distinct_id.
+        mock_get_person.return_value = (None, [])
+
+        mock_get_flags.return_value = {
+            "flags": {
+                "org-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {"payload": None},
+                    "conditions": [],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "webhook-synthetic-id", "groups": {"organization": "org_123"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["result"], True)
+        # Bucketing uses the provided distinct_id and it is echoed back.
+        self.assertEqual(mock_get_flags.call_args.kwargs["distinct_id"], "webhook-synthetic-id")
+        self.assertEqual(mock_get_flags.call_args.kwargs["groups"], {"organization": "org_123"})
+        self.assertEqual(data["evaluation_distinct_id"], "webhook-synthetic-id")
+        # No person → empty person properties passed to the evaluation service.
+        self.assertEqual(mock_get_flags.call_args.kwargs["person_properties"], {})
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="")
