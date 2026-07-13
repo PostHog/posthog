@@ -73,7 +73,7 @@ In each response, find the entry where `activity == "deleted"`. That entry's `cr
 - **UI / ORM deletes** rename the key to free up the unique constraint and log the full change set — `detail.changes` carries `{field: "key", before: "<original>", after: "<original>:deleted:<id>"}` alongside `deleted` and `version` entries. Here `detail.changes` does give you the original key.
 - **API / MCP / programmatic deletes** often log `changes: []`, or only `deleted` + `version` with **no `key` entry** — and may or may not rename the key. On this path `detail.changes` dead-ends.
 
-The robust recovery that works on every path: read the activity event's top-level `detail.name`, which holds the un-renamed key, **or** strip the `:deleted:<flag_id>` suffix from the SQL `key` you got in step 2. Treat `detail.changes` as a bonus when present, not the source of truth.
+The robust recovery that works on every path: strip the `:deleted:<flag_id>` suffix from the key. You can read it from either the activity event's top-level `detail.name` or the SQL `key` from step 2 — they're the same current value, since `detail.name` is set from the flag's post-save key, not the pre-rename one. Treat `detail.changes`'s `before` value as a bonus cross-check when present, not the source of truth.
 
 For most flags there's exactly one delete event. If a flag has been deleted-and-restored multiple times, take the most recent `activity: deleted` event within the window.
 
@@ -89,7 +89,7 @@ State your methodology in the report (how many candidates you walked vs. how man
 
 - **Borderline cases**: if a deletion is within ~1 hour of the window cutoff, surface it as borderline rather than silently dropping it.
 - **Don't trust `created_at` as a proxy for deletion time**: a flag created in 2024 can still have been deleted last week. The activity log is the only authority.
-- **Renamed keys are normal**: a flag with key `foo:deleted:12345` was the flag originally keyed `foo`. Recover the original by reading the activity event's top-level `detail.name`, or by stripping the `:deleted:<flag_id>` suffix from the SQL `key` — surface that to the user, not the renamed form. Don't rely on `detail.changes` for this: it holds the `key` change only on the UI / ORM delete path, and is frequently empty (or missing the `key` entry) on API / MCP / programmatic deletes.
+- **Renamed keys are normal**: a flag with key `foo:deleted:12345` was the flag originally keyed `foo`. Recover the original by stripping the `:deleted:<flag_id>` suffix from the key — whether you read it from the SQL `key` in step 2 or `detail.name` in the activity log, it's the same current value — and surface that to the user, not the renamed form. Don't rely on `detail.changes` for this: it holds the `key` change only on the UI / ORM delete path, and is frequently empty (or missing the `key` entry) on API / MCP / programmatic deletes.
 - **Walking all candidates is possible but slow**: ~100 parallel activity-log calls is doable. Offer it as a follow-up rather than the default for short windows.
 
 ## Example interaction
