@@ -7,11 +7,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
+import { InsightDateFilterComposer } from 'scenes/insights/filters/InsightDateFilter/InsightDateFilterComposer'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -69,6 +71,8 @@ export function InsightDisplayConfig(): JSX.Element {
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
 
     const { items: advancedOptions, count: advancedOptionsCount } = useInsightDisplayOptions()
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useQuillDateComposer = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_COMPOSER]
 
     return (
         <div
@@ -78,7 +82,11 @@ export function InsightDisplayConfig(): JSX.Element {
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
                 {!isRetention && (
                     <ConfigFilter>
-                        <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
+                        {useQuillDateComposer ? (
+                            <InsightDateFilterComposer disabled={isFunnels && !!isEmptyFunnel} />
+                        ) : (
+                            <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
+                        )}
                     </ConfigFilter>
                 )}
 
