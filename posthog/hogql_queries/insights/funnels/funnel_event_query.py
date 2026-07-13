@@ -13,6 +13,7 @@ from posthog.schema import (
     FunnelExclusionEventsNode,
     FunnelMathType,
     FunnelsDataWarehouseNode,
+    FunnelVizType,
     GroupNode,
     StepOrderValue,
 )
@@ -205,6 +206,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         where_exprs = [
             self._date_range_expr(),
+            self._day_of_week_filter_expr(ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
             self._entity_expr(skip_entity_filter),
             *self._properties_expr(),
             self._aggregation_target_filter(),
@@ -273,6 +275,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 right=ast.Constant(value=date_range.date_to()),
             ),
         ]
+        day_of_week_filter = self._day_of_week_filter_expr(ast.Field(chain=["timestamp"]))
+        if day_of_week_filter is not None:
+            where_exprs.append(day_of_week_filter)
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
         if not skip_step_filter:
@@ -635,6 +640,14 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 ),
             ]
         )
+
+    def _day_of_week_filter_expr(self, timestamp_field: ast.Expr) -> ast.Expr | None:
+        # daysOfWeek only applies to the funnel trends visualization. Regular funnels and
+        # time-to-convert are untouched: dropping mid-sequence events has ambiguous semantics
+        # there, which needs a product decision first.
+        if self.context.funnelsFilter.funnelVizType != FunnelVizType.TRENDS:
+            return None
+        return self._date_range().day_of_week_filter_expr(timestamp_field)
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
