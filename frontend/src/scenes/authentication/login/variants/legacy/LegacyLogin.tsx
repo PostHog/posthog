@@ -34,8 +34,7 @@ import { SessionRiskBanner } from '../../SessionRiskBanner'
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
 function Login(): JSX.Element {
-    const { precheck, resendCodeBasedVerification, exitCodeVerification, resetLogin, devLogin, loadDevUsers } =
-        useActions(loginLogic)
+    const { precheck, resendEmailMFA, clearGeneralError, resetLogin, devLogin, loadDevUsers } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -45,8 +44,6 @@ function Login(): JSX.Element {
         generalError,
         signupUrl,
         resendResponseLoading,
-        codeVerificationRequired,
-        isCodeVerificationSubmitting,
         devUsers,
         devUsersLoading,
         devLoginTimeSavedLabel,
@@ -63,8 +60,8 @@ function Login(): JSX.Element {
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const preventPasswordError = useRef(false)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
-    const isCodeSent = codeVerificationRequired
-    const loginTitle = isCodeSent ? 'Enter your login code' : 'Log in'
+    const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
+    const loginTitle = isEmailVerificationSent ? 'Check your email' : 'Log in'
     const wasPasswordHiddenRef = useRef(isPasswordHidden)
 
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
@@ -99,7 +96,7 @@ function Login(): JSX.Element {
                 <h2>{loginTitle}</h2>
                 <SessionRiskBanner />
                 {generalError && (
-                    <LemonBanner type={generalError.code === 'code_based_verification_sent' ? 'warning' : 'error'}>
+                    <LemonBanner type={generalError.code === 'email_verification_sent' ? 'warning' : 'error'}>
                         <>
                             {generalError.detail || ERROR_MESSAGES[generalError.code] || (
                                 <>
@@ -130,51 +127,24 @@ function Login(): JSX.Element {
                     </LemonBanner>
                 )}
                 {generalError?.code === 'invalid_credentials' && <OtherRegionHint />}
-                {isCodeSent ? (
-                    <Form
-                        logic={loginLogic}
-                        formKey="codeVerification"
-                        enableFormOnSubmit
-                        className="deprecated-space-y-4"
-                    >
-                        <LemonField name="code" label="Verification code">
-                            <LemonInput
-                                className="ph-ignore-input"
-                                autoFocus
-                                data-attr="code-verification"
-                                placeholder="123456"
-                                inputMode="numeric"
-                                autoComplete="one-time-code"
-                            />
-                        </LemonField>
-                        <LemonButton
-                            type="primary"
-                            status="alt"
-                            htmlType="submit"
-                            data-attr="code-verification-submit"
-                            fullWidth
-                            center
-                            size="large"
-                            loading={isCodeVerificationSubmitting}
-                        >
-                            Verify and log in
-                        </LemonButton>
+                {isEmailVerificationSent ? (
+                    <div className="deprecated-space-y-4">
                         <div className="flex justify-center">
                             <LemonButton
                                 type="tertiary"
                                 size="small"
                                 loading={resendResponseLoading}
-                                onClick={() => resendCodeBasedVerification(null)}
+                                onClick={() => resendEmailMFA(null)}
                             >
-                                Resend code
+                                Resend verification email
                             </LemonButton>
                         </div>
                         <div className="text-center">
-                            <Link onClick={() => exitCodeVerification()} className="text-muted">
+                            <Link onClick={() => clearGeneralError()} className="text-muted">
                                 Back to login
                             </Link>
                         </div>
-                    </Form>
+                    </div>
                 ) : (
                     <Form
                         logic={loginLogic}
@@ -278,7 +248,7 @@ function Login(): JSX.Element {
                         )}
                     </Form>
                 )}
-                {!isCodeSent && preflight?.cloud && (
+                {!isEmailVerificationSent && preflight?.cloud && (
                     <div className="text-center mt-4">
                         Don't have an account?{' '}
                         <Link to={[signupUrl, { email: login.email }]} data-attr="signup" className="font-bold">
@@ -286,7 +256,7 @@ function Login(): JSX.Element {
                         </Link>
                     </div>
                 )}
-                {!isCodeSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
                     <SocialLoginButtons
                         caption="Or log in with"
                         topDivider

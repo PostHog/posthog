@@ -51,10 +51,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.two_factor_session import (
-    CODE_MAX_ATTEMPTS,
-    LOGIN_CODE_VERIFICATION_COUNTER,
+    _obfuscate_token,
     clear_two_factor_session_flags,
-    code_based_verifier,
+    email_mfa_token_generator,
+    email_mfa_verifier,
     has_passkeys,
     set_two_factor_verified_in_session,
 )
@@ -63,12 +63,7 @@ from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
-from posthog.rate_limit import (
-    CodeBasedVerificationResendThrottle,
-    CodeBasedVerificationThrottle,
-    TwoFactorThrottle,
-    UserPasswordResetThrottle,
-)
+from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, TwoFactorThrottle, UserPasswordResetThrottle
 from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import (
     login_from_new_device_notification,
@@ -161,10 +156,10 @@ class TwoFactorRequired(APIException):
     default_code = "2fa_required"
 
 
-class CodeBasedVerificationRequired(APIException):
+class EmailMFARequired(APIException):
     status_code = 401
-    default_detail = "Code-based verification is required."
-    default_code = "code_based_verification_required"
+    default_detail = "Email MFA is required."
+    default_code = "email_mfa_required"
 
     def __init__(self, email: str | None = None):
         detail = email if email else self.default_detail
@@ -230,12 +225,12 @@ class LoginSerializer(serializers.Serializer):
         user_has_passkeys = has_passkeys(user)
         passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
-        # If user has neither TOTP nor passkeys enabled for 2FA, check for code-based verification remember cookie
+        # If user has neither TOTP nor passkeys enabled for 2FA, check for email MFA remember cookie
         if not device and not passkeys_enabled_for_2fa:
             for key, value in self.context["request"].COOKIES.items():
                 if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
                     try:
-                        if validate_remember_device_cookie(value, user=user, otp_device_id="code_based_verification"):
+                        if validate_remember_device_cookie(value, user=user, otp_device_id="email_mfa"):
                             return False
                     except BadSignature:
                         pass
@@ -264,7 +259,7 @@ class LoginSerializer(serializers.Serializer):
                     except BadSignature:
                         pass
 
-        # No device and no passkeys enabled for 2FA - should have been handled above, but fallback to code-based verification
+        # No device and no passkeys enabled for 2FA - should have been handled above, but fallback to email MFA
         return True
 
     def create(self, validated_data: dict[str, str]) -> Any:
@@ -343,18 +338,18 @@ class LoginSerializer(serializers.Serializer):
                 # TOTP or passkey flow
                 raise TwoFactorRequired()
             else:
-                # Code-based verification - skip if this is a reauth (user already authenticated)
+                # Email MFA flow - skip if this is a reauth (user already authenticated)
                 if not was_authenticated_before_login_attempt:
-                    code_based_verification_sent = code_based_verifier.create_and_send_code_based_verification(
-                        request, user
+                    email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(
+                        request, user, next_url
                     )
-                    if code_based_verification_sent:
+                    if email_mfa_sent:
                         # Increment the resend throttle counter so the initial send counts towards the limit
-                        resend_throttle = CodeBasedVerificationResendThrottle()
+                        resend_throttle = EmailMFAResendThrottle()
                         resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
-                        raise CodeBasedVerificationRequired(user.email)
+                        raise EmailMFARequired(user.email)
                     else:
-                        # if we failed to send the email, we should fall through to allow login without code-based verification
+                        # if we failed to send the email, we should fall through to allow login without MFA
                         pass
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -807,74 +802,54 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         return Response(json.loads(options_to_json(options)))
 
 
-class CodeBasedVerificationSerializer(serializers.Serializer):
-    code = serializers.CharField(help_text="The 6-digit verification code emailed to the user.")
-    email = serializers.EmailField(
-        required=False,
-        help_text="Email the code was sent to. Informational; the pending login session identifies the user.",
-    )
+class EmailMFASerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    token = serializers.CharField()
 
 
-class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
-    """Verify the emailed login code against the pending login session and complete login."""
+class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    """Handle email MFA link verification"""
 
-    serializer_class = CodeBasedVerificationSerializer
+    serializer_class = EmailMFASerializer
     queryset = User.objects.none()
     permission_classes = (permissions.AllowAny,)
-    throttle_classes = [CodeBasedVerificationThrottle]
+    throttle_classes = [EmailMFAThrottle]
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Verify the 6-digit code against the pending login session and log the user in."""
-        invalid_error = serializers.ValidationError(
-            {"code": ["This code is invalid or has expired."]}, code="invalid_code"
+        """Verify email MFA token from link and log user in"""
+        email = request.data.get("email")
+        token = request.data.get("token")
+        validation_error = serializers.ValidationError(
+            {"token": ["This verification link is invalid or has expired."]}, code="invalid_token"
         )
 
-        if not code_based_verifier.has_pending_code_based_verification(request):
-            raise serializers.ValidationError(
-                {"detail": "No pending verification. Please log in again."},
-                code="no_pending_verification",
-            )
+        mfa_logger.info("Email MFA verification attempt", token=_obfuscate_token(token))
 
-        # Reserve this attempt atomically before doing anything else, so concurrent guesses can't all
-        # observe the same count and exceed the cap. `attempts` includes the current attempt.
-        attempts = code_based_verifier.reserve_attempt(request)
-        if attempts > CODE_MAX_ATTEMPTS:
-            mfa_logger.warning(
-                "Code-based verification locked out",
-                user_id=code_based_verifier.get_pending_code_based_verification_user_id(request),
-                attempts=attempts,
-            )
-            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="locked_out").inc()
-            code_based_verifier.clear_pending(request)
-            raise serializers.ValidationError(
-                {"detail": "Too many incorrect attempts. Please log in again."},
-                code="too_many_attempts",
-            )
-
-        code = request.data.get("code")
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         try:
-            user = User.objects.get(pk=user_id, is_active=True)
+            user = User.objects.filter(is_active=True, email=email).get()
         except User.DoesNotExist:
-            code_based_verifier.clear_pending(request)
-            raise invalid_error
+            mfa_logger.warning(
+                "Email MFA verification failed: user not found or inactive",
+                token=_obfuscate_token(token),
+            )
+            raise validation_error
 
-        if not code or not code_based_verifier.check_code(request, user, code):
-            mfa_logger.warning("Code-based verification attempt failed", user_id=user.pk, attempt=attempts)
-            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="invalid").inc()
-            raise invalid_error
+        if not email_mfa_token_generator.check_token(user, token):
+            raise validation_error
 
-        # Code valid - invalidate the pending state and complete login.
-        code_based_verifier.clear_pending(request)
+        # Token valid - complete login
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(request)
         report_user_logged_in(user, social_provider="")
-        mfa_logger.info("Code-based verification successful", user_id=user.pk)
-        LOGIN_CODE_VERIFICATION_COUNTER.labels(result="success").inc()
+        mfa_logger.info(
+            "Email MFA login successful",
+            user_id=user.pk,
+            token=_obfuscate_token(token),
+        )
 
         # Always set remember device cookie (30 days), same as TOTP 2FA
         cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-        cookie_value = get_remember_device_cookie(user=user, otp_device_id="code_based_verification")
+        cookie_value = get_remember_device_cookie(user=user, otp_device_id="email_mfa")
         response = Response({"success": True})
         response.set_cookie(
             cookie_key,
@@ -897,26 +872,28 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
 
         return response
 
-    @action(detail=False, methods=["post"], throttle_classes=[CodeBasedVerificationResendThrottle])
+    @action(detail=False, methods=["post"], throttle_classes=[EmailMFAResendThrottle])
     def resend(self, request: Request) -> Response:
-        """Resend a fresh verification code, invalidating the previous one."""
-        if not code_based_verifier.has_pending_code_based_verification(request):
+        """Resend email MFA link"""
+        if not email_mfa_verifier.has_pending_email_mfa_verification(request):
             raise serializers.ValidationError(
-                {"detail": "No pending verification found."}, code="no_pending_verification"
+                {"detail": "No pending email MFA verification found."}, code="no_pending_verification"
             )
 
         try:
-            user = User.objects.get(pk=code_based_verifier.get_pending_code_based_verification_user_id(request))
+            user = User.objects.get(pk=email_mfa_verifier.get_pending_email_mfa_verification_user_id(request))
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
-        if not code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=True):
+        email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(
+            request, user, request.session.get("email_mfa_next")
+        )
+        if not email_mfa_sent:
             raise serializers.ValidationError(
-                {"detail": "Could not send verification code."},
-                code="code_based_verification_email_failed",
+                {"detail": "Could not send email MFA verification email."}, code="email_mfa_verification_email_failed"
             )
 
-        return Response({"success": True, "message": "Verification code sent"})
+        return Response({"success": True, "message": "Verification email sent"})
 
 
 class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):

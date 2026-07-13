@@ -76,10 +76,6 @@ export interface TwoFactorForm {
     token: number | null
 }
 
-export interface CodeVerificationForm {
-    code: string
-}
-
 export const loginLogic = kea<loginLogicType>([
     path(['scenes', 'authentication', 'login', 'loginLogic']),
     connect(() => ({
@@ -96,8 +92,6 @@ export const loginLogic = kea<loginLogicType>([
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
-        setCodeVerificationRequired: true,
-        exitCodeVerification: true,
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -106,16 +100,6 @@ export const loginLogic = kea<loginLogicType>([
             {
                 setGeneralError: (_, error) => error,
                 clearGeneralError: () => null,
-                exitCodeVerification: () => null,
-            },
-        ],
-        // Whether login is waiting on the emailed 6-digit code. Kept separate from `generalError` so a
-        // wrong-code error can be surfaced without dropping the user back to the password form.
-        codeVerificationRequired: [
-            false,
-            {
-                setCodeVerificationRequired: () => true,
-                exitCodeVerification: () => false,
             },
         ],
     }),
@@ -151,10 +135,10 @@ export const loginLogic = kea<loginLogicType>([
         resendResponse: [
             null as { success: boolean; message: string } | null,
             {
-                resendCodeBasedVerification: async (_, breakpoint) => {
+                resendEmailMFA: async (_, breakpoint) => {
                     breakpoint()
                     try {
-                        const response = await api.create<any>('api/login/code-based-verification/resend')
+                        const response = await api.create<any>('api/login/email-mfa/resend')
                         lemonToast.success('Verification email resent')
                         return response
                     } catch (e) {
@@ -183,7 +167,7 @@ export const loginLogic = kea<loginLogicType>([
             (searchParams: Record<string, string>): boolean => searchParams['reason'] === 'session_risk',
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         login: {
             defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
@@ -214,12 +198,12 @@ export const loginLogic = kea<loginLogicType>([
                         }
                         throw e
                     }
-                    if (code === 'code_based_verification_required') {
+                    if (code === 'email_mfa_required') {
                         const emailAddress = detail?.email || email
-                        actions.setCodeVerificationRequired()
                         actions.setGeneralError(
-                            'code_based_verification_sent',
-                            `For your security, we've emailed a 6-digit verification code to ${emailAddress}. Enter it below to finish logging in.`
+                            'email_verification_sent',
+                            `For your security, we've sent a verification link to ${emailAddress}. Please check your inbox and click the link to complete
+  your login.`
                         )
                         throw e
                     }
@@ -228,42 +212,12 @@ export const loginLogic = kea<loginLogicType>([
                 }
             },
         },
-        codeVerification: {
-            defaults: { code: '' } as CodeVerificationForm,
-            errors: ({ code }) => ({
-                code: !code ? 'Please enter the code from your email' : undefined,
-            }),
-            submit: async ({ code }, breakpoint) => {
-                breakpoint()
-                actions.clearGeneralError()
-                try {
-                    return await api.create<any>('api/login/code-based-verification', {
-                        code,
-                        email: values.login.email,
-                    })
-                } catch (e) {
-                    const { detail } = e as Record<string, any>
-                    const message =
-                        typeof detail === 'string' ? detail : 'That code is invalid or has expired. Please try again.'
-                    actions.setGeneralError('invalid_code', message)
-                    throw e
-                }
-            },
-        },
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ values }) => ({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
-        },
-        submitCodeVerificationSuccess: () => {
-            handleLoginRedirect()
-            // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
-            window.location.reload()
-        },
-        exitCodeVerification: () => {
-            actions.resetCodeVerification()
         },
         precheckSuccess: async (_, breakpoint) => {
             const { precheckResponse } = values
