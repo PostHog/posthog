@@ -2681,7 +2681,7 @@ class BulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
-class BulkUpdateStatusRequestSerializer(serializers.Serializer):
+class FeatureFlagBulkUpdateStatusRequestSerializer(serializers.Serializer):
     active = serializers.BooleanField(
         help_text=(
             "Target enabled state to apply to every matched flag. `true` enables the flag "
@@ -2702,20 +2702,20 @@ class BulkUpdateStatusRequestSerializer(serializers.Serializer):
     )
 
 
-class BulkUpdateStatusUpdatedItemSerializer(serializers.Serializer):
+class FeatureFlagBulkUpdateStatusUpdatedItemSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="ID of the flag whose enabled state changed.")
     key = serializers.CharField(help_text="The flag key.")
     active = serializers.BooleanField(help_text="The flag's enabled state after the update.")
 
 
-class BulkUpdateStatusResponseSerializer(serializers.Serializer):
+class FeatureFlagBulkUpdateStatusResponseSerializer(serializers.Serializer):
     """
     Schema-only — see ``BulkDeleteResponseSerializer`` for why the declared ``errors`` field must
     never be validated against. The handler builds the response dict directly; this exists only so
     drf-spectacular can render the response in the OpenAPI spec.
     """
 
-    updated = BulkUpdateStatusUpdatedItemSerializer(
+    updated = FeatureFlagBulkUpdateStatusUpdatedItemSerializer(
         many=True, help_text="Flags whose enabled state was changed. Flags already in the target state are omitted."
     )
     # Explicit ListSerializer avoids the many=True descriptor magic that confuses type checkers.
@@ -3574,9 +3574,9 @@ class FeatureFlagViewSet(
         )
 
     @extend_schema(
-        request=BulkUpdateStatusRequestSerializer,
+        request=FeatureFlagBulkUpdateStatusRequestSerializer,
         responses={
-            200: OpenApiResponse(response=BulkUpdateStatusResponseSerializer),
+            200: OpenApiResponse(response=FeatureFlagBulkUpdateStatusResponseSerializer),
             400: OpenApiResponse(
                 response=ErrorResponseSerializer,
                 description="Invalid input — e.g., `active` missing/not a boolean, both filters and ids supplied, neither supplied, or unknown filter keys.",

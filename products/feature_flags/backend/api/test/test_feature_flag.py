@@ -12492,6 +12492,7 @@ class TestFeatureFlagBulkUpdateStatus(APIBaseTest):
         assert {int(log.item_id) for log in logs if log.item_id is not None} == flag_ids
         for log in logs:
             assert log.user == self.user
+            assert log.detail is not None
             changes = log.detail.get("changes") or []
             assert len(changes) == 1
             assert changes[0]["field"] == "active"
