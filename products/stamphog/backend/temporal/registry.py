@@ -10,7 +10,6 @@ from products.stamphog.backend.temporal.activities import (
     fetch_review_context,
     mark_review_failed,
     post_verdict,
-    run_gates_activity,
     run_review_in_sandbox,
 )
 from products.stamphog.backend.temporal.workflow import StamphogReviewWorkflow
@@ -19,7 +18,6 @@ WORKFLOWS = [StamphogReviewWorkflow]
 
 ACTIVITIES = [
     fetch_review_context,
-    run_gates_activity,
     run_review_in_sandbox,
     post_verdict,
     mark_review_failed,

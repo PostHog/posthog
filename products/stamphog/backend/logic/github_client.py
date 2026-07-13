@@ -237,6 +237,50 @@ class StamphogGitHubClient:
                 break
         return files
 
+    def get_author_merged_pr_numbers(self, repo: str, author: str, *, max_results: int = 1000) -> list[int]:
+        """Return the author's merged-PR numbers in this repo (best-effort).
+
+        Feeds the sandbox's git-blame familiarity signal, which the Action normally
+        derives from its own ``gh pr list`` call — impossible in the tokenless
+        sandbox, so the server (which holds the token) fetches it and injects it
+        into the review context. Best-effort like the Action's path: any failure
+        returns what was collected so far, and an empty result simply leaves the
+        familiarity signal absent (a one-way ratchet, never a stricter verdict).
+        """
+        query = f"repo:{repo} type:pr is:merged author:{author}"
+        numbers: list[int] = []
+        pages = max(1, max_results // _PER_PAGE)
+        for page in range(1, pages + 1):
+            try:
+                response = self._request(
+                    "GET",
+                    "/search/issues",
+                    endpoint="/search/issues",
+                    params={"q": query, "per_page": _PER_PAGE, "page": page},
+                )
+            except Exception:
+                logger.warning("stamphog_github_author_prs_request_failed", repo=repo, author=author, exc_info=True)
+                break
+            if response.status_code != 200:
+                logger.warning(
+                    "stamphog_github_author_prs_http_error",
+                    repo=repo,
+                    author=author,
+                    status_code=response.status_code,
+                )
+                break
+            data = self._json(response, "/search/issues")
+            items = data.get("items") if isinstance(data, dict) else None
+            if not isinstance(items, list):
+                break
+            for item in items:
+                number = item.get("number") if isinstance(item, dict) else None
+                if isinstance(number, int) and not isinstance(number, bool):
+                    numbers.append(number)
+            if len(items) < _PER_PAGE:
+                break
+        return numbers
+
     def get_default_branch_file(self, repo: str, path: str) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.
 

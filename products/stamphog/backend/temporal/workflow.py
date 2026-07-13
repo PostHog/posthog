@@ -1,7 +1,9 @@
 """Stamphog review workflow.
 
-Orchestrates a single PR review: fetch context -> gate -> (if it clears) run the reviewer
-in a sandbox -> post the verdict. Any unrecoverable error marks the ``ReviewRun`` FAILED.
+Orchestrates a single PR review: fetch context -> run the whole engine (gates, tier,
+familiarity, LLM review) offline in a sandbox -> post the verdict. Gate blocks are now
+determined inside the sandbox and surfaced through the verdict output, so there is no
+separate server-side gate step. Any unrecoverable error marks the ``ReviewRun`` FAILED.
 The workflow only ever moves ``StamphogReviewInput`` (two small fields) between activities;
 all bulky data lives on ``ReviewRun.output`` in Postgres.
 """
@@ -18,7 +20,6 @@ from products.stamphog.backend.temporal.constants import (
     FETCH_CONTEXT_TIMEOUT,
     MARK_FAILED_TIMEOUT,
     POST_VERDICT_TIMEOUT,
-    RUN_GATES_TIMEOUT,
     RUN_REVIEW_TIMEOUT,
     SANDBOX_RETRY_POLICY,
 )
@@ -30,7 +31,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
         fetch_review_context,
         mark_review_failed,
         post_verdict,
-        run_gates_activity,
         run_review_in_sandbox,
     )
 
@@ -48,15 +48,6 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
-
-            gate = await workflow.execute_activity(
-                run_gates_activity,
-                input,
-                start_to_close_timeout=RUN_GATES_TIMEOUT,
-                retry_policy=ACTIVITY_RETRY_POLICY,
-            )
-            if not gate["passed"]:
-                return {"status": "completed", "gated": True}
 
             await workflow.execute_activity(
                 run_review_in_sandbox,
