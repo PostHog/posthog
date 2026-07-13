@@ -55,6 +55,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
+    TrendsQueryResponse,
 )
 
 from posthog.hogql import ast
@@ -525,6 +526,150 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(expected_days, response.results[0]["days"])
         self.assertEqual(expected_data, response.results[0]["data"])
+
+    def _run_days_of_week_query(
+        self, interval: IntervalType, days_of_week: list[int], date_from: str, date_to: str
+    ) -> TrendsQueryResponse:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from=date_from, date_to=date_to, daysOfWeek=days_of_week),
+            interval=interval,
+        )
+        return TrendsQueryRunner(team=self.team, query=query).calculate()
+
+    def test_days_of_week_filters_events_and_day_buckets(self):
+        # 2020-01-06 is a Monday
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-06T12:00:00Z",  # Monday
+                                "2020-01-07T12:00:00Z",  # Tuesday
+                                "2020-01-11T12:00:00Z",  # Saturday
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_days_of_week_query(IntervalType.DAY, [1, 2], "2020-01-06", "2020-01-12")
+
+        self.assertEqual(["2020-01-06", "2020-01-07"], response.results[0]["days"])
+        self.assertEqual([1, 1], response.results[0]["data"])
+        self.assertEqual(2, response.results[0]["count"])
+
+    def test_days_of_week_restricts_events_within_longer_buckets(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",  # Saturday
+                                "2020-01-12T12:00:00Z",  # Sunday
+                                "2020-01-15T12:00:00Z",  # Wednesday
+                                "2020-02-08T12:00:00Z",  # Saturday
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_days_of_week_query(IntervalType.MONTH, [6, 7], "2020-01-01", "2020-02-29")
+
+        self.assertEqual(["2020-01-01", "2020-02-01"], response.results[0]["days"])
+        self.assertEqual([2, 1], response.results[0]["data"])
+
+    def test_days_of_week_uses_project_timezone(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        # 06:00 UTC Sunday = 22:00 Saturday in US/Pacific
+                        Series(event="$pageview", timestamps=["2020-01-12T06:00:00Z"]),
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_days_of_week_query(IntervalType.DAY, [6], "2020-01-06", "2020-01-12")
+
+        self.assertEqual(1, response.results[0]["count"])
+        self.assertEqual(["2020-01-11"], response.results[0]["days"])
+
+    def test_days_of_week_wau_counts_only_monday_events(self):
+        # p1 fires on Mon Jan 13 and Tue Jan 14 — only the Monday event counts with daysOfWeek=[1]
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",  # Monday — counted in WAU
+                                "2020-01-14T12:00:00Z",  # Tuesday — filtered out of aggregation
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+        flush_persons_and_events()
+
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            dateRange=DateRange(date_from="2020-01-13", date_to="2020-01-20", daysOfWeek=[1]),
+            interval=IntervalType.DAY,
+        )
+        response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        # With interval=day and daysOfWeek=[1], non-Monday buckets are removed from the response.
+        # Jan 13 WAU window [Jan 7–13] includes p1's Monday event → count=1.
+        # Jan 20 WAU window [Jan 14–20] has no Monday events (Tue Jan 14 is filtered) → count=0.
+        assert response.results[0]["days"] == ["2020-01-13", "2020-01-20"]
+        assert response.results[0]["data"] == [1, 0]
+
+    def test_days_of_week_with_smoothing_is_rejected(self):
+        # Smoothing would average the excluded days in as zeros; the runner must refuse the
+        # combination instead of returning silently understated values
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-06", date_to="2020-01-12", daysOfWeek=[1, 2]),
+            interval=IntervalType.DAY,
+            trendsFilter=TrendsFilter(smoothingIntervals=7),
+        )
+
+        with self.assertRaises(DRFValidationError):
+            TrendsQueryRunner(team=self.team, query=query).calculate()
+
+    def test_exclude_incomplete_periods_drops_current_bucket(self):
+        self._create_test_events()
+
+        with freeze_time("2020-01-15T12:00:00Z"):
+            query = TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange=DateRange(date_from="-7d", excludeIncompletePeriods=True),
+                interval=IntervalType.DAY,
+            )
+            response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual("2020-01-14", response.results[0]["days"][-1])
 
     def test_trends_days(self):
         self._create_test_events()

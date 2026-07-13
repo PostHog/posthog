@@ -3,14 +3,18 @@ import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import type { stepDelayLogicType } from './stepDelayLogicType'
 
-const DURATION_REGEX = /^(\d*\.?\d+)([dhm])$/
+const DURATION_REGEX = /^(\d*\.?\d*)([dhm])$/
 const AUTO_DESCRIPTION_REGEX = /^Wait for \d*\.?\d+ (minute|hour|day)s?\.$/
 const LEGACY_DEFAULT_DESCRIPTION = 'Wait for a specified duration.'
 
 export function getDelayDescription(duration: string): string {
-    const parts = duration.match(DURATION_REGEX) ?? ['', '10', 'm']
-    const [, numberValueString, unit] = parts
-    const number = parseFloat(numberValueString)
+    const parts = duration.match(DURATION_REGEX)
+    const number = parseFloat(parts?.[1] ?? '')
+    const unit = parts?.[2] ?? 'm'
+    // No valid number yet (e.g. the input was cleared) - keep a neutral description
+    if (!Number.isFinite(number)) {
+        return LEGACY_DEFAULT_DESCRIPTION
+    }
     const unitLabel = unit === 'm' ? 'minute' : unit === 'h' ? 'hour' : 'day'
     const durationText = `${number} ${unitLabel}${number !== 1 ? 's' : ''}`
     return `Wait for ${durationText}.`

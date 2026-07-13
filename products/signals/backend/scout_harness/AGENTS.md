@@ -40,7 +40,15 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   hand-authored, or a seeded canonical row the team has since edited in place (diverged) —
   gets a self-improvement section inviting evidence-backed `improve:<skill-name>:<topic>`
   scratchpad suggestions for its own skill body, which the owner reviews via the
-  `exploring-scouts` / `authoring-scouts` meta skills. A pristine canonical scout never sees
+  `exploring-scouts` / `authoring-scouts` meta skills. When such a scout also holds report
+  tools, the section additionally invites escalating recurring or material suggestions as
+  inbox reports about the scout itself (titled `Scout self-improvement: <skill-name> – <topic>`,
+  `NO_REPO`, `requires_human_input`), authored/edited with the report tools it already holds
+  and pointed to by the `report_id` stashed in the `improve:` entry — so self-improvement
+  suggestions reach the owner through the inbox like any other report, with no extra scope or
+  endpoint (the same per-tool fail-closed gating applies: an emit-only scout is never pointed
+  at `edit_report`, and a signal-channel custom scout keeps the scratchpad-only path). A
+  pristine canonical scout never sees
   it — applying such a suggestion would mark the seeded row diverged and cut it off from
   upstream sync; canonical-skill defects route upstream via the operational-friction
   (`agent-feedback`) section instead.
@@ -169,6 +177,14 @@ one sandbox session → zero or more emitted signals.
   `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived
   (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started`
   with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
+  The report channel adds `signals_scout_report_emitted` / `signals_scout_report_edited`
+  (plus customer-facing `$scout_report_*` copies), stamped with derived classification
+  properties (`report_kind` = `finding`/`self_improvement`, `is_self_improvement_report`)
+  via `_report_classification_props` in `tools/report.py` — classified server-side off the
+  prompt's mandated title prefix (`prompt.SELF_IMPROVEMENT_REPORT_TITLE_PREFIX`), so
+  self-improvement reports are separable without downstream title heuristics. That helper
+  is the single extension point for future derived telemetry dimensions on these events —
+  add new flags there (both events pick them up), not as model columns.
 - Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
   with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
   From there the signal flows through the same emitter → buffer → grouping v2 path

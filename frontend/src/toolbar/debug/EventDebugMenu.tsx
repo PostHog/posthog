@@ -20,6 +20,7 @@ import {
     IconX,
 } from '@posthog/icons'
 
+import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -28,7 +29,6 @@ import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { classifyEvent, EventCategory, eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'

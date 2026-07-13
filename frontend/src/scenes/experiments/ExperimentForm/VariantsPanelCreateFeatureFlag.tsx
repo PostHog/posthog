@@ -32,14 +32,10 @@ import {
 interface VariantsPanelCreateFeatureFlagProps {
     experiment: Experiment
     onChange: (updates: {
-        feature_flag_variants?: MultivariateFlagVariant[]
-        ensure_experience_continuity?: boolean
         feature_flag_key?: string
-        parameters?: {
-            feature_flag_variants?: MultivariateFlagVariant[]
-            ensure_experience_continuity?: boolean
-            rollout_percentage?: number
-        }
+        variants?: MultivariateFlagVariant[]
+        rollout_percentage?: number
+        ensure_experience_continuity?: boolean
     }) => void
     disabled?: boolean
     layout?: 'horizontal' | 'vertical'
@@ -93,26 +89,25 @@ export const VariantsPanelCreateFeatureFlag = ({
     const { currentTeam } = useValues(teamLogic)
     const [isCustomSplit, setIsCustomSplit] = useState(false)
 
-    const variants = experiment.parameters?.feature_flag_variants || [
+    const filters = experiment.feature_flag_config?.filters
+    const variants: MultivariateFlagVariant[] = filters?.multivariate?.variants ?? [
         { key: 'control', rollout_percentage: 50 },
         { key: 'test', rollout_percentage: 50 },
     ]
 
     const ensureExperienceContinuity =
-        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ??
-        currentTeam?.flags_persistence_default ??
-        false
+        experiment.feature_flag_config?.ensure_experience_continuity ?? currentTeam?.flags_persistence_default ?? false
 
     const rolloutPercentage =
-        experiment.parameters?.rollout_percentage ?? NEW_EXPERIMENT.parameters.rollout_percentage ?? 100
+        filters?.groups?.[0]?.rollout_percentage ??
+        NEW_EXPERIMENT.feature_flag_config?.filters?.groups?.[0]?.rollout_percentage ??
+        100
 
     const updateRolloutPercentage = (value: number): void => {
         onChange({
-            parameters: {
-                feature_flag_variants: variants,
-                ensure_experience_continuity: ensureExperienceContinuity,
-                rollout_percentage: value,
-            },
+            variants,
+            ensure_experience_continuity: ensureExperienceContinuity,
+            rollout_percentage: value,
         })
     }
 
@@ -138,12 +133,9 @@ export const VariantsPanelCreateFeatureFlag = ({
 
     const updateVariants = (newVariants: MultivariateFlagVariant[]): void => {
         onChange({
-            parameters: {
-                ...experiment.parameters,
-                feature_flag_variants: newVariants,
-                ensure_experience_continuity: ensureExperienceContinuity,
-                rollout_percentage: rolloutPercentage,
-            },
+            variants: newVariants,
+            ensure_experience_continuity: ensureExperienceContinuity,
+            rollout_percentage: rolloutPercentage,
         })
     }
 
@@ -331,11 +323,9 @@ export const VariantsPanelCreateFeatureFlag = ({
                     label="Persist flag across authentication steps"
                     onChange={(checked) => {
                         onChange({
-                            parameters: {
-                                feature_flag_variants: variants,
-                                ensure_experience_continuity: checked,
-                                rollout_percentage: rolloutPercentage,
-                            },
+                            variants,
+                            ensure_experience_continuity: checked,
+                            rollout_percentage: rolloutPercentage,
                         })
                     }}
                     fullWidth

@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -167,8 +166,7 @@ class TestFunnelActorsQueryOptions(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_options_present_and_breakdown_deduped_when_flag_on(self, _feature_enabled):
+    def test_compare_options_present_and_breakdown_deduped(self):
         self._browser_journeys()
 
         runner = FunnelsQueryRunner(
@@ -192,16 +190,6 @@ class TestFunnelActorsQueryOptions(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(values[0], BREAKDOWN_BASELINE_STRING_LABEL)
         self.assertEqual(set(values[1:]), {"Chrome", "Firefox"})
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_compare_options_absent_when_flag_off(self, _feature_enabled):
-        runner = FunnelsQueryRunner(
-            query=self._funnels_query(compare_filter=CompareFilter(compare=True)),
-            team=self.team,
-        )
-        response = runner.to_actors_query_options()
-
-        self.assertIsNone(response.compare)
-
     @parameterized.expand(
         [
             ("whole_float_matches_frontend_number", 1.0, 1),
@@ -218,8 +206,7 @@ class TestFunnelActorsQueryOptions(ClickhouseTestMixin, APIBaseTest):
         # the frontend holds 1, so a stringified whole float breaks dropdown selection matching.
         self.assertEqual(FunnelsQueryRunner._breakdown_option_value(value), expected)
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_trends_viz_breakdown_from_rows_and_compare_suppressed(self, _feature_enabled):
+    def test_trends_viz_breakdown_from_rows_and_compare_suppressed(self):
         self._browser_journeys()
 
         runner = FunnelsQueryRunner(

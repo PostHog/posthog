@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { useCallback, useState } from 'react'
 
-import { isTextCardMarkdownRoundTripSafe } from 'lib/components/Cards/TextCard/textCardMarkdown'
+import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { TextCardModalBodyField } from 'lib/components/Cards/TextCard/TextCardModalBodyField'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -32,7 +32,7 @@ export function TextCardModal({
     const [initialBody] = useState(() =>
         resolvedTileId !== 'new' ? dashboard.tiles?.find((tile) => tile.id === resolvedTileId)?.text?.body || '' : ''
     )
-    const shouldUseLegacyMarkdownEditor = !isTextCardMarkdownRoundTripSafe(initialBody)
+    const shouldUseLegacyMarkdownEditor = !textCardConverter.isRoundTripSafe(initialBody)
     const hasUnsavedInput = (textTile?.body || '') !== initialBody
 
     const handleClose = useCallback((): void => {
