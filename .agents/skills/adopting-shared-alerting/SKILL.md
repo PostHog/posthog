@@ -28,6 +28,9 @@ The heart of the platform. Pure functions over frozen dataclasses, zero I/O.
 - `AlertPolicy` — a frozen dataclass of per-product behavior flags: cooldown gating, re-notify-while-firing, error escalation, snooze semantics, broken handling. A product expresses its semantics as a policy **instead of forking the machine.** `LOGS_ALERT_POLICY = AlertPolicy()` is all-defaults.
 - `CheckInput` — what a product's evaluation produces for one check: breached or not, plus `is_inconclusive` for not-yet-settled data (an inconclusive verdict preserves `consecutive_failures` rather than resetting).
 - `evaluate_alert_check(snapshot, check_input, policy)` / `evaluate_alert_failure(...)` — the decision functions. They return an `AlertCheckOutcome` (new state + whether to notify); they do **not** mutate anything.
+
+Error semantics to know before adopting: failed checks never move firing state (CloudWatch's INSUFFICIENT_DATA doesn't clear ALARM — a FIRING alert rides through a failed check), transient errors skip the cycle entirely (no notification, no counter change), and the error notification fires on the 0 → 1 `consecutive_failures` edge rather than on a state transition. If your dispatch layer rolls back state after a failed notification enqueue, roll back the failure counter with it or the retry stays silent.
+
 - `apply_user_reset` / `apply_enable` / `apply_disable` / `apply_snooze` / `apply_unsnooze` / `apply_threshold_change` — control-plane transitions, each returning a `ControlPlaneOutcome`.
 
 ### The single-mutator rule (enforced)
