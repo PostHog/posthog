@@ -81,6 +81,7 @@ def _dispatch(inputs: SignupEnrichmentInputs) -> None:
                 "signup-enrichment",
                 inputs,
                 id=f"signup-enrichment-{inputs.organization_id}",
+                # TODO: move to a dedicated enrichment task queue once volume justifies separate scaling
                 task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             )
