@@ -12,7 +12,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import ExecutionMode
 
@@ -201,3 +201,28 @@ class TestMetricRunTagging(APIBaseTest):
             run_metric(team=self.team, metric=metric, user=self.user)
 
         assert (captured["product"], captured["feature"]) == (Product.DATA_CATALOG, Feature.QUERY)
+
+    @parameterized.expand(
+        [
+            ("personal_api_key", "personal_api_key", True),
+            ("project_secret_api_key", "project_secret_api_key", True),
+            ("session", "session", False),
+            ("no_access_method", None, False),
+        ]
+    )
+    def test_run_propagates_is_query_service_from_access_method(
+        self, _name: str, access_method: str | None, expected: bool
+    ) -> None:
+        # API-key runs must hit /query's safeguards (rejected constructs, API-team concurrency limit);
+        # dropping the propagation lets a stored query bypass them, so lock the mapping in.
+        metric = upsert_metric(team=self.team, user=self.user, name="svc", description="d", definition=_HOGQL)
+        captured: dict[str, object] = {}
+
+        def capture(*args: object, **kwargs: object) -> dict:
+            captured["is_query_service"] = kwargs.get("is_query_service")
+            return dict(_OK_PAYLOAD)
+
+        with patch(_PROCESS_QUERY, side_effect=capture), tags_context(access_method=access_method):
+            run_metric(team=self.team, metric=metric, user=self.user)
+
+        assert captured["is_query_service"] is expected

@@ -23,7 +23,13 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.query_tagging import (
+    Feature,
+    Product,
+    get_query_tag_value,
+    is_api_key_access_method,
+    tags_context,
+)
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -72,7 +78,16 @@ def run_metric(
     )
     try:
         with tags_context(product=Product.DATA_CATALOG, feature=Feature.QUERY):
-            raw = process_query_dict(team, query, execution_mode=execution_mode, user=user, query_id=query_id)
+            raw = process_query_dict(
+                team,
+                query,
+                execution_mode=execution_mode,
+                user=user,
+                query_id=query_id,
+                # Mirror /query and endpoint execution: API-key runs are subject to the same query
+                # safeguards (rejected constructs, API-team concurrency limiter) as those paths.
+                is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
+            )
     except (ExposedHogQLError, ExposedCHQueryError) as e:
         raise ValidationError(
             {
