@@ -189,6 +189,9 @@ patchedDependencies:
   heatmap.js@2.0.5:
     hash: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
     path: patches/heatmap.js@2.0.5.patch
+  puppeteer-capture@1.45.0:
+    hash: 3c6568895f822b13e3cfe5d5e821c46c55e56b5be5a9cdc72b487e1d93a353ba
+    path: patches/puppeteer-capture@1.45.0.patch
 
 importers:
 
@@ -1695,7 +1698,7 @@ importers:
         version: 24.40.0(typescript@6.0.3)
       puppeteer-capture:
         specifier: ^1.43.0
-        version: 1.45.0(puppeteer-core@24.40.0)
+        version: 1.45.0(patch_hash=3c6568895f822b13e3cfe5d5e821c46c55e56b5be5a9cdc72b487e1d93a353ba)(puppeteer-core@24.40.0)
       re2:
         specifier: ^1.22.1
         version: 1.22.1
@@ -42752,7 +42755,7 @@ snapshots:
 
   punycode@2.3.0: {}
 
-  puppeteer-capture@1.45.0(puppeteer-core@24.40.0):
+  puppeteer-capture@1.45.0(patch_hash=3c6568895f822b13e3cfe5d5e821c46c55e56b5be5a9cdc72b487e1d93a353ba)(puppeteer-core@24.40.0):
     dependencies:
       async-mutex: 0.5.0
       fluent-ffmpeg: 2.1.3
