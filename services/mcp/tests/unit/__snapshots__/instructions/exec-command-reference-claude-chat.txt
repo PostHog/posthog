@@ -19,6 +19,8 @@ Load all matching topics in one `learn` command first. Topics are cumulative.
 - visualizations: Create or render a visualization.
 - feedback: Send feedback about PostHog.
 
+Skills: `learn skills`; `learn -s <query>`; `learn posthog:<skill> [path]` or `learn project:<skill> [path]`; with a path: `-s <query>` or `--lines <start>:<end>`.
+
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
 The `info` command may return the full schema (for simple tools) or a top-level summary with drill-down hints (for complex tools). Look for `hint` fields in the response.
