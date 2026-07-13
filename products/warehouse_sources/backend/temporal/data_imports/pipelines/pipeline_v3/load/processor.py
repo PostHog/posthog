@@ -393,6 +393,8 @@ def process_messages(
             raise ValueError("coalesced unit spans multiple runs")
         if lead.cdc_write_mode == "scd2_append":
             raise ValueError("scd2_append batches cannot be coalesced")
+        if lead.is_first_ever_sync:
+            raise ValueError("first-ever-sync batches cannot be coalesced")
     # Producers mark only a run's last batch final, so it can only be the unit's last member.
     final_signal = signals[-1] if signals[-1].is_final_batch else None
 

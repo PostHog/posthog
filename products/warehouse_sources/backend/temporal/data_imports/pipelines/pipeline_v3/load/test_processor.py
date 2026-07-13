@@ -485,10 +485,18 @@ class TestProcessMessagesCoalescing:
                     _unit_message(2, cdc_write_mode="scd2_append"),
                 ],
             ),
+            (
+                "first_ever_sync",
+                [
+                    _unit_message(0, is_first_ever_sync=True),
+                    _unit_message(1, is_first_ever_sync=True),
+                ],
+            ),
         ]
     )
     def test_rejects_units_the_consumer_must_never_form(self, _case: str, messages: list[dict[str, Any]]) -> None:
-        # Last line of defense: applying a cross-run or scd2 unit as one write
-        # corrupts commit metadata or the scd2 valid_to chain.
+        # Last line of defense: applying a cross-run, scd2, or first-ever-sync
+        # unit as one write corrupts commit metadata, the scd2 valid_to chain,
+        # or partial-data-loading semantics.
         with pytest.raises(ValueError):
             process_messages(messages)

@@ -53,8 +53,13 @@ BATCHES_PER_GROUP_FETCH_FACTOR = 3
 # Coalescing caps: contiguous same-run batches of a group are handed to the sink
 # as one unit, so a backlog drains in O(merge cycles) instead of O(batches).
 # max_batches=1 is the kill switch restoring one-batch-per-cycle behavior.
+# The byte cap sums `PendingBatch.byte_size` — the COMPRESSED parquet object
+# size. The sink decompresses the whole unit into one Arrow table and, when the
+# unit carries CDC DELETEs, materializes it again as Python lists for
+# enrichment, a 10-50x expansion — so this cap must stay a small multiple of a
+# single extraction batch, not a "comfortable" buffer size.
 COALESCE_MAX_BATCHES = 16
-COALESCE_MAX_BYTES = 256 * 1024 * 1024
+COALESCE_MAX_BYTES = 64 * 1024 * 1024
 
 
 class OwnershipLostError(Exception):
@@ -601,9 +606,10 @@ class BatchConsumer:
         ``run_uuid``, capped by ``coalesce_max_batches``/``coalesce_max_bytes``,
         where every member passes the sink's eligibility predicate. Claim order
         already guarantees scan order (created_at ASC, batch_index ASC per
-        group), so this is a single linear pass. Anything else — coalescing not
-        wired, ineligible batch, run boundary, index gap, full unit — becomes a
-        single-batch unit processed exactly as before.
+        group), so this is a single linear pass. A run boundary, index gap, or
+        full unit starts a new unit; an ineligible batch always forms a
+        single-batch unit processed exactly as before, as does everything when
+        coalescing is not wired.
         """
         max_batches = self._config.coalesce_max_batches
         if self._process_unit is None or self._coalesce_eligible is None or max_batches <= 1:

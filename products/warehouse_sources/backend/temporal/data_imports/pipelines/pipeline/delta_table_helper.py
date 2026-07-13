@@ -654,31 +654,6 @@ class DeltaTableHelper:
         assert delta_table is not None
         return delta_table
 
-    async def has_commit_with_metadata(self, match: dict[str, str], *, scan_limit: int = 50) -> bool:
-        """Check whether any recent delta commit has custom metadata matching all entries in `match`.
-
-        Used to detect that a given (run_uuid, batch_index) has already been written
-        even when a faster external dedup cache (e.g. Redis) is missing the marker —
-        the canonical case is a writer crash between a successful `write_to_deltalake`
-        and the subsequent cache update.
-
-        delta-rs `history()` returns commits where `CommitProperties.custom_metadata`
-        entries are flattened directly into the commit dict alongside `operation`,
-        `timestamp`, etc. Older versions nested them under a `userMetadata` key, so
-        we accept both layouts for forward compatibility.
-        """
-        delta_table = await self.get_delta_table()
-        if delta_table is None:
-            return False
-
-        history = await asyncio.to_thread(delta_table.history, limit=scan_limit)
-
-        for commit in history:
-            if self._commit_matches(commit, match):
-                return True
-
-        return False
-
     @staticmethod
     def _commit_metadata_layouts(commit: dict[str, Any]) -> list[dict[str, Any]]:
         """Candidate metadata dicts for a commit.
@@ -700,22 +675,18 @@ class DeltaTableHelper:
             layouts.append(raw)
         return layouts
 
-    @staticmethod
-    def _commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
-        """Return True iff every (k, v) in `match` is present in this commit's metadata."""
-        return any(
-            all(meta.get(k) == v for k, v in match.items())
-            for meta in DeltaTableHelper._commit_metadata_layouts(commit)
-        )
-
     async def has_batch_been_committed(self, run_uuid: str, batch_index: int, *, scan_limit: int = 50) -> bool:
         """Check whether a specific (run_uuid, batch_index) has already been committed to delta.
+
+        Used to detect an already-written batch even when a faster external dedup
+        cache (e.g. Redis) is missing the marker — the canonical case is a writer
+        crash between a successful `write_to_deltalake` and the subsequent cache
+        update. See `is_batch_already_processed`.
 
         Matches both single-batch commits ({run_uuid, batch_index}) and coalesced-unit
         commits, which record the covered indexes as {run_uuid, batch_index_start,
         batch_index_end} — a member is committed when its index falls inside a
-        recorded range. This is the crash-between-commit-and-mark recovery path;
-        see `is_batch_already_processed`.
+        recorded range.
         """
         delta_table = await self.get_delta_table()
         if delta_table is None:
