@@ -41,9 +41,14 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
         })
         .await;
 
-    common_posthog::init("cymbal-test", Some("test-api-key"), &posthog.base_url())
-        .await
-        .expect("posthog init");
+    common_posthog::init(
+        "cymbal-test",
+        Some("test-api-key"),
+        &posthog.base_url(),
+        &["cymbal::", "common_"],
+    )
+    .await
+    .expect("posthog init");
 
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
     config.resolver.object_storage_bucket = STORAGE_BUCKET.to_string();

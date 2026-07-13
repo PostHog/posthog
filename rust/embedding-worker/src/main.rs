@@ -95,6 +95,7 @@ async fn main() {
         "embedding-worker",
         config.posthog_api_key.as_deref(),
         &config.posthog_endpoint,
+        &["embedding_worker::", "common_"],
     )
     .await
     .unwrap();

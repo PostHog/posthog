@@ -30,7 +30,7 @@ async fn init_hook_emits_delivery_failure_metric_on_terminal_reject() {
         })
         .await;
 
-    common_posthog::init("test-svc", Some("test-key"), &server.base_url())
+    common_posthog::init("test-svc", Some("test-key"), &server.base_url(), &[])
         .await
         .expect("init should succeed when an api key is provided");
 

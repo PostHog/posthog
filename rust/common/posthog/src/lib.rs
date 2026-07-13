@@ -44,10 +44,18 @@ struct ServiceContext {
 ///
 /// Without an API key the global client is disabled and every capture is a
 /// no-op.
+///
+/// `in_app_include_paths` are substring patterns matched against each captured
+/// frame's file path and function symbol; when non-empty, only matching frames
+/// are classified in-app. The SDK's built-in default is a small crate denylist
+/// that leaves most third-party crates (hyper, axum, tower, ...) marked in-app,
+/// so services should pass their own crate prefixes plus `"common_"` for the
+/// shared workspace crates, e.g. `&["cymbal::", "common_"]`.
 pub async fn init(
     service: &'static str,
     api_key: Option<&str>,
     endpoint: &str,
+    in_app_include_paths: &[&str],
 ) -> Result<(), posthog_rs::Error> {
     let context = SERVICE
         .get_or_init(|| ServiceContext {
@@ -67,8 +75,10 @@ pub async fn init(
 
     // Exclude this crate's own frames from in-app classification so captured
     // stacks lead with the real service call site, not the shared wrapper.
+    // Excludes take precedence, so they win even over an explicit include.
     let error_tracking = posthog_rs::ErrorTrackingOptionsBuilder::default()
         .capture_panics(true)
+        .in_app_include_paths(in_app_include_paths.iter().map(|p| p.to_string()).collect())
         .in_app_exclude_paths(vec!["common_posthog::".to_string()])
         .build()
         .expect("all error tracking options have defaults");

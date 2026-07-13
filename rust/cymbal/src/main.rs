@@ -86,7 +86,14 @@ fn start_profiling(
 }
 
 async fn init_posthog(service_name: &'static str, api_key: &Option<String>, endpoint: &str) {
-    common_posthog::init(service_name, api_key.as_deref(), endpoint)
-        .await
-        .unwrap();
+    // All cymbal modes run this crate's code, so only cymbal and the shared
+    // workspace crates count as in-app in captured stacks.
+    common_posthog::init(
+        service_name,
+        api_key.as_deref(),
+        endpoint,
+        &["cymbal::", "common_"],
+    )
+    .await
+    .unwrap();
 }

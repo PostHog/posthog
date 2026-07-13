@@ -89,7 +89,7 @@ async fn init_enables_panic_capture() {
         })
         .await;
     std::panic::set_hook(Box::new(|_| {}));
-    common_posthog::init("panic-test", Some("test-api-key"), &posthog.base_url())
+    common_posthog::init("panic-test", Some("test-api-key"), &posthog.base_url(), &[])
         .await
         .expect("posthog init");
 
