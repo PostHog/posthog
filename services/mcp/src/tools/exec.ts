@@ -7,6 +7,7 @@ import { ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
+import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
@@ -48,6 +49,7 @@ export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallP
 
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
+    helpCatalog?: ExecHelpCatalog
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
@@ -253,6 +255,25 @@ export function createExecTool(
             const { verb, rest } = parseCommand(params.command)
 
             switch (verb) {
+                case 'help': {
+                    const helpCatalog = options.helpCatalog
+                    if (!helpCatalog) {
+                        throw new Error('The help catalog is not available for this client.')
+                    }
+                    if (!rest) {
+                        return JSON.stringify(helpCatalog.list())
+                    }
+                    const entry = helpCatalog.get(rest)
+                    if (!entry) {
+                        const available = helpCatalog
+                            .list()
+                            .map((item) => item.id)
+                            .join(', ')
+                        throw new Error(`Unknown help topic: "${rest}". Available: ${available}`)
+                    }
+                    return entry.content
+                }
+
                 case 'tools': {
                     return JSON.stringify(allTools.map((t) => t.name))
                 }
@@ -568,7 +589,9 @@ export function createExecTool(
                 }
 
                 default:
-                    throw new Error(`Unknown command: "${verb}". Supported commands: tools, search, info, schema, call`)
+                    throw new Error(
+                        `Unknown command: "${verb}". Supported commands: ${options.helpCatalog ? 'help, ' : ''}tools, search, info, schema, call`
+                    )
             }
         },
     }

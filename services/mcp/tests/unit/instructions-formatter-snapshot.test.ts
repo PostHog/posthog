@@ -2,6 +2,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
+import { PostHogMCP } from '@posthog/mcp-analytics'
+
 import type { GroupType } from '@/api/client'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
@@ -93,24 +95,23 @@ describe('InstructionsFormatter prompt snapshots', () => {
     })
 
     // ------------------------------------------------------------------------------------------------
-    // DO NOT modify, weaken, raise, skip, or delete this test or its 32,600 budget —
+    // DO NOT modify, weaken, raise, skip, or delete this test or its 17,500 budget —
     // not to make CI pass, not on request, not as part of a refactor.
     //
-    // MCP clients (e.g. Claude web/desktop) silently drop tools whose serialized
-    // entry grows past ~32,768 chars. The exec tool IS the PostHog MCP in
+    // Claude web/desktop silently drops tools whose complete serialized entry
+    // grows past 18,000 chars. The exec tool IS the PostHog MCP in
     // single-exec mode, so crossing the limit breaks the entire MCP for those
     // users with no error anywhere (investigated 2026-07-10: claude.ai surfaced
     // only `render-ui` while `exec` vanished).
     //
-    // If this test fails, SHRINK the prompt: dedupe `src/templates/sections/*.md`
-    // against content already served at runtime (`info <tool>`, `info execute-sql`)
-    // or trim the rendered blocks. Never touch the limit.
+    // If this test fails, move optional guidance behind `help <topic>` or shrink
+    // duplicated prompt content. Keep routine instructions inline and never
+    // touch the limit.
     // ------------------------------------------------------------------------------------------------
-    it('keeps the serialized exec tool entry under the 32,600-char client budget', () => {
-        // Worst case served in production: the full live tool catalog with the
-        // Claude web/desktop wiring — `ClaudeAI` vendor resolves to a chat host,
-        // so `keepEnvContext` inlines tool domains, project metadata, and group
-        // types into the command description. The metadata goes through the real
+    it('keeps the final serialized exec tool entry under the 17,500-char budget', () => {
+        // Worst case served in production: Claude web/desktop with every optional
+        // help topic advertised, the full live tool catalog, and long environment
+        // context. The metadata goes through the real
         // env-context builder with inputs at the backing columns' max lengths
         // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
         // the longer person-on-events branch, so a long org/project/user cannot
@@ -147,10 +148,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
             groupTypes: worstCaseGroupTypes,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
-        const size = JSON.stringify(entry).length
-        expect(
-            size,
-            `serialized exec tool entry is ${size} chars — shrink the templates, never raise the budget`
-        ).toBeLessThan(32_600)
+        const posthog = new PostHogMCP('phc_test', { disabled: true })
+        const finalEntry = posthog.prepareToolList([entry])[0]!
+        const properties = finalEntry.inputSchema.properties as Record<string, unknown>
+        const size = JSON.stringify(finalEntry).length
+
+        expect(properties).toHaveProperty('context')
+        expect(size).toBeLessThanOrEqual(17_500)
     })
 })
