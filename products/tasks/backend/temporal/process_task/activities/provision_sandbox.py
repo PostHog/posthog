@@ -24,7 +24,7 @@ from products.tasks.backend.temporal.metrics import (
     increment_snapshot_restore,
     increment_snapshot_usage,
 )
-from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_wizard_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
 from products.tasks.backend.temporal.process_task.utils import (
@@ -33,6 +33,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_github_token,
     get_sandbox_name_for_task,
     get_sandbox_snapshot_metadata,
+    get_task_run_credential_user,
     parse_run_state,
 )
 
@@ -344,6 +345,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         task = _load_task(ctx)
         shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
+        actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
         should_inject_github_token = ctx.has_github_credentials and (
             has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
@@ -356,6 +358,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                         run_id=ctx.run_id,
                         state=ctx.state,
                         task=task,
+                        actor_user=actor_user,
                         github_user_integration_id=ctx.github_user_integration_id,
                         repository=repository,
                     )
@@ -369,7 +372,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 )
 
         try:
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -653,6 +656,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
     ):
         task = _load_task(ctx)
 
+        actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
         if ctx.has_github_credentials:
             try:
@@ -662,6 +666,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                         run_id=ctx.run_id,
                         state=ctx.state,
                         task=task,
+                        actor_user=actor_user,
                         github_user_integration_id=ctx.github_user_integration_id,
                         repository=input.repository,
                     )
@@ -679,7 +684,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 )
 
         try:
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to refresh OAuth access token for task {ctx.task_id}",

@@ -95,6 +95,15 @@ export namespace Schemas {
       human_readable_error?: string | null;
     }
 
+    export interface AccessControlFilterWarning {
+      /** Human-readable warning shown to the user */
+      message: string;
+      /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
+      resources: string[];
+      /** Tells warning kinds apart in the shared `warnings` list */
+      type?: 'access_control';
+    }
+
     export type AccessControlLevel = typeof AccessControlLevel[keyof typeof AccessControlLevel];
 
 
@@ -585,6 +594,8 @@ export namespace Schemas {
       end_time?: string | null;
       /** If the query failed, this will be set to true. More information can be found in the error_message field. */
       error?: boolean | null;
+      /** Stable machine-readable code for the error (the DRF exception code), when known. */
+      error_code?: string | null;
       error_message?: string | null;
       expiration_time?: string | null;
       id: string;
@@ -627,6 +638,8 @@ export namespace Schemas {
       status: string;
       /** Name of the warehouse table the warning refers to */
       table_name: string;
+      /** Tells warning kinds apart in the shared `warnings` list */
+      type?: 'warehouse_sync';
     }
 
     export interface AccountsQueryResponse {
@@ -653,8 +666,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryLogTags {
@@ -2219,8 +2232,8 @@ export namespace Schemas {
       results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface ActorsPropertyTaxonomyQuery {
@@ -2263,8 +2276,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: string[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type Compare = typeof Compare[keyof typeof Compare];
@@ -2343,12 +2356,29 @@ export namespace Schemas {
       customEventName: string;
     }
 
+    export type DaysOfWeekEnum = typeof DaysOfWeekEnum[keyof typeof DaysOfWeekEnum];
+
+
+    export const DaysOfWeekEnum = {
+      Number1: 1,
+      Number2: 2,
+      Number3: 3,
+      Number4: 4,
+      Number5: 5,
+      Number6: 6,
+      Number7: 7,
+    } as const;
+
     export interface DateRange {
       /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
        * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
       date_from?: string | null;
       /** End of the date range. Same format as date_from. Omit or null for "now". */
       date_to?: string | null;
+      /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
+      daysOfWeek?: DaysOfWeekEnum[] | null;
+      /** Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries. */
+      excludeIncompletePeriods?: boolean | null;
       /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
       explicitDate?: boolean | null;
     }
@@ -2406,8 +2436,8 @@ export namespace Schemas {
       results: TrendsQueryResponseResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type EventsNodeResponse = { [key: string]: unknown } | null;
@@ -2939,8 +2969,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
       total_median_conversion_time?: number | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type FunnelsDataWarehouseNodeResponse = { [key: string]: unknown } | null;
@@ -3035,8 +3065,8 @@ export namespace Schemas {
       results: RetentionResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type AggregationPropertyType = typeof AggregationPropertyType[keyof typeof AggregationPropertyType];
@@ -3286,8 +3316,8 @@ export namespace Schemas {
       results: PathsLink[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface PathsQuery {
@@ -3335,8 +3365,8 @@ export namespace Schemas {
       results: StickinessQueryResponseResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type StickinessComputationMode = typeof StickinessComputationMode[keyof typeof StickinessComputationMode];
@@ -3455,8 +3485,8 @@ export namespace Schemas {
       results: LifecycleQueryResponseResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type LifecycleDataWarehouseNodeResponse = { [key: string]: unknown } | null;
@@ -3602,6 +3632,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -3614,8 +3646,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface WebAnalyticsSampling {
@@ -3699,8 +3731,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface WebOverviewQuery {
@@ -3832,8 +3864,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface FunnelCorrelationQuery {
@@ -4290,8 +4322,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Types of returned columns */
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface HogQLVariable {
@@ -4871,8 +4903,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response1 {
@@ -4897,8 +4929,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: string[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response2 {
@@ -4923,8 +4955,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response3 {
@@ -4958,8 +4990,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Types of returned columns */
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response4 {
@@ -4982,8 +5014,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response5 {
@@ -4997,6 +5029,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -5009,8 +5043,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response6 {
@@ -5035,8 +5069,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response7 {
@@ -5062,8 +5096,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface WebVitalsPathBreakdownResultItem {
@@ -5098,8 +5132,8 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response9 {
@@ -5123,8 +5157,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response10 {
@@ -5148,8 +5182,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response11 {
@@ -5169,8 +5203,8 @@ export namespace Schemas {
       results: unknown[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response12 {
@@ -5190,8 +5224,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface RevenueAnalyticsMRRQueryResultItem {
@@ -5219,8 +5253,8 @@ export namespace Schemas {
       results: RevenueAnalyticsMRRQueryResultItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type RevenueAnalyticsOverviewItemKey = typeof RevenueAnalyticsOverviewItemKey[keyof typeof RevenueAnalyticsOverviewItemKey];
@@ -5253,8 +5287,8 @@ export namespace Schemas {
       results: RevenueAnalyticsOverviewItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response15 {
@@ -5274,8 +5308,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response16 {
@@ -5299,8 +5333,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MarketingAnalyticsItem {
@@ -5335,8 +5369,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type Response19Results = {[key: string]: MarketingAnalyticsItem};
@@ -5358,8 +5392,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response20 {
@@ -5384,8 +5418,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface VolumeBucket {
@@ -5536,8 +5570,8 @@ export namespace Schemas {
       results: ErrorTrackingIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Population {
@@ -5583,8 +5617,8 @@ export namespace Schemas {
       results: ErrorTrackingCorrelatedIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type Response23CredibleIntervals = {[key: string]: number[]};
@@ -5713,8 +5747,8 @@ export namespace Schemas {
       results: LLMTrace[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response27 {
@@ -5738,8 +5772,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface Response28 {
@@ -5766,8 +5800,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type TaxonomicFilterGroupType = typeof TaxonomicFilterGroupType[keyof typeof TaxonomicFilterGroupType];
@@ -5826,6 +5860,7 @@ export namespace Schemas {
       Resources: 'resources',
       ErrorTrackingProperties: 'error_tracking_properties',
       ActivityLogProperties: 'activity_log_properties',
+      McpProperties: 'mcp_properties',
       MaxAiContext: 'max_ai_context',
       WorkflowVariables: 'workflow_variables',
       SuggestedFilters: 'suggested_filters',
@@ -5897,8 +5932,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface EventsQuery {
@@ -5986,8 +6021,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface GroupsQuery {
@@ -6029,8 +6064,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface WebExternalClicksTableQuery {
@@ -6086,8 +6121,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface WebGoalsQuery {
@@ -6190,8 +6225,8 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface WebVitalsPathBreakdownQuery {
@@ -6270,8 +6305,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface SessionAttributionExplorerQuery {
@@ -6309,8 +6344,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface SessionsQuery {
@@ -6381,8 +6416,8 @@ export namespace Schemas {
       results: unknown[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface RevenueAnalyticsGrossRevenueQuery {
@@ -6416,8 +6451,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface RevenueAnalyticsMetricsQuery {
@@ -6451,8 +6486,8 @@ export namespace Schemas {
       results: RevenueAnalyticsMRRQueryResultItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface RevenueAnalyticsMRRQuery {
@@ -6485,8 +6520,8 @@ export namespace Schemas {
       results: RevenueAnalyticsOverviewItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface RevenueAnalyticsOverviewQuery {
@@ -6526,8 +6561,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface RevenueAnalyticsTopCustomersQuery {
@@ -6564,8 +6599,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface RevenueExampleEventsQuery {
@@ -6601,8 +6636,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface RevenueExampleDataWarehouseTablesQuery {
@@ -6762,8 +6797,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MarketingAnalyticsTableQuery {
@@ -6828,8 +6863,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MarketingAnalyticsAggregatedQuery {
@@ -6889,8 +6924,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface NonIntegratedConversionsTableQuery {
@@ -6986,8 +7021,8 @@ export namespace Schemas {
       results: ErrorTrackingIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface ErrorTrackingQuery {
@@ -7049,8 +7084,8 @@ export namespace Schemas {
       results: ErrorTrackingCorrelatedIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface ErrorTrackingIssueCorrelationQuery {
@@ -7158,8 +7193,8 @@ export namespace Schemas {
       results: LLMTrace[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface TracesQuery {
@@ -7209,8 +7244,8 @@ export namespace Schemas {
       results: LLMTrace[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface TraceQuery {
@@ -7249,8 +7284,8 @@ export namespace Schemas {
       results: LLMTrace[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface SessionQuery {
@@ -7327,8 +7362,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface EndpointsUsageTableQuery {
@@ -8899,7 +8934,10 @@ export namespace Schemas {
     export interface Threshold {
       readonly id: string;
       readonly created_at: string;
-      /** Optional name for the threshold. */
+      /**
+         * Optional name for the threshold.
+         * @maxLength 255
+         */
       name?: string;
       /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
       configuration: InsightThreshold;
@@ -9287,7 +9325,10 @@ export namespace Schemas {
       readonly created_at: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight: number;
-      /** Human-readable name for the alert. */
+      /**
+         * Human-readable name for the alert.
+         * @maxLength 255
+         */
       name?: string;
       /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
       subscribed_users: number[];
@@ -11889,6 +11930,16 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    /**
+     * * `email` - email
+     */
+    export type DedupeKeyEnum = typeof DedupeKeyEnum[keyof typeof DedupeKeyEnum];
+
+
+    export const DedupeKeyEnum = {
+      Email: 'email',
+    } as const;
+
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -11896,6 +11947,10 @@ export namespace Schemas {
       total: number;
       /** Maximum allowed audience size for batch triggers for this team. */
       limit: number;
+      /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.
+       *
+       * * `email` - email */
+      dedupe_key: DedupeKeyEnum | null;
     }
 
     /**
@@ -11911,6 +11966,10 @@ export namespace Schemas {
          * @nullable
          */
       group_type_index?: number | null;
+      /** When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.
+       *
+       * * `email` - email */
+      dedupe_key?: DedupeKeyEnum | null;
     }
 
     export interface BooleanScoreDefinitionConfig {
@@ -12494,8 +12553,8 @@ export namespace Schemas {
       results: EventsHeatMapStructuredResult;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface CalendarHeatmapQuery {
@@ -12919,6 +12978,22 @@ export namespace Schemas {
       name: string;
       available: boolean;
     }
+
+    /**
+     * * `new` - new
+     * * `rate_shift` - rate_shift
+     * * `gone` - gone
+     * * `unchanged` - unchanged
+     */
+    export type ClassificationEnum = typeof ClassificationEnum[keyof typeof ClassificationEnum];
+
+
+    export const ClassificationEnum = {
+      New: 'new',
+      RateShift: 'rate_shift',
+      Gone: 'gone',
+      Unchanged: 'unchanged',
+    } as const;
 
     /**
      * * `abandoned` - Abandoned
@@ -13376,6 +13451,7 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `plan` - plan
      * * `auto` - auto
      * * `read-only` - read-only
      * * `full-access` - full-access
@@ -13384,6 +13460,7 @@ export namespace Schemas {
 
 
     export const CodexTaskRunCreateSchemaInitialPermissionModeEnum = {
+      Plan: 'plan',
       Auto: 'auto',
       ReadOnly: 'read-only',
       FullAccess: 'full-access',
@@ -13452,6 +13529,7 @@ export namespace Schemas {
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
        *
+       * * `plan` - plan
        * * `auto` - auto
        * * `read-only` - read-only
        * * `full-access` - full-access */
@@ -14597,6 +14675,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `user` - user
+     * * `ai_generated` - ai_generated
+     */
+    export type CreatedSourceEnum = typeof CreatedSourceEnum[keyof typeof CreatedSourceEnum];
+
+
+    export const CreatedSourceEnum = {
+      User: 'user',
+      AiGenerated: 'ai_generated',
+    } as const;
+
+    /**
      * * `web` - web
      * * `api` - api
      * * `mcp` - mcp
@@ -14665,6 +14755,65 @@ export namespace Schemas {
       NoChange: 'no_change',
     } as const;
 
+    export interface PromptEvaluationResult {
+      /** The rated session that was re-run with the suggested prompt. */
+      session_id: string;
+      /** The original rated observation the comparison is against. */
+      observation_id: string;
+      /** The team's rating of the original output (thumbs up = true). */
+      rated_correct: boolean;
+      /**
+         * The original output's primary outcome.
+         * @nullable
+         */
+      before: string | null;
+      /**
+         * The suggested prompt's outcome for the same session. Null when the run errored or returned no discrete outcome (e.g. a classifier with no tags).
+         * @nullable
+         */
+      after: string | null;
+      /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), or error. */
+      outcome: string;
+      /**
+         * Why this session's re-run failed, when it did.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface PromptEvaluationSummary {
+      /** Thumbs-up sessions whose output is unchanged. */
+      kept: number;
+      /** Thumbs-up sessions whose output changed. */
+      regressed: number;
+      /** Thumbs-down sessions whose output changed. */
+      fixed: number;
+      /** Thumbs-down sessions whose output is unchanged. */
+      still_wrong: number;
+      /** Sessions whose re-run failed. */
+      errors: number;
+    }
+
+    export interface PromptSuggestionEvaluation {
+      /** running, succeeded, or failed. */
+      status: string;
+      /** When the evaluation started. */
+      started_at: string;
+      /**
+         * When the evaluation finished, if it has.
+         * @nullable
+         */
+      finished_at: string | null;
+      /** How many rated sessions are being re-run. */
+      total: number;
+      /** The rated set the evaluation ran against. */
+      labels_fingerprint: string;
+      /** Per-session outcomes, in completion order. */
+      results: PromptEvaluationResult[];
+      /** Outcome counts. Null while the evaluation is running. */
+      summary: PromptEvaluationSummary | null;
+    }
+
     export interface ReplayScannerPromptSuggestion {
       readonly id: string;
       /** pending (current), applied, dismissed, or superseded by a newer suggestion.
@@ -14694,6 +14843,8 @@ export namespace Schemas {
       readonly applied_at: string | null;
       /** User who applied this suggestion to the scanner; null unless applied. */
       readonly applied_by: UserBasic | null;
+      /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
+      readonly evaluation: PromptSuggestionEvaluation | null;
     }
 
     export interface CurrentPromptSuggestion {
@@ -14703,6 +14854,8 @@ export namespace Schemas {
       stale: boolean;
       /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
       rated_count: number;
+      /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
+      evaluation_session_cap: number;
     }
 
     /**
@@ -14926,6 +15079,27 @@ export namespace Schemas {
          * @nullable
          */
       readonly created_by_id: number | null;
+    }
+
+    /**
+     * One suggested filter value for a custom property.
+     */
+    export interface CustomPropertyValueSuggestion {
+      /** A suggested value for the custom property. */
+      readonly name: string;
+    }
+
+    /**
+     * Response shape of the custom property value-suggestions endpoint.
+     *
+     * Matches the contract of the shared property-values picker (``propertyDefinitionsModel``
+     * on the frontend), which expects ``{results: [{name}], refreshing}``.
+     */
+    export interface CustomPropertyValueSuggestionsResponse {
+      /** Suggested values matching the search input. */
+      readonly results: readonly CustomPropertyValueSuggestion[];
+      /** Always false — present for compatibility with the property-values consumer. */
+      readonly refreshing: boolean;
     }
 
     export interface CustomPropertyValueWrite {
@@ -15354,6 +15528,87 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+    }
+
+    /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    export type DataCatalogMetricDefinition = { [key: string]: unknown } | null;
+
+    export interface DataCatalogMetric {
+      readonly id: string;
+      /**
+         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name: string;
+      /**
+         * Human-friendly label. Mutable, unlike name.
+         * @maxLength 255
+         */
+      display_name?: string;
+      /** What the metric means and how to interpret it. */
+      description: string;
+      /**
+         * Unit of the result, e.g. usd, percent, cents.
+         * @maxLength 64
+         */
+      unit?: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+         * @nullable
+         */
+      definition?: DataCatalogMetricDefinition;
+      /**
+         * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+         * @nullable
+         */
+      readonly definition_kind: string | null;
+      /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+      readonly referenced_table_names: unknown;
+      /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+      readonly status: string;
+      /** @nullable */
+      readonly approved_at: string | null;
+      /**
+         * Short ID of the insight this metric was created from, for drift detection.
+         * @nullable
+         */
+      readonly source_insight_short_id: string | null;
+      /**
+         * When the metric was last run (30-minute throttle).
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the metric, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the proposal, 0-1.
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this metric. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
     }
 
     export interface DataColorTheme {
@@ -16756,6 +17011,75 @@ export namespace Schemas {
      * * `Vapi` - Vapi
      * * `Vespa` - Vespa
      * * `Writesonic` - Writesonic
+     * * `Aiven` - Aiven
+     * * `Aviator` - Aviator
+     * * `Backblaze` - Backblaze
+     * * `Baseten` - Baseten
+     * * `Browserbase` - Browserbase
+     * * `Cohere` - Cohere
+     * * `DenoDeploy` - DenoDeploy
+     * * `DigitalOcean` - DigitalOcean
+     * * `E2B` - E2B
+     * * `Fintoc` - Fintoc
+     * * `Firecrawl` - Firecrawl
+     * * `FireworksAI` - FireworksAI
+     * * `FlyIo` - FlyIo
+     * * `Groq` - Groq
+     * * `GrowthBook` - GrowthBook
+     * * `Gumloop` - Gumloop
+     * * `Hatchet` - Hatchet
+     * * `Helicone` - Helicone
+     * * `Heroku` - Heroku
+     * * `Hetzner` - Hetzner
+     * * `HeyGen` - HeyGen
+     * * `Infisical` - Infisical
+     * * `Inngest` - Inngest
+     * * `KapaAI` - KapaAI
+     * * `Kernel` - Kernel
+     * * `Koyeb` - Koyeb
+     * * `LambdaLabs` - LambdaLabs
+     * * `LangSmith` - LangSmith
+     * * `Linode` - Linode
+     * * `LlamaCloud` - LlamaCloud
+     * * `Mem0` - Mem0
+     * * `Metriport` - Metriport
+     * * `Mintlify` - Mintlify
+     * * `MistralAI` - MistralAI
+     * * `Mono` - Mono
+     * * `Netlify` - Netlify
+     * * `Northflank` - Northflank
+     * * `OpenAI` - OpenAI
+     * * `Pinecone` - Pinecone
+     * * `PlatformSh` - PlatformSh
+     * * `PromptingCompany` - PromptingCompany
+     * * `Qdrant` - Qdrant
+     * * `Render` - Render
+     * * `Replicate` - Replicate
+     * * `RetellAI` - RetellAI
+     * * `Roark` - Roark
+     * * `RunPod` - RunPod
+     * * `ScaleAI` - ScaleAI
+     * * `Scaleway` - Scaleway
+     * * `SigNoz` - SigNoz
+     * * `Sim` - Sim
+     * * `Skyvern` - Skyvern
+     * * `Slash` - Slash
+     * * `Synthesia` - Synthesia
+     * * `Telli` - Telli
+     * * `TerraApi` - TerraApi
+     * * `TriggerDev` - TriggerDev
+     * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
+     * * `TwelveLabs` - TwelveLabs
+     * * `Twenty` - Twenty
+     * * `Unstructured` - Unstructured
+     * * `Upstash` - Upstash
+     * * `Vellum` - Vellum
+     * * `Vultr` - Vultr
+     * * `Windmill` - Windmill
+     * * `Zep` - Zep
+     * * `Hex` - Hex
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -17448,6 +17772,75 @@ export namespace Schemas {
       Vapi: 'Vapi',
       Vespa: 'Vespa',
       Writesonic: 'Writesonic',
+      Aiven: 'Aiven',
+      Aviator: 'Aviator',
+      Backblaze: 'Backblaze',
+      Baseten: 'Baseten',
+      Browserbase: 'Browserbase',
+      Cohere: 'Cohere',
+      DenoDeploy: 'DenoDeploy',
+      DigitalOcean: 'DigitalOcean',
+      E2b: 'E2B',
+      Fintoc: 'Fintoc',
+      Firecrawl: 'Firecrawl',
+      FireworksAI: 'FireworksAI',
+      FlyIo: 'FlyIo',
+      Groq: 'Groq',
+      GrowthBook: 'GrowthBook',
+      Gumloop: 'Gumloop',
+      Hatchet: 'Hatchet',
+      Helicone: 'Helicone',
+      Heroku: 'Heroku',
+      Hetzner: 'Hetzner',
+      HeyGen: 'HeyGen',
+      Infisical: 'Infisical',
+      Inngest: 'Inngest',
+      KapaAI: 'KapaAI',
+      Kernel: 'Kernel',
+      Koyeb: 'Koyeb',
+      LambdaLabs: 'LambdaLabs',
+      LangSmith: 'LangSmith',
+      Linode: 'Linode',
+      LlamaCloud: 'LlamaCloud',
+      Mem0: 'Mem0',
+      Metriport: 'Metriport',
+      Mintlify: 'Mintlify',
+      MistralAI: 'MistralAI',
+      Mono: 'Mono',
+      Netlify: 'Netlify',
+      Northflank: 'Northflank',
+      OpenAI: 'OpenAI',
+      Pinecone: 'Pinecone',
+      PlatformSh: 'PlatformSh',
+      PromptingCompany: 'PromptingCompany',
+      Qdrant: 'Qdrant',
+      Render: 'Render',
+      Replicate: 'Replicate',
+      RetellAI: 'RetellAI',
+      Roark: 'Roark',
+      RunPod: 'RunPod',
+      ScaleAI: 'ScaleAI',
+      Scaleway: 'Scaleway',
+      SigNoz: 'SigNoz',
+      Sim: 'Sim',
+      Skyvern: 'Skyvern',
+      Slash: 'Slash',
+      Synthesia: 'Synthesia',
+      Telli: 'Telli',
+      TerraApi: 'TerraApi',
+      TriggerDev: 'TriggerDev',
+      Turso: 'Turso',
+      Singular: 'Singular',
+      Swonkie: 'Swonkie',
+      TwelveLabs: 'TwelveLabs',
+      Twenty: 'Twenty',
+      Unstructured: 'Unstructured',
+      Upstash: 'Upstash',
+      Vellum: 'Vellum',
+      Vultr: 'Vultr',
+      Windmill: 'Windmill',
+      Zep: 'Zep',
+      Hex: 'Hex',
     } as const;
 
     /**
@@ -18153,7 +18546,76 @@ export namespace Schemas {
        * * `TogetherAI` - TogetherAI
        * * `Vapi` - Vapi
        * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic */
+       * * `Writesonic` - Writesonic
+       * * `Aiven` - Aiven
+       * * `Aviator` - Aviator
+       * * `Backblaze` - Backblaze
+       * * `Baseten` - Baseten
+       * * `Browserbase` - Browserbase
+       * * `Cohere` - Cohere
+       * * `DenoDeploy` - DenoDeploy
+       * * `DigitalOcean` - DigitalOcean
+       * * `E2B` - E2B
+       * * `Fintoc` - Fintoc
+       * * `Firecrawl` - Firecrawl
+       * * `FireworksAI` - FireworksAI
+       * * `FlyIo` - FlyIo
+       * * `Groq` - Groq
+       * * `GrowthBook` - GrowthBook
+       * * `Gumloop` - Gumloop
+       * * `Hatchet` - Hatchet
+       * * `Helicone` - Helicone
+       * * `Heroku` - Heroku
+       * * `Hetzner` - Hetzner
+       * * `HeyGen` - HeyGen
+       * * `Infisical` - Infisical
+       * * `Inngest` - Inngest
+       * * `KapaAI` - KapaAI
+       * * `Kernel` - Kernel
+       * * `Koyeb` - Koyeb
+       * * `LambdaLabs` - LambdaLabs
+       * * `LangSmith` - LangSmith
+       * * `Linode` - Linode
+       * * `LlamaCloud` - LlamaCloud
+       * * `Mem0` - Mem0
+       * * `Metriport` - Metriport
+       * * `Mintlify` - Mintlify
+       * * `MistralAI` - MistralAI
+       * * `Mono` - Mono
+       * * `Netlify` - Netlify
+       * * `Northflank` - Northflank
+       * * `OpenAI` - OpenAI
+       * * `Pinecone` - Pinecone
+       * * `PlatformSh` - PlatformSh
+       * * `PromptingCompany` - PromptingCompany
+       * * `Qdrant` - Qdrant
+       * * `Render` - Render
+       * * `Replicate` - Replicate
+       * * `RetellAI` - RetellAI
+       * * `Roark` - Roark
+       * * `RunPod` - RunPod
+       * * `ScaleAI` - ScaleAI
+       * * `Scaleway` - Scaleway
+       * * `SigNoz` - SigNoz
+       * * `Sim` - Sim
+       * * `Skyvern` - Skyvern
+       * * `Slash` - Slash
+       * * `Synthesia` - Synthesia
+       * * `Telli` - Telli
+       * * `TerraApi` - TerraApi
+       * * `TriggerDev` - TriggerDev
+       * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
+       * * `TwelveLabs` - TwelveLabs
+       * * `Twenty` - Twenty
+       * * `Unstructured` - Unstructured
+       * * `Upstash` - Upstash
+       * * `Vellum` - Vellum
+       * * `Vultr` - Vultr
+       * * `Windmill` - Windmill
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -18625,8 +19087,8 @@ export namespace Schemas {
       results: EmbeddingDistance[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface DocumentSimilarityQuery {
@@ -19839,8 +20301,8 @@ export namespace Schemas {
       results: EndpointsUsageOverviewItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface EndpointsUsageOverviewQuery {
@@ -19889,8 +20351,8 @@ export namespace Schemas {
       results: EndpointsUsageTrendsQueryResponseResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface EndpointsUsageTrendsQuery {
@@ -19933,6 +20395,7 @@ export namespace Schemas {
      * * `postgres` - postgres
      * * `mysql` - mysql
      * * `snowflake` - snowflake
+     * * `redshift` - redshift
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -19942,6 +20405,7 @@ export namespace Schemas {
       Postgres: 'postgres',
       Mysql: 'mysql',
       Snowflake: 'snowflake',
+      Redshift: 'redshift',
     } as const;
 
     /**
@@ -20157,8 +20621,8 @@ export namespace Schemas {
       results: ErrorTrackingBreakdownsQueryResponseResults;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface ErrorTrackingBreakdownsQuery {
@@ -21038,8 +21502,8 @@ export namespace Schemas {
       results: SimilarIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface ErrorTrackingSimilarIssuesQuery {
@@ -21239,6 +21703,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `gemini-2.5-flash` - Gemini 2.5 Flash
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.5-flash` - Gemini 3.5 Flash
+     */
+    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
+
+
+    export const ScannerModelEnum = {
+      Gemini25Flash: 'gemini-2.5-flash',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini35Flash: 'gemini-3.5-flash',
+    } as const;
+
+    /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
@@ -21257,14 +21735,20 @@ export namespace Schemas {
        * * `comprehensive` - Comprehensive */
       sampling_mode?: SamplingModeEnum;
       /**
-         * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
+         * The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
          * @nullable
          */
       scanner_id?: string | null;
+      /** Proposed model; determines `credits_per_observation` in the response.
+       *
+       * * `gemini-2.5-flash` - Gemini 2.5 Flash
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
+       * * `gemini-3.5-flash` - Gemini 3.5 Flash */
+      model?: ScannerModelEnum;
     }
 
     /**
-     * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
+     * Forward-looking volume and credit-cost estimate for a proposed scanner.
      */
     export interface EstimateResponse {
       /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
@@ -21273,10 +21757,23 @@ export namespace Schemas {
       window_days: number;
       /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
-      /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
-      other_enabled_scanners_monthly: number;
+      /** Credits one observation costs at the proposed `model` (1 credit = $0.01). */
+      credits_per_observation: number;
+      /** `estimated_observations_per_month` priced at `credits_per_observation`. */
+      estimated_credits_per_month: number;
+      /** Credit-weighted projected monthly spend of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
+      other_enabled_scanners_monthly_credits: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;
+    }
+
+    export interface EvaluatePromptSuggestionRequest {
+      /**
+         * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
+         * @minimum 1
+         * @maximum 100
+         */
+      session_limit?: number;
     }
 
     /**
@@ -21456,7 +21953,7 @@ export namespace Schemas {
       /** @maxLength 100 */
       model: string;
       /**
-         * Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.
+         * Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.
          * @nullable
          */
       provider_key_id?: string | null;
@@ -21506,6 +22003,7 @@ export namespace Schemas {
       target?: EvaluationTargetEnum;
       /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
       target_config?: EvaluationTargetConfig;
+      /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
@@ -21982,8 +22480,8 @@ export namespace Schemas {
       results: EventTaxonomyItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface EventTaxonomyQuery {
@@ -22967,18 +23465,28 @@ export namespace Schemas {
       properties?: unknown[];
     }
 
-    export interface FeatureFlagMultivariateVariantSchema {
-      /** Unique key for this variant. */
+    /**
+     * A single multivariate variant. Extra per-variant keys are dropped.
+     */
+    export interface ExperimentFlagVariant {
+      /** Unique variant key. Exactly one variant must use the key 'control' (the baseline). */
       key: string;
-      /** Human-readable name for this variant. */
+      /** Human-readable variant name. */
       name?: string;
-      /** Variant rollout percentage. */
+      /**
+         * Variant rollout percentage (0-100). Across variants these must sum to 100.
+         * @minimum 0
+         * @maximum 100
+         */
       rollout_percentage: number;
     }
 
-    export interface FeatureFlagMultivariateSchema {
-      /** Variant definitions for multivariate feature flags. */
-      variants: FeatureFlagMultivariateVariantSchema[];
+    /**
+     * Multivariate config for the experiment's feature flag.
+     */
+    export interface ExperimentFlagMultivariate {
+      /** Variant definitions. Exactly one variant key must be the literal string 'control'. */
+      variants: ExperimentFlagVariant[];
     }
 
     /**
@@ -22988,8 +23496,8 @@ export namespace Schemas {
     export interface ExperimentFeatureFlagFilters {
       /** Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}]. */
       groups?: ExperimentFlagRolloutGroup[];
-      /** Multivariate configuration for variant-based rollouts. */
-      multivariate?: FeatureFlagMultivariateSchema | null;
+      /** Multivariate variant configuration. */
+      multivariate?: ExperimentFlagMultivariate | null;
       /**
          * Group type index for group-based feature flags.
          * @nullable
@@ -23001,6 +23509,11 @@ export namespace Schemas {
 
     /**
      * Flag config for experiment create/update, sent through the linked feature flag's own shape.
+     *
+     * Validated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime
+     * (``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag
+     * object). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never
+     * reach this validation.
      */
     export interface ExperimentFeatureFlagInput {
       /** Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
@@ -23174,11 +23687,6 @@ export namespace Schemas {
       /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
       readonly results: readonly MetricRecalculationResult[];
       /**
-         * Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)
-         * @nullable
-         */
-      running_metrics?: number | null;
-      /**
          * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
          * @nullable
          */
@@ -23188,16 +23696,6 @@ export namespace Schemas {
          * @nullable
          */
       estimated_rows_total?: number | null;
-      /**
-         * Bytes read by the run's metric queries so far, both finished and currently running
-         * @nullable
-         */
-      bytes_read?: number | null;
-      /**
-         * Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and currently running
-         * @nullable
-         */
-      active_cpu_time?: number | null;
     }
 
     export type ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType];
@@ -23279,6 +23777,49 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    /**
+     * One experiment whose feature flag a session recording saw.
+     */
+    export interface ExperimentSessionContextItem {
+      /** ID of the experiment whose feature flag the session saw. */
+      experiment_id: number;
+      /** Name of the experiment. */
+      experiment_name: string;
+      /** Key of the experiment's feature flag. */
+      flag_key: string;
+      /** Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one exists, otherwise from the $feature/<key> property stamped on the session's events. */
+      variant: string;
+      /** All distinct variant values observed for this flag during the session, sorted alphabetically. Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. More than one value means the session saw multiple variants — a signal of multi-exposure bias. */
+      variants_seen: string[];
+      /** True when the session saw more than one variant of this flag. */
+      multiple_variants: boolean;
+      /**
+         * Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> properties (e.g. the assignment carried over from an earlier session). For experiments with custom exposure criteria this is not the experiment's exposure moment.
+         * @nullable
+         */
+      first_flag_evaluation_timestamp: string | null;
+      /**
+         * When the experiment was launched.
+         * @nullable
+         */
+      experiment_start_date: string | null;
+      /**
+         * When the experiment ended. Null while the experiment is still running.
+         * @nullable
+         */
+      experiment_end_date: string | null;
+    }
+
+    /**
+     * Experiment/variant context for a session recording.
+     */
+    export interface ExperimentSessionContextResponse {
+      /** ID of the session recording the context was resolved for. */
+      session_id: string;
+      /** Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched experiment's run window overlaps the recording or no flag data was observed in the session. */
+      results: ExperimentSessionContextItem[];
     }
 
     /**
@@ -23766,7 +24307,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine: EngineEnum | null;
     }
 
@@ -24464,7 +25006,76 @@ export namespace Schemas {
        * * `TogetherAI` - TogetherAI
        * * `Vapi` - Vapi
        * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic */
+       * * `Writesonic` - Writesonic
+       * * `Aiven` - Aiven
+       * * `Aviator` - Aviator
+       * * `Backblaze` - Backblaze
+       * * `Baseten` - Baseten
+       * * `Browserbase` - Browserbase
+       * * `Cohere` - Cohere
+       * * `DenoDeploy` - DenoDeploy
+       * * `DigitalOcean` - DigitalOcean
+       * * `E2B` - E2B
+       * * `Fintoc` - Fintoc
+       * * `Firecrawl` - Firecrawl
+       * * `FireworksAI` - FireworksAI
+       * * `FlyIo` - FlyIo
+       * * `Groq` - Groq
+       * * `GrowthBook` - GrowthBook
+       * * `Gumloop` - Gumloop
+       * * `Hatchet` - Hatchet
+       * * `Helicone` - Helicone
+       * * `Heroku` - Heroku
+       * * `Hetzner` - Hetzner
+       * * `HeyGen` - HeyGen
+       * * `Infisical` - Infisical
+       * * `Inngest` - Inngest
+       * * `KapaAI` - KapaAI
+       * * `Kernel` - Kernel
+       * * `Koyeb` - Koyeb
+       * * `LambdaLabs` - LambdaLabs
+       * * `LangSmith` - LangSmith
+       * * `Linode` - Linode
+       * * `LlamaCloud` - LlamaCloud
+       * * `Mem0` - Mem0
+       * * `Metriport` - Metriport
+       * * `Mintlify` - Mintlify
+       * * `MistralAI` - MistralAI
+       * * `Mono` - Mono
+       * * `Netlify` - Netlify
+       * * `Northflank` - Northflank
+       * * `OpenAI` - OpenAI
+       * * `Pinecone` - Pinecone
+       * * `PlatformSh` - PlatformSh
+       * * `PromptingCompany` - PromptingCompany
+       * * `Qdrant` - Qdrant
+       * * `Render` - Render
+       * * `Replicate` - Replicate
+       * * `RetellAI` - RetellAI
+       * * `Roark` - Roark
+       * * `RunPod` - RunPod
+       * * `ScaleAI` - ScaleAI
+       * * `Scaleway` - Scaleway
+       * * `SigNoz` - SigNoz
+       * * `Sim` - Sim
+       * * `Skyvern` - Skyvern
+       * * `Slash` - Slash
+       * * `Synthesia` - Synthesia
+       * * `Telli` - Telli
+       * * `TerraApi` - TerraApi
+       * * `TriggerDev` - TriggerDev
+       * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
+       * * `TwelveLabs` - TwelveLabs
+       * * `Twenty` - Twenty
+       * * `Unstructured` - Unstructured
+       * * `Upstash` - Upstash
+       * * `Vellum` - Vellum
+       * * `Vultr` - Vultr
+       * * `Windmill` - Windmill
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -24567,7 +25178,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -24768,6 +25380,20 @@ export namespace Schemas {
       properties: FeatureFlagConditionPropertyAnalysis[];
     }
 
+    export interface FeatureFlagMultivariateVariantSchema {
+      /** Unique key for this variant. */
+      key: string;
+      /** Human-readable name for this variant. */
+      name?: string;
+      /** Variant rollout percentage. */
+      rollout_percentage: number;
+    }
+
+    export interface FeatureFlagMultivariateSchema {
+      /** Variant definitions for multivariate feature flags. */
+      variants: FeatureFlagMultivariateVariantSchema[];
+    }
+
     /**
      * Optional payload values keyed by variant key.
      */
@@ -24957,6 +25583,33 @@ export namespace Schemas {
          * @nullable
          */
       readonly modified_by: number | null;
+    }
+
+    export interface FeedbackThemeSession {
+      /** Observation whose feedback comment backs this theme. */
+      observation_id: string;
+      /** Session recording the feedback comment was about. */
+      session_id: string;
+    }
+
+    export interface FeedbackTheme {
+      /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
+      theme: string;
+      /** How many feedback comments describe this failure mode. */
+      count: number;
+      /** Up to two short representative quotes from the feedback comments. */
+      examples: string[];
+      /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
+      sessions: FeedbackThemeSession[];
+    }
+
+    export interface FeedbackThemes {
+      /** Recurring failure modes, most frequent first. */
+      themes: FeedbackTheme[];
+      /** Number of thumbs-down feedback comments the summary was generated from. */
+      feedback_count: number;
+      /** When the summary was generated. */
+      generated_at: string;
     }
 
     /**
@@ -25689,17 +26342,6 @@ export namespace Schemas {
       notes: string[];
     }
 
-    export interface GoogleSearchConsoleSite {
-      /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
-      siteUrl: string;
-      /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
-      permissionLevel: string;
-    }
-
-    export interface GoogleSearchConsoleSitesResponse {
-      sites: GoogleSearchConsoleSite[];
-    }
-
     /**
      * * `line` - line
      * * `symbol` - symbol
@@ -26387,6 +27029,9 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface HogFlow {
       readonly id: string;
       /**
@@ -26430,6 +27075,11 @@ export namespace Schemas {
       readonly billable_action_types: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -26532,6 +27182,9 @@ export namespace Schemas {
       current_action_id?: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface HogFlowMinimal {
       readonly id: string;
       /** @nullable */
@@ -26552,6 +27205,11 @@ export namespace Schemas {
       readonly abort_action: string | null;
       readonly variables: unknown;
       readonly billable_action_types: unknown;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -26698,6 +27356,7 @@ export namespace Schemas {
      * * `posthog_business_hours` - posthog_business_hours
      * * `non_failure_status_codes` - non_failure_status_codes
      * * `customer_analytics_account_properties` - customer_analytics_account_properties
+     * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -26718,6 +27377,7 @@ export namespace Schemas {
       PosthogBusinessHours: 'posthog_business_hours',
       NonFailureStatusCodes: 'non_failure_status_codes',
       CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
+      CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -27192,8 +27852,8 @@ export namespace Schemas {
       results: TimelineEntry[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface SessionsTimelineQuery {
@@ -27235,8 +27895,8 @@ export namespace Schemas {
       results: PageURL[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface WebPageURLSearchQuery {
@@ -27315,8 +27975,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface WebNotableChangesQuery {
@@ -27378,8 +28038,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type LogSeverityLevel = typeof LogSeverityLevel[keyof typeof LogSeverityLevel];
@@ -27465,8 +28125,8 @@ export namespace Schemas {
       results: LogAttributeResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface LogAttributesQuery {
@@ -27512,8 +28172,8 @@ export namespace Schemas {
       results: LogValueResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface LogValuesQuery {
@@ -27530,6 +28190,133 @@ export namespace Schemas {
       search?: string | null;
       serviceNames?: string[] | null;
       severityLevels?: LogSeverityLevel[] | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type MetricsAggregation = typeof MetricsAggregation[keyof typeof MetricsAggregation];
+
+
+    export const MetricsAggregation = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      Quantile: 'quantile',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    export type MetricsFilterOp = typeof MetricsFilterOp[keyof typeof MetricsFilterOp];
+
+
+    export const MetricsFilterOp = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+    } as const;
+
+    export type MetricsAttributeScope = typeof MetricsAttributeScope[keyof typeof MetricsAttributeScope];
+
+
+    export const MetricsAttributeScope = {
+      Resource: 'resource',
+      Attribute: 'attribute',
+      Auto: 'auto',
+    } as const;
+
+    export interface MetricsQueryFilter {
+      key: string;
+      op: MetricsFilterOp;
+      scope?: MetricsAttributeScope | null;
+      value: string;
+    }
+
+    export interface MetricsQueryGroupBy {
+      key: string;
+      scope?: MetricsAttributeScope | null;
+    }
+
+    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
+
+
+    export const MetricsOtelType = {
+      Gauge: 'gauge',
+      Sum: 'sum',
+      Histogram: 'histogram',
+      ExponentialHistogram: 'exponential_histogram',
+      Summary: 'summary',
+    } as const;
+
+    export interface MetricsQueryClause {
+      aggregation: MetricsAggregation;
+      filters?: MetricsQueryFilter[] | null;
+      groupBy?: MetricsQueryGroupBy[] | null;
+      metricName: string;
+      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
+      metricType?: MetricsOtelType | null;
+      /** Alias a formula refers to (e.g. "a"); must be unique within the query */
+      name: string;
+      /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
+      quantile?: number | null;
+    }
+
+    export interface MetricsQueryPoint {
+      /** Bucket start, ISO 8601 */
+      time: string;
+      value: number;
+    }
+
+    /**
+     * Label values identifying this series; empty for an ungrouped query
+     */
+    export type MetricsQuerySeriesLabels = {[key: string]: string};
+
+    export interface MetricsQuerySeries {
+      /** Clause alias that produced this series (`formula` for the formula result) */
+      clause?: string | null;
+      /** Label values identifying this series; empty for an ungrouped query */
+      labels: MetricsQuerySeriesLabels;
+      metricName?: string | null;
+      points: MetricsQueryPoint[];
+    }
+
+    export interface MetricsQueryResponse {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MetricsQuerySeries[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface MetricsQuery {
+      clauses: MetricsQueryClause[];
+      /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
+      dateRange?: DateRange | null;
+      /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
+      formula?: string | null;
+      /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
+      interval?: string | null;
+      kind?: 'MetricsQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: MetricsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -27564,8 +28351,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface TraceSpansQuery {
@@ -27616,8 +28403,8 @@ export namespace Schemas {
       results: AggregatedSpanRow[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface TraceSpansAggregationQuery {
@@ -27672,8 +28459,8 @@ export namespace Schemas {
       results: SpanTreeNode[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface TraceSpansTreeQuery {
@@ -27730,8 +28517,8 @@ export namespace Schemas {
       results: AttributeBreakdownRow[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface TraceSpansAttributeBreakdownQuery {
@@ -27905,8 +28692,8 @@ export namespace Schemas {
       results: SessionRecordingType[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type RecordingsQueryActions = { [key: string]: unknown }[] | null;
@@ -28005,8 +28792,8 @@ export namespace Schemas {
       results: VectorSearchResponseItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface VectorSearchQuery {
@@ -28068,8 +28855,8 @@ export namespace Schemas {
       results: UsageMetric[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface UsageMetricsQuery {
@@ -28113,8 +28900,8 @@ export namespace Schemas {
       results: MCPHarnessBreakdownItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MCPHarnessBreakdownQuery {
@@ -28160,8 +28947,8 @@ export namespace Schemas {
       results: MCPToolTopUserItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MCPToolTopUsersQuery {
@@ -28201,8 +28988,8 @@ export namespace Schemas {
       results: MCPToolFailureItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MCPToolFailuresQuery {
@@ -28246,8 +29033,8 @@ export namespace Schemas {
       results: MCPToolStatsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MCPToolStatsQuery {
@@ -28289,8 +29076,8 @@ export namespace Schemas {
       results: MCPToolDailyStatItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MCPToolDailyStatsQuery {
@@ -28327,8 +29114,8 @@ export namespace Schemas {
       results: MCPToolDescriptionItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MCPToolDescriptionsQuery {
@@ -28369,8 +29156,8 @@ export namespace Schemas {
       results: MCPToolSampleIntentItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MCPToolSampleIntentsQuery {
@@ -28415,8 +29202,8 @@ export namespace Schemas {
       results: MCPToolNeighborItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface MCPToolNeighborsQuery {
@@ -28462,7 +29249,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -28488,7 +29275,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -29018,6 +29805,18 @@ export namespace Schemas {
       PosthogCode: 'posthog-code',
     } as const;
 
+    /**
+     * * `personal` - personal
+     * * `shared` - shared
+     */
+    export type MCPInstallationScopeEnum = typeof MCPInstallationScopeEnum[keyof typeof MCPInstallationScopeEnum];
+
+
+    export const MCPInstallationScopeEnum = {
+      Personal: 'personal',
+      Shared: 'shared',
+    } as const;
+
     export interface InstallCustom {
       /** @maxLength 200 */
       name: string;
@@ -29030,6 +29829,11 @@ export namespace Schemas {
       client_secret?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
+      /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+       *
+       * * `personal` - personal
+       * * `shared` - shared */
+      scope?: MCPInstallationScopeEnum;
     }
 
     export interface InstallTemplate {
@@ -29037,6 +29841,11 @@ export namespace Schemas {
       api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
+      /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+       *
+       * * `personal` - personal
+       * * `shared` - shared */
+      scope?: MCPInstallationScopeEnum;
     }
 
     /**
@@ -29075,6 +29884,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -29119,6 +29929,7 @@ export namespace Schemas {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
+      Snowflake: 'snowflake',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
@@ -29163,6 +29974,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `slack-posthog-code` - Slack Posthog Code
        * * `snapchat` - Snapchat
+       * * `snowflake` - Snowflake
        * * `stripe` - Stripe
        * * `tiktok-ads` - Tiktok Ads
        * * `twilio` - Twilio
@@ -29178,6 +29990,37 @@ export namespace Schemas {
     export interface IntegrationAccessRequestResponse {
       /** Whether the access request was accepted and the project admins were notified. */
       success: boolean;
+    }
+
+    /**
+     * A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+     * platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+     * and one frontend selector work across all platforms.
+     */
+    export interface IntegrationAccount {
+      /** The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.). */
+      value: string;
+      /** Primary human-readable label for the account. */
+      display_name: string;
+      /** True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first. */
+      is_primary: boolean;
+      /** Short status chips for the account, e.g. ['Active'] or ['Pause']. */
+      badges: string[];
+      /**
+         * Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).
+         * @nullable
+         */
+      group: string | null;
+      /**
+         * Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.
+         * @nullable
+         */
+      secondary_text: string | null;
+    }
+
+    export interface IntegrationAccountsResponse {
+      /** All accounts the connected integration can access. */
+      accounts: IntegrationAccount[];
     }
 
     /**
@@ -29308,6 +30151,17 @@ export namespace Schemas {
          * @maxLength 400
          */
       identifier: string;
+    }
+
+    export interface JiraIssueSignalExtra {
+      key: string;
+      url: string | null;
+      status: string | null;
+      priority: string | null;
+      assignee: string | null;
+      labels: string[];
+      created: string | null;
+      updated: string | null;
     }
 
     export interface JiraProject {
@@ -31067,6 +31921,18 @@ export namespace Schemas {
       blocked?: boolean;
     }
 
+    /**
+     * * `personal` - Personal
+     * * `shared` - Shared
+     */
+    export type MCPServerInstallationScopeEnum = typeof MCPServerInstallationScopeEnum[keyof typeof MCPServerInstallationScopeEnum];
+
+
+    export const MCPServerInstallationScopeEnum = {
+      Personal: 'personal',
+      Shared: 'shared',
+    } as const;
+
     export interface MCPServerInstallation {
       readonly id: string;
       /** @nullable */
@@ -31081,6 +31947,9 @@ export namespace Schemas {
       description?: string;
       auth_type?: MCPAuthTypeEnum;
       is_enabled?: boolean;
+      readonly scope: MCPServerInstallationScopeEnum;
+      /** True when the requesting user owns this installation. Lets clients gate owner-only controls instead of surfacing 403s. */
+      readonly is_owner: boolean;
       readonly needs_reauth: boolean;
       readonly pending_oauth: boolean;
       readonly proxy_url: string;
@@ -32016,6 +32885,8 @@ export namespace Schemas {
       up: number;
       /** Thumbs-down ratings on this version's observations. */
       down: number;
+      /** Succeeded (ratable) observations this version produced, rated or not. */
+      total: number;
     }
 
     export interface ObservationLabelStats {
@@ -32118,6 +32989,7 @@ export namespace Schemas {
     /**
      * * `schedule` - Schedule
      * * `on_demand` - On demand
+     * * `retry` - Retry
      */
     export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
 
@@ -32125,6 +32997,7 @@ export namespace Schemas {
     export const ObservationTriggerEnum = {
       Schedule: 'schedule',
       OnDemand: 'on_demand',
+      Retry: 'retry',
     } as const;
 
     /**
@@ -32227,6 +33100,16 @@ export namespace Schemas {
       Regex: 'regex',
       NotRegex: 'not_regex',
     } as const;
+
+    export interface OpenToMergeBucket {
+      /** Bucket start, aligned to open_to_merge_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Median merged_at - created_at seconds over PRs merged in this bucket, bots and drafts excluded. Null when nothing merged in the bucket (a gap, not instant merges).
+         * @nullable
+         */
+      p50_seconds: number | null;
+    }
 
     /**
      * * `quarantine` - QUARANTINE
@@ -32696,6 +33579,24 @@ export namespace Schemas {
       SupportReply: 'support_reply',
       Hogdesk: 'hogdesk',
       ImageBuilder: 'image_builder',
+    } as const;
+
+    /**
+     * * `gauge` - gauge
+     * * `sum` - sum
+     * * `histogram` - histogram
+     * * `exponential_histogram` - exponential_histogram
+     * * `summary` - summary
+     */
+    export type OtelMetricTypeEnum = typeof OtelMetricTypeEnum[keyof typeof OtelMetricTypeEnum];
+
+
+    export const OtelMetricTypeEnum = {
+      Gauge: 'gauge',
+      Sum: 'sum',
+      Histogram: 'histogram',
+      ExponentialHistogram: 'exponential_histogram',
+      Summary: 'summary',
     } as const;
 
     /**
@@ -33170,6 +34071,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DashboardTemplate[];
+    }
+
+    export interface PaginatedDataCatalogMetricList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataCatalogMetric[];
     }
 
     export interface PaginatedDataColorThemeList {
@@ -34459,10 +35369,11 @@ export namespace Schemas {
       readonly scanner_snapshot: ScannerSnapshot | null;
       /** Result data persisted on success; null until the observation succeeds. */
       readonly scanner_result: ScannerResult | null;
-      /** Whether this observation came from the schedule or an on-demand request.
+      /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.
        *
        * * `schedule` - Schedule
-       * * `on_demand` - On demand */
+       * * `on_demand` - On demand
+       * * `retry` - Retry */
       readonly triggered_by: ObservationTriggerEnum;
       /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
@@ -34477,12 +35388,12 @@ export namespace Schemas {
          */
       readonly recording_subject_email: string | null;
       /**
-         * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
+         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
          * @nullable
          */
       readonly previous_observation_id: string | null;
       /**
-         * Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.
+         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
          * @nullable
          */
       readonly next_observation_id: string | null;
@@ -34512,18 +35423,6 @@ export namespace Schemas {
 
     export const ScannerProviderEnum = {
       Google: 'google',
-    } as const;
-
-    /**
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
-     */
-    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
-
-
-    export const ScannerModelEnum = {
-      Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
     } as const;
 
     export interface ReplayScanner {
@@ -34567,8 +35466,9 @@ export namespace Schemas {
       provider?: ScannerProviderEnum;
       /** Concrete model to use for this scanner.
        *
+       * * `gemini-2.5-flash` - Gemini 2.5 Flash
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+       * * `gemini-3.5-flash` - Gemini 3.5 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -34581,12 +35481,21 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_observations: number | null;
+      /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
+      readonly credits_per_observation: number;
+      /**
+         * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_credits: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
       readonly updated_at: string;
+      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+      readonly feedback_themes: FeedbackThemes | null;
     }
 
     export interface PaginatedReplayScannerList {
@@ -35305,6 +36214,7 @@ export namespace Schemas {
      * * `llm_analytics` - LLM analytics
      * * `github` - GitHub
      * * `linear` - Linear
+     * * `jira` - Jira
      * * `zendesk` - Zendesk
      * * `conversations` - Conversations
      * * `error_tracking` - Error tracking
@@ -35323,6 +36233,7 @@ export namespace Schemas {
       LlmAnalytics: 'llm_analytics',
       Github: 'github',
       Linear: 'linear',
+      Jira: 'jira',
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
@@ -35782,6 +36693,8 @@ export namespace Schemas {
          * @nullable
          */
       invite_message?: string | null;
+      /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+      send_test_now?: boolean;
       /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
       summary_enabled?: boolean;
       /**
@@ -36585,7 +37498,10 @@ export namespace Schemas {
     export interface ThresholdWithAlert {
       readonly id: string;
       readonly created_at: string;
-      /** Optional name for the threshold. */
+      /**
+         * Optional name for the threshold.
+         * @maxLength 255
+         */
       name?: string;
       /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
       configuration: InsightThreshold;
@@ -37730,6 +38646,16 @@ export namespace Schemas {
       results: WizardSessionDTO[];
     }
 
+    export interface PassRateBucket {
+      /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Fraction (0-1) of completed runs started in this bucket that succeeded. Null when the bucket had no completed run (a gap, not a 0% pass rate).
+         * @nullable
+         */
+      success_rate: number | null;
+    }
+
     /**
      * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
@@ -37973,7 +38899,10 @@ export namespace Schemas {
       readonly created_at?: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight?: number;
-      /** Human-readable name for the alert. */
+      /**
+         * Human-readable name for the alert.
+         * @maxLength 255
+         */
       name?: string;
       /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
       subscribed_users?: number[];
@@ -38564,6 +39493,87 @@ export namespace Schemas {
       is_featured?: boolean;
       /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
       readonly non_portable_references?: NonPortableReferences;
+    }
+
+    /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    export type PatchedDataCatalogMetricDefinition = { [key: string]: unknown } | null;
+
+    export interface PatchedDataCatalogMetric {
+      readonly id?: string;
+      /**
+         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name?: string;
+      /**
+         * Human-friendly label. Mutable, unlike name.
+         * @maxLength 255
+         */
+      display_name?: string;
+      /** What the metric means and how to interpret it. */
+      description?: string;
+      /**
+         * Unit of the result, e.g. usd, percent, cents.
+         * @maxLength 64
+         */
+      unit?: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner?: string | null;
+      /**
+         * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+         * @nullable
+         */
+      definition?: PatchedDataCatalogMetricDefinition;
+      /**
+         * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+         * @nullable
+         */
+      readonly definition_kind?: string | null;
+      /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+      readonly referenced_table_names?: unknown;
+      /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+      readonly status?: string;
+      /** @nullable */
+      readonly approved_at?: string | null;
+      /**
+         * Short ID of the insight this metric was created from, for drift detection.
+         * @nullable
+         */
+      readonly source_insight_short_id?: string | null;
+      /**
+         * When the metric was last run (30-minute throttle).
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the metric, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the proposal, 0-1.
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this metric. */
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedDataColorTheme {
@@ -39343,6 +40353,7 @@ export namespace Schemas {
       target?: EvaluationTargetEnum;
       /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
       target_config?: PatchedEvaluationTargetConfig;
+      /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -39756,7 +40767,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -40078,6 +41090,9 @@ export namespace Schemas {
      */
     export type PatchedHogFlowVariablesItem = {[key: string]: string};
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedHogFlow {
       readonly id?: string;
       /**
@@ -40121,6 +41136,11 @@ export namespace Schemas {
       readonly billable_action_types?: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules?: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedHogFlowGraphUpdate {
@@ -42404,8 +43424,9 @@ export namespace Schemas {
       provider?: ScannerProviderEnum;
       /** Concrete model to use for this scanner.
        *
+       * * `gemini-2.5-flash` - Gemini 2.5 Flash
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+       * * `gemini-3.5-flash` - Gemini 3.5 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -42418,12 +43439,21 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_observations?: number | null;
+      /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
+      readonly credits_per_observation?: number;
+      /**
+         * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_credits?: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
       readonly updated_at?: string;
+      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+      readonly feedback_themes?: FeedbackThemes | null;
     }
 
     export interface PatchedReviewQueueItemUpdate {
@@ -42967,6 +43997,8 @@ export namespace Schemas {
          * @nullable
          */
       invite_message?: string | null;
+      /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+      send_test_now?: boolean;
       /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
       summary_enabled?: boolean;
       /**
@@ -46668,8 +47700,8 @@ export namespace Schemas {
       results: PropertyValueItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface PropertyValuesQuery {
@@ -46763,6 +47795,22 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    export interface PushCISample {
+      /** Head commit SHA of this push (CI round). */
+      head_sha: string;
+      /** Earliest workflow-run start on this push. */
+      started_at: string;
+      /**
+         * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
+         * @nullable
+         */
+      wall_seconds: number | null;
+      /** True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'. */
+      failed: boolean;
+      /** True when any latest-per-workflow run on this push hasn't completed yet. */
+      pending: boolean;
+    }
+
     export interface PullRequestListItem {
       /** The pull request author. */
       author: Author;
@@ -46770,6 +47818,8 @@ export namespace Schemas {
       repo: RepoRef;
       /** CI status from the latest workflow runs on the head SHA. */
       ci: CIStatusRollup;
+      /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
+      push_history: PushCISample[];
       /** Pull request number within the repository. */
       number: number;
       /** Pull request title. */
@@ -47101,8 +48151,8 @@ export namespace Schemas {
       results: TeamTaxonomyItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface TeamTaxonomyQuery {
@@ -47152,7 +48202,7 @@ export namespace Schemas {
        * ```
        *
        * For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
        * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
        * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -47187,8 +48237,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative2 {
@@ -47212,8 +48262,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative3 {
@@ -47238,8 +48288,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: string[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative4 {
@@ -47264,8 +48314,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative5 {
@@ -47297,8 +48347,8 @@ export namespace Schemas {
       results: TimelineEntry[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative7 {
@@ -47339,8 +48389,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Types of returned columns */
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative9 {
@@ -47383,8 +48433,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative14 {
@@ -47407,8 +48457,8 @@ export namespace Schemas {
       results: ErrorTrackingIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative15 {
@@ -47430,8 +48480,8 @@ export namespace Schemas {
       results: SimilarIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type QueryResponseAlternative16Results = {[key: string]: Results};
@@ -47452,8 +48502,8 @@ export namespace Schemas {
       results: QueryResponseAlternative16Results;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative17 {
@@ -47476,8 +48526,8 @@ export namespace Schemas {
       results: ErrorTrackingCorrelatedIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type QueryResponseAlternative18CredibleIntervals = {[key: string]: number[]};
@@ -47584,8 +48634,8 @@ export namespace Schemas {
       results: EmbeddingDistance[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative23 {
@@ -47608,8 +48658,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative24 {
@@ -47623,6 +48673,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -47635,8 +48687,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative25 {
@@ -47661,8 +48713,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative26 {
@@ -47688,8 +48740,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative27 {
@@ -47713,8 +48765,8 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative28 {
@@ -47736,8 +48788,8 @@ export namespace Schemas {
       results: PageURL[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type QueryResponseAlternative29Data = { [key: string]: unknown };
@@ -47766,8 +48818,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative31 {
@@ -47787,8 +48839,8 @@ export namespace Schemas {
       results: unknown[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative32 {
@@ -47808,8 +48860,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative33 {
@@ -47829,8 +48881,8 @@ export namespace Schemas {
       results: RevenueAnalyticsMRRQueryResultItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative34 {
@@ -47849,8 +48901,8 @@ export namespace Schemas {
       results: RevenueAnalyticsOverviewItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative35 {
@@ -47870,8 +48922,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative36 {
@@ -47896,8 +48948,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type QueryResponseAlternative37Results = {[key: string]: MarketingAnalyticsItem};
@@ -47919,8 +48971,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative38 {
@@ -47945,8 +48997,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative39 {
@@ -47972,8 +49024,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative40 {
@@ -47998,8 +49050,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: string[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative41 {
@@ -48024,8 +49076,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative42 {
@@ -48059,8 +49111,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Types of returned columns */
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative43 {
@@ -48083,8 +49135,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative44 {
@@ -48098,6 +49150,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -48110,8 +49164,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative45 {
@@ -48136,8 +49190,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative46 {
@@ -48163,8 +49217,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative47 {
@@ -48188,8 +49242,8 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative48 {
@@ -48213,8 +49267,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative49 {
@@ -48238,8 +49292,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative50 {
@@ -48259,8 +49313,8 @@ export namespace Schemas {
       results: unknown[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative51 {
@@ -48280,8 +49334,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative52 {
@@ -48301,8 +49355,8 @@ export namespace Schemas {
       results: RevenueAnalyticsMRRQueryResultItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative53 {
@@ -48321,8 +49375,8 @@ export namespace Schemas {
       results: RevenueAnalyticsOverviewItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative54 {
@@ -48342,8 +49396,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative55 {
@@ -48367,8 +49421,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative57 {
@@ -48393,8 +49447,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type QueryResponseAlternative58Results = {[key: string]: MarketingAnalyticsItem};
@@ -48416,8 +49470,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative59 {
@@ -48442,8 +49496,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative60 {
@@ -48466,8 +49520,8 @@ export namespace Schemas {
       results: ErrorTrackingIssue[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type QueryResponseAlternative62CredibleIntervals = {[key: string]: number[]};
@@ -48533,8 +49587,8 @@ export namespace Schemas {
       results: LLMTrace[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative66 {
@@ -48558,8 +49612,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative67 {
@@ -48586,8 +49640,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type QueryResponseAlternative68ResultsItem = { [key: string]: unknown };
@@ -48611,8 +49665,8 @@ export namespace Schemas {
       results: QueryResponseAlternative68ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative69 {
@@ -48633,8 +49687,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
       total_median_conversion_time?: number | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative70 {
@@ -48653,8 +49707,8 @@ export namespace Schemas {
       results: RetentionResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative71 {
@@ -48673,8 +49727,8 @@ export namespace Schemas {
       results: PathsLink[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type QueryResponseAlternative72ResultsItem = { [key: string]: unknown };
@@ -48695,8 +49749,8 @@ export namespace Schemas {
       results: QueryResponseAlternative72ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative74 {
@@ -48720,8 +49774,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type QueryResponseAlternative75Tables = {[key: string]: DatabaseSchemaPostHogTable | DatabaseSchemaSystemTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaBatchExportTable | DatabaseSchemaMaterializedViewTable | DatabaseSchemaEndpointTable};
@@ -48750,8 +49804,8 @@ export namespace Schemas {
       results: SessionRecordingType[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative77 {
@@ -48776,8 +49830,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative78 {
@@ -48797,8 +49851,8 @@ export namespace Schemas {
       results: LogAttributeResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative79 {
@@ -48817,11 +49871,31 @@ export namespace Schemas {
       results: LogValueResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative80 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MetricsQuerySeries[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative81 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -48842,11 +49916,11 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative81 {
+    export interface QueryResponseAlternative82 {
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: AggregatedSpanRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -48864,11 +49938,11 @@ export namespace Schemas {
       results: AggregatedSpanRow[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative82 {
+    export interface QueryResponseAlternative83 {
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: SpanTreeNode[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -48886,11 +49960,11 @@ export namespace Schemas {
       results: SpanTreeNode[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative83 {
+    export interface QueryResponseAlternative84 {
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: AttributeBreakdownRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -48908,36 +49982,13 @@ export namespace Schemas {
       results: AttributeBreakdownRow[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface QueryResponseAlternative84 {
-      questions: string[];
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative85 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: TeamTaxonomyItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      questions: string[];
+      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
@@ -48957,14 +50008,37 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: EventTaxonomyItem[];
+      results: TeamTaxonomyItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative87 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: EventTaxonomyItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative88 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -48980,11 +50054,11 @@ export namespace Schemas {
       results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative88 {
+    export interface QueryResponseAlternative89 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -49004,11 +50078,11 @@ export namespace Schemas {
       results: LLMTrace[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative91 {
+    export interface QueryResponseAlternative92 {
       /** Timestamp of the newer trace */
       newerTimestamp?: string | null;
       /** ID of the newer trace (chronologically after current) */
@@ -49020,26 +50094,6 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface QueryResponseAlternative92 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: VectorSearchResponseItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
@@ -49056,14 +50110,34 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: UsageMetric[];
+      results: VectorSearchResponseItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative94 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: UsageMetric[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative95 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -49087,11 +50161,11 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative95 {
+    export interface QueryResponseAlternative96 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -49107,11 +50181,11 @@ export namespace Schemas {
       results: EndpointsUsageOverviewItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export interface QueryResponseAlternative96 {
+    export interface QueryResponseAlternative97 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -49132,31 +50206,11 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative97ResultsItem = { [key: string]: unknown };
-
-    export interface QueryResponseAlternative97 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative97ResultsItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
+    export type QueryResponseAlternative98ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative98 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -49171,11 +50225,11 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPHarnessBreakdownItem[];
+      results: QueryResponseAlternative98ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative99 {
@@ -49191,11 +50245,11 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolTopUserItem[];
+      results: MCPHarnessBreakdownItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative100 {
@@ -49211,14 +50265,34 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolFailureItem[];
+      results: MCPToolTopUserItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative101 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPToolFailureItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative102 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -49235,28 +50309,8 @@ export namespace Schemas {
       results: MCPToolStatsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface QueryResponseAlternative102 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolDailyStatItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative103 {
@@ -49272,11 +50326,11 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolDescriptionItem[];
+      results: MCPToolDailyStatItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative104 {
@@ -49292,11 +50346,11 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolSampleIntentItem[];
+      results: MCPToolDescriptionItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative105 {
@@ -49312,11 +50366,11 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MCPToolNeighborItem[];
+      results: MCPToolSampleIntentItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export interface QueryResponseAlternative106 {
@@ -49332,25 +50386,45 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MCPToolNeighborItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryResponseAlternative107 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PropertyValueItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
     }
 
     export interface QuotaResourceLimit {
@@ -49504,9 +50578,25 @@ export namespace Schemas {
       recording_active_seconds?: number | null;
     }
 
+    export interface TimeToGreenBucket {
+      /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+         * @nullable
+         */
+      p50_seconds: number | null;
+    }
+
     export interface RepoOverview {
       /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
       cost_series: CostPerMergeBucket[];
+      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+      time_to_green_series: TimeToGreenBucket[];
+      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null. */
+      success_rate_series: PassRateBucket[];
+      /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null. */
+      open_to_merge_series: OpenToMergeBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
       run_count: number;
       /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -49561,6 +50651,12 @@ export namespace Schemas {
       default_branch: string;
       /** Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'. */
       cost_series_granularity: string;
+      /** Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'. */
+      time_to_green_series_granularity: string;
+      /** Bucket width of the success_rate_series trend: 'hour', 'day', or 'week'. */
+      success_rate_series_granularity: string;
+      /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
+      open_to_merge_series_granularity: string;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
@@ -49579,6 +50675,7 @@ export namespace Schemas {
      * * `llm_analytics` - llm_analytics
      * * `github` - github
      * * `linear` - linear
+     * * `jira` - jira
      * * `zendesk` - zendesk
      * * `conversations` - conversations
      * * `error_tracking` - error_tracking
@@ -49597,6 +50694,7 @@ export namespace Schemas {
       LlmAnalytics: 'llm_analytics',
       Github: 'github',
       Linear: 'linear',
+      Jira: 'jira',
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
@@ -49706,7 +50804,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -49721,6 +50819,7 @@ export namespace Schemas {
        * * `llm_analytics` - llm_analytics
        * * `github` - github
        * * `linear` - linear
+       * * `jira` - jira
        * * `zendesk` - zendesk
        * * `conversations` - conversations
        * * `error_tracking` - error_tracking
@@ -52229,7 +53328,76 @@ export namespace Schemas {
        * * `TogetherAI` - TogetherAI
        * * `Vapi` - Vapi
        * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic */
+       * * `Writesonic` - Writesonic
+       * * `Aiven` - Aiven
+       * * `Aviator` - Aviator
+       * * `Backblaze` - Backblaze
+       * * `Baseten` - Baseten
+       * * `Browserbase` - Browserbase
+       * * `Cohere` - Cohere
+       * * `DenoDeploy` - DenoDeploy
+       * * `DigitalOcean` - DigitalOcean
+       * * `E2B` - E2B
+       * * `Fintoc` - Fintoc
+       * * `Firecrawl` - Firecrawl
+       * * `FireworksAI` - FireworksAI
+       * * `FlyIo` - FlyIo
+       * * `Groq` - Groq
+       * * `GrowthBook` - GrowthBook
+       * * `Gumloop` - Gumloop
+       * * `Hatchet` - Hatchet
+       * * `Helicone` - Helicone
+       * * `Heroku` - Heroku
+       * * `Hetzner` - Hetzner
+       * * `HeyGen` - HeyGen
+       * * `Infisical` - Infisical
+       * * `Inngest` - Inngest
+       * * `KapaAI` - KapaAI
+       * * `Kernel` - Kernel
+       * * `Koyeb` - Koyeb
+       * * `LambdaLabs` - LambdaLabs
+       * * `LangSmith` - LangSmith
+       * * `Linode` - Linode
+       * * `LlamaCloud` - LlamaCloud
+       * * `Mem0` - Mem0
+       * * `Metriport` - Metriport
+       * * `Mintlify` - Mintlify
+       * * `MistralAI` - MistralAI
+       * * `Mono` - Mono
+       * * `Netlify` - Netlify
+       * * `Northflank` - Northflank
+       * * `OpenAI` - OpenAI
+       * * `Pinecone` - Pinecone
+       * * `PlatformSh` - PlatformSh
+       * * `PromptingCompany` - PromptingCompany
+       * * `Qdrant` - Qdrant
+       * * `Render` - Render
+       * * `Replicate` - Replicate
+       * * `RetellAI` - RetellAI
+       * * `Roark` - Roark
+       * * `RunPod` - RunPod
+       * * `ScaleAI` - ScaleAI
+       * * `Scaleway` - Scaleway
+       * * `SigNoz` - SigNoz
+       * * `Sim` - Sim
+       * * `Skyvern` - Skyvern
+       * * `Slash` - Slash
+       * * `Synthesia` - Synthesia
+       * * `Telli` - Telli
+       * * `TerraApi` - TerraApi
+       * * `TriggerDev` - TriggerDev
+       * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
+       * * `TwelveLabs` - TwelveLabs
+       * * `Twenty` - Twenty
+       * * `Unstructured` - Unstructured
+       * * `Upstash` - Upstash
+       * * `Vellum` - Vellum
+       * * `Vultr` - Vultr
+       * * `Windmill` - Windmill
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -52961,7 +54129,76 @@ export namespace Schemas {
        * * `TogetherAI` - TogetherAI
        * * `Vapi` - Vapi
        * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic */
+       * * `Writesonic` - Writesonic
+       * * `Aiven` - Aiven
+       * * `Aviator` - Aviator
+       * * `Backblaze` - Backblaze
+       * * `Baseten` - Baseten
+       * * `Browserbase` - Browserbase
+       * * `Cohere` - Cohere
+       * * `DenoDeploy` - DenoDeploy
+       * * `DigitalOcean` - DigitalOcean
+       * * `E2B` - E2B
+       * * `Fintoc` - Fintoc
+       * * `Firecrawl` - Firecrawl
+       * * `FireworksAI` - FireworksAI
+       * * `FlyIo` - FlyIo
+       * * `Groq` - Groq
+       * * `GrowthBook` - GrowthBook
+       * * `Gumloop` - Gumloop
+       * * `Hatchet` - Hatchet
+       * * `Helicone` - Helicone
+       * * `Heroku` - Heroku
+       * * `Hetzner` - Hetzner
+       * * `HeyGen` - HeyGen
+       * * `Infisical` - Infisical
+       * * `Inngest` - Inngest
+       * * `KapaAI` - KapaAI
+       * * `Kernel` - Kernel
+       * * `Koyeb` - Koyeb
+       * * `LambdaLabs` - LambdaLabs
+       * * `LangSmith` - LangSmith
+       * * `Linode` - Linode
+       * * `LlamaCloud` - LlamaCloud
+       * * `Mem0` - Mem0
+       * * `Metriport` - Metriport
+       * * `Mintlify` - Mintlify
+       * * `MistralAI` - MistralAI
+       * * `Mono` - Mono
+       * * `Netlify` - Netlify
+       * * `Northflank` - Northflank
+       * * `OpenAI` - OpenAI
+       * * `Pinecone` - Pinecone
+       * * `PlatformSh` - PlatformSh
+       * * `PromptingCompany` - PromptingCompany
+       * * `Qdrant` - Qdrant
+       * * `Render` - Render
+       * * `Replicate` - Replicate
+       * * `RetellAI` - RetellAI
+       * * `Roark` - Roark
+       * * `RunPod` - RunPod
+       * * `ScaleAI` - ScaleAI
+       * * `Scaleway` - Scaleway
+       * * `SigNoz` - SigNoz
+       * * `Sim` - Sim
+       * * `Skyvern` - Skyvern
+       * * `Slash` - Slash
+       * * `Synthesia` - Synthesia
+       * * `Telli` - Telli
+       * * `TerraApi` - TerraApi
+       * * `TriggerDev` - TriggerDev
+       * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
+       * * `TwelveLabs` - TwelveLabs
+       * * `Twenty` - Twenty
+       * * `Unstructured` - Unstructured
+       * * `Upstash` - Upstash
+       * * `Vellum` - Vellum
+       * * `Vultr` - Vultr
+       * * `Windmill` - Windmill
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -53685,7 +54922,76 @@ export namespace Schemas {
        * * `TogetherAI` - TogetherAI
        * * `Vapi` - Vapi
        * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic */
+       * * `Writesonic` - Writesonic
+       * * `Aiven` - Aiven
+       * * `Aviator` - Aviator
+       * * `Backblaze` - Backblaze
+       * * `Baseten` - Baseten
+       * * `Browserbase` - Browserbase
+       * * `Cohere` - Cohere
+       * * `DenoDeploy` - DenoDeploy
+       * * `DigitalOcean` - DigitalOcean
+       * * `E2B` - E2B
+       * * `Fintoc` - Fintoc
+       * * `Firecrawl` - Firecrawl
+       * * `FireworksAI` - FireworksAI
+       * * `FlyIo` - FlyIo
+       * * `Groq` - Groq
+       * * `GrowthBook` - GrowthBook
+       * * `Gumloop` - Gumloop
+       * * `Hatchet` - Hatchet
+       * * `Helicone` - Helicone
+       * * `Heroku` - Heroku
+       * * `Hetzner` - Hetzner
+       * * `HeyGen` - HeyGen
+       * * `Infisical` - Infisical
+       * * `Inngest` - Inngest
+       * * `KapaAI` - KapaAI
+       * * `Kernel` - Kernel
+       * * `Koyeb` - Koyeb
+       * * `LambdaLabs` - LambdaLabs
+       * * `LangSmith` - LangSmith
+       * * `Linode` - Linode
+       * * `LlamaCloud` - LlamaCloud
+       * * `Mem0` - Mem0
+       * * `Metriport` - Metriport
+       * * `Mintlify` - Mintlify
+       * * `MistralAI` - MistralAI
+       * * `Mono` - Mono
+       * * `Netlify` - Netlify
+       * * `Northflank` - Northflank
+       * * `OpenAI` - OpenAI
+       * * `Pinecone` - Pinecone
+       * * `PlatformSh` - PlatformSh
+       * * `PromptingCompany` - PromptingCompany
+       * * `Qdrant` - Qdrant
+       * * `Render` - Render
+       * * `Replicate` - Replicate
+       * * `RetellAI` - RetellAI
+       * * `Roark` - Roark
+       * * `RunPod` - RunPod
+       * * `ScaleAI` - ScaleAI
+       * * `Scaleway` - Scaleway
+       * * `SigNoz` - SigNoz
+       * * `Sim` - Sim
+       * * `Skyvern` - Skyvern
+       * * `Slash` - Slash
+       * * `Synthesia` - Synthesia
+       * * `Telli` - Telli
+       * * `TerraApi` - TerraApi
+       * * `TriggerDev` - TriggerDev
+       * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
+       * * `TwelveLabs` - TwelveLabs
+       * * `Twenty` - Twenty
+       * * `Unstructured` - Unstructured
+       * * `Upstash` - Upstash
+       * * `Vellum` - Vellum
+       * * `Vultr` - Vultr
+       * * `Windmill` - Windmill
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -55080,7 +56386,7 @@ export namespace Schemas {
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
       github_user_token?: string;
-      /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.
+      /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
        *
        * * `default` - default
        * * `acceptEdits` - acceptEdits
@@ -56573,20 +57879,26 @@ export namespace Schemas {
     }
 
     export interface VisionQuota {
-      /** Total observations the org may complete per calendar month. */
-      readonly monthly_quota: number;
-      /** Observations created this month that are in flight or have succeeded, counted against the quota. */
-      readonly usage_this_month: number;
-      /** `monthly_quota - usage_this_month`, floored at 0. */
-      readonly remaining: number;
-      /** True when `usage_this_month >= monthly_quota`; further observations are skipped until next period. */
+      /**
+         * Credits the org may spend per billing period (1 credit = $0.01). Null when billing has synced the product with no spend limit: uncapped.
+         * @nullable
+         */
+      readonly credit_limit: number | null;
+      /** Credits spent this period: succeeded observations from the receipt ledger plus reserved in-flight observations. */
+      readonly credits_used: number;
+      /**
+         * `credit_limit - credits_used`, floored at 0. Null when uncapped.
+         * @nullable
+         */
+      readonly remaining: number | null;
+      /** True when `credits_used >= credit_limit`; further observations are skipped until next period. Always false when uncapped. */
       readonly exhausted: boolean;
       /** First moment of the current quota period (UTC). */
       readonly period_start: string;
       /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
       readonly period_end: string;
-      /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
-      readonly projected_monthly_observations: number;
+      /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+      readonly projected_monthly_credits: number;
     }
 
     export interface WarehouseConnection {
@@ -57013,6 +58325,8 @@ export namespace Schemas {
       head_branch: string;
       /** Attributed pull request number, or 0 when unattributed. */
       pr_number: number;
+      /** Head commit SHA of the run/commit, or '' when unknown. */
+      head_sha: string;
     }
 
     export interface WorkflowRunActivity {
@@ -57381,6 +58695,33 @@ export namespace Schemas {
       match_literal: string | null;
     }
 
+    export interface _LogPatternDiffEntry {
+      /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
+       *
+       * * `new` - new
+       * * `rate_shift` - rate_shift
+       * * `gone` - gone
+       * * `unchanged` - unchanged */
+      classification: ClassificationEnum;
+      /**
+         * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
+         * @nullable
+         */
+      rate_ratio: number | null;
+      /** The mined pattern with full stats. Taken from the current window, or from the baseline window for "gone" entries. When template wobble split one message across several near-identical templates, this is the highest-volume representative and the entry's classification reflects their combined counts. */
+      pattern: _LogPattern;
+      /**
+         * Estimated occurrences across the baseline window (extrapolated like `estimated_count`). Null when the pattern was not seen in the baseline sample.
+         * @nullable
+         */
+      baseline_estimated_count: number | null;
+      /**
+         * Share of the baseline sample this pattern represented (0-100). Null when absent from the baseline.
+         * @nullable
+         */
+      baseline_volume_share_pct: number | null;
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -57634,6 +58975,37 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters applied before mining. Same shape as the query-logs endpoint. */
       filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsPatternsDiffRequest {
+      /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
+      query: _LogsPatternsBody;
+      /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
+      baselineDateRange?: _DateRange;
+    }
+
+    export interface _LogsPatternsDiffWindow {
+      /** Log rows fed to the miner for this window (sample size). */
+      scanned_count: number;
+      /** Total log rows matching the filters in this window. */
+      total_count: number;
+      /** True when this window's counts are extrapolated from a sample rather than exact. */
+      sampled: boolean;
+      /** Share of this window's rows eligible for sampling (0-100); below 100 the scan was time-slice bounded. */
+      sample_coverage_pct: number;
+      /** Resolved window start (ISO 8601, inclusive). */
+      date_from: string;
+      /** Resolved window end (ISO 8601, exclusive). */
+      date_to: string;
+    }
+
+    export interface _LogsPatternsDiffResponse {
+      /** Classified diff entries, most interesting first: "new" (by estimated count), then "rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the baseline is matched to the current window by literal-content fingerprint, so a placeholder widening between runs does not read as one pattern vanishing and another appearing. */
+      entries: _LogPatternDiffEntry[];
+      /** Mining metadata for the current window. */
+      current: _LogsPatternsDiffWindow;
+      /** Mining metadata for the baseline window. Check `total_count` before trusting a wall of "new" entries: an empty or tiny baseline (e.g. logging only started this week) makes everything look new. */
+      baseline: _LogsPatternsDiffWindow;
     }
 
     export interface _LogsPatternsRequest {
@@ -58047,6 +59419,14 @@ export namespace Schemas {
          * @maxLength 255
          */
       metricName: string;
+      /** Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.
+       *
+       * * `gauge` - gauge
+       * * `sum` - sum
+       * * `histogram` - histogram
+       * * `exponential_histogram` - exponential_histogram
+       * * `summary` - summary */
+      metricType?: OtelMetricTypeEnum | null;
       /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
        *
        * * `sum` - sum
@@ -58099,9 +59479,9 @@ export namespace Schemas {
       is_monotonic: boolean;
       /** Service that emitted the metric. */
       service_name: string;
-      /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
+      /** Trace this emission belongs to (hex, same form the tracing product uses); empty if none. Use it to pivot to the trace. */
       trace_id: string;
-      /** Span this emission belongs to; empty if none. */
+      /** Span this emission belongs to (hex); empty if none. */
       span_id: string;
       /** Per-emission attributes (high-cardinality labels on the data point). */
       attributes: _MetricEventSampleAttributes;
@@ -58127,6 +59507,14 @@ export namespace Schemas {
          * @maxLength 255
          */
       metricName?: string;
+      /** Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.
+       *
+       * * `gauge` - gauge
+       * * `sum` - sum
+       * * `histogram` - histogram
+       * * `exponential_histogram` - exponential_histogram
+       * * `summary` - summary */
+      metricType?: OtelMetricTypeEnum | null;
       /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
        *
        * * `sum` - sum
@@ -58194,7 +59582,7 @@ export namespace Schemas {
       /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
       dateTo?: string;
       /**
-         * Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.
+         * Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.
          * @maxLength 255
          */
       traceId?: string;
@@ -58457,6 +59845,29 @@ export namespace Schemas {
     export interface _TracingAttributeBreakdownRequest {
       /** The attribute breakdown query to execute. */
       query: _TracingAttributeBreakdownQueryBody;
+    }
+
+    export interface _TracingAttributeBreakdownRow {
+      /** The attribute's value for this group. Spans without the attribute group under ''. */
+      value: string;
+      /** Number of matching spans with this value. */
+      count: number;
+      /** Number of matching error spans (status_code = 2). */
+      error_count: number;
+      /** Median span duration in nanoseconds. */
+      p50_duration_nano: number;
+      /** 95th percentile span duration in nanoseconds. */
+      p95_duration_nano: number;
+    }
+
+    export interface _TracingAttributeBreakdownResponse {
+      /** One row per distinct attribute value, ordered by the requested column descending. */
+      results: _TracingAttributeBreakdownRow[];
+      /**
+         * Rows for the comparison window when compareFilter.compare is true, else null.
+         * @nullable
+         */
+      compare: _TracingAttributeBreakdownRow[] | null;
     }
 
     export interface _TracingAttributeEntry {
@@ -58922,6 +60333,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsCustomPropertyDefinitionsValuesRetrieveParams = {
+    /**
+     * Id of the custom property definition to suggest values for.
+     */
+    key: string;
+    /**
+     * Case-insensitive substring to narrow the suggestions.
+     */
+    value?: string;
     };
 
     export type EnvironmentsCustomerJourneysListParams = {
@@ -60001,6 +61423,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesOauthAccountsRetrieveParams = {
+    /**
+     * The OAuth integration id whose accounts should be listed.
+     */
+    integration_id: number;
+    /**
+     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
+     */
+    source_type: string;
     };
 
     export type EnvironmentsExternalDataSourcesStoredCredentialsListParams = {
@@ -61338,6 +62771,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -61393,6 +62827,7 @@ export namespace Schemas {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
+      Snowflake: 'snowflake',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
@@ -62885,9 +64320,17 @@ export namespace Schemas {
      */
     dashboard?: number;
     /**
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     */
+    dashboard_tiles?: number;
+    /**
      * Filter by insight ID.
      */
     insight?: number;
+    /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string;
     /**
      * Number of results to return per page.
      */
@@ -63161,13 +64604,48 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
      * Session recording id to return observations for.
      */
     session_id: string;
+    };
+
+    export type EnvironmentsVisionObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
     export type EnvironmentsVisionScannersListParams = {
@@ -63219,7 +64697,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
@@ -63239,7 +64717,42 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
+
+    export type EnvironmentsVisionScannersObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -63274,7 +64787,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -64130,6 +65643,7 @@ export namespace Schemas {
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
+     * * `Metric` - Metric
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -64214,6 +65728,7 @@ export namespace Schemas {
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
       StreamlitApp: 'StreamlitApp',
+      Metric: 'Metric',
     } as const;
 
     /**
@@ -64284,6 +65799,7 @@ export namespace Schemas {
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
+     * * `Metric` - Metric
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -64356,6 +65872,7 @@ export namespace Schemas {
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
       StreamlitApp: 'StreamlitApp',
+      Metric: 'Metric',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -65182,6 +66699,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type CustomPropertyDefinitionsValuesRetrieveParams = {
+    /**
+     * Id of the custom property definition to suggest values for.
+     */
+    key: string;
+    /**
+     * Case-insensitive substring to narrow the suggestions.
+     */
+    value?: string;
+    };
+
     export type CustomPropertySourcesListParams = {
     /**
      * Number of results to return per page.
@@ -65592,6 +67120,17 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type DataCatalogMetricsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type DataColorThemesListParams = {
     /**
@@ -66766,6 +68305,13 @@ export namespace Schemas {
       description: string;
     };
 
+    export type ExperimentsSessionContextRetrieveParams = {
+    /**
+     * ID of the session recording to resolve experiment context for.
+     */
+    session_id: string;
+    };
+
     export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -66884,6 +68430,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSourcesOauthAccountsRetrieveParams = {
+    /**
+     * The OAuth integration id whose accounts should be listed.
+     */
+    integration_id: number;
+    /**
+     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
+     */
+    source_type: string;
     };
 
     export type ExternalDataSourcesStoredCredentialsListParams = {
@@ -68549,6 +70106,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -68604,6 +70162,7 @@ export namespace Schemas {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
+      Snowflake: 'snowflake',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
@@ -70730,9 +72289,17 @@ export namespace Schemas {
      */
     dashboard?: number;
     /**
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     */
+    dashboard_tiles?: number;
+    /**
      * Filter by insight ID.
      */
     insight?: number;
+    /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string;
     /**
      * Number of results to return per page.
      */
@@ -71396,13 +72963,48 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
      * Session recording id to return observations for.
      */
     session_id: string;
+    };
+
+    export type VisionObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
     export type VisionScannersListParams = {
@@ -71454,7 +73056,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
@@ -71474,7 +73076,42 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
+
+    export type VisionScannersObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -71509,7 +73146,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**

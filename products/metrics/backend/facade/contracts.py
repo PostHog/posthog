@@ -22,7 +22,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from .enums import AttributeScope, FilterOp, MetricAggregation
+from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
@@ -60,6 +60,8 @@ class MetricQueryClause:
     group_by: tuple[MetricGroupBy, ...] = ()
     # Required for QUANTILE / HISTOGRAM_QUANTILE; ignored otherwise.
     quantile: float | None = None
+    # Constrains rows to one metric type; None keeps all types (legacy).
+    metric_type: MetricType | None = None
 
     def __post_init__(self) -> None:
         if self.aggregation.needs_quantile:
@@ -275,3 +277,29 @@ class InvestigationResult:
     evidence: InvestigationEvidence
     confidence: str  # "high" | "medium" | "low"
     narrative: str
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentContext:
+    """Structured context from a fired alert (or a manual "this looks wrong"),
+    so an investigation never has to parse a timestamp out of prose. `fired_at`
+    must be timezone-aware and is normalized to UTC at construction; the
+    anomaly window is derived as [fired_at - lookback, fired_at + leadout],
+    and `service_name` scopes the investigation to the implicated service.
+    """
+
+    metric_name: str
+    fired_at: dt.datetime
+    lookback: dt.timedelta = dt.timedelta(minutes=15)
+    leadout: dt.timedelta = dt.timedelta(minutes=15)
+    service_name: str | None = None
+    companions: tuple[CompanionMetric, ...] = ()
+
+    def __post_init__(self) -> None:
+        # A naive datetime would be taken as UTC by the window math and
+        # silently mis-bucket a local-time fire; fail fast at construction.
+        # Aware non-UTC instants are fine — normalize them so downstream
+        # window math always operates on UTC.
+        if self.fired_at.tzinfo is None:
+            raise ValueError("fired_at must be timezone-aware")
+        object.__setattr__(self, "fired_at", self.fired_at.astimezone(dt.UTC))

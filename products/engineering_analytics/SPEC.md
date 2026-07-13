@@ -150,6 +150,39 @@ A PR's current CI status is the head-SHA join between the two (the `ci_rollup` C
 
 All time-windowed access uses `date_from` / `date_to` per PostHog convention (relative `-30d` or ISO8601).
 
+### Exposed warehouse view
+
+One warehouse view is exposed so insights, subscriptions, other products, and agents (via
+`execute-sql`) can query per-job CI cost directly — the only surface where the curated read layer
+is reachable as data rather than through the named endpoints.
+
+- **Name:** `engineering_analytics_job_costs`, provisioned per-team as a `DataWarehouseSavedQuery`
+  (the revenue-analytics managed-viewset mechanism, kind `engineering_analytics`).
+- **Grain:** one row per job attempt (a retry appears once per attempt — correct for cost). Every
+  job is kept, including non-billable ones: `provider` / `os` / `vcpu` / `multiplier` describe any
+  classifiable runner (github-hosted included) and are NULL only when the labels name no recognized
+  runner; `billable_seconds` / `estimated_cost_usd` are NULL when the job isn't billable
+  (github-hosted, non-Linux, or unclassifiable) or unsettled (no elapsed yet). NULL cost is
+  disambiguated by `provider` (non-billable) vs `completed_at` (unsettled) — a queued job is never
+  shown as `$0.00`.
+  Jobs whose run row is missing (the LEFT JOIN to `workflow_runs`) keep NULL attribution
+  (`repo_owner` / `repo_name` / `pr_number`) rather than being dropped.
+- **Non-materialized:** results are computed at query time — there is no stored table to rebuild.
+  The rendered SQL itself is persisted per team, so a cost-model change in `cost.py` reaches a
+  team's view on its next re-render (the post-load hook re-syncs on every GitHub runs/jobs load,
+  bounding staleness to one sync cycle for active teams); a fleet-wide resync is a one-line loop
+  over the `engineering_analytics` viewsets.
+- **Single source of truth:** the cost columns are generated from `logic/cost.py`'s constants (the
+  same rate ladder + label→tier parser the Python model uses), rendered as HogQL. A ClickHouse-backed
+  parity test asserts the view's output equals the Python model's across the classification matrix,
+  so the SQL can only drift from the model if that test fails.
+- **One cost path for the view and the endpoints.** The product's endpoint cost queries (`pr_cost`,
+  the workflow/author/runner-tier cost splits, the cost-per-merge series) read this same rendered
+  per-job cost SELECT — via `_curated.job_cost_source()`, which adds only endpoint-private run
+  pass-through columns for windowing/branch filters — and aggregate `billable_seconds` /
+  `estimated_cost_usd` in ClickHouse. Cost is therefore computed exactly once, in one place; there is
+  no separate Python cost rollup for the endpoints to drift from the view.
+
 ## 6. Delivery shape
 
 Vertical slices, each independently mergeable. The near-term path:
@@ -172,6 +205,7 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
 - **Signals emission for PostHog Code is the goal; the substrate is shaped for it.** Valuable CI conditions are surfaced as Signals via the Signals product's `emit_signal()` for PostHog Code to act on. Detection of what counts as a valuable Signal is defined once in `logic/` over the read layer, so the emitter and the MCP/SQL surface share one definition — never re-derived in the UI. The emission contract (source taxonomy, thresholds, autonomy priority) is owned by the Signals product; nothing in the read substrate or surfaces may foreclose it.
 - **Curated read layer, run privately; MCP is the official surface via named typed endpoints.** _(Changed — reason:)_ registering the curated views in the global HogQL catalog (`Database.create_for`, the `revenue_analytics` precedent) inverts the dependency — core imports the product — and runs on the per-query hot path for **every** team. Running the curated `build_query()` as subqueries from the product's own DRF endpoints keeps domain rules defined once while leaving the product isolated and off the hot path: core imports only the viewset, exactly like `visual_review`. The endpoints back both the MCP tools and the UI, so there is no parallel read path. (This restructure is the written reason for changing the prior "registered substrate + generic SQL surface" decision.)
 - **`metric_quality` is a typed field on `pr_lifecycle`; aggregate endpoints carry caveats in field names + docs.** _(Changed — reason:)_ the aggregate endpoints return typed lists, so the coarse/staleness caveats ride in honest field names (`open_to_merge_seconds`) and serializer/tool descriptions — structurally hard to misread. `pr_lifecycle` keeps the typed `metric_quality` field (`partial`) where the assembly's incompleteness is load-bearing.
+- **The `engineering_analytics_job_costs` warehouse view does not reopen "no global HogQL view registration".** The locked-out thing is `Database.create_for` _code_ registration that inverts the dependency (core imports the product) and runs on every team's per-query hot path. This view is the opposite: team-scoped managed _data_ (a `DataWarehouseSavedQuery` synced only for teams with a GitHub source), created by the same managed-viewset mechanism revenue analytics uses. Core never imports the product to serve it, and teams without a synced GitHub source have no view at all. The cost model stays defined once in `logic/cost.py` (rendered to HogQL, guarded by a parity test); the view exists so cost is queryable by insights / subscriptions / other products / `execute-sql`, which the named endpoints alone don't cover. See §5 → Exposed warehouse view.
 - **No new ingestion to support v1 UI.** Repo identity, labels, and `is_bot` are mapped from the warehouse JSON already landed; the PR↔CI status is a head-SHA join. All in the read layer.
 - **HogQL only for analytics data.** No raw ClickHouse.
 - **No product Postgres DB.** Tool calls are stateless; saved/stateful state is a later, separate decision. No `db_routing.yaml` entry — analytics data lives in the warehouse / ClickHouse. If a product-config model is ever needed, it goes on the **main** DB as a team-scoped model (`TeamScopedRootMixin`), not a separate DB.

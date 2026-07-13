@@ -1098,11 +1098,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def artifacts(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
-        manifest = tasks_facade.upload_task_run_artifacts(
+        result = tasks_facade.upload_task_run_artifacts(
             pk, task_id, self.team_id, artifacts=request.validated_data["artifacts"]
         )
-        if manifest is None:
+        if result is None:
             raise NotFound()
+        _uploaded, manifest = result
         serializer = TaskRunArtifactsUploadResponseSerializer({"artifacts": manifest})
         return Response(serializer.data)
 

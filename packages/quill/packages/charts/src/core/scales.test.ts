@@ -801,6 +801,17 @@ describe('hog-charts scales', () => {
             expect(resolve(negSeries, 1)).toBe(0)
         })
 
+        it('keeps the sign of a negative segment in a diverging stack', () => {
+            // stackOffsetDiverging lays a -50 segment out as [bottom = -50, top = 0] — the same
+            // top > bottom ordering as a positive segment — so `top - bottom` alone would report
+            // +50 in the tooltip for a bar drawn below zero.
+            const pos = makeSeries({ key: 'pos', data: [10, 20] })
+            const neg = makeSeries({ key: 'neg', data: [-5, -50] })
+            const resolve = buildSegmentResolveValue(computeDivergingStackData([pos, neg], ['x', 'y']))!
+            expect(resolve(pos, 1)).toBe(20)
+            expect(resolve(neg, 1)).toBe(-50)
+        })
+
         it('returns each series own fraction for a percent stack, not the cumulative fraction', () => {
             // a=20, b=15 at index 1 → total 35. b sits on top of a, so b's cumulative top is 1.0,
             // but its own fraction is 15/35 — that segment is what the tooltip must report.

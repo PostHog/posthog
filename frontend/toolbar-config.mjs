@@ -1,6 +1,7 @@
+import * as fs from 'fs'
 import * as path from 'path'
 
-import { commonConfig, isDev } from '@posthog/esbuilder'
+import { commonConfig, copyRRWebWorkerFiles, createHashlessEntrypoints, esbuildBuild, isDev } from '@posthog/esbuilder'
 
 // `TOOLBAR_PUBLIC_PATH`, when set, overrides the default `publicPath` so the
 // toolbar bundle and its assets can be hosted under a versioned, content-pinned
@@ -47,20 +48,19 @@ const deniedPaths = [
 ]
 
 // Heavy third-party libraries the toolbar never renders, but which leak in transitively
-// through the shared scene graph (mostly via scenes/urls.ts -> products.tsx). Because the
-// toolbar is a single IIFE with no code-splitting, even lazily `import()`-ed libraries get
-// inlined, so these must be cut at resolve time. CloudFront won't gzip files over 10 MB, so
-// keeping the bundle small is what keeps it compressible.
+// through the shared scene graph (mostly via scenes/urls.ts -> products.tsx). Code splitting
+// would defer the lazily-`import()`-ed ones rather than inline them, but until their import
+// edges are cut at the source (.agents/toolbar-migration.md), denying them at resolve time
+// keeps them out of the artifact set entirely — bin/check-toolbar-graph.mjs asserts absence.
 const deniedThirdPartyPackages = [
-    // mermaid diagram rendering (via LemonMarkdownWithMermaid). Denying the entry cascades to
-    // its exclusive deps: katex, cytoscape, @mermaid-js/parser, dagre-d3-es, layout/cose-base.
-    /^mermaid(\/|$)/,
     // chart.js + its annotation plugin (via Sparkline). Charts in the toolbar go through the
     // already-denied LineGraph.
     /^chart\.js(\/|$)/,
     /^chartjs-plugin-annotation(\/|$)/,
-    // hls.js video streaming, dynamically imported by the shared replay rrweb plugins.
-    /^hls\.js(\/|$)/,
+    // hls.js and mermaid need no deny anymore: hls.js's only path in was @posthog/replay-shared,
+    // whose last importer (~/types' SnapshotSourceType value re-export) is now type-only, and
+    // mermaid's was the LemonMarkdown barrel, which no longer re-exports the mermaid variant.
+    // Reintroduction is caught by FORBIDDEN_PACKAGES in bin/check-toolbar-graph.mjs.
 ]
 
 const deniedPatterns = [
@@ -154,16 +154,47 @@ function createToolbarModulePlugin(dirname) {
     }
 }
 
-export function getToolbarBuildConfig(dirname) {
+// The toolbar ships as two artifacts (see .agents/toolbar-migration.md):
+//
+//   dist/toolbar.js          — a tiny classic-script loader (src/toolbar/loader.ts). posthog-js
+//                              injects it with a plain <script> tag on customer pages and calls
+//                              window.ph_load_toolbar on load; the loader then import()s the app.
+//   dist/toolbar/            — the real app: an ESM entry (toolbar-app-<hash>.js, hashless copy
+//                              alongside as a version-skew fallback) plus code-split chunks, so
+//                              lazily-imported features are fetched on demand instead of inlined.
+//   dist/toolbar/toolbar-app.css — the app entry's stylesheet (hashless copy); ToolbarApp.tsx
+//                              fetches it into the shadow root. It lives inside dist/toolbar/
+//                              so its relative font url()s resolve against toolbar/assets/.
+//   dist/toolbar.css         — copy at the old URL, only consumed by stale-cached single-file
+//                              toolbar.js builds during the unversioned-deploy transition window.
+//
+// The loader resolves the app relative to its own script URL, and chunk imports inside the app
+// are relative too, so the same artifacts work from Django /static/ on any instance and from
+// the versioned/major-alias/compatibility prefixes on the posthog-js CDN (whose release
+// pipeline publishes dist/toolbar/ recursively when present).
+
+export function getToolbarAppBuildConfig(dirname) {
     return {
+        // Named 'Toolbar' so the metafile lands at toolbar-esbuild-meta.json, which
+        // bin/check-toolbar-graph.mjs and bin/check-toolbar-size.mjs read.
         name: 'Toolbar',
-        globalName: '__posthogToolbarModule',
-        entryPoints: ['src/toolbar/index.tsx'],
-        format: 'iife',
-        outfile: path.resolve(dirname, 'dist', 'toolbar.js'),
-        banner: { js: 'var __posthogToolbarModule = (function () { var define = undefined;' },
-        footer: { js: 'return __posthogToolbarModule })();' },
-        publicPath: isDev ? '/static/' : toolbarPublicPathOverride || 'https://us.posthog.com/static/',
+        entryPoints: { 'toolbar-app': 'src/toolbar/index.tsx' },
+        format: 'esm',
+        splitting: true,
+        outdir: path.resolve(dirname, 'dist', 'toolbar'),
+        chunkNames: 'chunk-[name]-[hash]',
+        // Shadow any AMD loader on the host page (module-scoped var, applied to every output
+        // file) so bundled UMD dependencies don't try to register with e.g. RequireJS.
+        banner: { js: 'var define = undefined;' },
+        // NO publicPath (explicitly overriding commonConfig's '/static'): esbuild would bake it
+        // into the chunk import specifiers as absolute URLs, but the same artifacts are served
+        // from Django /static/ on any region or self-hosted instance and from the posthog-js
+        // CDN prefixes — chunks must resolve relative to the importing module. Fonts stay
+        // file-loaded with relative url()s in the CSS (which is fetched from inside
+        // dist/toolbar/, so they resolve); svgs are imported from JS where a relative specifier
+        // string would resolve against the customer page's URL, so inline them instead.
+        publicPath: undefined,
+        loader: { ...commonConfig.loader, '.svg': 'dataurl' },
         // Inject TOOLBAR_PUBLIC_PATH at build time as a bare global so runtime
         // code (e.g. ToolbarApp.tsx's CSS loader) can construct URLs to sibling
         // files in the same versioned bundle. The identifier is declared as
@@ -177,4 +208,60 @@ export function getToolbarBuildConfig(dirname) {
         writeMetaFile: true,
         extraPlugins: [createToolbarModulePlugin(dirname)],
     }
+}
+
+/**
+ * Runs after the toolbar app build: emits the hashless entry copies, promotes the entry CSS to
+ * the stable dist/toolbar.css URL, and builds the loader with the hashed entry filename baked
+ * in. Called from build.mjs's onBuildComplete and bin/build-toolbar.mjs (including per rebuild
+ * in watch mode — the loader build is a single tiny file).
+ */
+export async function finalizeToolbarBuild(dirname, buildResponse) {
+    if (!buildResponse) {
+        return
+    }
+
+    const entrypoints = buildResponse.entrypoints || []
+    const entryJs = entrypoints.find((e) => e.endsWith('.js'))
+    const entryCss = entrypoints.find((e) => e.endsWith('.css'))
+    if (!entryJs || !entryCss) {
+        // Failing the build beats shipping a loader that points at nothing.
+        throw new Error(`Toolbar app build produced no entry ${!entryJs ? 'JS' : 'CSS'} output.`)
+    }
+
+    // esbuild emits per-chunk CSS: only the entry's stylesheet is loaded into the shadow root
+    // (as toolbar.css), so toolbar features must keep their styles statically imported. Chunk
+    // CSS files are dead weight from lazily-imported app scenes, not a correctness problem.
+
+    // toolbar-app-<hash>.js -> toolbar-app.js next to it: the loader's version-skew fallback.
+    createHashlessEntrypoints(dirname, entrypoints)
+    // The copy lives one directory up from the entry CSS, so point its sourceMappingURL back
+    // into dist/toolbar/ — collectstatic fails on a sourcemap reference it can't resolve.
+    const entryCssContent = fs
+        .readFileSync(entryCss, 'utf8')
+        .replace(/sourceMappingURL=([^\s*]+\.css\.map)/, 'sourceMappingURL=toolbar/$1')
+    fs.writeFileSync(path.resolve(dirname, 'dist', 'toolbar.css'), entryCssContent)
+
+    // The chunks bundle rrweb, whose inlined worker string carries a sourceMappingURL that
+    // collectstatic resolves relative to dist/toolbar/ — the map must exist there too.
+    copyRRWebWorkerFiles(dirname, 'dist/toolbar')
+
+    await esbuildBuild({
+        absWorkingDir: dirname,
+        entryPoints: ['src/toolbar/loader.ts'],
+        bundle: true,
+        // ESM output keeps the runtime-dynamic import() untouched; with no static
+        // imports/exports of its own, the file still parses as a classic script.
+        format: 'esm',
+        outfile: path.resolve(dirname, 'dist', 'toolbar.js'),
+        minify: !isDev,
+        sourcemap: true,
+        target: commonConfig.target,
+        tsconfig: commonConfig.tsconfig,
+        define: {
+            ...commonConfig.define,
+            __POSTHOG_TOOLBAR_PUBLIC_PATH__: JSON.stringify(toolbarPublicPathOverride),
+            __POSTHOG_TOOLBAR_APP_ENTRY__: JSON.stringify(path.basename(entryJs)),
+        },
+    })
 }

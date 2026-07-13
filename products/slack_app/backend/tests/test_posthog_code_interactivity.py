@@ -383,9 +383,9 @@ class TestRepoPickerOptions(TestCase):
                 "default_option_id": "allow",
                 "reject_option_id": "reject",
                 "options": [
-                    {"optionId": "allow", "kind": "allow_once", "label": "Allow once"},
+                    {"optionId": "allow", "kind": "allow_once", "label": "Allow"},
                     {"optionId": "always", "kind": "allow_always", "label": "Always allow this command"},
-                    {"optionId": "reject", "kind": "reject_once", "label": "Deny once"},
+                    {"optionId": "reject", "kind": "reject_once", "label": "Deny"},
                 ],
             },
             timeout=900,
@@ -430,69 +430,106 @@ class TestRepoPickerOptions(TestCase):
         }
 
     @patch("products.slack_app.backend.api.requests.post")
-    @patch("products.tasks.backend.logic.services.permission_broker.send_agent_command")
-    @patch("products.tasks.backend.logic.services.permission_broker.create_sandbox_connection_token")
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_permission_approve_sends_default_option(
         self,
         mock_config,
-        mock_create_token,
-        mock_send_agent_command,
+        mock_resolve_slack_user,
+        mock_signal_permission_response,
         mock_requests_post,
     ):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        mock_create_token.return_value = "sandbox-token"
-        mock_send_agent_command.return_value = SimpleNamespace(success=True, status_code=200, error=None)
+        mock_resolve_slack_user.return_value = SimpleNamespace(user=self.user, slack_email=self.user.email)
         task_run = self._create_permission_run()
         token = self._cache_permission_context(task_run)
 
         response = self._post_interactivity(self._permission_payload(SLACK_PERMISSION_ACTION_APPROVE, token))
 
         assert response.status_code == 200
-        mock_send_agent_command.assert_called_once()
-        call_args = mock_send_agent_command.call_args
-        assert call_args.args[0].id == task_run.id
-        assert call_args.kwargs["method"] == "permission_response"
-        assert call_args.kwargs["params"] == {"requestId": "perm-1", "optionId": "allow"}
-        assert call_args.kwargs["auth_token"] == "sandbox-token"
+        mock_signal_permission_response.assert_called_once_with(
+            task_run.id,
+            task_run.task_id,
+            task_run.team_id,
+            request_id="perm-1",
+            option_id="allow",
+            actor_user_id=self.user.id,
+            actor_slack_user_id="U123",
+            is_denial=False,
+            denial_message=None,
+            broker_reason="slack_human_response",
+        )
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
         assert mock_requests_post.call_args.kwargs["json"]["blocks"][0]["type"] == "card"
-        assert "Approved" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert mock_requests_post.call_args.kwargs["json"]["text"] == "Approval recorded"
+        assert "body" not in mock_requests_post.call_args.kwargs["json"]["blocks"][0]
         assert cache.get(_picker_context_cache_key(token)) is None
 
     @patch("products.slack_app.backend.api.requests.post")
-    @patch("products.tasks.backend.logic.services.permission_broker.send_agent_command")
-    @patch("products.tasks.backend.logic.services.permission_broker.create_sandbox_connection_token")
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_permission_deny_sends_reject_option(
         self,
         mock_config,
-        mock_create_token,
-        mock_send_agent_command,
+        mock_resolve_slack_user,
+        mock_signal_permission_response,
         mock_requests_post,
     ):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        mock_create_token.return_value = "sandbox-token"
-        mock_send_agent_command.return_value = SimpleNamespace(success=True, status_code=200, error=None)
+        mock_resolve_slack_user.return_value = SimpleNamespace(user=self.user, slack_email=self.user.email)
         task_run = self._create_permission_run()
         token = self._cache_permission_context(task_run)
 
         response = self._post_interactivity(self._permission_payload(SLACK_PERMISSION_ACTION_DENY, token))
 
         assert response.status_code == 200
-        assert mock_send_agent_command.call_args.kwargs["params"] == {"requestId": "perm-1", "optionId": "reject"}
-        assert "Denied" in mock_requests_post.call_args.kwargs["json"]["text"]
+        mock_signal_permission_response.assert_called_once()
+        signal_args = mock_signal_permission_response.call_args
+        assert signal_args.args == (task_run.id, task_run.task_id, task_run.team_id)
+        assert signal_args.kwargs["request_id"] == "perm-1"
+        assert signal_args.kwargs["option_id"] == "reject"
+        assert signal_args.kwargs["actor_user_id"] == self.user.id
+        assert signal_args.kwargs["actor_slack_user_id"] == "U123"
+        assert signal_args.kwargs["is_denial"] is True
+        assert "denied your approval request" in signal_args.kwargs["denial_message"]
+        assert "Try a different safe approach" in signal_args.kwargs["denial_message"]
+        assert signal_args.kwargs["broker_reason"] == "slack_human_response"
+        assert mock_requests_post.call_args.kwargs["json"]["text"] == "Denial recorded"
 
     @patch("products.slack_app.backend.api.requests.post")
-    @patch("products.tasks.backend.logic.services.permission_broker.send_agent_command")
-    @patch("products.tasks.backend.logic.services.permission_broker.create_sandbox_connection_token")
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_deny_keeps_context_when_workflow_signal_fails(
+        self,
+        mock_config,
+        mock_resolve_slack_user,
+        mock_signal_permission_response,
+        mock_requests_post,
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_resolve_slack_user.return_value = SimpleNamespace(user=self.user, slack_email=self.user.email)
+        mock_signal_permission_response.return_value = False
+        task_run = self._create_permission_run()
+        token = self._cache_permission_context(task_run)
+
+        response = self._post_interactivity(self._permission_payload(SLACK_PERMISSION_ACTION_DENY, token))
+
+        assert response.status_code == 200
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
+        assert "couldn't queue that response" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert cache.get(_picker_context_cache_key(token)) is not None
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_permission_wrong_user_gets_ephemeral_feedback(
         self,
         mock_config,
-        mock_create_token,
-        mock_send_agent_command,
+        mock_signal_permission_response,
         mock_requests_post,
     ):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
@@ -504,19 +541,18 @@ class TestRepoPickerOptions(TestCase):
         )
 
         assert response.status_code == 200
-        mock_create_token.assert_not_called()
-        mock_send_agent_command.assert_not_called()
+        mock_signal_permission_response.assert_not_called()
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
 
-    @patch("products.tasks.backend.logic.services.permission_broker.send_agent_command")
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response")
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_permission_config_select_persists_user_setting(
         self,
         mock_config,
         mock_requests_post,
-        mock_send_agent_command,
+        mock_signal_permission_response,
     ):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         # Pre-existing routing pick to a different project — saving a permission mode from an
@@ -541,11 +577,13 @@ class TestRepoPickerOptions(TestCase):
         )
 
         assert response.status_code == 200
-        mock_send_agent_command.assert_not_called()
+        mock_signal_permission_response.assert_not_called()
         settings = SlackSettings.objects.get(slack_workspace_id="T12345", slack_user_id="U123")
         assert settings.default_integration_id == routing_integration.id
         # Scoped to the card's integration only — never a workspace-wide grant.
         assert settings.permission_modes == {str(self.posthog_code_integration.id): SlackPermissionMode.FULL_AUTO}
+        task_run.refresh_from_db()
+        assert task_run.state["slack_permission_mode"] == SlackPermissionMode.FULL_AUTO
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
         assert "Full auto" in mock_requests_post.call_args.kwargs["json"]["text"]

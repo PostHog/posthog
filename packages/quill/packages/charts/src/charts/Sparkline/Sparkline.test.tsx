@@ -1,10 +1,11 @@
 import { fireEvent } from '@testing-library/react'
 
-import type { ChartTheme } from '../../core/types'
-import { renderHogChart } from '../../testing'
+import type { ChartTheme, TooltipContext } from '../../core/types'
+import { DefaultTooltip } from '../../overlays/DefaultTooltip'
+import { createDefaultTooltipAccessor, hoverUntilTooltip, renderHogChart } from '../../testing'
 import { Sparkline } from './Sparkline'
 
-const THEME: ChartTheme = { colors: ['#22d3ee'], backgroundColor: '#ffffff' }
+const THEME: ChartTheme = { colors: ['#22d3ee', '#f14f58'], backgroundColor: '#ffffff' }
 const LABELS = ['Jan', 'Feb', 'Mar', 'Apr']
 
 describe('Sparkline', () => {
@@ -44,5 +45,33 @@ describe('Sparkline', () => {
     it('does not require labels — falls back to index strings', () => {
         const { container } = renderHogChart(<Sparkline data={[10, 20, 30]} theme={THEME} />)
         expect(container.querySelector('canvas')).not.toBeNull()
+    })
+
+    it('renders multi-series stacked bars via the series prop', () => {
+        const { chart } = renderHogChart(
+            <Sparkline
+                type="bar"
+                series={[
+                    { key: 'success', label: 'Success', data: [10, 20, 30, 40] },
+                    { key: 'failure', label: 'Failure', data: [1, 2, 3, 4] },
+                ]}
+                labels={LABELS}
+                theme={THEME}
+            />
+        )
+        expect(chart.seriesCount).toBe(2)
+    })
+
+    it('enables the tooltip when a tooltip render prop is supplied', async () => {
+        const { chart } = renderHogChart(
+            <Sparkline
+                data={[100, 200, 300, 400]}
+                labels={LABELS}
+                theme={THEME}
+                tooltip={(ctx: TooltipContext) => <DefaultTooltip {...ctx} />}
+            />
+        )
+        const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 2, LABELS.length))
+        expect(tooltip.label()).toBe('Mar')
     })
 })
