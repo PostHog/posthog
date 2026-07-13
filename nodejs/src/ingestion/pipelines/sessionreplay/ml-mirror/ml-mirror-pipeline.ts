@@ -74,13 +74,13 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                         // Resolve retention up front (before parse), keyed on the (validated) session_id
                         // header; drop unresolvable sessions.
                         .gather()
-                        .pipeBatch(createResolveRetentionStep(retentionService), {
+                        .pipeChunk(createResolveRetentionStep(retentionService), {
                             retry: { tries: 3, sleepMs: 100 },
                         })
                         // Track sessions and rate-limit new ones for the whole batch, tagging each with
                         // isNewSession and a gate verdict; blocked sessions are carried (not dropped) to the
                         // mark-seen step, all in this step's own retry scope.
-                        .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
+                        .pipeChunk(createTrackAndGateStep(sessionTracker, sessionFilter), {
                             retry: { tries: 3, sleepMs: 100 },
                         })
                         // Resolve each session's encryption key once per session (grouped), concurrently across
@@ -99,7 +99,7 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                         // in a single Redis write and as the barrier that guarantees every key is resolved first.
                         .gather()
                         // Mark the surviving new sessions seen, now that every key is durably resolved.
-                        .pipeBatch(createMarkSeenStep(sessionTracker))
+                        .pipeChunk(createMarkSeenStep(sessionTracker))
                         .filterMap(
                             (element) => ({
                                 result: element.result,

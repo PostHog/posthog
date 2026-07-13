@@ -100,6 +100,25 @@ def resolve_github_tables(
     raise GitHubSourceNotConnectedError()
 
 
+def resolve_job_cost_source_pairs(team: Team) -> list[tuple[str, str]]:
+    """``(jobs_table, runs_table)`` for every GitHub source with BOTH the jobs and runs endpoints synced.
+
+    Used to build the exposed per-job cost view, which unions across all of a team's qualifying
+    sources. Unlike ``resolve_github_tables`` (which needs pull_requests + workflow_runs and returns
+    one source), this needs workflow_jobs + workflow_runs and returns all of them — the cost view has
+    no PR dependency and shouldn't collapse a team's repos to one. Userless (the view sync runs in a
+    system/Temporal context); team scoping is the boundary.
+    """
+    pairs: list[tuple[str, str]] = []
+    for source in _github_sources(team):
+        tables = _synced_table_names(team=team, source=source)
+        runs = tables.get(WORKFLOW_RUNS_SCHEMA)
+        jobs = tables.get(WORKFLOW_JOBS_SCHEMA)
+        if runs and jobs:
+            pairs.append((jobs, runs))
+    return pairs
+
+
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
     """The team's connected GitHub sources the caller may access, as selectable refs, oldest first.
 
