@@ -74,14 +74,12 @@ For most flags there's exactly one delete event. If a flag has been deleted-and-
 
 Feature flags are renamed to `<original>:deleted:<flag_id>` when soft-deleted while still referenced elsewhere (e.g. a stopped experiment) — the id-based suffix frees the original key for reuse. Don't try to recover the original from the activity log's own fields: `detail.changes` only carries the rename on UI/ORM deletes (and is often empty, or missing the `key` entry, on API/MCP/programmatic deletes), and `detail.name` just mirrors whatever the current key is — tombstoned or not.
 
-Instead, strip the suffix deterministically with [`scripts/strip_deleted_suffix.py`](./scripts/strip_deleted_suffix.py), using the id and key you already have from step 2:
+Instead, strip the suffix deterministically with [`scripts/strip_deleted_suffix.py`](./scripts/strip_deleted_suffix.py). Pass it the whole step 2 candidate list as JSON in one call — not one invocation per flag:
 
 ```bash
-python3 scripts/strip_deleted_suffix.py 687432 "high_frequency_alerts:deleted:687432"
-# -> high_frequency_alerts
+echo '[{"id": 687432, "key": "high_frequency_alerts:deleted:687432"}]' | python3 scripts/strip_deleted_suffix.py
+# -> [{"id": 687432, "key": "high_frequency_alerts:deleted:687432", "original_key": "high_frequency_alerts"}]
 ```
-
-It also accepts the full step 2 candidate list as JSON on stdin and returns each row with an added `original_key` field — see the script's docstring. This mirrors `FeatureFlag.key_without_tombstone()` in `products/feature_flags/backend/models/feature_flag.py`.
 
 Filter the collected deletion events to those whose `created_at` falls inside the requested window. Present as a table, using each row's recovered original key (not the raw tombstoned form) for the "Key" column:
 
@@ -93,7 +91,7 @@ State your methodology in the report (how many candidates you walked vs. how man
 
 - **Borderline cases**: if a deletion is within ~1 hour of the window cutoff, surface it as borderline rather than silently dropping it.
 - **Don't trust `created_at` as a proxy for deletion time**: a flag created in 2024 can still have been deleted last week. The activity log is the only authority.
-- **Renamed keys are normal**: a flag with key `foo:deleted:12345` was the flag originally keyed `foo`. Recover it with `scripts/strip_deleted_suffix.py` (see step 5) rather than the activity log's `detail.changes` / `detail.name` — those vary by delete path and don't reliably carry the original.
+- **Renamed keys are normal**: a flag with key `foo:deleted:12345` was the flag originally keyed `foo` — see step 5 for how to recover it.
 - **Walking all candidates is possible but slow**: ~100 parallel activity-log calls is doable. Offer it as a follow-up rather than the default for short windows.
 
 ## Example interaction
@@ -127,4 +125,4 @@ User: "what flags got deleted in the last week?"
 
 ## Scripts
 
-- [`scripts/strip_deleted_suffix.py`](./scripts/strip_deleted_suffix.py): deterministically strips the `:deleted:<flag_id>` tombstone suffix from a feature flag key. Use in step 5 instead of parsing the activity log's `detail` fields.
+- [`scripts/strip_deleted_suffix.py`](./scripts/strip_deleted_suffix.py): recovers original flag keys — see step 5.

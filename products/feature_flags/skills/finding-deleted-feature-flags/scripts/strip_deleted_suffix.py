@@ -1,22 +1,18 @@
-"""Strip the soft-delete tombstone suffix from a feature flag key.
+"""Strip the soft-delete tombstone suffix from feature flag keys.
 
 FeatureFlag.tombstoned_key() renames a flag's key to "<original>:deleted:<id>" when
 soft-deleting a flag that's still referenced elsewhere (e.g. a stopped experiment) --
 this mirrors FeatureFlag.key_without_tombstone() in
 products/feature_flags/backend/models/feature_flag.py so activity-log and SQL results
-outside Django can recover the original key the same deterministic way, without
-depending on the activity log's detail fields (detail.changes / detail.name), which
-vary by delete path.
+outside Django can recover the original key the same deterministic way. See step 5 of
+the skill's SKILL.md for why this beats reading the activity log's detail fields.
 
-Usage:
-  python3 scripts/strip_deleted_suffix.py <flag_id> <key>
-  python3 scripts/strip_deleted_suffix.py 12345 "foo:deleted:12345"   # -> foo
-  python3 scripts/strip_deleted_suffix.py 999 "bar"                   # -> bar (unchanged)
-
-Batch mode: pipe a JSON array of {"id": ..., "key": ...} objects (e.g. the step 2 SQL
-results) on stdin; get the same objects back with an added "original_key" field.
+Usage: pass a JSON array of {"id": ..., "key": ...} objects (e.g. the step 2 SQL
+results for every candidate at once) as a file argument or on stdin. Prints the same
+array back with an added "original_key" field on each object.
 
   echo '[{"id": 12345, "key": "foo:deleted:12345"}]' | python3 scripts/strip_deleted_suffix.py
+  python3 scripts/strip_deleted_suffix.py candidates.json
 """
 
 import json
@@ -29,11 +25,8 @@ def strip_suffix(flag_id, key):
 
 
 def main():
-    if len(sys.argv) == 3:
-        print(strip_suffix(sys.argv[1], sys.argv[2]))
-        return
-
-    candidates = json.loads(sys.stdin.read())
+    raw = open(sys.argv[1]).read() if len(sys.argv) > 1 else sys.stdin.read()
+    candidates = json.loads(raw)
     for candidate in candidates:
         candidate["original_key"] = strip_suffix(candidate["id"], candidate["key"])
     print(json.dumps(candidates, indent=2))
