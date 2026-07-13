@@ -3909,6 +3909,7 @@ export type FileSystemIconType =
     | 'llm_playground'
     | 'llm_prompts'
     | 'llm_clusters'
+    | 'mcp_analytics'
     | 'exports'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {

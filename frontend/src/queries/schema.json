@@ -22342,6 +22342,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
+                "mcp_analytics",
                 "exports"
             ],
             "type": "string"

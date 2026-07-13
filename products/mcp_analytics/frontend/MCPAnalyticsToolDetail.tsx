@@ -519,7 +519,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
             <SceneTitleSection
                 name={toolName}
                 description={null}
-                resourceType={{ type: 'llm_analytics' }}
+                resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
                     name: 'Tool quality',
                     path: urls.mcpAnalyticsToolQuality(),

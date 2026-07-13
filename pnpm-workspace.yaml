@@ -43,7 +43,7 @@ catalog:
     kea-waitfor: ^0.2.1
     kea-window-values: ^3.0.1
     # PostHog packages
-    '@posthog/icons': ^0.37.4
+    '@posthog/icons': ^0.38.0
     '@posthog/brand': 0.3.0
     '@posthog/react': ^1.9.0
     posthog-js: ^1.398.0
