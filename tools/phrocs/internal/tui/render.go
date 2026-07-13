@@ -355,7 +355,7 @@ func (m Model) renderFooter() string {
 			lipgloss.NewStyle().Foreground(colorBlue).Render(hint),
 		)
 	} else if p := m.activeProc(); m.inputMode && m.focusedPane == focusOutput && p != nil && p.IsRunning() {
-		hint := "-- INPUT --  type to send to the process  ↵: send  ⌫: delete  esc: leave"
+		hint := "-- INPUT --  send text to the process  ↵: send  ⌫: delete  esc: cancel"
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),
 		)
@@ -407,9 +407,9 @@ func (m Model) renderFooter() string {
 	if m.searchQuery != "" {
 		var matchInfo string
 		if len(m.searchMatches) == 0 {
-			matchInfo = fmt.Sprintf("search: %q  [no matches]  esc: leave", m.searchQuery)
+			matchInfo = fmt.Sprintf("search: %q  [no matches]  esc: cancel", m.searchQuery)
 		} else {
-			matchInfo = fmt.Sprintf("search: %q  [%d/%d]  ↵/⇧↵: navigate  esc: leave", m.searchQuery, m.searchCursor+1, len(m.searchMatches))
+			matchInfo = fmt.Sprintf("search: %q  [%d/%d]  ↵/⇧↵: navigate  esc: cancel", m.searchQuery, m.searchCursor+1, len(m.searchMatches))
 		}
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorYellow).Render(matchInfo),

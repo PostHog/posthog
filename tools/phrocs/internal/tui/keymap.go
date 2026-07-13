@@ -26,7 +26,6 @@ type keyMap struct {
 	CommitFilter     key.Binding
 	ToggleFilter     key.Binding
 	InputMode        key.Binding
-	ExitInput        key.Binding
 	Quit             key.Binding
 	Help             key.Binding
 	Backspace        key.Binding
@@ -132,11 +131,7 @@ func defaultKeyMap() keyMap {
 		),
 		InputMode: key.NewBinding(
 			key.WithKeys("enter"),
-			key.WithHelp("↵:", "input (esc to leave)"),
-		),
-		ExitInput: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc:", "leave input"),
+			key.WithHelp("↵:", "input"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
@@ -188,7 +183,7 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Start, k.Stop, k.Restart, k.ClearLogs, k.SearchMode, k.CopyMode, k.InfoMode, k.InputMode, k.SetupMode, k.Quit, k.Help}
+	return []key.Binding{k.Start, k.Stop, k.Restart, k.ClearLogs, k.SearchMode, k.CopyMode, k.InfoMode, k.SetupMode, k.Quit, k.Help}
 }
 
 func (k keyMap) SearchModeHelp() []key.Binding {
@@ -206,7 +201,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.GotoTop, k.GotoBottom, k.ClearLogs},
 		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
 		{k.Start, k.Stop, k.Restart, k.InfoMode},
-		{k.SearchMode, k.CopyMode, k.SetupMode, k.InputMode},
+		{k.SearchMode, k.CopyMode, k.SetupMode},
 		{k.Quit, k.Help, k.ShowAll},
 	}
 }
