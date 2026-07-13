@@ -44,8 +44,8 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSchema,
     ExternalDataSource,
+    WarehouseColumnAnnotation,
 )
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
@@ -711,6 +711,60 @@ class TestReadDataTool(BaseTest):
         assert "- email (string)" in result
         assert "- created_at (datetime)" in result
         assert artifact is None
+
+    async def test_table_schema_returns_source_backed_table_by_underscore_name(self):
+        # A table linked to an external source serializes under its dotted key (e.g. `stripe.charges`)
+        # but is surfaced/queried by its raw underscore name; reading by that name must still resolve,
+        # including the source-schema description and per-column annotations keyed by the underscore name.
+        credential = await DataWarehouseCredential.objects.acreate(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = await ExternalDataSource.objects.acreate(
+            source_id="src", connection_id="conn", team=self.team, source_type="Stripe"
+        )
+        table = await DataWarehouseTable.objects.acreate(
+            name="stripe_charges",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            url_pattern="https://bucket.s3/data/*",
+            columns={
+                "amount": {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)", "schema_valid": True},
+                "currency": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                },
+            },
+        )
+        await ExternalDataSchema.objects.acreate(
+            name="stripe_charges", team=self.team, source=source, table=table, description="Stripe charges"
+        )
+        with team_scope(self.team.pk, canonical=True):
+            await WarehouseColumnAnnotation.objects.acreate(
+                team=self.team,
+                table=table,
+                column_name="amount",
+                description="charge amount in cents",
+                description_source=WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
+            )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_charges"})
+
+        assert "Could not serialize" not in result
+        assert "Table `stripe_charges` — Stripe charges with fields:" in result
+        assert "- amount (integer) — charge amount in cents" in result
+        assert "- currency (string)" in result
 
     async def test_table_schema_returns_view_fields(self):
         """Test that data_warehouse_table returns full schema for a view."""
@@ -1645,14 +1699,13 @@ class TestReadDataTool(BaseTest):
             team=self.team, name="Allowed Survey", questions=[{"type": "open", "question": "Test?"}]
         )
 
-        user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
         context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
-            team=self.team, user=user, state=state, context_manager=context_manager
+            team=self.team, user=self.user, state=state, context_manager=context_manager
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:

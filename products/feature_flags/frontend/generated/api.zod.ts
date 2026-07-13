@@ -9,6 +9,68 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
+ * or clears both definitions-cache variants together). Status/entry can read a third, narrower
+ * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
+ * individually readable even though they're only mutated as a pair.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheClearCreateBodyTeamIdsMax = 50
+
+export const FeatureFlagsStaffCacheClearCreateBody = /* @__PURE__ */ zod.object({
+    team_ids: zod
+        .array(zod.number())
+        .max(featureFlagsStaffCacheClearCreateBodyTeamIdsMax)
+        .describe('Team ids to act on (max 50 per request).'),
+    caches: zod
+        .array(
+            zod
+                .enum(['evaluation', 'definitions'])
+                .describe('\* `evaluation` - evaluation\n\* `definitions` - definitions')
+        )
+        .default([`evaluation`, `definitions`])
+        .describe(
+            "Which logical caches to act on: 'evaluation' (the \/flags cache) and\/or 'definitions' (the \/flags\/definitions local-eval cache). Defaults to both."
+        ),
+})
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
+ * or clears both definitions-cache variants together). Status/entry can read a third, narrower
+ * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
+ * individually readable even though they're only mutated as a pair.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheRebuildCreateBodyTeamIdsMax = 50
+
+export const FeatureFlagsStaffCacheRebuildCreateBody = /* @__PURE__ */ zod.object({
+    team_ids: zod
+        .array(zod.number())
+        .max(featureFlagsStaffCacheRebuildCreateBodyTeamIdsMax)
+        .describe('Team ids to act on (max 50 per request).'),
+    caches: zod
+        .array(
+            zod
+                .enum(['evaluation', 'definitions'])
+                .describe('\* `evaluation` - evaluation\n\* `definitions` - definitions')
+        )
+        .default([`evaluation`, `definitions`])
+        .describe(
+            "Which logical caches to act on: 'evaluation' (the \/flags cache) and\/or 'definitions' (the \/flags\/definitions local-eval cache). Defaults to both."
+        ),
+})
+
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
 
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false

@@ -458,9 +458,8 @@ class TestLifecycleMethodDivergences(DifferentialParityBase):
         self.assertEqual(env.status_code, status.HTTP_400_BAD_REQUEST, env.json())
         self.assertEqual(proj.status_code, status.HTTP_201_CREATED, proj.json())
 
-    @patch("posthog.api.project.delete_project_data_and_notify_task")
-    @patch("posthog.tasks.tasks.delete_project_data_and_notify_task")
-    def test_delete_common_case_parity_but_project_is_a_superset(self, mock_team_task, mock_project_task):
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_delete_common_case_parity_but_project_is_a_superset(self, mock_start_workflow):
         project_a, team_a = self._make_twin()
         project_b, team_b = self._make_twin()
 
@@ -475,8 +474,10 @@ class TestLifecycleMethodDivergences(DifferentialParityBase):
         # whole project (project_id set + all child team_ids) AND additionally enforces a last-project active-
         # subscription guard. In the 1:1 world the data actually removed is equivalent, but post-redirect an
         # env DELETE would inherit the project guard/cascade. This requires explicit product sign-off.
-        env_kwargs = mock_team_task.delay.call_args.kwargs
-        proj_kwargs = mock_project_task.delay.call_args.kwargs
+        # Both routes now start the same Temporal workflow; the env delete runs first, the project delete second.
+        self.assertEqual(mock_start_workflow.call_count, 2)
+        env_kwargs = mock_start_workflow.call_args_list[0].kwargs
+        proj_kwargs = mock_start_workflow.call_args_list[1].kwargs
         self.assertIsNone(env_kwargs["project_id"])
         self.assertEqual(proj_kwargs["project_id"], project_b.id)
         self.assertEqual(env_kwargs["team_ids"], [team_a.id])

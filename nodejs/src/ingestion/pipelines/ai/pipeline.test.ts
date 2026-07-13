@@ -14,10 +14,10 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { DisabledOverflowRedirect } from '~/ingestion/common/overflow-redirect/disabled-overflow-redirect'
 import { TopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
-import { DisabledOverflowRedirect } from '~/ingestion/utils/overflow-redirect/disabled-overflow-redirect'
 import { createTestTeam } from '~/tests/helpers/team'
 
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './outputs'
@@ -167,7 +167,7 @@ describe('AiIngestionPipeline', () => {
             hogTransformer: mockHogTransformer as unknown as HogTransformer,
             personRepository: mockPersonRepository,
             groupTypeManager: mockGroupTypeManager,
-            overflowEnabled: false,
+            overflowMode: 'disabled',
             preservePartitionLocality: false,
             overflowRedirectService: new DisabledOverflowRedirect(),
             overflowLaneTTLRefreshService: new DisabledOverflowRedirect(),

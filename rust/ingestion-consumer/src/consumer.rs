@@ -17,10 +17,6 @@ use crate::dispatcher::{Dispatcher, SubBatch};
 use crate::transport::HttpTransport;
 use crate::types::SerializedKafkaMessage;
 
-/// Max time `complete_oldest_batch` will keep retrying to flush a batch's
-/// deferred groups (waiting for a healthy worker) before failing the batch.
-const DEFERRED_FLUSH_TIMEOUT: Duration = Duration::from_secs(60);
-
 /// Statistics gathered while collecting a batch, used to emit parity metrics.
 struct BatchStats {
     /// Max Kafka message timestamp (ms) per (topic, partition) — for `latest_processed_timestamp_ms`.
@@ -76,8 +72,8 @@ pub struct IngestionConsumerOptions {
     pub max_in_flight_batches: usize,
     pub group_id: String,
     /// Upper bound on how long `complete_oldest_batch` retries flushing a batch's
-    /// deferred groups before failing the batch. Defaults to
-    /// [`DEFERRED_FLUSH_TIMEOUT`] in `new`.
+    /// deferred groups before failing the batch. `new` takes it from
+    /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
     pub deferred_flush_timeout: Duration,
 }
 
@@ -159,7 +155,9 @@ impl IngestionConsumer {
             batch_size: config.consumer_batch_size,
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
             max_in_flight_batches: config.consumer_max_background_tasks.max(1),
-            deferred_flush_timeout: DEFERRED_FLUSH_TIMEOUT,
+            deferred_flush_timeout: Duration::from_millis(
+                config.consumer_deferred_flush_timeout_ms,
+            ),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
         })
@@ -329,7 +327,7 @@ impl IngestionConsumer {
     /// Flush a completed batch's deferred groups (keys whose worker was
     /// draining/dead), re-routing them to healthy workers and accumulating the
     /// accepted count. Retries with backoff while a flush can't route (no healthy
-    /// worker yet), bounded by `DEFERRED_FLUSH_TIMEOUT`. Called serialized,
+    /// worker yet), bounded by `deferred_flush_timeout`. Called serialized,
     /// oldest-first, so a key's deferred messages flush in Kafka order.
     async fn flush_deferred(
         &self,

@@ -13,7 +13,7 @@ description: >
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the external-data
-  source/schema/webhook tools, view tools, execute-sql, activity-log-list, and inbox tools
+  source/schema/webhook tools, view tools, execute-sql, advanced-activity-logs-list, and inbox tools
   in the MCP tools section.
 allowed_tools:
   - emit_report
@@ -106,7 +106,7 @@ A source at `status: Error`/`Failed` breaks every armed schema under it — cred
 
 #### Schema failures and stalls (the growing gap)
 
-For each armed `Failed` schema, the `latest_error` names the root cause and decides who fixes it: `authentication failed`/`401` (creds), `column "X" does not exist` / `does not have a column named` (schema drift), `Primary key required` / `primary keys ... not unique` (incremental/PK misconfig), `replication slot` / `publication` / `wal_level` (CDC prerequisites — e.g. a slot invalidated for exceeding max reserved size), `timeout` / `query_wait_timeout` / `QueryTimeoutException` (an incremental field with no index, or an overloaded source), `Schema exceeds row limit` (billing). Date the onset from `activity-log-list` (`scope` for the source/schema) and quantify the gap (intervals missed × `sync_frequency`). A schema **stuck in `Running`** with a `last_synced_at` hours old is an orphaned job — the same growing-gap finding, not a healthy state.
+For each armed `Failed` schema, the `latest_error` names the root cause and decides who fixes it: `authentication failed`/`401` (creds), `column "X" does not exist` / `does not have a column named` (schema drift), `Primary key required` / `primary keys ... not unique` (incremental/PK misconfig), `replication slot` / `publication` / `wal_level` (CDC prerequisites — e.g. a slot invalidated for exceeding max reserved size), `timeout` / `query_wait_timeout` / `QueryTimeoutException` (an incremental field with no index, or an overloaded source), `Schema exceeds row limit` (billing). Date the onset from `advanced-activity-logs-list` (`scopes` for the source/schema) and quantify the gap (intervals missed × `sync_frequency`). A schema **stuck in `Running`** with a `last_synced_at` hours old is an orphaned job — the same growing-gap finding, not a healthy state.
 
 #### Silent staleness (Completed but behind cadence)
 
@@ -192,7 +192,7 @@ REST (per-candidate detail the system tables don't carry):
 - `external-data-schemas-retrieve` — one schema's columns / `sync_type_config` when the sweep's `latest_error` is null but the schema is `Failed`.
 - `external-data-sources-webhook-info-retrieve` — per-source webhook registration + remote status for `sync_type: webhook` schemas; the only place push-channel health shows.
 - `view-list` / `view-run-history` — materialized-view `latest_error` and the run trail when a `system.data_modeling_views` row is `Failed`.
-- `activity-log-list` — dating source/schema config edits against a failure or staleness onset.
+- `advanced-activity-logs-list` — dating source/schema config edits against a failure or staleness onset.
 
 Inbox & reviewer routing:
 

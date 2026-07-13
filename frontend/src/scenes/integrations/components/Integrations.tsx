@@ -4,8 +4,6 @@ import { PropsWithChildren, useMemo, useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
@@ -16,13 +14,9 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 export function GitLabIntegration(): JSX.Element {
     const [isOpen, setIsOpen] = useState<boolean>(false)
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
     return (
         <Integration kind="gitlab">
-            <LemonButton type="secondary" onClick={() => setIsOpen(true)} disabledReason={restrictedReason}>
+            <LemonButton type="secondary" onClick={() => setIsOpen(true)}>
                 Connect project
             </LemonButton>
             <GitLabSetupModal isOpen={isOpen} onComplete={() => setIsOpen(false)} />
@@ -52,10 +46,6 @@ const OAuthIntegration = ({
     next?: string
 }): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
     const settingsPath = next ?? urls.settings('environment-integrations')
     const authorizationUrl = api.integrations.authorizeUrl({
         next: currentTeam?.id ? urls.project(currentTeam.id, settingsPath) : settingsPath,
@@ -64,12 +54,7 @@ const OAuthIntegration = ({
 
     return (
         <Integration kind={kind}>
-            <LemonButton
-                type="secondary"
-                disableClientSideRouting
-                to={authorizationUrl}
-                disabledReason={restrictedReason}
-            >
+            <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
                 {connectText}
             </LemonButton>
         </Integration>

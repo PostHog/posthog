@@ -28,6 +28,8 @@
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
+- Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
+  **Agents must use it too**: when a hogli command or dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Agent-sent feedback is tagged as such, and it's the fastest signal the devex team gets, so use it liberally rather than suffering friction silently.
 
 ## Commits and Pull Requests
 
@@ -39,7 +41,7 @@
 - `feat`: New feature or functionality (touches production code)
 - `fix`: Bug fix (touches production code)
 - `chore`: Non-production changes (docs, tests, config, CI, refactoring agents instructions, etc.)
-- Scope convention: use `llma` for LLM analytics changes (for example, `feat(llma): ...`)
+- Scope convention: use `aio` for AI observability changes (for example, `feat(aio): ...`)
 
 ### Format
 
@@ -61,6 +63,8 @@ Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
+**Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
+
 ### Rules
 
 - Scope is optional but encouraged when the change is specific to a feature area
@@ -71,6 +75,23 @@ NEVER share sensitive information in a PR description. Users may share sensitive
 
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
+
+#### Stacked PRs
+
+Restacking force-pushes every branch, and each push triggers a full CI fan-out.
+Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s).
+The overflow fails as `startup_failure` and takes unrelated runs in the same window down too.
+Draft status doesn't help, since runs are dispatched before draft/skip logic applies.
+
+- Keep stacks shallow; merge the base before extending.
+- Restack only when you need to, rather than rebasing the whole stack on master repeatedly.
+- When a restack must push many branches, stagger them instead of force-pushing all at once.
+
+#### Pre-push checks — ci:preflight
+
+A pre-push hook runs `hogli ci:preflight --strict`, failing the push on deterministic CI breakage reachable from your diff (lint, lockfiles, migration conflicts). Never bypass it (`--no-verify`).
+If it blocks the push, run `hogli ci:preflight --fix`, resolve the remaining `✗ fail` lines, act on the `→ advisory` ones (regenerate OpenAPI types, merge master in), and push again.
+In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix` yourself before pushing or reporting a task done. If the command reports it is disabled, that's intentional — proceed.
 
 ### Public open source repo guidance
 
@@ -97,7 +118,7 @@ Examples:
 
 ## Security
 
-See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep security guidelines.
+See [.agents/security.md](.agents/security.md) for security guidelines — least privilege, secrets & service-to-service auth (don't add new `INTERNAL_API_SECRET` callers), SQL, HogQL, and semgrep.
 
 ## Architecture guidelines
 
@@ -142,7 +163,16 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
 - Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
-- When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
+
+## User-facing copy
+
+For any text a person reads (UI labels, tooltips, empty/error states, notifications, docs, support replies). When unsure whether copy reads well, ask a human.
+
+- Sentence case, not Title Case: capitalize only the first word and proper nouns ('Product analytics', 'Save as view').
+- Avoid the tells of AI-generated text: em dashes (—), "not just X, but Y", rule-of-three padding, hedging preambles. Write like a person typed it; if you can't tell, ask a human.
+- Plain language, no jargon. Use the labels users see, not internal names (`surveyPopupDelaySeconds` becomes "Delay the survey popup").
+- Be direct and friendly: short sentences, consistent tone across surfaces.
+- Errors and empty states guide, don't dead-end: say what happened and the next action.
 
 ## Agent automation
 
@@ -173,4 +203,5 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
+- `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy

@@ -103,7 +103,7 @@ export interface TaskListParams {
     organization?: string
     stage?: string
     origin_product?: string
-    /** `all` includes internal tasks (shown-by-default flag, not an access gate); `true` is a staff-only internal-only view. */
+    /** `all` includes internal tasks (shown-by-default flag, not an access gate); `true` narrows to only-internal tasks. */
     internal?: 'true' | 'false' | 'all'
     search?: string
     status?: TaskRunStatus

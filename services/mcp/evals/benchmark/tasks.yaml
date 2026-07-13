@@ -1,0 +1,228 @@
+# MCP agent-experience benchmark v0.
+#
+# Task intents are paraphrased from real agent usage (top tool families by
+# production volume) — never verbatim copies of customer text. Keep probes
+# read-only; the runner refuses non-read-only probe tools.
+version: 0
+tasks:
+    # --- sql ---------------------------------------------------------------
+    - id: sql-daily-event-volume
+      category: sql
+      intent: 'How many events did we ingest per day over the last 7 days?'
+      expected_tools: [execute-sql]
+      acceptable_tools: [query-trends]
+      success_criteria: 'Returns a per-day event count covering roughly the last seven days.'
+      probe:
+          tool: execute-sql
+          args:
+              query: 'SELECT toDate(timestamp) AS day, count() AS events FROM events WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY day ORDER BY day'
+
+    - id: sql-top-events
+      category: sql
+      intent: 'List the 10 most common event names this month with their counts.'
+      expected_tools: [execute-sql]
+      acceptable_tools: [read-data-schema, query-trends]
+      success_criteria: 'Returns up to ten event names ranked by count for the last ~30 days.'
+      probe:
+          tool: execute-sql
+          args:
+              query: 'SELECT event, count() AS c FROM events WHERE timestamp > now() - INTERVAL 30 DAY GROUP BY event ORDER BY c DESC LIMIT 10'
+
+    - id: sql-find-saved-insights
+      category: sql
+      intent: 'Do we already have any saved insights about signup conversion?'
+      expected_tools: [execute-sql]
+      acceptable_tools: [insight-get]
+      success_criteria: 'Searches saved insights (system tables) for signup/conversion matches and reports what exists, checking the table schema before querying it.'
+
+    # --- data-schema --------------------------------------------------------
+    - id: schema-discover-onboarding-events
+      category: data-schema
+      intent: "What events does this project capture? I'm especially looking for anything related to onboarding."
+      expected_tools: [read-data-schema]
+      success_criteria: 'Lists project events and calls out onboarding-related ones, without inventing event names.'
+      probe:
+          tool: read-data-schema
+          args:
+              query:
+                  kind: events
+
+    - id: schema-property-values
+      category: data-schema
+      intent: 'What browsers do our users use? Check the actual property values rather than guessing.'
+      expected_tools: [read-data-schema]
+      acceptable_tools: [execute-sql]
+      success_criteria: 'Reads browser property values from the schema tool (or SQL) and reports observed values.'
+
+    - id: warehouse-schema-tables
+      category: data-schema
+      intent: 'What tables are available in our data warehouse, and what columns do they have?'
+      expected_tools: [execute-sql]
+      success_criteria: 'Enumerates warehouse tables with column details via system.information_schema.'
+
+    # --- product-analytics ---------------------------------------------------
+    - id: trends-weekly-active-users
+      category: product-analytics
+      intent: 'Chart weekly active users for the past 8 weeks.'
+      expected_tools: [query-trends]
+      acceptable_tools: [execute-sql]
+      success_criteria: 'Produces a weekly unique-user series covering roughly eight weeks, after confirming the event exists in the schema.'
+
+    - id: funnel-signup-conversion
+      category: product-analytics
+      intent: "What's our conversion rate from viewing the site to signing up, this month?"
+      expected_tools: [query-funnel]
+      acceptable_tools: [execute-sql]
+      success_criteria: 'Builds a two-step funnel from real events and reports a conversion percentage.'
+
+    - id: retention-weekly-return
+      category: product-analytics
+      intent: 'Do users who signed up last month keep coming back week over week?'
+      expected_tools: [query-retention]
+      success_criteria: 'Returns a weekly retention breakdown for the signup cohort.'
+
+    - id: paths-after-login
+      category: product-analytics
+      intent: 'What do users typically do right after logging in?'
+      expected_tools: [query-paths]
+      acceptable_tools: [execute-sql]
+      success_criteria: 'Shows the most common event sequences starting from a login-like event.'
+
+    - id: lifecycle-user-composition
+      category: product-analytics
+      intent: "Of this week's active users, how many are new versus returning versus resurrecting?"
+      expected_tools: [query-lifecycle]
+      success_criteria: 'Reports the lifecycle composition buckets for the current week.'
+
+    - id: stickiness-engagement
+      category: product-analytics
+      intent: 'How many days per week do our most engaged users actually use the product?'
+      expected_tools: [query-stickiness]
+      success_criteria: 'Returns a stickiness distribution (users by number of active days).'
+
+    - id: trends-actors-spike
+      category: product-analytics
+      intent: 'Something spiked yesterday in our exception events — which users are behind it?'
+      expected_tools: [query-trends-actors]
+      acceptable_tools: [execute-sql, query-error-tracking-issues-list]
+      success_criteria: 'Identifies the people behind the spike data point rather than just re-plotting the trend.'
+
+    # --- insights -------------------------------------------------------------
+    - id: insight-create-daily-signups
+      category: insights
+      intent: 'Save a trends insight tracking daily signups so the team can find it later.'
+      expected_tools: [insight-create]
+      acceptable_tools: [query-trends, read-data-schema]
+      success_criteria: 'Creates a saved insight with a sensible name and returns its link.'
+
+    - id: insight-rename
+      category: insights
+      intent: "Rename my 'Daily signups' insight to 'Signups (daily)'."
+      expected_tools: [insight-update]
+      acceptable_tools: [execute-sql, insight-get]
+      success_criteria: 'Finds the existing insight by name and updates only its name.'
+
+    - id: insight-run-existing
+      category: insights
+      intent: 'Run our saved weekly revenue insight and tell me the latest value.'
+      expected_tools: [insight-query]
+      acceptable_tools: [insight-get, execute-sql]
+      success_criteria: 'Locates the saved insight, executes it, and reports the most recent data point.'
+
+    # --- error-tracking --------------------------------------------------------
+    - id: errors-top-issues
+      category: error-tracking
+      intent: 'What are our top error issues by volume this week?'
+      expected_tools: [query-error-tracking-issues-list]
+      acceptable_tools: [execute-sql]
+      success_criteria: 'Lists the highest-volume error issues for the last seven days.'
+
+    - id: errors-stack-traces
+      category: error-tracking
+      intent: 'Show me recent stack traces for our most common error.'
+      expected_tools: [query-error-tracking-issue-events]
+      acceptable_tools: [query-error-tracking-issues-list]
+      success_criteria: 'Finds the top issue first, then fetches sample events with stack traces for it.'
+
+    # --- feature-flags ----------------------------------------------------------
+    - id: flags-list-active
+      category: feature-flags
+      intent: 'List all our active feature flags.'
+      expected_tools: [feature-flag-get-all]
+      success_criteria: "Returns the project's active flags by key."
+      probe:
+          tool: feature-flag-get-all
+          args: {}
+
+    - id: flag-rollout-conditions
+      category: feature-flags
+      intent: 'What are the rollout conditions for our mcp-analytics feature flag?'
+      expected_tools: [feature-flag-get-definition]
+      acceptable_tools: [feature-flag-get-all]
+      success_criteria: "Resolves the flag's numeric id first, then reports its release conditions — does not guess the id."
+
+    # --- session-replay ----------------------------------------------------------
+    - id: replay-rage-clicks
+      category: session-replay
+      intent: 'Find session recordings from this week where users rage-clicked.'
+      expected_tools: [query-session-recordings-list]
+      success_criteria: 'Returns recordings filtered to the last week with rage-click activity.'
+
+    # --- llm-analytics -------------------------------------------------------------
+    - id: llma-recent-traces
+      category: llm-analytics
+      intent: 'Show me our latest LLM traces and how many tokens they used.'
+      expected_tools: [query-llm-traces-list]
+      success_criteria: 'Lists recent LLM traces including token usage.'
+
+    # --- logs -----------------------------------------------------------------------
+    - id: logs-error-severity
+      category: logs
+      intent: 'Are there any error-severity logs from our API service in the last hour?'
+      expected_tools: [query-logs]
+      success_criteria: 'Queries logs filtered by severity and service for the last hour.'
+
+    # --- dashboards --------------------------------------------------------------------
+    - id: dashboard-team-health
+      category: dashboards
+      intent: "Create a dashboard called 'Team health' from our existing activation insights."
+      expected_tools: [dashboard-create]
+      acceptable_tools: [execute-sql, insight-get]
+      success_criteria: 'Reuses existing insights where they exist and creates the dashboard, returning its link.'
+
+    # --- docs -------------------------------------------------------------------------
+    - id: docs-behavioral-cohort
+      category: docs
+      intent: 'How do I create a behavioral cohort in PostHog?'
+      expected_tools: [docs-search]
+      success_criteria: 'Answers from documentation with source links, not from memory.'
+
+    # --- project ------------------------------------------------------------------------
+    - id: project-switch-then-flags
+      category: project
+      intent: 'Switch to our other project and list its feature flags.'
+      expected_tools: [switch-project, feature-flag-get-all]
+      success_criteria: 'Switches the active project before listing flags, and says which project the flags came from.'
+
+    # --- mcp-analytics (dogfood discoverability) -------------------------------------------
+    - id: mcp-tool-reliability
+      category: mcp-analytics
+      intent: 'How reliable has our execute-sql MCP tool been this week? I want error rate and p95 latency.'
+      expected_tools: [query-mcp-tool-stats]
+      acceptable_tools: [execute-sql, query-mcp-tool-daily-stats]
+      success_criteria: 'Uses the MCP analytics tooling (not raw SQL) to report calls, error rate, and p95 for the tool.'
+
+    - id: mcp-session-intents
+      category: mcp-analytics
+      intent: 'What have agents been trying to do with our MCP server lately?'
+      expected_tools: [query-mcp-tool-sample-intents]
+      acceptable_tools: [execute-sql, mcp-analytics-sessions-list]
+      success_criteria: 'Surfaces recent agent intents from MCP analytics rather than guessing.'
+
+    # --- metrics ----------------------------------------------------------------------------
+    - id: metrics-api-error-rate
+      category: metrics
+      intent: 'What does the error-rate metric for our API service look like over the last day?'
+      expected_tools: [metric-names-list, query-metrics]
+      acceptable_tools: [execute-sql]
+      success_criteria: 'Resolves the exact metric name first (names match exactly), then queries a rate over the last 24h — does not guess the metric name.'

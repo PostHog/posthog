@@ -5,7 +5,7 @@ import { BoxPlot } from '@posthog/quill-charts'
 import type { BoxPlotClickData, BoxPlotConfig, BoxPlotSeries, BoxPlotTooltipContext } from '@posthog/quill-charts'
 
 import 'scenes/insights/InsightTooltip/InsightTooltip.scss'
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getSeriesColor } from 'lib/colors'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -18,7 +18,6 @@ import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { BoxPlotDatum, InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams } from '~/types'
 
@@ -64,12 +63,10 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
     const { boxplotData, seriesGroups, dateLabels, yAxisScaleType, querySource, interval, insightData, trendsFilter } =
         useValues(boxPlotChartLogic(insightProps))
     const { timezone, weekStartDay } = useValues(teamLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
 
-    // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     const series = useMemo<BoxPlotSeries[]>(
         () =>
@@ -95,7 +92,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
 
     const formatValue = useCallback((value: number) => formatAggregationAxisValue(trendsFilter, value), [trendsFilter])
 
-    const config = useMemo<BoxPlotConfig>(
+    const config = useChartConfig<BoxPlotConfig>(
         () => ({
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             yTickFormatter: formatValue,

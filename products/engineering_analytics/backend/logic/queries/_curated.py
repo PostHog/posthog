@@ -13,6 +13,7 @@ flow through ``ast.Constant`` placeholders in the calling query, never be string
 into these fragments.
 """
 
+import math
 from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLQueryResponse
@@ -26,7 +27,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
-from products.engineering_analytics.backend.logic.views import pull_requests, workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views import job_costs, pull_requests, workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
@@ -77,6 +78,25 @@ class CuratedGitHubSource:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
 
+    def job_cost_source(self) -> str | None:
+        """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``
+        exposes, but with the endpoint-only run pass-through columns (``run_started_at`` /
+        ``run_head_branch``). None when the jobs table isn't synced, exactly like ``jobs_source``.
+
+        This is the single cost-computation path: ``provider`` / ``os`` / ``vcpu`` / ``billable_seconds``
+        / ``estimated_cost_usd`` are rendered from ``logic.cost`` in ClickHouse, so every endpoint cost
+        query aggregates the same per-job figures the exposed view (and the parity test) do — there is
+        no separate Python cost rollup to drift.
+        """
+        if not self._tables.workflow_jobs:
+            return None
+        query = job_costs.build_query(
+            jobs_table=self._tables.workflow_jobs,
+            runs_table=self._tables.workflow_runs,
+            include_run_columns=True,
+        )
+        return f"({query})"
+
     def runs_cte(self) -> str:
         """CTE materializing the curated workflow-runs source once.
 
@@ -102,7 +122,10 @@ class CuratedGitHubSource:
                     countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing,
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
-                    countIf(s IS NULL OR s != 'completed') AS pending
+                    countIf(s IS NULL OR s != 'completed') AS pending,
+                    -- The names behind `failing`, sorted for a stable order — the UI shows what is
+                    -- failing under the CI tag instead of a bare count.
+                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ('failure', 'timed_out'))) AS failing_workflows
                 FROM (
                     SELECT
                         head_sha,
@@ -205,3 +228,10 @@ class CuratedGitHubSource:
                 # strip the tables — bypass is set ONLY in this genuinely userless case.
                 bypass_warehouse_access_control=uac is None,
             )
+
+
+def opt_float(value: float | None) -> float | None:
+    """ClickHouse aggregate → optional float: quantile/avg over an empty set returns NaN, nullIf None."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    return float(value)

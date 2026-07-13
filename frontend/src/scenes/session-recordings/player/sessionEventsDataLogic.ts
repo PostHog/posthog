@@ -153,6 +153,11 @@ AND properties.$lib != 'web'`
                     }
 
                     existingEvents = existingEvents.filter((e) => !e.fullyLoaded)
+                    if (!existingEvents.length) {
+                        // nothing left to load (e.g. the events list was replaced while this action
+                        // was queued) — bail out before reducing over an empty timestamps list
+                        return cachedSessionEventsData
+                    }
                     const timestamps = existingEvents.map((ee) => dayjs(ee.timestamp).utc().valueOf())
                     const eventNames = Array.from(new Set(existingEvents.map((ee) => ee.event)))
                     const eventIds = existingEvents.map((ee) => ee.id)

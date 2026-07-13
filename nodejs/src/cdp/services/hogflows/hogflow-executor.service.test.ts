@@ -22,6 +22,7 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
@@ -84,7 +85,6 @@ describe('Hogflow Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -99,6 +99,12 @@ describe('Hogflow Executor', () => {
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
+        // Stubbed to always allow: this suite covers executor routing and flow control,
+        // not MX validation (email-validation.service.test.ts does), and the real
+        // service would fire live DNS lookups for the fixture recipients here.
+        const emailValidationService = {
+            getSkipReason: () => Promise.resolve(null),
+        } as unknown as EmailValidationService
 
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
@@ -135,7 +141,11 @@ describe('Hogflow Executor', () => {
 
         await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
 
-        executor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
+        executor = new HogFlowExecutorService(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            emailValidationService
+        )
     })
 
     describe('general event processing', () => {
@@ -203,6 +213,7 @@ describe('Hogflow Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,

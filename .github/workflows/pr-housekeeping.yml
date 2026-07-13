@@ -1,0 +1,83 @@
+name: PR housekeeping
+
+# One dispatch per PR event instead of eight. GitHub's run-queue cap
+# (500 runs/10s/repo) counts workflow runs, and a run that calls reusable
+# workflows counts once, so folding the small always-fire PR workflows
+# under this parent divides the burst budget every push consumes.
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, edited, ready_for_review, review_requested, converted_to_draft]
+
+# Keyed by event action so a new push (synchronize) cancels the previous
+# push's run without cancelling runs fired by other event types on the PR.
+concurrency:
+    group: pr-housekeeping-${{ github.event.action }}-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+# Parent defaults stay read-only; jobs that need more request it explicitly.
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    lint-pr:
+        if: contains(fromJSON('["opened", "edited", "synchronize"]'), github.event.action)
+        uses: ./.github/workflows/pr-updated.yml
+
+    turbo:
+        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        uses: ./.github/workflows/ci-turbo.yml
+
+    rate-limit-monitor:
+        if: contains(fromJSON('["opened", "synchronize"]'), github.event.action)
+        uses: ./.github/workflows/monitor-github-rate-limit.yml
+        secrets:
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+            GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+            GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+
+    flags-project-board:
+        # No synchronize: board status only transitions on reviewer/draft
+        # changes, and pushes change neither. Re-asserting the same status on
+        # every push wasted the run and fought manual card moves.
+        if: contains(fromJSON('["opened", "reopened", "ready_for_review", "review_requested", "converted_to_draft"]'), github.event.action) && github.event.pull_request.head.repo.full_name == github.repository
+        uses: PostHog/.github/.github/workflows/flags-project-board.yml@2db3d3b946aeb9e479ce9f0078139a67f8ef38ce
+        permissions:
+            contents: read
+        with:
+            pr_number: ${{ github.event.pull_request.number }}
+            pr_node_id: ${{ github.event.pull_request.node_id }}
+            is_draft: ${{ github.event.pull_request.draft }}
+        secrets:
+            PROJECT_BOARD_BOT_APP_ID: ${{ secrets.PROJECT_BOARD_BOT_APP_ID }}
+            PROJECT_BOARD_BOT_PRIVATE_KEY: ${{ secrets.PROJECT_BOARD_BOT_PRIVATE_KEY }}
+
+    pr-opened:
+        if: contains(fromJSON('["opened", "ready_for_review"]'), github.event.action)
+        uses: ./.github/workflows/pr-opened.yml
+        permissions:
+            pull-requests: write
+        secrets:
+            GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+            GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
+    resolve-bot-comments:
+        if: github.event.action == 'synchronize'
+        uses: ./.github/workflows/pr-resolve-outdated-bot-comments.yml
+        secrets:
+            GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_APP_ID: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_APP_ID }}
+            GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY }}
+
+    migrations-separation:
+        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        uses: ./.github/workflows/ci-migrations-service-separation-check.yml
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+    release-plan:
+        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        uses: ./.github/workflows/release.yml
+        secrets:
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}

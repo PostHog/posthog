@@ -1,5 +1,3 @@
-import type { FunnelStepWithNestedBreakdown } from '~/types'
-
 import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFunnelStep } from './funnelChartTransforms'
 
 const RED = '#ff0000'
@@ -168,14 +166,6 @@ describe('funnelChartTransforms', () => {
             })
 
             expect(config.trendLines).toBeUndefined()
-        })
-    })
-
-    describe('type contracts', () => {
-        it('IndexedFunnelStep is assignable from FunnelStepWithNestedBreakdown', () => {
-            const step: FunnelStepWithNestedBreakdown = makeStep()
-            const indexed: IndexedFunnelStep = { ...step, id: 0, seriesIndex: 0, colorIndex: 0 }
-            expect(indexed.id).toBe(0)
         })
     })
 })

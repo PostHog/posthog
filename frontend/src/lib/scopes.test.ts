@@ -43,10 +43,13 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.label).toBe('Read-only access')
         })
 
-        it('contains :read for every entry in API_SCOPES', () => {
+        it('contains :read for every entry in API_SCOPES except unprivileged-excluded scopes', () => {
             const preset = findPreset('read_only_access')
-            const expected = API_SCOPES.map(({ key }) => `${key}:read`).sort()
+            const expected = API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded)
+                .map(({ key }) => `${key}:read`)
+                .sort()
             expect([...preset.scopes].sort()).toEqual(expected)
+            expect(preset.scopes).not.toContain('llm_gateway:read')
         })
     })
 

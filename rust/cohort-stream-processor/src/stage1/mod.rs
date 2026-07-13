@@ -6,12 +6,18 @@ pub mod bucket_tz;
 pub mod compressed_history;
 pub mod daily;
 pub mod key;
+pub mod person_record;
 pub mod pick_state;
 pub mod predicate;
 pub mod state;
 pub mod time;
 pub mod transition;
 
+pub use person_record::{
+    apply_eval, apply_skip_eval, apply_stale, decide, CatalogFingerprint, Decision, DedupCoords,
+    Freshness, MatchedSet, PersonDedup, PersonRecord, PersonRecordCodecError, PriorRecord,
+    PropsFingerprint, Stamp,
+};
 pub use pick_state::{
     pick_state_variant, EvictionWindow, PredicateOp, TimeInterval, UnsupportedVariant,
 };

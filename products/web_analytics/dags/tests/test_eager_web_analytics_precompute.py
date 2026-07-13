@@ -300,9 +300,14 @@ class TestWarmBaselineForTeam(APIBaseTest):
                 assert q["includeBounceRate"] is True
             else:
                 assert "includeBounceRate" not in q
-            # EXIT_PAGE (simple precompute) bakes path cleaning into the stored value,
-            # so the warmer must match the dashboard's cleaned End-paths request.
-            if q["breakdownBy"] == WebStatsBreakdown.EXIT_PAGE.value:
+            # Every path breakdown bakes cleaned-or-raw into the job hash, and the
+            # dashboard sends doPathCleaning=true for teams with cleaning rules,
+            # so the warmer must warm the variant those dashboards actually read.
+            if q["breakdownBy"] in (
+                WebStatsBreakdown.PAGE.value,
+                WebStatsBreakdown.INITIAL_PAGE.value,
+                WebStatsBreakdown.EXIT_PAGE.value,
+            ):
                 assert q["doPathCleaning"] is True
             else:
                 assert "doPathCleaning" not in q

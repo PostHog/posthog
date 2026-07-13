@@ -21,7 +21,7 @@ import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER,
     type ProducerName,
-} from '~/ingestion/common/producers'
+} from '~/ingestion/common/outputs/producers'
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
@@ -89,8 +89,19 @@ export const DELAYED_INGESTION_LANES = ['historical', 'async'] as const
 
 export type IngestionLane = (typeof REALTIME_INGESTION_LANES)[number] | (typeof DELAYED_INGESTION_LANES)[number]
 
+/**
+ * How a consumer participates in overflow handling. Explicit and independent of
+ * the lane name:
+ *   - `redirect`  redirect hot partitions to the overflow topic (main lane).
+ *   - `consume`   drain the overflow topic and refresh its stateful TTLs (overflow lane).
+ *   - `disabled`  no overflow handling.
+ */
+export const INGESTION_OVERFLOW_MODES = ['redirect', 'consume', 'disabled'] as const
+export type IngestionOverflowMode = (typeof INGESTION_OVERFLOW_MODES)[number]
+
 export type IngestionConsumerConfig = {
     INGESTION_LANE: IngestionLane | null
+    INGESTION_OVERFLOW_MODE: IngestionOverflowMode
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
@@ -135,6 +146,10 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_EVENTS_ENABLED: boolean
     // Must equal the person_merge_events topic partition count and the Rust COHORT_PARTITION_COUNT.
     PERSON_MERGE_EVENTS_PARTITION_COUNT: number
+    // Which teams to emit person_merge_events for: comma-separated team IDs, or '*' for all teams.
+    // Defaults to team 2 only. Unlike the Rust REALTIME_COHORT_TEAM_ALLOWLIST, an empty value here
+    // means "no teams", not "all teams"; use '*' to open the gate.
+    PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
@@ -146,7 +161,6 @@ export type IngestionConsumerConfig = {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
 
     // Stateful overflow config
-    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
 
@@ -210,6 +224,7 @@ export type IngestionConsumerConfig = {
 export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
     return {
         INGESTION_LANE: null,
+        INGESTION_OVERFLOW_MODE: 'disabled',
 
         // Kafka consumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
@@ -247,6 +262,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
+        PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
@@ -258,7 +274,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
 
         // Stateful overflow config
-        INGESTION_STATEFUL_OVERFLOW_ENABLED: false,
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
         INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60,
 

@@ -46,6 +46,7 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportOnDemand,
     BatchExportRun,
 )
+from products.batch_exports.backend.temporal.workflow_metadata import build_static_summary
 
 logger = structlog.get_logger(__name__)
 
@@ -145,6 +146,11 @@ class BatchExportEventPropertyFilter:
     operator: str
     type: str
     value: list[str]
+
+
+# Single source of truth for the serialized filter `type` values we accept. Enforced at write
+# time by the batch export serializer and at query time by `compose_filters_clause`.
+SUPPORTED_FILTER_TYPES = {"event", "person", "hogql"}
 
 
 @dataclass
@@ -393,6 +399,7 @@ IAMRole = str
 class AWSCredentials:
     aws_access_key_id: str
     aws_secret_access_key: str
+    aws_session_token: str | None = None
 
 
 @dataclass
@@ -899,13 +906,25 @@ def backfill_export(
 
     workflow_id = f"{inputs.batch_export_id}-Backfill-{start_at_utc_str}-{end_at_utc_str}"
 
-    workflow_id = start_backfill_batch_export_workflow(temporal, workflow_id, inputs=inputs)
+    workflow_id = start_backfill_batch_export_workflow(
+        temporal,
+        workflow_id,
+        inputs=inputs,
+        destination_type=batch_export.destination.type,
+        model=batch_export.model or "events",
+        interval=batch_export.interval,
+    )
     return workflow_id
 
 
 @async_to_sync
 async def start_backfill_batch_export_workflow(
-    temporal: Client, workflow_id: str, inputs: BackfillBatchExportInputs
+    temporal: Client,
+    workflow_id: str,
+    inputs: BackfillBatchExportInputs,
+    destination_type: str,
+    model: str,
+    interval: str,
 ) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
     await temporal.start_workflow(
@@ -913,6 +932,7 @@ async def start_backfill_batch_export_workflow(
         inputs,
         id=workflow_id,
         task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+        static_summary=build_static_summary(destination_type, model, interval, is_backfill=True),
     )
 
     return workflow_id
@@ -1183,6 +1203,9 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=2,
                 non_retryable_error_types=["ActivityError", "ApplicationError", "CancelledError"],
+            ),
+            static_summary=build_static_summary(
+                batch_export.destination.type, batch_export.model or "events", batch_export.interval
             ),
         ),
         spec=_get_schedule_spec(batch_export),

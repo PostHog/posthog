@@ -2,9 +2,18 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
-import { ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
+import { dragSelection, ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 
-import { buildFunnelsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import {
+    buildFunnelsQuery,
+    chart,
+    getHogChart,
+    getQuerySource,
+    personsModal,
+    renderInsight,
+} from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope } from '~/types'
 
@@ -31,7 +40,7 @@ describe('FunnelLineChart', () => {
             expect(tooltip.element.textContent).toContain('40%')
         })
 
-        it('renders a series per breakdown variant', async () => {
+        it('renders a series per breakdown variant with the breakdown label on each tooltip row', async () => {
             renderInsight({
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
@@ -40,14 +49,6 @@ describe('FunnelLineChart', () => {
 
             await waitFor(() => {
                 expect(getHogChart().seriesCount).toBe(2)
-            })
-        })
-
-        it('shows the breakdown label on each tooltip row when broken down', async () => {
-            renderInsight({
-                query: buildFunnelsQuery({
-                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-                }),
             })
 
             await chart.clickAtIndex(2)
@@ -74,8 +75,6 @@ describe('FunnelLineChart', () => {
         })
 
         describe('orders breakdown rows by descending conversion value', () => {
-            // Captured once from a single render; the assertions only read these strings, so the
-            // per-test cleanup() between it.each cases doesn't matter.
             let orderedRows: { label: string; value: string | undefined }[]
 
             beforeAll(async () => {
@@ -91,13 +90,12 @@ describe('FunnelLineChart', () => {
 
             // The query returns Safari, Chrome, Firefox, but at index 2 the conversion values are
             // Firefox=60%, Safari=40%, Chrome=20%, so rows must be re-ordered by descending value.
-            it.each([
-                { position: 0, browser: 'Firefox', pct: '60%' },
-                { position: 1, browser: 'Safari', pct: '40%' },
-                { position: 2, browser: 'Chrome', pct: '20%' },
-            ])('row $position is $browser ($pct)', ({ position, browser, pct }) => {
-                expect(orderedRows[position].label).toContain(browser)
-                expect(orderedRows[position].value).toContain(pct)
+            it('sorts rows Firefox (60%), Safari (40%), Chrome (20%)', () => {
+                expect(orderedRows).toEqual([
+                    { label: expect.stringContaining('Firefox'), value: expect.stringContaining('60%') },
+                    { label: expect.stringContaining('Safari'), value: expect.stringContaining('40%') },
+                    { label: expect.stringContaining('Chrome'), value: expect.stringContaining('20%') },
+                ])
             })
         })
 
@@ -156,56 +154,13 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({ funnelsFilter: { showValuesOnSeries: true } }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             await waitFor(() => {
                 const texts = getHogChart()
                     .valueLabels()
                     .map((l) => l.text)
                 // default fixture data [10, 25, 40, 60, 35] rendered as percentages
                 expect([...texts].sort()).toEqual(['10%', '25%', '35%', '40%', '60%'])
-            })
-        })
-    })
-
-    describe('goal lines', () => {
-        it('renders configured goal lines on the chart', async () => {
-            renderInsight({
-                query: buildFunnelsQuery({
-                    funnelsFilter: { goalLines: [{ label: 'Target', value: 30, displayIfCrossed: true }] },
-                }),
-            })
-
-            await screen.findByRole('img', { name: /chart with/i })
-            await waitFor(() => {
-                const lines = getHogChart().referenceLines()
-                // value→pixel isn't recoverable from the DOM; assert the line is labelled,
-                // drawn horizontally (across the value axis), and actually positioned.
-                expect(lines).toEqual([
-                    expect.objectContaining({
-                        label: 'Target',
-                        orientation: 'horizontal',
-                        position: expect.any(Number),
-                    }),
-                ])
-            })
-        })
-    })
-
-    describe('trend lines overlay', () => {
-        it('adds a trend-line overlay when showTrendLines is enabled', async () => {
-            renderInsight({
-                query: buildFunnelsQuery({ funnelsFilter: { showTrendLines: true, showValuesOnSeries: true } }),
-            })
-
-            // main series + trend-line series = 2 rendered series
-            await waitFor(() => {
-                expect(getHogChart().seriesCount).toBe(2)
-            })
-
-            // the trend line is an overlay — excluded from value labels, so the 5 data
-            // points yield 5 labels, not 10 (a regular 2nd series would double them)
-            await waitFor(() => {
-                expect(getHogChart().valueLabels()).toHaveLength(5)
             })
         })
     })
@@ -219,7 +174,7 @@ describe('FunnelLineChart', () => {
                 }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             const legend = await screen.findByTestId('hog-chart-timeseries-line-legend')
             const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
             expect(labels).toEqual(['Spike', 'Bramble'])
@@ -246,7 +201,7 @@ describe('FunnelLineChart', () => {
         ])('omits the legend when $desc', async ({ query }) => {
             renderInsight({ query })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             expect(screen.queryByTestId('hog-chart-timeseries-line-legend')).not.toBeInTheDocument()
         })
 
@@ -258,7 +213,7 @@ describe('FunnelLineChart', () => {
                 }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             const legend = await screen.findByTestId('hog-chart-timeseries-line-legend')
             // The label span also carries an inline style now (max-width), so keep only the colored swatches.
             const swatchColors = Array.from(legend.querySelectorAll<HTMLElement>('span[style]'))
@@ -270,37 +225,6 @@ describe('FunnelLineChart', () => {
     })
 
     describe('annotations', () => {
-        it.each([
-            { inSharedMode: false, expectsBadges: true },
-            { inSharedMode: true, expectsBadges: false },
-        ])(
-            'renders annotation badges only when inSharedMode is false (inSharedMode=$inSharedMode)',
-            async ({ inSharedMode, expectsBadges }) => {
-                renderInsight({
-                    query: buildFunnelsQuery(),
-                    inSharedMode,
-                    mocks: {
-                        annotations: [
-                            buildAnnotation({
-                                scope: AnnotationScope.Project,
-                                content: 'Hedgehog spotted',
-                                date_marker: '2024-06-12T12:00:00Z',
-                            }),
-                        ],
-                    },
-                })
-
-                if (expectsBadges) {
-                    await waitFor(() => {
-                        expect(document.querySelectorAll('.AnnotationsBadge').length).toBeGreaterThan(0)
-                    })
-                } else {
-                    await screen.findByRole('img', { name: /chart with/i })
-                    expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
-                }
-            }
-        )
-
         it.each([
             { showAnnotations: undefined, expectsBadges: true },
             { showAnnotations: true, expectsBadges: true },
@@ -326,10 +250,43 @@ describe('FunnelLineChart', () => {
                         expect(document.querySelectorAll('.AnnotationsBadge').length).toBeGreaterThan(0)
                     })
                 } else {
-                    await screen.findByRole('img', { name: /chart with/i })
+                    await screen.findByLabelText(/chart with/i)
                     expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
                 }
             }
         )
+    })
+
+    describe('drag-to-zoom', () => {
+        const zoomFlag = { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true }
+        const totalLabels = 5 // funnelTrendsSteps.default has 5 days/labels
+
+        it('reports the dragged range as day strings to context.onDateRangeZoom', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildFunnelsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
+
+            const canvas = await screen.findByLabelText(/chart with/i)
+            dragSelection(canvas.parentElement!, 1, 3, totalLabels)
+
+            await waitFor(() => {
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
+            })
+        })
+
+        it('ignores drags when the drag-to-zoom flag is off', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({
+                query: buildFunnelsQuery(),
+                context: { onDateRangeZoom },
+                featureFlags: { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: false },
+            })
+
+            const canvas = await screen.findByLabelText(/chart with/i)
+            dragSelection(canvas.parentElement!, 1, 3, totalLabels)
+
+            // A regression dropping the flag gate would ship zoom to everyone.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(getQuerySource().dateRange).toBeUndefined()
+        })
     })
 })

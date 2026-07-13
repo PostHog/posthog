@@ -1,6 +1,7 @@
-import { actions, afterMount, kea, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { environmentVisionQuotaRetrieve } from '../generated/api'
@@ -10,6 +11,10 @@ import type { visionQuotaLogicType } from './visionQuotaLogicType'
 export const visionQuotaLogic = kea<visionQuotaLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'visionQuotaLogic']),
 
+    connect(() => ({
+        actions: [billingLogic, ['loadBilling']],
+    })),
+
     actions({
         // Declared here so the action stays zero-arg despite the loader's `breakpoint` parameter.
         loadQuota: true,
@@ -17,7 +22,7 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
         adjustProjectedMonthly: (delta: number) => ({ delta }),
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         quota: [
             null as VisionQuotaApi | null,
             {
@@ -26,17 +31,18 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                     await breakpoint(50)
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
-                        return null
+                        return values.quota
                     }
                     try {
                         return await environmentVisionQuotaRetrieve(String(teamId))
                     } catch {
-                        return null
+                        // Keep the last-known snapshot — nulling it would silently drop the exhausted-quota guards.
+                        return values.quota
                     }
                 },
             },
         ],
-    }),
+    })),
 
     reducers({
         quota: {
@@ -44,7 +50,7 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                 state
                     ? {
                           ...state,
-                          projected_monthly_observations: Math.max(0, state.projected_monthly_observations + delta),
+                          projected_monthly_credits: Math.max(0, state.projected_monthly_credits + delta),
                       }
                     : state,
         },
@@ -52,5 +58,12 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadQuota()
+        // billingLogic doesn't self-load; the ingestion banner needs billing on cold navigation.
+        actions.loadBilling()
     }),
 ])
+
+/** Refresh after any quota-affecting mutation — observes consume quota immediately (in-flight rows count). */
+export function refreshVisionQuota(): void {
+    visionQuotaLogic.findMounted()?.actions.loadQuota()
+}

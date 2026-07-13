@@ -1,10 +1,9 @@
 export {
-    BatchPipelineBuilder,
-    GroupingBatchPipelineBuilder,
+    ChunkPipelineBuilder,
     GroupProcessingBuilder,
-    MessageAwareBatchPipelineBuilder,
-    TeamAwareBatchPipelineBuilder,
-} from './batch-pipeline-builders'
-export type { BatchRetryOptions } from '~/ingestion/framework/batch-retry'
+    MessageAwareChunkPipelineBuilder,
+    TeamAwareChunkPipelineBuilder,
+} from './chunk-pipeline-builders'
+export type { RetryOptions } from '~/ingestion/framework/retry'
 export { BranchingPipelineBuilder, PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
-export { newBatchPipelineBuilder, newBatchingPipeline, newPipelineBuilder } from './helpers'
+export { newChunkPipelineBuilder, newBatchingPipeline, newPipelineBuilder } from './helpers'

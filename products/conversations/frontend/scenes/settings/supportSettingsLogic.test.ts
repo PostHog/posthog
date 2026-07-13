@@ -1,11 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { teamLogic } from '~/scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
-import { supportSettingsLogic } from './supportSettingsLogic'
+import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
 describe('supportSettingsLogic', () => {
     let logic: ReturnType<typeof supportSettingsLogic.build>
@@ -27,6 +30,43 @@ describe('supportSettingsLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    describe('aiAllChannelsForFeatureFlags', () => {
+        it.each([
+            ['no flags enabled', {}, ['widget', 'email', 'slack']],
+            [
+                'teams and github enabled',
+                {
+                    [FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]: true,
+                    [FEATURE_FLAGS.PRODUCT_SUPPORT_GITHUB_CHANNEL]: true,
+                },
+                ['widget', 'email', 'slack', 'teams', 'github'],
+            ],
+        ])('%s', (_label, flags, expected) => {
+            expect(aiAllChannelsForFeatureFlags(flags)).toEqual(expected)
+        })
+    })
+
+    describe('aiResolutionChannels selector', () => {
+        it('drops flag-gated channels that are no longer available', async () => {
+            initKeaTests(true, {
+                conversations_settings: {
+                    slack_enabled: true,
+                    teams_enabled: true,
+                    ai_resolution_channels: ['widget', 'slack', 'teams'],
+                },
+            } as unknown as TeamType)
+            featureFlagLogic.mount()
+
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                aiAllChannels: ['widget', 'email', 'slack'],
+                aiResolutionChannels: ['widget', 'slack'],
+            })
+        })
     })
 
     describe('aiSuggestionsEnabled selector', () => {
