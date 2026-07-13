@@ -96,6 +96,19 @@ export function stripTrailingSlash(path: string): string {
     return path
 }
 
+/**
+ * kea-router matches the decoded pathname against each route's `UrlPattern`. Some logics build
+ * their route key dynamically from a URL param (e.g. `surveyLogic` keys on `urls.survey(props.id)`),
+ * and `url-pattern` throws `argument must not contain whitespace` if that pattern literal contains
+ * any whitespace. A trailing `%20` — a stray space on a copy-pasted link — decodes to a real space
+ * that lands in the param and blows up pattern construction. Strip trailing whitespace before
+ * matching so the route still resolves. Embedded whitespace (e.g. a distinct id like `foo bar` in
+ * `/person/foo bar`) is left alone — routes rely on it.
+ */
+export function stripTrailingWhitespace(path: string): string {
+    return path.replace(/\s+$/, '')
+}
+
 export function removeFlagIdIfPresent(path: string): string {
     if (path.match(/^\/feature_flags\/\d+/)) {
         return path.replace(/(feature_flags).*$/, '$1/')
