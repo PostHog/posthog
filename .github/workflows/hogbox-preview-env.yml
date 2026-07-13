@@ -119,7 +119,7 @@ jobs:
         steps:
             - name: Decide build vs teardown vs skip
               id: decide
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const base = `${context.repo.owner}/${context.repo.repo}`;
@@ -221,7 +221,7 @@ jobs:
         steps:
             - name: Announce (deployment + building comment)
               id: start
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -294,7 +294,7 @@ jobs:
             # sensitive comes online.
             - name: Guard dispatch against fork PRs
               if: github.event_name == 'workflow_dispatch'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -318,7 +318,7 @@ jobs:
             # PRs skip all of this and keep the ~1-min preview.
             - name: Detect frontend changes
               id: fe
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -412,7 +412,7 @@ jobs:
             # sensitive comes online.
             - name: Guard dispatch against fork PRs
               if: github.event_name == 'workflow_dispatch'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -501,7 +501,7 @@ jobs:
             # FE build has usually long finished, so this returns near-instantly.
             - name: Wait for the PR frontend build
               id: fe
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const jobName = 'build PR frontend';
@@ -560,7 +560,7 @@ jobs:
 
             - name: Report ready (deployment + comment)
               if: success()
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               # SHA + DEP come from the job env (announce job outputs).
               env:
                   URL: ${{ steps.build.outputs.url }}
@@ -623,7 +623,7 @@ jobs:
 
             - name: Report failure (deployment + comment)
               if: failure()
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -712,7 +712,7 @@ jobs:
             # gets the same treatment from pr-cleanup.yml's deployment reaper.)
             - name: Deactivate deployment + update comment
               if: always()
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);
