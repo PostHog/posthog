@@ -645,6 +645,18 @@ class TestBuildBillingToken(BaseTest):
         assert "distinct_id" not in decoded
         assert "organization_role" not in decoded
         assert "original_role" not in decoded
+        # Only service-to-service tokens carry service_action; billing uses its absence
+        # to reject user-minted tokens on service-only endpoints.
+        assert "service_action" not in decoded
+
+    def test_build_billing_token_with_service_action(self):
+        token = build_billing_token(self.license, self.organization, service_action="signals_pr_dispute")
+
+        decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
+
+        assert decoded["service_action"] == "signals_pr_dispute"
+        assert "distinct_id" not in decoded
+        assert "organization_role" not in decoded
 
     def test_build_billing_token_with_user_who_is_member(self):
         """Token with user should include distinct_id and organization_role as level display string"""
@@ -1391,6 +1403,13 @@ class TestDisputeSignalsPr(BaseTest):
         assert call_args[0][0].endswith("/api/signals/dispute-pr")
         assert call_args[1]["json"] == payload
         assert "Authorization" in call_args[1]["headers"]
+        # Billing only accepts dispute calls from tokens carrying the service_action
+        # claim; without it the request is rejected as a user-initiated token.
+        token = call_args[1]["headers"]["Authorization"].removeprefix("Bearer ")
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        assert decoded["service_action"] == "signals_pr_dispute"
+        assert "organization_role" not in decoded
+        assert "distinct_id" not in decoded
 
     @parameterized.expand([("missing_deploy", 404), ("auth_failure", 401)])
     def test_raises_on_statuses_the_default_valid_codes_would_swallow(self, _name, status_code):

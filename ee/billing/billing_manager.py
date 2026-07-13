@@ -74,12 +74,17 @@ def build_billing_token(
     user: Optional[User] = None,
     authorizer_actor: Optional[User] = None,
     billing_provider: BillingProvider | None = None,
+    service_action: str | None = None,
 ) -> str:
     """
     Build the JWT token to authenticate with the Billing system.
 
     Allows doing privilege escalation with the `authorizer_actor` parameter, in that case the distinct_id
     will be that of the user, but the role will be that of the authorizer_actor.
+
+    `service_action` marks a token minted by a backend job for one specific service-to-service
+    endpoint (e.g. "signals_pr_dispute"); billing rejects calls to such endpoints from tokens
+    without the matching claim, so tokens minted for user-initiated calls can't reach them.
 
     Raises NotAuthenticated if the authorizer_actor (or user in case there's no authorizer_actor) are not
     part of the organization.
@@ -125,6 +130,9 @@ def build_billing_token(
 
     if billing_provider:
         payload["billing_provider"] = billing_provider.value
+
+    if service_action:
+        payload["service_action"] = service_action
 
     encoded_jwt = jwt.encode(
         payload,
@@ -512,11 +520,17 @@ class BillingManager:
         organization: Organization,
         billing_provider: BillingProvider | None = None,
         authorizer_actor: User | None = None,
+        service_action: str | None = None,
     ):
         if not self.license:  # mypy
             raise Exception("No license found")
         billing_service_token = build_billing_token(
-            self.license, organization, self.user, authorizer_actor=authorizer_actor, billing_provider=billing_provider
+            self.license,
+            organization,
+            self.user,
+            authorizer_actor=authorizer_actor,
+            billing_provider=billing_provider,
+            service_action=service_action,
         )
         return {"Authorization": f"Bearer {billing_service_token}"}
 
@@ -565,7 +579,10 @@ class BillingManager:
         """
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/signals/dispute-pr",
-            headers=self.get_auth_headers(organization),
+            # The service_action claim is required by billing: it distinguishes this
+            # backend-minted token from ones minted for user-initiated billing calls,
+            # which cannot reach the dispute endpoint.
+            headers=self.get_auth_headers(organization, service_action="signals_pr_dispute"),
             json=data,
             timeout=30,
         )
