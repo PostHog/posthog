@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-_GITHUB_INTEGRATION_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration"
+_GITHUB_INTEGRATION_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration"
+)
 
 
 class TestGithubSource:

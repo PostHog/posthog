@@ -75,6 +75,13 @@ export function InputWithSuggestionsDropdown({
     const [open, setOpen] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')
 
+    // Reset both the local filter and any server-side search state, so reopening the picker
+    // doesn't show an empty search box while still requesting the previously filtered list.
+    const resetSearch = (): void => {
+        setSearchTerm('')
+        onSearchChange?.('')
+    }
+
     const normalized = useMemo(() => suggestions.map(normalizeSuggestion), [suggestions])
 
     const filtered = useMemo(() => {
@@ -89,7 +96,7 @@ export function InputWithSuggestionsDropdown({
         <Popover
             visible={open}
             onClickOutside={() => {
-                setSearchTerm('')
+                resetSearch()
                 setOpen(false)
             }}
             placement="bottom-start"
@@ -127,7 +134,7 @@ export function InputWithSuggestionsDropdown({
                                         icon={isCurrent ? <IconCheck /> : undefined}
                                         onClick={() => {
                                             onChange(suggestion.value)
-                                            setSearchTerm('')
+                                            resetSearch()
                                             setOpen(false)
                                         }}
                                     >
