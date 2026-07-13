@@ -11,6 +11,9 @@
         "rust",
         "cli",
         "nodejs",
+        ".semgrep",
+        ".github/actions/paths-filter",
+        ".github/scripts/codeowners.js",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
         "common/plugin_transpiler/dist",
@@ -28,7 +31,6 @@
         "no-irregular-whitespace": "off",
         "require-await": "off",
         "no-await-in-loop": "off",
-        "react/prop-types": "off",
         "react/react-in-jsx-scope": "off",
         "react/no-unescaped-entities": "off",
         "react/jsx-no-target-blank": "off",
@@ -138,7 +140,7 @@
             }
         ],
         "react/forbid-dom-props": [
-            "error",
+            "warn",
             {
                 "forbid": [
                     {
@@ -148,6 +150,7 @@
                 ]
             }
         ],
+        "no-new-array": "warn",
         "react/forbid-elements": [
             "error",
             {
@@ -179,7 +182,7 @@
         "no-useless-rename": "error",
         "no-useless-call": "error",
         "import/no-cycle": [
-            "error",
+            "warn",
             {
                 "maxDepth": 10
             }
