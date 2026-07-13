@@ -292,15 +292,21 @@ async def SandboxedEval(
 
     project_name = f"sandboxed-agent-{experiment_name}" if is_public else experiment_name
 
+    # Register the case total (post-filter, times trials) so the reporter can
+    # append a per-experiment progress counter to each case line.
+    planned_cases = len(eval_cases) * ctx.trials
+    await ctx.reporter.experiment_started(experiment_name, planned_cases)
+
     result = await EvalAsync(
         project_name,
         data=eval_cases,
         task=task,
         scores=active_scorers,
+        trial_count=ctx.trials,
         # Our global ``ctx.sandbox_slots`` semaphore is the only limiter that
         # should bind. Braintrust's own per-suite limiter must never gate, so
-        # let it admit every case at once.
-        max_concurrency=max(len(eval_cases), 1),
+        # let it admit every case at once — across all trials.
+        max_concurrency=max(len(eval_cases) * ctx.trials, 1),
         # Braintrust's timeout wraps the whole task invocation, including any time
         # a case spends queued on our sandbox semaphore — so a queued case would
         # be killed before it ever acquired a sandbox. The real budget is the

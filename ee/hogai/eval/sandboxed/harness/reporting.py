@@ -57,10 +57,20 @@ class ProgressReporter:
         self._case_counts: dict[str, int] = defaultdict(int)
         self._case_durations: dict[str, float] = defaultdict(float)
         self._error_counts: dict[str, int] = defaultdict(int)
+        # Planned case total per experiment (post-filter, times trials), used to
+        # render a per-experiment progress counter on each case line.
+        self._experiment_totals: dict[str, int] = {}
 
     async def suite_started(self, suite_id: str) -> None:
         async with self._lock:
             _emit(f"{self._counter()} START  {suite_id}")
+
+    async def experiment_started(self, experiment_name: str, planned_cases: int) -> None:
+        """Record how many cases this experiment will run, so ``case_done`` can
+        show a ``[done/total]`` counter. Suites register concurrently, so this
+        takes the lock even though it only writes."""
+        async with self._lock:
+            self._experiment_totals[experiment_name] = planned_cases
 
     async def case_done(
         self,
@@ -79,7 +89,11 @@ class ProgressReporter:
             self._case_counts[experiment_name] += 1
             self._case_durations[experiment_name] += duration_seconds
             marker = {"ok": "case ", "timeout": "TMOUT", "error": "ERROR"}[status]
-            _emit(f"{self._counter()} {marker}  {experiment_name} :: {case_name}  ({duration_seconds:.1f}s)")
+            # Per-experiment case counter, distinct from the suite counter prefix;
+            # omitted when the experiment was never registered.
+            total = self._experiment_totals.get(experiment_name)
+            progress = f"  [{self._case_counts[experiment_name]}/{total}]" if total is not None else ""
+            _emit(f"{self._counter()} {marker}  {experiment_name} :: {case_name}  ({duration_seconds:.1f}s){progress}")
 
     async def case_log_path(self, case_name: str, path: Path) -> None:
         async with self._lock:
@@ -133,6 +147,25 @@ class ProgressReporter:
         lines.extend(self._log_dir_block(log_dirs))
         lines.extend(self._traceback_block(crashed))
         _emit("\n".join(lines))
+
+    def mean_score(self) -> float | None:
+        """Unweighted mean over every per-scorer average across all recorded
+        summaries, or ``None`` when no scores were produced.
+
+        Runs after every suite has settled (like ``print_final_summary``), so it
+        takes no lock. Every scorer average counts once, regardless of how many
+        cases fed it, matching how the final table reads."""
+        scores = [
+            s.score for summary in self._summaries.values() for s in summary.scores.values() if s.score is not None
+        ]
+        if not scores:
+            return None
+        return sum(scores) / len(scores)
+
+    def print_line(self, text: str) -> None:
+        """Emit one line through the reporter. For post-settle callers (no lock),
+        so stdout ownership stays with this module instead of leaking bare prints."""
+        _emit(text)
 
     def _counter(self) -> str:
         return f"[{self._finished_suites}/{self._total_suites}]"
