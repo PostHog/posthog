@@ -8,6 +8,8 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
+- `RelativeRangeInput` — "N units" duration control (count stepper + unit dropdown)
+- `DateRangeComposer` — CONCEPT (unstable): compact date filter — rolling chips + `RelativeRangeInput` + named-period chips, custom-range calendar behind a view swap, exclusions + exact-time behind footer controls
 - `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`. Import from the `@posthog/quill-components/metric` subpath (not the main barrel)
 
 ## DataTable
@@ -97,6 +99,53 @@ Rules:
 ## useCalendar
 
 Headless month-grid state for building custom calendar UIs: returns `calendar` (months > weeks > days), view navigation (`viewNextMonth`, `viewToday`, ...), and selection helpers (`select`, `selectRange`, `isSelected`, `toggle`). Selected dates are normalized to midnight. Reach for this only when DateTimePicker doesn't fit.
+
+## RelativeRangeInput
+
+A "N units" duration control: count stepper (type or ±) plus a unit `Select`.
+Controlled via `value: { count, unit }` / `onChange`; `units` narrows the dropdown (default hours→years), `min`/`max` clamp the count.
+The component is vocabulary-free: the host renders surrounding words ("In the last …") and maps the value to its own range model.
+Unit labels singularize when count is 1. `selectContentProps` spreads onto the portaled unit dropdown (e.g. skin opt-in data attributes).
+
+```tsx
+import { RelativeRangeInput, type RelativeRangeValue } from '@posthog/quill-components'
+
+const [value, setValue] = useState<RelativeRangeValue>({ count: 30, unit: 'days' })
+;<div className="flex items-center gap-2">
+  <Text size="sm" render={<span />}>
+    In the last
+  </Text>
+  <RelativeRangeInput value={value} onChange={setValue} />
+</div>
+```
+
+## DateRangeComposer
+
+CONCEPT — a compact date filter surface, not a stable API. Layout: a 5-column grid of rolling
+shortcuts (`1h 24h 7d 14d 30d / 90d 180d 1w 1m 1y` — every chip just sets the "In the last"
+input), the `RelativeRangeInput` row, then a 3-column grid of calendar-anchored periods
+(`Today … All time`). Footer rows: "Custom range…" (swaps the whole surface to a range calendar
+with an "Include time" switch; Cancel returns), an optional "Exact time range" switch, and
+"Exclude" (a portaled flyout with an incomplete-period switch and exclude-day chips).
+
+Rules:
+
+- Controlled via `selection` (`{ kind: 'rolling' | 'fixed' | 'custom', … }`) and `onSelect`;
+  the composer never interprets what a selection means — hosts map it to their own range
+  vocabulary (see `InsightDateFilterComposer` in the app for the PostHog-strings mapping).
+- `exclusions` / `onExclusionsChange` speak _excluded_ ISO days (`'1'`–`'7'`) + an `incomplete`
+  flag; gate sections with `showExcludedDays` / `showIncompletePeriod` (the Exclude row
+  disappears when both are off).
+- `exactTime` / `onExactTimeChange` render the footer switch only when the handler is set —
+  the semantics are host-owned.
+- `portalProps` spreads onto the portaled surfaces (exclusions flyout, unit dropdown) — pass
+  skin opt-in attributes here, since portals escape wrapper-scoped selectors.
+- The "Include time" switch above the calendar is composer-local state; if the composer
+  graduates, it should become a `showTimeToggle` prop on `DateTimePicker` (mirroring
+  `DatePicker`).
+- When hosting in a quill `Popover`, pin the surface with
+  `collisionAvoidance={{ side: 'flip', align: 'none', fallbackAxisSide: 'none' }}` so opening
+  the calendar view (which widens the surface) doesn't shift the chips under the cursor.
 
 ## Metric
 
