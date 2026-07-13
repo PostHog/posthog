@@ -1,0 +1,24 @@
+[
+  {
+    "id": "72055",
+    "subject": "Can't log in and password reset says no account exists - but I get your emails?!",
+    "description": "I created my account last week on my phone and everything worked fine that day. Now I can't log in from my laptop - it says invalid email or password every single time. I know the password is right, I have it in my password manager. So I tried the forgot password link and it says \"we couldn't find an account with that email\". But you clearly have my account because I still get your newsletter at that exact address! I've been locked out for four days and I have a subscription renewing on this account. Please sort this out.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/72055.json",
+    "type": "problem",
+    "tags": "[\"login\",\"password-reset\",\"account-access\",\"end-customer\"]",
+    "created_at": "2026-07-09T18:31:57+00:00",
+    "priority": "high",
+    "status": "open"
+  },
+  {
+    "id": "72101",
+    "subject": "Escalation: password reset complaints way up since mobile 2.4 - reset emails not being generated?",
+    "description": "Flagging a pattern from the support queue. Since around the mobile app 2.4 release we're seeing a big uptick in tickets like \"password reset doesn't work\" and \"invalid credentials on a correct password\". Common thread: the reset flow tells users no account exists for their email, so no reset email is ever generated - this doesn't look like deliverability, we checked the email provider dashboard and sends are normal for the accounts it does find. Users swear they're typing the same email they signed up with, and several mention they originally signed up on their phone. Maybe the reset token service is failing to look accounts up? Affected users can't self-serve at all right now, we're manually resetting passwords from the admin panel.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/72101.json",
+    "type": "incident",
+    "tags": "[\"escalated\",\"password-reset\",\"login\",\"mobile\",\"cx-escalation\"]",
+    "created_at": "2026-07-10T11:14:26+00:00",
+    "priority": "high",
+    "status": "open"
+  }
+]

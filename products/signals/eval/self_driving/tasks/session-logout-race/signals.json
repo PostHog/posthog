@@ -1,0 +1,24 @@
+[
+  {
+    "id": "30514",
+    "subject": "Logged out on a shared computer but my account was still open",
+    "description": "We use the portal at our front desk on a shared computer. I clicked Log out before leaving on Tuesday, and the next morning my coworker found the portal still signed in as me, with my name in the corner and my billing page one click away.\n\nWe thought it was cookies so we cleared them and it happened AGAIN on Thursday. Does your app cache logins somewhere else? This is a real problem for us, anyone at the desk can see our invoices.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/30514.json",
+    "type": "problem",
+    "tags": "[\"security\",\"shared_device\",\"plan_teams\",\"escalated\"]",
+    "created_at": "2026-07-08T15:42:03+00:00",
+    "priority": "high",
+    "status": "open"
+  },
+  {
+    "id": "30561",
+    "subject": "Sign out doesn't stick",
+    "description": "Small thing but it's been happening for a couple of weeks: when I click log out, the page flips to the signed-out view for a second and then my name and avatar pop right back into the header like I never logged out. If I refresh the page after that, I'm properly signed out.\n\nChrome on Windows 11, no extensions. Happens maybe every third time I log out.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/30561.json",
+    "type": "problem",
+    "tags": "[\"portal\",\"plan_growth\",\"owner_unassigned\"]",
+    "created_at": "2026-07-09T11:08:26+00:00",
+    "priority": "normal",
+    "status": "new"
+  }
+]

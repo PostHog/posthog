@@ -1,0 +1,24 @@
+[
+  {
+    "id": "31842",
+    "subject": "Daily summary email says 0 orders but we had 14 today",
+    "description": "Hi, we're on the daily summary emails and the report that just arrived says we had 0 orders and $0.00 in sales. We definitely processed 14 orders today, I can see every one of them in the dashboard. Weirdly the email is dated July 10 but it's still the evening of July 9 here.\n\nWe're in California if that matters for the send time. My guess is the report is being generated before your data pipeline finishes syncing our orders - could you delay the send by a few hours? Yesterday's report looked fine when it arrived, so maybe it's an intermittent sync thing.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/31842.json",
+    "type": "problem",
+    "tags": "[\"daily_reports\",\"plan_growth\",\"west_coast\"]",
+    "created_at": "2026-07-10T03:55:12+00:00",
+    "priority": "normal",
+    "status": "open"
+  },
+  {
+    "id": "31877",
+    "subject": "Summary report cutoff seems wrong - evening orders count towards the next day",
+    "description": "Our daily summary never matches what we actually sold. Everything we sell after about 5pm shows up in the NEXT day's report instead of the day it happened, so Monday's report is short and Tuesday's is inflated. We reconcile against the report every night and it's constantly off.\n\nWe're a Seattle shop. Is the report just sent too early, or is there some cutoff setting we can change? Nothing in the account settings looks relevant.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/31877.json",
+    "type": "problem",
+    "tags": "[\"daily_reports\",\"reconciliation\",\"plan_scale\"]",
+    "created_at": "2026-07-10T16:20:47+00:00",
+    "priority": "high",
+    "status": "open"
+  }
+]

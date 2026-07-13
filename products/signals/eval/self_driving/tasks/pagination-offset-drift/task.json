@@ -1,0 +1,47 @@
+{
+  "task_id": "pagination-offset-drift",
+  "title": "List API pagination skips the first page of records",
+  "family": "api-contract",
+  "difficulty": "T1",
+  "repo_full_name": "acme/pagination-offset-drift",
+  "signal_type": "github",
+  "product_summary": "Acme projects REST API (Node/Express): paginated project listing consumed by customer integrations",
+  "ground_truth": {
+    "root_cause": "paginate() in src/pagination.js computes the slice offset as page * pageSize even though pages are 1-indexed per the documented API contract, so page 1 starts at the (pageSize+1)-th record. The first pageSize items are unreachable on any page and consumers see fewer distinct records than total reports.",
+    "culprit_files": ["src/pagination.js"],
+    "fix_contract": "With a 25-item collection and page_size=10, page 1 returns items 1-10, page 2 returns items 11-20 (together 20 unique items, no overlap, collection order preserved), and page 3 returns the remaining 5 with hasMore=false. Reported total, page echo, empty-collection handling, and query param clamping keep working.",
+    "expected_evidence": [
+      "projects_listed events reporting returned_count=10 for page=1 but returned_count=5 for page=2 and 0 for page=3 against 25-item collections — only 15 records reachable",
+      "no change in traffic volume; the miscount is present on every request"
+    ],
+    "distractors": [
+      "query param clamping in src/validation.js (innocent)",
+      "suspected database ordering instability on createdAt ties"
+    ],
+    "immediately_actionable": true,
+    "priority": "P2"
+  },
+  "seed": {
+    "days": 3,
+    "streams": [
+      {
+        "kind": "custom",
+        "event": "projects_listed",
+        "properties": { "page": 1, "returned_count": 10 },
+        "daily": 340
+      },
+      {
+        "kind": "custom",
+        "event": "projects_listed",
+        "properties": { "page": 2, "returned_count": 5 },
+        "daily": 150
+      },
+      {
+        "kind": "custom",
+        "event": "projects_listed",
+        "properties": { "page": 3, "returned_count": 0 },
+        "daily": 60
+      }
+    ]
+  }
+}

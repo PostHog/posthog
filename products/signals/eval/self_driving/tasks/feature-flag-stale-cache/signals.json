@@ -1,0 +1,26 @@
+[
+  {
+    "id": "9951204",
+    "title": "Kill-switch has no effect: promo banner still served hours after disabling the flag",
+    "body": "### Bug report\n\nWe flipped `promo_banner` **off** in FlagPilot at 09:40 UTC today because the promo pricing in the banner was wrong. The FlagPilot dashboard confirms the flag is disabled and their API returns `false` when we curl it directly.\n\nThree hours later, production `/api/config` still returns:\n\n```json\n{ \"promo_banner\": true, \"maintenance_mode\": false, \"new_nav\": false }\n```\n\nRolling-restarting the pods makes the new value show up immediately, which is how we eventually killed the banner. So the toggle itself works — it just never reaches the config service until a restart. Is FlagPilot's edge API caching stale values for our server-side key, or are we holding it wrong?\n\nThis was supposed to be our emergency kill-switch. An emergency switch that needs a redeploy to act is not a kill-switch.",
+    "html_url": "https://github.com/acme/feature-flag-stale-cache/issues/88",
+    "number": 88,
+    "labels": "[{\"color\":\"d73a4a\",\"default\":true,\"description\":\"Something isn't working\",\"id\":208045946,\"name\":\"bug\",\"node_id\":\"MDU6TGFiZWwyMDgwNDU5NDY=\",\"url\":\"https://api.github.com/repos/acme/feature-flag-stale-cache/labels/bug\"},{\"color\":\"fbca04\",\"default\":false,\"description\":\"Operational issues\",\"id\":3040411231,\"name\":\"ops\",\"node_id\":\"MDU6TGFiZWwzMDQwNDExMjMx\",\"url\":\"https://api.github.com/repos/acme/feature-flag-stale-cache/labels/ops\"}]",
+    "created_at": "2026-07-09T13:05:12Z",
+    "updated_at": "2026-07-09T16:41:30Z",
+    "locked": false,
+    "state": "open"
+  },
+  {
+    "id": "9954480",
+    "title": "/api/config returns different flag values per pod for hours after a toggle",
+    "body": "### Bug report\n\nAfter toggling `new_nav` on yesterday, `/api/config` started returning inconsistent values depending on which pod answers: pods restarted after the toggle serve `new_nav: true`, older pods keep serving `false`. It converged only after the evening deploy recycled everything.\n\n```\n$ for i in $(seq 1 6); do curl -s https://config.acme.dev/api/config | jq .new_nav; done\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\n```\n\nClients behind the same LB flap between old and new nav on every request. We assumed the LB was caching, but response headers show `cache-control: no-store` and distinct pod ids. Whatever caches flag values inside the service doesn't seem to expire until the process dies.",
+    "html_url": "https://github.com/acme/feature-flag-stale-cache/issues/91",
+    "number": 91,
+    "labels": "[{\"color\":\"d73a4a\",\"default\":true,\"description\":\"Something isn't working\",\"id\":208045946,\"name\":\"bug\",\"node_id\":\"MDU6TGFiZWwyMDgwNDU5NDY=\",\"url\":\"https://api.github.com/repos/acme/feature-flag-stale-cache/labels/bug\"}]",
+    "created_at": "2026-07-10T08:19:47Z",
+    "updated_at": "2026-07-10T08:19:47Z",
+    "locked": false,
+    "state": "open"
+  }
+]

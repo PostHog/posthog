@@ -1,0 +1,49 @@
+{
+  "task_id": "cron-overlap-doublesend",
+  "title": "Digest job has no overlap guard - slow runs double-send emails",
+  "family": "config",
+  "difficulty": "T3",
+  "repo_full_name": "acme/cron-overlap-doublesend",
+  "signal_type": "github",
+  "product_summary": "Acme Notifier - interval-scheduled daily digest emails (Node)",
+  "ground_truth": {
+    "root_cause": "runDigest() in src/digest.js has no overlap guard and the scheduler (src/scheduler.js) fires it on a fixed interval regardless of whether the previous run finished; on heavy days a run outlasts DIGEST_INTERVAL_MS, the next tick starts a second concurrent run, both read the same due-subscription list before either marks anything sent, and every recipient gets the digest twice. Concurrent invocations need a lock/guard (skip or queue while a run is active).",
+    "culprit_files": ["src/digest.js", "src/scheduler.js"],
+    "fix_contract": "Two concurrent runDigest() invocations for the same period must result in exactly one digest per active recipient (verified against an injected fake store/mailer). Normal behavior is unchanged: a single run sends one digest per unique active recipient, a sequential re-run in the same period sends nothing, and the next period sends again (the guard must be released).",
+    "expected_evidence": [
+      "digest_sent event count roughly 2x the subscriber count on the affected day, back to normal the next day",
+      "digest_run_completed duration_ms exceeding the scheduling interval on heavy days, with overlapping digest_run_started timestamps"
+    ],
+    "distractors": [
+      "dedupeRecipients() in src/recipients.js suspected in the GitHub issue (the reverse-scan + unshift looks convoluted but is correct, and dedupe cannot explain single-project users getting duplicates)",
+      "per-recipient activity reads in src/store.js (slow, and the slowness is why runs outlast the interval, but not itself the duplication defect)",
+      "SMTP retries (the mailer performs none)"
+    ],
+    "immediately_actionable": true,
+    "priority": "P2"
+  },
+  "seed": {
+    "days": 7,
+    "streams": [
+      {
+        "kind": "custom",
+        "event": "digest_run_started",
+        "properties": {},
+        "daily": 24
+      },
+      {
+        "kind": "custom",
+        "event": "digest_run_completed",
+        "properties": { "duration_ms": 3960000 },
+        "daily": 24
+      },
+      {
+        "kind": "custom",
+        "event": "digest_sent",
+        "properties": {},
+        "daily": 380,
+        "burst": { "from_hours_ago": 96, "count": 380 }
+      }
+    ]
+  }
+}

@@ -5,6 +5,10 @@ src = [".."]
 extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 
 [lint.per-file-ignores]
+# Self-driving eval fixture repos are synthetic customer codebases (benchmark data,
+# not PostHog code); the eval driver prints run progress to the shell by design.
+"signals/eval/self_driving/tasks/**" = ["T201"]
+"signals/eval/self_driving/harness/drive.py" = ["T201"]
 "**/tests/**" = ["ANN"]
 "**/test_*" = ["ANN"]
 "**/migrations/**" = ["ANN"]

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "9f2c41d7-6a83-4b1e-9c55-2d7e0a4f8b31",
+    "identifier": "ACM-231",
+    "number": 231,
+    "title": "Directory search has gotten really slow since the profiles launch",
+    "description": "Since we shipped owner profile cards on search results (1.4), directory search feels way slower. Support has had a handful of complaints this week and I can reproduce it: common queries like \"plumber\" or \"electrician\" take 2-3 seconds to return, and it used to be basically instant.\n\nTiming from the app logs: `GET /api/search?q=plumber` is ~2.4s server-side, so it's not a frontend rendering thing.\n\nMy guess is the in-memory index isn't cutting it anymore and we need to move listings into SQLite, or the ranking pass is doing something quadratic on the bigger candidate sets. Can someone take a look before the paid listings push next week?",
+    "priority": 2,
+    "priority_label": "High",
+    "url": "https://linear.app/acme/issue/ACM-231/directory-search-has-gotten-really-slow-since-the-profiles-launch",
+    "created_at": "2026-07-08T14:12:09.307Z",
+    "updated_at": "2026-07-09T09:41:22.118Z",
+    "state": "{\"name\": \"Todo\", \"type\": \"unstarted\"}",
+    "team": "{\"name\": \"Acme\"}",
+    "labels": "{\"nodes\": [{\"name\": \"Bug\"}, {\"name\": \"performance\"}]}"
+  }
+]

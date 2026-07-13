@@ -1,0 +1,50 @@
+{
+  "task_id": "checkout-coupon-case",
+  "title": "Lowercase coupon codes 500 at checkout",
+  "family": "logic",
+  "difficulty": "T1",
+  "repo_full_name": "acme/checkout-coupon-case",
+  "signal_type": "zendesk",
+  "product_summary": "Acme Store checkout service (Node/Express): carts, shipping quotes, coupon redemption, order placement",
+  "ground_truth": {
+    "root_cause": "getCoupon() in src/coupons.js only trims the code and never uppercases it, despite the marketing emails printing codes lowercase; the lookup misses and applyCoupon throws, surfacing as a 500 on POST /api/cart/:id/coupon.",
+    "culprit_files": ["src/coupons.js"],
+    "fix_contract": "Coupon codes must be accepted case-insensitively; applying 'save10' to an 8400-cent cart returns 7560. Unknown codes must still error cleanly (thrown Error / non-2xx), not silently apply.",
+    "expected_evidence": [
+      "$exception events with message 'Unknown coupon: save10' concentrated after the campaign send",
+      "coupon_applied events only for uppercase codes",
+      "funnel drop between coupon_attempted and checkout_completed starting with the campaign send"
+    ],
+    "distractors": [
+      "recent commit touching cart totals (innocent)",
+      "unrelated 404s on /api/cart/:id for expired carts"
+    ],
+    "immediately_actionable": true,
+    "priority": "P2"
+  },
+  "seed": {
+    "days": 3,
+    "streams": [
+      {
+        "kind": "funnel",
+        "events": ["checkout_started", "coupon_attempted", "checkout_completed"],
+        "daily": [220, 140, 96],
+        "drop_after": { "event": "coupon_attempted", "from_hours_ago": 30, "to_daily": 15 }
+      },
+      {
+        "kind": "exception",
+        "message": "Unknown coupon: save10",
+        "type": "Error",
+        "source": "src/coupons.js",
+        "daily": 0,
+        "burst": { "from_hours_ago": 30, "count": 180 }
+      },
+      {
+        "kind": "custom",
+        "event": "coupon_applied",
+        "properties": { "code": "SAVE10" },
+        "daily": 45
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+[project]
+name = "acme-reports"
+version = "0.9.1"
+description = "Acme Commerce daily summary reports"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+acme-reports = "acme_reports.cli:main"

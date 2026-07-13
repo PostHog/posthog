@@ -1,0 +1,48 @@
+{
+  "task_id": "webhooks-retry-storm",
+  "title": "429 responses trigger an unbounded tight retry loop in webhook delivery",
+  "family": "config",
+  "difficulty": "T2",
+  "repo_full_name": "acme/webhooks-retry-storm",
+  "signal_type": "zendesk",
+  "product_summary": "Acme webhook delivery service (Node/Express): subscribers register HTTPS endpoints and receive signed platform events",
+  "ground_truth": {
+    "root_cause": "dispatchWebhook() in src/dispatcher.js treats a 429 response as a free retry: it neither increments the attempt counter nor sleeps before redelivering, and the loop condition (attempt <= maxRetries || status === 429) keeps looping while the target throttles. Any endpoint that rate-limits gets hammered in a tight loop with unbounded redeliveries — customers see thousands of requests per minute and duplicate deliveries; maxRetries (including 0) is never honored under throttling.",
+    "culprit_files": ["src/dispatcher.js"],
+    "fix_contract": "Every delivery attempt counts against the maxRetries bound regardless of status code (429 included): one initial attempt plus at most maxRetries retries, and maxRetries=0 means exactly one attempt. Retries wait with exponential backoff (with jitter) between attempts instead of redelivering immediately. A target that returns 429 twice and then 200 receives exactly 3 deliveries with a backoff pause before each retry, so duplicate floods cease.",
+    "expected_evidence": [
+      "burst of webhook_delivery_attempt events with status=429 (thousands within minutes) while webhook_delivered stays flat",
+      "attempt-to-delivered ratio exploding for the affected endpoints, normal for endpoints that never return 429"
+    ],
+    "distractors": [
+      "the customer's endpoint or WAF being misconfigured (their rate limiting is the trigger, not the fault)",
+      "HMAC signature verification in src/signatures.js causing rejected deliveries"
+    ],
+    "immediately_actionable": true,
+    "priority": "P1"
+  },
+  "seed": {
+    "days": 3,
+    "streams": [
+      {
+        "kind": "custom",
+        "event": "webhook_delivery_attempt",
+        "properties": { "status": 200 },
+        "daily": 950
+      },
+      {
+        "kind": "custom",
+        "event": "webhook_delivery_attempt",
+        "properties": { "status": 429 },
+        "daily": 30,
+        "burst": { "from_hours_ago": 26, "count": 4200 }
+      },
+      {
+        "kind": "custom",
+        "event": "webhook_delivered",
+        "properties": {},
+        "daily": 940
+      }
+    ]
+  }
+}

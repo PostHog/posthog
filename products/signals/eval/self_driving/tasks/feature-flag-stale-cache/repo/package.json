@@ -1,0 +1,13 @@
+{
+  "name": "acme-config-service",
+  "version": "1.8.0",
+  "description": "Acme storefront config service: serves feature flag values to storefront clients",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "posthog-node": "^4.0.0"
+  }
+}

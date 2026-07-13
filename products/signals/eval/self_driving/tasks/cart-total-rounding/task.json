@@ -1,0 +1,54 @@
+{
+  "task_id": "cart-total-rounding",
+  "title": "Per-line rounding drifts multi-item cart totals by cents",
+  "family": "data-integrity",
+  "difficulty": "T3",
+  "repo_full_name": "acme/cart-total-rounding",
+  "signal_type": "zendesk",
+  "product_summary": "Acme billing service (Node/Express): cart pricing, invoicing, payment capture, PSP webhooks",
+  "ground_truth": {
+    "root_cause": "computeCartTotalCents() in src/totals.js converts each line item to dollars, applies tax per line, and rounds every line to two decimals with toFixed() before summing — accumulating per-line rounding error, so multi-item carts charge a few cents more or less than the documented subtotal-then-tax rule. The 2026-06 TAX_RATE change in src/config.js is correct and unrelated, despite the stale comment there blaming it for off-by-cents reports.",
+    "culprit_files": ["src/totals.js"],
+    "fix_contract": "Totals are computed in integer cents with sales tax applied once to the cart subtotal and a single rounding to the nearest cent at the end: ten 145-cent lines at 7.25% tax total 1555 cents (not 1560), seven 105-cent lines total 788 cents (not 791), and the mixed cart [2x89c, 3x105c, 1x145c] totals 684 cents (not 685). Zero-tax, empty, and single-line cart totals are unchanged.",
+    "expected_evidence": [
+      "payment_disputed events with reason=amount_mismatch concentrated on multi-item orders (item_count > 1)",
+      "order_priced totals for multi-item carts deviating from subtotal x 1.0725 by 1-5 cents while single-item carts match exactly",
+      "discrepancies predate and postdate the June tax-rate change identically once carts are split by item count"
+    ],
+    "distractors": [
+      "the 2026-06 TAX_RATE bump in src/config.js — the value is correct, and a stale comment there blames it for off-by-cents reports",
+      "PSP-side fees or currency conversion on the payment provider"
+    ],
+    "immediately_actionable": true,
+    "priority": "P2"
+  },
+  "seed": {
+    "days": 7,
+    "streams": [
+      {
+        "kind": "custom",
+        "event": "order_priced",
+        "properties": { "item_count": 1 },
+        "daily": 240
+      },
+      {
+        "kind": "custom",
+        "event": "order_priced",
+        "properties": { "item_count": 6 },
+        "daily": 130
+      },
+      {
+        "kind": "custom",
+        "event": "payment_captured",
+        "properties": {},
+        "daily": 350
+      },
+      {
+        "kind": "custom",
+        "event": "payment_disputed",
+        "properties": { "reason": "amount_mismatch", "item_count": 8 },
+        "daily": 7
+      }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+[
+  { "id": "sub-01", "userId": "u-ana", "email": "ana@driftwoodlabs.example", "active": true, "lastSentPeriod": null },
+  { "id": "sub-02", "userId": "u-ben", "email": "ben@driftwoodlabs.example", "active": true, "lastSentPeriod": null },
+  { "id": "sub-03", "userId": "u-ana", "email": "ANA@driftwoodlabs.example", "active": true, "lastSentPeriod": null },
+  { "id": "sub-04", "userId": "u-kai", "email": "kai@northpine.example", "active": true, "lastSentPeriod": null },
+  { "id": "sub-05", "userId": "u-mel", "email": "mel@northpine.example", "active": false, "lastSentPeriod": null }
+]

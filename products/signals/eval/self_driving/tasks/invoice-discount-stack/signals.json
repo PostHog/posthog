@@ -1,0 +1,24 @@
+[
+  {
+    "id": "32105",
+    "subject": "Got the smaller of my two discounts on this month's invoice",
+    "description": "I have two active codes on my account, SAVE10 and FLAT5. This month's order came to $120.00 and the invoice only took $5.00 off. Your pricing page says the best discount is applied automatically, and 10% of $120 is obviously more than $5.\n\nAlso, not sure if it's related, but the amounts on my last couple of invoices look formatted differently than before - did you change how totals are displayed? Maybe something went sideways in that change.\n\nCan you refund the difference and check my account?",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/32105.json",
+    "type": "problem",
+    "tags": "[\"billing\",\"discounts\",\"plan_scale\",\"refund_requested\"]",
+    "created_at": "2026-07-09T18:33:54+00:00",
+    "priority": "high",
+    "status": "open"
+  },
+  {
+    "id": "32158",
+    "subject": "Wrong coupon used at checkout",
+    "description": "I signed up last week and got WELCOME15. My first order was $80 but I was charged $72, which looks like the old SAVE10 code my account also has was used instead of the 15% one. Expected $68.\n\nSmall amount but I'd like the credit, and you might want to check whether this is happening to other new customers too.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/32158.json",
+    "type": "problem",
+    "tags": "[\"billing\",\"discounts\",\"new_customer\"]",
+    "created_at": "2026-07-10T09:12:31+00:00",
+    "priority": "normal",
+    "status": "new"
+  }
+]

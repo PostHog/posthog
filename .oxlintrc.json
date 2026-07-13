@@ -6,6 +6,7 @@
     },
     "ignorePatterns": [
         "node_modules",
+        "products/signals/eval/self_driving/tasks/**",
         "dist",
         "build",
         "rust",

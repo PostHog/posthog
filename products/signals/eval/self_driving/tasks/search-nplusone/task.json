@@ -1,0 +1,41 @@
+{
+  "task_id": "search-nplusone",
+  "title": "Directory search slow since profiles launch (N+1 owner lookups)",
+  "family": "perf",
+  "difficulty": "T2",
+  "repo_full_name": "acme/search-nplusone",
+  "signal_type": "linear",
+  "product_summary": "Acme Directory - local-services search (Node/Express, in-memory data layer)",
+  "ground_truth": {
+    "root_cause": "searchDirectory() in src/search.js fetches each ranked result's owner profile one call at a time via store.getProfile() inside a loop (N+1 against the store's per-call round-trip latency) instead of using the store's existing getProfilesByIds() batch API; with the default 50-result page that is ~50 sequential round trips at ~40ms each, putting GET /api/search well over 2 seconds.",
+    "culprit_files": ["src/search.js"],
+    "fix_contract": "Search must attach owner profiles using a bounded number of store calls regardless of result count (a single getProfilesByIds batch or equivalent): searching a store that returns 50 ranked listings completes with at most 3 store calls total, while still returning every result with its correct owner attached (and null owner when the profile is missing).",
+    "expected_evidence": [
+      "directory_search events with duration_ms around 2.5s starting ~4 days ago when the profiles feature shipped, where search was previously fast",
+      "the directory_search -> listing_opened -> contact_requested funnel degrading after the slowdown began (users abandoning slow searches)"
+    ],
+    "distractors": [
+      "the ranking pass in src/rank.js (linear scoring over a small candidate set, not the bottleneck)",
+      "the in-memory index / dataset size blamed in the Linear issue (store latency is per-call, not per-row; swapping the store for SQLite would not remove the N+1)"
+    ],
+    "immediately_actionable": true,
+    "priority": "P2"
+  },
+  "seed": {
+    "days": 7,
+    "streams": [
+      {
+        "kind": "funnel",
+        "events": ["directory_search", "listing_opened", "contact_requested"],
+        "daily": [900, 320, 80],
+        "drop_after": { "event": "directory_search", "from_hours_ago": 96, "to_daily": 150 }
+      },
+      {
+        "kind": "custom",
+        "event": "directory_search",
+        "properties": { "duration_ms": 2650, "result_count": 50 },
+        "daily": 260
+      }
+    ]
+  }
+}

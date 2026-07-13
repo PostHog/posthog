@@ -80,6 +80,7 @@
         }
     ],
     "ignorePatterns": [
+        "products/signals/eval/self_driving/tasks/**",
         "venv",
         "env",
         ".venv",

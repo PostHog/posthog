@@ -1,0 +1,35 @@
+[
+  {
+    "id": "73310",
+    "subject": "Charged more than my order total - happened on two separate orders",
+    "description": "There is something wrong with your billing math. On my last two orders the amount charged to my card was a few cents higher than what the cart showed before I paid. Not a huge amount (5 cents on one order, 3 on the other) but it's consistently in your favor and it makes me not trust the checkout at all. Both orders had a bunch of small items in them. I want the difference refunded and honestly an explanation, because if this is happening to everyone that's a lot of nickels.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/73310.json",
+    "type": "problem",
+    "tags": "[\"billing\",\"overcharge\",\"checkout\",\"end-customer\"]",
+    "created_at": "2026-07-08T20:15:44+00:00",
+    "priority": "normal",
+    "status": "open"
+  },
+  {
+    "id": "73402",
+    "subject": "Escalation: uptick in penny-discrepancy disputes - probably the June tax rate change?",
+    "description": "Escalating a pattern: we're seeing a steady stream of chargebacks and disputes for tiny amounts (2-6 cents) where the customer claims the charged amount doesn't match their order summary. It picked up noticeably in June, which lines up with the sales tax rate change that shipped on June 2 - my guess is the new 7.25% rate is being applied wrong somewhere, can engineering double-check that change? Finance is annoyed because every dispute costs us a $15 processing fee regardless of the amount, so this is way more expensive than the pennies involved.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/73402.json",
+    "type": "incident",
+    "tags": "[\"escalated\",\"billing\",\"disputes\",\"tax\",\"cx-escalation\"]",
+    "created_at": "2026-07-09T13:52:18+00:00",
+    "priority": "high",
+    "status": "open"
+  },
+  {
+    "id": "73455",
+    "subject": "Order math doesn't add up: 10 x $1.45 charged as $15.60",
+    "description": "I ordered 10 of the small travel candles at $1.45 each. Subtotal $14.50, and with your 7.25% tax that should be $15.55 (I did the math twice, it's 15.551 so 15.55). My card was charged $15.60. Where did the extra 5 cents come from? My partner ordered a single large candle the same day and her charge matched the receipt exactly, so it seems related to ordering multiple items. Please fix and refund the difference.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/73455.json",
+    "type": "problem",
+    "tags": "[\"billing\",\"overcharge\",\"tax\",\"end-customer\"]",
+    "created_at": "2026-07-10T15:40:09+00:00",
+    "priority": "normal",
+    "status": "open"
+  }
+]
