@@ -104,7 +104,7 @@ WebAnalyticsDashboardLoading.parameters = {
     viewMode: 'story',
     mockDate: '2023-02-01',
     pageUrl: urls.webAnalytics(),
-    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2, FEATURE_FLAGS.WEB_ANALYTICS_TILE_SKELETONS],
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
     testOptions: {
         includeNavigationInSnapshot: true,
         waitForLoadersToDisappear: false,

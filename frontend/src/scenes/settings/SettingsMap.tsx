@@ -34,7 +34,6 @@ import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
-import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
 
 import {
@@ -93,7 +92,6 @@ import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
-import { JsSnippetVersionPin } from './environment/JsSnippetVersionPin'
 import {
     LogsCaptureSettings,
     LogsJsonParseSettings,
@@ -233,21 +231,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'google tag manager',
                     'gtm',
                 ],
-            },
-            {
-                id: 'js-snippet-version',
-                title: (
-                    <>
-                        Snippet version{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Experimental
-                        </LemonTag>
-                    </>
-                ),
-                description: 'Pin the snippet to a specific version of posthog-js. Defaults to the latest v1 release.',
-                flag: ['JS_SNIPPET_VERSIONING'],
-                component: <JsSnippetVersionPin />,
-                keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js'],
             },
         ],
     },
@@ -1240,15 +1223,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
                 keywords: ['bounce', 'pageview', 'url', 'calculation'],
-            },
-            {
-                id: 'session-join-mode',
-                title: 'Session join mode',
-                description:
-                    "Choose which join mode to use for sessions. Don't change this unless you know what you're doing.",
-                component: <SessionsV2JoinModeSettings />,
-                flag: 'SETTINGS_SESSIONS_V2_JOIN',
-                keywords: ['session', 'join', 'string', 'uuid'],
             },
             {
                 id: 'web-analytics-pre-aggregated-tables',

@@ -75,7 +75,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     const { featureFlags } = useValues(featureFlagLogic)
     const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
-    const emptyOnboardingContent = getEmptyOnboardingContent(featureFlags, currentTeamLoading, currentTeam, productTab)
+    const emptyOnboardingContent = getEmptyOnboardingContent(currentTeamLoading, currentTeam, productTab)
 
     return (
         <div
@@ -899,15 +899,10 @@ const WebVitalsEmptyState = (): JSX.Element => {
 }
 
 const getEmptyOnboardingContent = (
-    featureFlags: FeatureFlagsSet,
     currentTeamLoading: boolean,
     currentTeam: TeamType | TeamPublicType | null,
     productTab: ProductTab
 ): JSX.Element | null => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]) {
-        return null
-    }
-
     if (currentTeamLoading && !currentTeam) {
         return <LemonSkeleton className="col-span-full w-full" />
     }

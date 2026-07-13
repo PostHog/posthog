@@ -222,7 +222,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: #team-analytics-platform
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: #team-analytics-platform
-    SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     SLACK_APP_OAUTH: 'slack-app-oauth', // owner: @VojtechBartos #team-platform-features
     SLOPE_GRAPH_INSIGHT: 'slope-graph-insight', // owner: @pauldambra #team-product-analytics
@@ -337,7 +336,6 @@ export const FEATURE_FLAGS = {
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
     INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
-    JS_SNIPPET_VERSIONING: 'js-snippet-versioning', // owner: #team-client-libraries
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
     LIVE_EVENTS_RICH_FILTERS: 'live-events-rich-filters', // owner: @jordanm-posthog #team-web-analytics
@@ -511,10 +509,8 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_BOT_ANALYSIS: 'web-analytics-bot-analysis', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_DRAG_TO_ZOOM: 'web-analytics-drag-to-zoom', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_FILTERS_V2: 'web-analytics-filters-v2', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_FOCUS_MODE: 'web-analytics-focus-mode', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_INCLUDE_HOST: 'web-analytics-include-host', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_LIVE_CITY_BREAKDOWN: 'web-analytics-live-city-breakdown', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_MAP: 'web-analytics-live-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_PERSON_DRILLDOWN: 'web-analytics-live-person-drilldown', // owner: @jordanm-posthog #team-web-analytics
@@ -528,7 +524,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_SHARE_NUDGE_V2: 'web-analytics-share-nudge-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,control_b,banner,export
     WEB_ANALYTICS_STREAK_CADENCE: 'web-analytics-streak-cadence', // owner: @jordanm-posthog #team-web-analytics multivariate=control,hybrid,daily-only,weekly-only
     WEB_ANALYTICS_TILE_HEADER_V2: 'web-analytics-tile-header-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,test
-    WEB_ANALYTICS_TILE_SKELETONS: 'web-analytics-tile-skeletons', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
