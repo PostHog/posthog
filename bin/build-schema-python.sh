@@ -25,3 +25,6 @@ python3 bin/patch-schema-defer-build.py
 # Format and lint
 ruff format posthog/schema.py posthog/schema_enums.py
 ruff check --fix posthog/schema.py posthog/schema_enums.py
+
+# Fail codegen loudly if any model can't build, rather than deferring the crash to boot
+python3 -c "from posthog.schema_build import build_all_schema_models; build_all_schema_models()"

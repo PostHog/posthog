@@ -184,7 +184,7 @@ class RootModel(_DeferredBuildGuards, _PydanticRootModel[_RootT], Generic[_RootT
 def main() -> None:
     source = SCHEMA_PATH.read_text()
 
-    if "defer_build=True" in source:
+    if "class _DeferredBuildGuards:" in source:
         print("posthog/schema.py already patched for defer_build; nothing to do")
         return
 
