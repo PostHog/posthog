@@ -13,7 +13,7 @@ from parameterized import parameterized
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -81,6 +81,37 @@ class TestMaterializedColumnDetails(TestCase):
 
         with pytest.raises(ValueError):
             MaterializedColumnDetails.from_column_comment("column_materializer::column::property::enabled")
+
+
+class TestGetMaterializedColumnForProperty(TestCase):
+    @parameterized.expand(
+        [
+            # (physical column names on the table, whether the mat column should be returned)
+            ("present", frozenset({"mat_flowId", "properties"}), True),
+            ("absent", frozenset({"properties"}), False),
+            ("unconfirmed", None, True),
+        ]
+    )
+    def test_falls_back_when_column_not_physically_present(self, _name, physical_columns, expect_column):
+        column = MaterializedColumn(
+            name="mat_flowId",
+            details=MaterializedColumnDetails("properties", "flowId", is_disabled=False),
+            is_nullable=False,
+        )
+        with (
+            patch("posthog.clickhouse.materialized_columns.get_instance_setting", return_value=True),
+            patch(
+                "posthog.clickhouse.materialized_columns.get_enabled_materialized_columns",
+                return_value={("flowId", "properties"): column},
+            ),
+            patch(
+                "posthog.clickhouse.materialized_columns.get_physical_column_names",
+                return_value=physical_columns,
+            ),
+        ):
+            resolved = get_materialized_column_for_property("events", "properties", "flowId")
+
+        assert resolved is (column if expect_column else None)
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):

@@ -678,6 +678,13 @@ MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CAC
 # hundreds of times per suite, and the test cache backend is process-local (LocMem) with all column
 # mutations invalidating the key (see ee/clickhouse/materialized_columns/columns.py).
 MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", TEST, type_cast=str_to_bool)
+# Short, independent TTL for the fail-safe check that confirms a materialized column physically exists
+# before HogQL rewrites a property to it. Kept well below MATERIALIZED_COLUMNS_CACHE_TIMEOUT so a stale
+# materialized-columns snapshot (dropped column, in-flight materialization) can't linger here too and
+# poison query generation with an identifier ClickHouse can't resolve.
+MATERIALIZED_COLUMNS_EXISTENCE_CACHE_TIMEOUT: int = get_from_env(
+    "MATERIALIZED_COLUMNS_EXISTENCE_CACHE_TIMEOUT", 60, type_cast=int
+)
 
 # Limiting event_list API, saving ClickHouse, 0 - disabled, 1 - migration period, 2 - enabled.
 PATCH_EVENT_LIST_MAX_OFFSET: int = get_from_env("PATCH_EVENT_LIST_MAX_OFFSET", 0, type_cast=int)
