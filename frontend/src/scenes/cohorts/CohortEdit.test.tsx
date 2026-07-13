@@ -496,7 +496,7 @@ describe('cohortEditLogic', () => {
             cleanup()
         })
 
-        it('renders locked controls as read-only text with a visible explanation, not a dead-click dropdown', async () => {
+        it('renders locked controls as a plain-language sentence, not a dead-click dropdown', async () => {
             const cohortId = 10
 
             useMocks({
@@ -516,12 +516,17 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} />)
 
-            // The explanations are always visible (previously only surfaced in a disabled-dropdown hover tooltip)
+            // The value and the reason it's locked are always visible in one sentence
+            // (previously only surfaced in a disabled-dropdown hover tooltip)
             expect(
-                await screen.findByText('Create a new cohort to use a different type of cohort.')
+                await screen.findByText(
+                    'This is a static cohort (updated manually). Create a new cohort to use a different type of cohort.'
+                )
             ).toBeInTheDocument()
             expect(
-                screen.getByText('Create a new cohort to change how a static cohort is populated.')
+                screen.getByText(
+                    'This cohort was populated via Criteria · One-time snapshot. Create a new cohort to change how a static cohort is populated.'
+                )
             ).toBeInTheDocument()
 
             // The locked controls are read-only text, not interactive select buttons (the dead click):

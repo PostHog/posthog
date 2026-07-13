@@ -58,25 +58,6 @@ const POPULATE_FROM_OPTIONS: { label: string; value: StaticCohortMode }[] = [
     { label: 'Upload or add people', value: 'people' },
 ]
 
-/** A read-only rendering of a locked field: the current value plus a clearly-visible explanation
- * of why it can't be changed. Used in place of a disabled dropdown, which reads as a dead click. */
-function LockedFieldValue({
-    label,
-    explanation,
-    dataAttr,
-}: {
-    label: string
-    explanation: string
-    dataAttr?: string
-}): JSX.Element {
-    return (
-        <div className="flex flex-col gap-y-1" data-attr={dataAttr}>
-            <span className="font-medium">{label}</span>
-            <span className="text-secondary text-xs max-w-prose">{explanation}</span>
-        </div>
-    )
-}
-
 function UsedInBanner({ usedIn }: { usedIn: CohortUsedInResponseApi }): JSX.Element | null {
     const sections = [
         {
@@ -426,15 +407,15 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 )}
                                             </LemonField>
                                         ) : (
-                                            <LockedFieldValue
-                                                label={
-                                                    cohort.is_static
-                                                        ? 'Static · Updated manually'
-                                                        : 'Dynamic · Updates automatically'
-                                                }
-                                                explanation="Create a new cohort to use a different type of cohort."
-                                                dataAttr="cohort-type"
-                                            />
+                                            <p
+                                                className="text-sm text-secondary my-0 max-w-prose"
+                                                data-attr="cohort-type"
+                                            >
+                                                This is a{' '}
+                                                <strong>{cohort.is_static ? 'static' : 'dynamic'}</strong> cohort
+                                                ({cohort.is_static ? 'updated manually' : 'updates automatically'}).
+                                                Create a new cohort to use a different type of cohort.
+                                            </p>
                                         )}
 
                                         {cohort.is_static && (
@@ -454,15 +435,21 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                         data-attr="static-cohort-mode"
                                                     />
                                                 ) : (
-                                                    <LockedFieldValue
-                                                        label={
-                                                            POPULATE_FROM_OPTIONS.find(
-                                                                (option) => option.value === staticCohortMode
-                                                            )?.label ?? ''
-                                                        }
-                                                        explanation="Create a new cohort to change how a static cohort is populated."
-                                                        dataAttr="static-cohort-mode"
-                                                    />
+                                                    <p
+                                                        className="text-sm text-secondary my-0 max-w-prose"
+                                                        data-attr="static-cohort-mode"
+                                                    >
+                                                        This cohort was populated via{' '}
+                                                        <strong>
+                                                            {
+                                                                POPULATE_FROM_OPTIONS.find(
+                                                                    (option) => option.value === staticCohortMode
+                                                                )?.label
+                                                            }
+                                                        </strong>
+                                                        . Create a new cohort to change how a static cohort is
+                                                        populated.
+                                                    </p>
                                                 )}
                                             </div>
                                         )}
