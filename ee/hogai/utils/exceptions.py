@@ -1,3 +1,5 @@
+from django.db import InterfaceError, OperationalError
+
 import httpx
 import openai
 import anthropic
@@ -25,6 +27,11 @@ LLM_TRANSIENT_EXCEPTIONS = (
 # on a separate counter to avoid false "LLM Provider Errors" alerts.
 HTTPX_TRANSPORT_EXCEPTIONS = (httpx.ReadError, httpx.ConnectError)
 
+# Transient database connection errors (e.g. a checkpoint save failing to open a
+# connection when the Postgres host briefly fails to resolve). These self-recover
+# on the next request, so we degrade gracefully instead of crashing the stream.
+DB_TRANSIENT_EXCEPTIONS = (OperationalError, InterfaceError)
+
 # Client/validation errors that won't resolve on retry (400, 422, etc.)
 LLM_CLIENT_EXCEPTIONS = (
     # Anthropic client errors
@@ -50,6 +57,12 @@ LLM_CLIENT_ERROR_COUNTER = Counter(
 LLM_TRANSPORT_ERROR_COUNTER = Counter(
     "posthog_ai_llm_transport_errors_total",
     "Total number of httpx transport errors during LLM streaming",
+    ["error_type"],
+)
+
+DB_TRANSIENT_ERROR_COUNTER = Counter(
+    "posthog_ai_db_transient_errors_total",
+    "Total number of transient database connection errors during an agent run",
     ["error_type"],
 )
 

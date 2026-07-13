@@ -49,6 +49,8 @@ from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest
 from ee.hogai.utils.exceptions import (
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
+    DB_TRANSIENT_ERROR_COUNTER,
+    DB_TRANSIENT_EXCEPTIONS,
     HTTPX_TRANSPORT_EXCEPTIONS,
     LLM_API_EXCEPTIONS,
     LLM_CLIENT_ERROR_COUNTER,
@@ -419,6 +421,35 @@ class BaseAgentRunner(ABC):
                     ),
                 )
                 return  # Don't run interrupt handling after LLM errors
+            except DB_TRANSIENT_EXCEPTIONS as e:
+                # Transient DB connection errors (e.g. a checkpoint save that can't open a
+                # connection during a brief Postgres DNS/infra blip). These self-recover on
+                # the next request, so degrade gracefully instead of crashing the stream.
+                if self._use_checkpointer:
+                    try:
+                        await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                    except DB_TRANSIENT_EXCEPTIONS:
+                        # The DB may still be unavailable; don't let the reset re-crash the stream.
+                        pass
+                error_type = type(e).__name__
+                DB_TRANSIENT_ERROR_COUNTER.labels(error_type=error_type).inc()
+                logger.exception("db_transient_error", error=str(e), error_type=error_type)
+                posthoganalytics.capture_exception(
+                    e,
+                    distinct_id=self._user.distinct_id if self._user else None,
+                    properties={
+                        "error_type": "db_transient_error",
+                        "tag": "max_ai",
+                    },
+                )
+                yield (
+                    AssistantEventType.MESSAGE,
+                    FailureMessage(
+                        content="I'm unable to respond right now due to a temporary service issue. Please try again later.",
+                        id=str(uuid4()),
+                    ),
+                )
+                return  # Don't run interrupt handling after DB errors
             except Exception as e:
                 if self._use_checkpointer:
                     # Reset the state, so that the next generation starts from the beginning.

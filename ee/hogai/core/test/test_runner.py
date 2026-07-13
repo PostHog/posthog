@@ -5,6 +5,8 @@ from typing import cast
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import InterfaceError, OperationalError
+
 import httpx
 import openai
 import anthropic
@@ -301,6 +303,86 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             capture_call_args = mock_posthog.capture_exception.call_args
             self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_transport_error")
             self.assertNotIn("provider", capture_call_args[1]["properties"])
+
+    @parameterized.expand(
+        [
+            (
+                "operational_error",
+                OperationalError("[Errno -2] Name or service not known"),
+                "OperationalError",
+            ),
+            (
+                "interface_error",
+                InterfaceError("connection already closed"),
+                "InterfaceError",
+            ),
+        ]
+    )
+    async def test_db_transient_errors_yield_failure_message_instead_of_crashing(
+        self, _name, exception, expected_error_type
+    ):
+        """A transient DB error (e.g. a checkpoint save that can't open a connection) degrades
+        gracefully to a FailureMessage instead of propagating uncaught and killing the stream."""
+        runner, mock_graph = self._create_mock_runner(exception)
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.DB_TRANSIENT_ERROR_COUNTER") as mock_counter,
+            patch("ee.hogai.core.runner.posthoganalytics") as mock_posthog,
+            patch("ee.hogai.core.runner.logger") as mock_logger,
+        ):
+            results = []
+            async for event_type, message in runner.astream(
+                stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+            ):
+                results.append((event_type, message))
+
+            self.assertEqual(len(results), 1)
+            event_type, message = results[0]
+            self.assertEqual(event_type, AssistantEventType.MESSAGE)
+            self.assertIsInstance(message, FailureMessage)
+            self.assertEqual(
+                message.content,
+                "I'm unable to respond right now due to a temporary service issue. Please try again later.",
+            )
+
+            # State was reset so the next generation starts fresh
+            mock_graph.aupdate_state.assert_called()
+
+            mock_counter.labels.assert_called_with(error_type=expected_error_type)
+            mock_counter.labels.return_value.inc.assert_called_once()
+
+            mock_logger.exception.assert_called_once()
+            self.assertEqual(mock_logger.exception.call_args[0][0], "db_transient_error")
+
+            mock_posthog.capture_exception.assert_called_once()
+            self.assertEqual(
+                mock_posthog.capture_exception.call_args[1]["properties"]["error_type"], "db_transient_error"
+            )
+
+    async def test_db_transient_error_during_state_reset_still_yields_failure_message(self):
+        """If the DB is still unavailable when we try to reset state, the reset failure must not
+        re-crash the stream — the user still gets a FailureMessage."""
+        runner, mock_graph = self._create_mock_runner(OperationalError("[Errno -2] Name or service not known"))
+        mock_graph.aupdate_state = AsyncMock(side_effect=OperationalError("[Errno -2] Name or service not known"))
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.DB_TRANSIENT_ERROR_COUNTER"),
+            patch("ee.hogai.core.runner.posthoganalytics"),
+            patch("ee.hogai.core.runner.logger"),
+        ):
+            results = []
+            async for event_type, message in runner.astream(
+                stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+            ):
+                results.append((event_type, message))
+
+            self.assertEqual(len(results), 1)
+            _, message = results[0]
+            self.assertIsInstance(message, FailureMessage)
 
     @parameterized.expand(
         [
