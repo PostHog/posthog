@@ -35,7 +35,7 @@ import subprocess
 import urllib.request
 from urllib.parse import urlsplit
 
-from hogland import AccessType, AuthenticationError, BoxSpec, ConflictError, Hogland, NotFoundError
+from hogland import AccessType, AuthenticationError, BoxSpec, ConflictError, Hogland, NotFoundError, ServerError
 
 from . import timing
 from .backend import ExecResult, PreviewBackend
@@ -45,6 +45,13 @@ from .backend import ExecResult, PreviewBackend
 # together in-box; _WRITE_CHUNK keeps headroom under the hard cap.
 _WRITE_FILE_CAP = 64 * 1024 * 1024
 _WRITE_CHUNK = 48 * 1024 * 1024
+
+# Placement is best-effort server-side: a hogd node can die mid-restore (an OOM,
+# a drain) and hogland surfaces it as a 5xx (e.g. `placement failed: ... EOF`).
+# The next attempt lands on a healthy node, so retry create/restore on transient
+# 5xx only — never on a 4xx, which is a real client error that a retry won't fix.
+_CREATE_5XX_ATTEMPTS = 3
+_CREATE_5XX_BACKOFF_SECONDS = (5, 15)  # slept BEFORE attempts 2 and 3
 
 
 def _ephemeral_ssh_pubkey() -> str:
@@ -171,18 +178,54 @@ class HoglandBackend(PreviewBackend):
             "web_port": self.web_port,
         }
 
+    def _create(self):
+        """Create/restore the box, retrying transient 5xx ServerErrors only.
+
+        Placement can fail on a node death mid-restore (OOM / drain) and comes
+        back as a 5xx; a retry seconds later lands on a healthy node. A 4xx is a
+        real client error (bad spec, name conflict) that a retry won't fix, so it
+        propagates immediately — ConflictError in particular flows up to
+        _restore_fresh's own reap-and-retry loop untouched. That keeps the two
+        retry mechanisms from multiplying: a persistent 5xx exhausts these few
+        attempts and raises (breaking the ConflictError loop, which never catches
+        ServerError), and a ConflictError never triggers this backoff."""
+        for attempt in range(_CREATE_5XX_ATTEMPTS):
+            try:
+                return self._client.create(**self._create_kwargs())
+            except ServerError:
+                if attempt == _CREATE_5XX_ATTEMPTS - 1:
+                    raise  # out of retries — surface the 5xx
+                time.sleep(_CREATE_5XX_BACKOFF_SECONDS[attempt])
+        # Unreachable: the loop either returns or raises on the last attempt.
+        raise RuntimeError("unreachable")
+
     def _restore_fresh(self):
         """Restore the golden into a new box. If our name is already taken, a
         prior run left a box behind — teardown only fires on PR *close*, so a
         failed/cancelled run leaks its box. Replace it so each run is idempotent
         (retry the create while the freed name propagates)."""
         try:
-            return self._client.create(**self._create_kwargs())
+            return self._create()
         except ConflictError:
             try:
                 stale = self._resolve_box()
                 if stale is not None:
                     stale.delete()
+                    # Close the delete-then-repoint window: stale.delete() just
+                    # destroyed the box the pen still points at, but the pen is
+                    # only repointed at the NEW box much later in provision()
+                    # (after exec-ready). If the run dies in between, the pen
+                    # dangles at a deleted box. Clear the pointer now, best-effort
+                    # — the pen may not exist on a first-ever run (NotFoundError),
+                    # and hogland's reconciler sweep heals a dangling pointer
+                    # within ~30s regardless, so a failure here must not fail the
+                    # run (PostHog/hogland#373).
+                    try:
+                        self._client.update_pen(self.name, current_box_id="")
+                    except NotFoundError:
+                        pass  # no pen yet (first-ever run) — nothing to dangle
+                    except Exception as e:  # noqa: BLE001 — the server sweep is the backstop
+                        timing.stage(f"warn: couldn't clear pen pointer after stale delete: {e}")
             except NotFoundError:
                 # TTL cleanup or a racing teardown already removed it — the
                 # name is free either way, so fall through to the retry loop.
@@ -191,10 +234,10 @@ class HoglandBackend(PreviewBackend):
         # guard so a lingering ConflictError surfaces instead of being swallowed.
         for _ in range(10):
             try:
-                return self._client.create(**self._create_kwargs())
+                return self._create()
             except ConflictError:
                 time.sleep(3)
-        return self._client.create(**self._create_kwargs())
+        return self._create()
 
     def attach(self) -> None:
         """Bind to the EXISTING preview box for this pen/name without restoring —
@@ -292,6 +335,13 @@ class HoglandBackend(PreviewBackend):
     @property
     def box_id(self) -> str | None:
         return self._box_id
+
+    @property
+    def pen_id(self) -> str | None:
+        # The pen's stable id (e.g. pen-aa47b706211f) once the pen is ensured.
+        # Used to build the hogland admin/console link for the preview. Mirrors
+        # web_url's guard so an ensured-but-idless pen returns None, never "".
+        return self._pen.id if (self._pen is not None and self._pen.id) else None
 
     def destroy(self) -> None:
         # PR-close teardown: drop the live box, then release the stable identity.

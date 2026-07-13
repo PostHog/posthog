@@ -46,7 +46,7 @@ catalog:
     '@posthog/icons': ^0.37.4
     '@posthog/brand': 0.6.0
     '@posthog/react': ^1.9.0
-    posthog-js: ^1.399.1
+    posthog-js: ^1.399.2
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
@@ -96,8 +96,15 @@ minimumReleaseAgeExclude:
     - bloommx@1.0.3
     - '@shadcn/react'
     - mermaid@11.15.0
-    - '@mermaid-js/*'
     - kea-typegen
+    - '@typescript/native-preview'
+    - '@typescript/native-preview-darwin-arm64'
+    - '@typescript/native-preview-darwin-x64'
+    - '@typescript/native-preview-linux-arm'
+    - '@typescript/native-preview-linux-arm64'
+    - '@typescript/native-preview-linux-x64'
+    - '@typescript/native-preview-win32-arm64'
+    - '@typescript/native-preview-win32-x64'
     - shiki
     - shadcn
     - '@shikijs/*'

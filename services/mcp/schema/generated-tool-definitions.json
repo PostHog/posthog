@@ -1,4 +1,79 @@
 {
+    "account-relationship-definitions-create": {
+        "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create account relationship definition",
+        "title": "Create account relationship definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "account-relationship-definitions-destroy": {
+        "description": "Permanently delete a Customer Analytics account relationship definition by id. This also deletes every assignment of the relationship — active and historical — across all accounts. To stop a single account's assignment instead, use `accounts-relationships-end-create`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete account relationship definition",
+        "title": "Delete account relationship definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "account-relationship-definitions-list": {
+        "description": "List Customer Analytics account relationship definitions for the project. A definition is a team-defined relationship type between a PostHog user and an account (e.g. CSM, Onboarding manager) with a `name`, optional `description`, and `is_single_holder` flag (whether only one user can hold it per account at a time). Definitions are team-scoped and shared across all accounts; the users assigned to a specific account are managed via the account relationship tools. To query definitions in bulk, HogQL `system.account_relationship_definitions` covers the same data.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account relationship definitions",
+        "title": "List account relationship definitions",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "account-relationship-definitions-partial-update": {
+        "description": "Update fields on an existing Customer Analytics account relationship definition. Accepts a subset of fields; unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the team), `description`, and `is_single_holder`. Changing `is_single_holder` does not end existing assignments; it only affects future assigns.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update account relationship definition",
+        "title": "Update account relationship definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "account-relationship-definitions-retrieve": {
+        "description": "Fetch a single Customer Analytics account relationship definition by id. Returns its `name`, optional `description`, and `is_single_holder` flag. A definition is a team-defined relationship type between a PostHog user and an account; the users holding it on a specific account are managed via the account relationship tools.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get account relationship definition",
+        "title": "Get account relationship definition",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "accounts-create": {
         "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account.",
         "category": "Customer analytics",
@@ -146,6 +221,51 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-relationships-create": {
+        "description": "Assign a PostHog user to a relationship on a Customer Analytics account. Pass `definition` (the relationship definition UUID — list or create with the account relationship definition tools) and `user` (the numeric PostHog user id, which must be a member of the account's organization; resolve an email to an id via `org-members-list`). If the user already actively holds the relationship on this account, the existing assignment is returned unchanged. For single-holder definitions, assigning a new user automatically ends the current holder's assignment.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Assign account relationship",
+        "title": "Assign account relationship",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-relationships-end-create": {
+        "description": "End an active relationship assignment on a Customer Analytics account by the assignment `id` (from `accounts-relationships-list`). The assignment is closed by setting `ended_at`, not deleted — it remains visible in the account's history via `accounts-relationships-list` with `include_history`. Returns 404 if the assignment does not exist or has already ended.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "End account relationship",
+        "title": "End account relationship",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-relationships-list": {
+        "description": "List the relationship assignments of a single Customer Analytics account — which PostHog users hold which relationship (CSM, Onboarding manager, ...) on it. Each result includes the assignment `id`, the relationship `definition`, the assigned `user` ({id, email}; null when the user was deleted), `started_at`, and `ended_at` (null while active). By default only active assignments are returned; pass `include_history: true` for the full timeline including ended ones. To query assignments across all accounts in bulk, HogQL `system.account_relationships` covers the same data.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account relationships",
+        "title": "List account relationships",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "customer-analytics-csp"
     },

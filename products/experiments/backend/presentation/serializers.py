@@ -1234,18 +1234,6 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         required=False,
         help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
     )
-    # Live ClickHouse progress, present only on the GET poll path while the run is in_progress (in-flight
-    # queries from system.processes plus queries finished during the run from system.query_log, matched by
-    # query_id prefix; see get_live_query_progress). build_job_payload omits these keys entirely for terminal
-    # or just-created runs, so they are genuinely optional in the response — NOT read_only=True, which
-    # drf-spectacular would force into the schema's `required` list (making the generated TypeScript
-    # `number | null` instead of the honest `number | null | undefined`). The serializer is output-only
-    # (never .is_valid()), so omitting read_only costs no input-validation safety.
-    running_metrics = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)",
-    )
     rows_read = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -1261,19 +1249,6 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
             "ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. "
             "A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the "
             "reliable signal"
-        ),
-    )
-    bytes_read = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Bytes read by the run's metric queries so far, both finished and currently running",
-    )
-    active_cpu_time = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and "
-            "currently running"
         ),
     )
 

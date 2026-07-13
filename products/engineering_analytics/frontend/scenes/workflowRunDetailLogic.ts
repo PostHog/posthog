@@ -104,6 +104,12 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                     iconType: 'health',
                 },
                 {
+                    key: 'EngineeringAnalyticsWorkflows',
+                    name: 'Workflows',
+                    path: urls.engineeringAnalyticsWorkflows(),
+                    iconType: 'health',
+                },
+                {
                     key: ['EngineeringAnalyticsWorkflowRun', `${repoOwner}/${repoName}/runs/${runId}`],
                     name: `${repoOwner}/${repoName} · run #${runId}`,
                     iconType: 'health',
