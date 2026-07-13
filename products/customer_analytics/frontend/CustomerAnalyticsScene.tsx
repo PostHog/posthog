@@ -85,6 +85,12 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         return <NotFound object="page" />
     }
 
+    // Same for Announcements: a direct `/customer_analytics/announcements` visit with the flag
+    // off must 404 rather than silently fall through to the dashboard.
+    if (activeTab === 'announcements' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ANNOUNCEMENTS]) {
+        return <NotFound object="page" />
+    }
+
     const dashboardContent =
         businessType === 'b2b' && shouldShowGroupsIntroduction ? (
             <>
