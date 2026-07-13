@@ -198,7 +198,12 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
         for (key, value) in &presigned_url.fields {
             form = form.text(key.clone(), value.clone());
         }
-        let part = Part::bytes(data.to_vec());
+        // The filename is required: Go-based S3 implementations (SeaweedFS, MinIO)
+        // only treat a multipart part as a file upload when Content-Disposition
+        // carries a filename. Without it the part is parsed as a form field, which
+        // is memory-capped, so uploads over a few MB fail with MalformedPOSTRequest.
+        // AWS S3 accepts both forms.
+        let part = Part::bytes(data.to_vec()).file_name("file");
         form = form.part("file", part);
 
         let response = client.post(&presigned_url.url).multipart(form).send()?;

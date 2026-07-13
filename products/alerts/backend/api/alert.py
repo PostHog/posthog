@@ -117,6 +117,7 @@ class ThresholdSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=255,
         help_text="Optional name for the threshold.",
     )
 
@@ -250,6 +251,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     name = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=255,
         help_text="Human-readable name for the alert.",
     )
     # nosemgrep: unscoped-primary-key-related-field — User model is not team-scoped; validate_subscribed_users() checks team membership

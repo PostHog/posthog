@@ -3223,11 +3223,12 @@ class TestExperimentService(APIBaseTest):
             # The stubbed uuids have no real persons behind them; treat them all as resolvable so
             # the personless guard doesn't reject these unrelated scenarios.
             patch(
-                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-                new=lambda team_id, uuids: uuids,
+                "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
             ),
             patch(
-                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
             ) as mock_insert,
         ):
             yield mock_insert
@@ -3271,10 +3272,14 @@ class TestExperimentService(APIBaseTest):
 
         frozen.feature_flag.refresh_from_db()
 
-        # A static snapshot cohort was created and populated synchronously from the exposed set.
+        # A static snapshot cohort was created and populated synchronously from the exposed set,
+        # fed the (person_id, uuid) pairs already resolved by the personless guard — the freeze
+        # must not fetch the persons from personhog a second time.
         cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Freeze Exposure"')
         assert cohort.is_static is True
-        mock_insert.assert_called_once()
+        mock_insert.assert_called_once_with(
+            [(1, "00000000-0000-0000-0000-000000000001")], team_id=self.team.id, raise_on_error=True
+        )
 
         # The cohort condition + freeze key + marker note were AND'd into every release group.
         groups = frozen.feature_flag.filters["groups"]
@@ -3554,10 +3559,15 @@ class TestExperimentService(APIBaseTest):
         with (
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=uuids),
             patch(
-                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-                new=lambda team_id, batch: batch[unresolved:],
+                "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+                new=lambda team_id, batch: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(batch[unresolved:])
+                ],
             ),
-            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
+            ),
         ):
             if expect_rejection:
                 with self.assertRaises(ValidationError) as ctx:
@@ -3586,11 +3596,11 @@ class TestExperimentService(APIBaseTest):
                 return_value=["00000000-0000-0000-0000-000000000001"],
             ),
             patch(
-                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-                new=lambda team_id, uuids: uuids,
+                "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
             ),
             patch(
-                "products.cohorts.backend.models.cohort.Cohort._insert_batch_via_personhog",
+                "products.cohorts.backend.models.cohort.Cohort._insert_resolved_batch",
                 side_effect=RuntimeError("clickhouse insert failed"),
             ),
         ):
@@ -3700,10 +3710,13 @@ class TestExperimentService(APIBaseTest):
         with (
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_change_then_return),
             patch(
-                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-                new=lambda team_id, uuids: uuids,
+                "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
             ),
-            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
+            ),
         ):
             with self.assertRaises(ValidationError) as ctx:
                 self._service().freeze_exposure(experiment, request=self._make_request())
@@ -3735,10 +3748,13 @@ class TestExperimentService(APIBaseTest):
         with (
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_edit_then_return),
             patch(
-                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-                new=lambda team_id, uuids: uuids,
+                "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
             ),
-            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
+            ),
         ):
             frozen = self._service().freeze_exposure(experiment, request=self._make_request())
 
