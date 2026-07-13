@@ -64,12 +64,16 @@ class TestBuildUrl:
 
 class TestFetchPage:
     @pytest.mark.parametrize("status_code", [420, 429, 500, 502, 503])
-    def test_retryable_statuses_raise(self, status_code):
+    def test_retryable_statuses_raise(self, status_code, monkeypatch):
+        # Skip tenacity's real exponential-backoff sleeps (~3 min of wall clock per case)
+        # while still exercising the full retry count and reraise behavior.
+        monkeypatch.setattr("tenacity.nap.time.sleep", lambda _seconds: None)
         session = mock.MagicMock()
         session.get.return_value = _response([], status_code=status_code)
         # reraise=True surfaces the final StatuspageRetryableError after retries are exhausted.
         with pytest.raises(StatuspageRetryableError):
             _fetch_page(session, "https://api.statuspage.io/v1/pages", mock.MagicMock())
+        assert session.get.call_count == 8
 
     def test_client_error_raises_for_status(self):
         resp = _response({"error": "Could not authenticate"}, status_code=401)
