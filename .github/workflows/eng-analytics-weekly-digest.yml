@@ -1,0 +1,61 @@
+name: Engineering analytics weekly digest
+
+# Posts a weekly CI digest to #alerts-devex every Monday morning. PULL model: the
+# script reads the engineering_analytics product's repo_overview endpoint (the
+# curated layer behind its MCP tools/UI) and relays one week-over-week CI cost
+# table to Slack — it does not re-derive any metric from the GitHub API. See
+# .github/scripts/eng-analytics-weekly-digest.mjs for the row definitions.
+#
+# Requires (no-ops with a warning until set, so it never spams failures):
+#   - vars.ENG_ANALYTICS_PROJECT_ID — the PostHog project with the GitHub data
+#     warehouse source connected (the one ingesting PostHog/posthog PR + CI data).
+#   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY — a personal API key scoped to
+#     engineering_analytics:read for that project.
+#   - secrets.SLACK_DEVEX_BOT_TOKEN — the existing DevEx Slack bot (already used by
+#     ci-alerts-devex).
+
+on:
+    schedule:
+        - cron: '0 13 * * 1' # Mondays 13:00 UTC
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Print the digest blocks instead of posting to Slack'
+                type: boolean
+                default: true
+
+permissions:
+    contents: read
+
+jobs:
+    digest:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # Never run from forks (no secret access anyway), only the canonical repo.
+        # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/eng-analytics-weekly-digest.mjs
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Build and post weekly CI digest
+              # POSTHOG_HOST and SLACK_CHANNEL (#alerts-devex) ride the script's defaults.
+              env:
+                  POSTHOG_PROJECT_ID: ${{ vars.ENG_ANALYTICS_PROJECT_ID }}
+                  POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
+                  # Optional: pin a specific GitHub source if the project has more than one.
+                  ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  # Manual runs default to dry-run; the scheduled run posts (empty on schedule events).
+                  DRY_RUN: ${{ inputs.dry_run }}
+              run: node .github/scripts/eng-analytics-weekly-digest.mjs

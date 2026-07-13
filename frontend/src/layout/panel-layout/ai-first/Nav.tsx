@@ -3,7 +3,7 @@ import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { lazy, Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 
 import { IconApps, IconChat, IconChevronRight, IconPlusSmall } from '@posthog/icons'
 
@@ -21,6 +21,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/D
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
@@ -38,7 +39,7 @@ import { CreateMenu } from '../menus/CreateMenu'
 import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
-const NavTabChat = lazy(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
+const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -119,8 +120,13 @@ export function Nav(): JSX.Element {
         clearActivePanelIdentifier,
         setNavbarWidth,
     } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, isLayoutNavCollapsed, navExperimentActiveTab, activePanelIdentifier } =
-        useValues(panelLayoutLogic)
+    const {
+        isLayoutPanelVisible,
+        isLayoutNavCollapsed,
+        navExperimentActiveTab,
+        activePanelIdentifier,
+        visitedNavTabs,
+    } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
     const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
@@ -272,52 +278,53 @@ export function Nav(): JSX.Element {
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
-                    {!isLayoutNavCollapsed && (
-                        <div className="p-1">
-                            <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
-                                {TAB_CONFIG.map((tab) => (
-                                    <Tabs.Tab
-                                        key={tab.id}
-                                        value={tab.id}
-                                        render={(props) => (
-                                            <ButtonPrimitive
-                                                {...props}
-                                                className="group data-[composite-item-active]:bg-surface-tertiary w-1/2 justify-center"
-                                                data-attr={`nav-tab-${tab.id}`}
+                    <div className={cn('p-1', isLayoutNavCollapsed && 'hidden')}>
+                        <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
+                            {TAB_CONFIG.map((tab) => (
+                                <Tabs.Tab
+                                    key={tab.id}
+                                    value={tab.id}
+                                    render={(props) => (
+                                        <ButtonPrimitive
+                                            {...props}
+                                            className="group data-[composite-item-active]:bg-surface-tertiary w-1/2 justify-center"
+                                            data-attr={`nav-tab-${tab.id}`}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'flex size-4',
+                                                    navExperimentActiveTab === tab.id
+                                                        ? 'text-primary'
+                                                        : 'text-secondary group-hover:text-primary'
+                                                )}
                                             >
-                                                <span
-                                                    className={cn(
-                                                        'flex size-4',
-                                                        navExperimentActiveTab === tab.id
-                                                            ? 'text-primary'
-                                                            : 'text-secondary group-hover:text-primary'
-                                                    )}
-                                                >
-                                                    {tab.icon}
-                                                </span>
-                                                <span
-                                                    className={cn(
-                                                        'text-xs',
-                                                        navExperimentActiveTab === tab.id
-                                                            ? 'text-primary'
-                                                            : 'text-secondary group-hover:text-primary'
-                                                    )}
-                                                >
-                                                    {tab.label}
-                                                </span>
-                                            </ButtonPrimitive>
-                                        )}
-                                    />
-                                ))}
-                            </Tabs.List>
-                        </div>
-                    )}
+                                                {tab.icon}
+                                            </span>
+                                            <span
+                                                className={cn(
+                                                    'text-xs',
+                                                    navExperimentActiveTab === tab.id
+                                                        ? 'text-primary'
+                                                        : 'text-secondary group-hover:text-primary'
+                                                )}
+                                            >
+                                                {tab.label}
+                                            </span>
+                                        </ButtonPrimitive>
+                                    )}
+                                />
+                            ))}
+                        </Tabs.List>
+                    </div>
 
                     <div className="flex-1 overflow-hidden relative">
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             <NavTabBrowse />
                         </Tabs.Panel>
-                        {!isLayoutNavCollapsed && (
+                        {/* Lazy until first activated: the visited list only ever grows, so once
+                            mounted the panel never unmounts — keepMounted then preserves it across
+                            tab switches. Users who never open chat never pay for its chunk. */}
+                        {visitedNavTabs.includes('chat') && (
                             <Tabs.Panel
                                 value="chat"
                                 className="absolute inset-0 flex flex-col"

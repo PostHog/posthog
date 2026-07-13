@@ -11,10 +11,6 @@ export const RENDER_UI_TOOL_NAME = 'render-ui'
 export const RENDER_UI_TOOL_TITLE = 'Render a PostHog visualization'
 export const RENDER_UI_TOOL_DESCRIPTION = RENDER_UI_PROMPT.trim()
 
-// Feature flag gating the entire `render-ui` feature: tool registration/advertisement,
-// the rendering prompt section, and the single-exec switch for Claude web/desktop.
-export const RENDER_UI_FEATURE_FLAG = 'mcp-render-ui'
-
 // Reverse of URI_MAP so a tool's `_meta.ui.resourceUri` resolves back to its app key.
 const URI_TO_APP_KEY = new Map<string, UiAppKey>(
     Object.entries(URI_MAP).map(([appKey, uri]) => [uri, appKey as UiAppKey])

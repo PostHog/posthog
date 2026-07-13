@@ -32,7 +32,7 @@ source of truth for freshness.
 
 Force-refresh is used deliberately. The DEFAULT execution mode gates on the
 HogQL query result cache (6h staleness), which is the wrong clock for a
-precompute warmer whose buckets expire on a much shorter TTL (2h for
+precompute warmer whose buckets expire on a much shorter TTL (4h for
 today's bucket) — it would skip tiles whose Redis result is still "fresh"
 while the precompute they feed has gone cold. Force-refresh always recomputes,
 so every tick re-enters the precompute path. Crucially it goes through `run()`
@@ -45,7 +45,7 @@ harmless; the user-facing replay warming is `cache_warming.py`'s job.
 Why this exists
 ---------------
 The lazy precompute path caches per-day buckets in `web_*_preaggregated`
-tables with a 2h TTL. For high-traffic teams the dashboard's main tiles
+tables with a 4h TTL on the today window. For high-traffic teams the dashboard's main tiles
 are requested constantly — there is no reason to compute them reactively.
 Running the same query set ahead of every reasonable visit keeps the
 cache perpetually warm, so user requests turn into pure reads.
@@ -80,6 +80,7 @@ from django.db import connections
 from django.db.models import Max
 
 import dagster
+import pydantic
 import structlog
 from prometheus_client import Counter
 
@@ -197,9 +198,50 @@ EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED = Counter(
 )
 
 
-def _resolve_eager_audience() -> tuple[list[int], str, dict]:
+ACTIVE_AUDIENCE_LOOKBACK_HOURS = 24
+# Sanity ceiling on the active-team fetch; ~9k teams open the dashboard daily.
+ACTIVE_AUDIENCE_MAX_TEAMS = 20000
+
+
+def _fetch_active_wa_team_ids(limit: int) -> list[int]:
+    """Top teams by deliberate WA dashboard activity (stats-table tile queries),
+    most active first. Powers the warm-audience ramp experiment via the job's
+    run config (`active_teams_pct`).
+
+    Best-effort: any failure returns [] so the warmer falls back to the static
+    lists rather than skipping a run."""
+    from posthog.clickhouse.client import sync_execute  # noqa: PLC0415 — keep dagster import path light
+
+    try:
+        rows = sync_execute(
+            """
+            SELECT JSONExtractInt(log_comment, 'team_id') AS team_id, count() AS n
+            FROM clusterAllReplicas(%(cluster)s, system, query_log)
+            WHERE event_time > now() - INTERVAL %(hours)s HOUR
+              AND type = 'QueryFinish' AND is_initial_query = 1
+              AND JSONExtractString(log_comment, 'query_type') LIKE 'stats_table%%'
+              AND JSONExtractString(log_comment, 'feature') != 'cache_warmup'
+              AND JSONExtractString(log_comment, 'trigger') = ''
+              AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
+              AND team_id != 0
+            GROUP BY team_id
+            ORDER BY n DESC
+            LIMIT %(limit)s
+            """,
+            {"cluster": "posthog", "hours": ACTIVE_AUDIENCE_LOOKBACK_HOURS, "limit": limit},
+        )
+        return [int(row[0]) for row in rows]
+    except Exception:
+        logger.exception("eager_warm_active_audience_fetch_failed")
+        return []
+
+
+def _resolve_eager_audience(active_teams_pct: int = 0) -> tuple[list[int], str, dict]:
     """Resolve the audience and return a structured trace of which gate
     fired. Returns `(team_ids, gate_reason, diagnostics)`.
+
+    `active_teams_pct` (0-100, from the job's run config) adds that share of
+    the most active WA dashboard teams (last 24h) on top of the static lists.
 
     `gate_reason` is one of: `not_cloud`, `no_teams_configured`, `ok`.
     """
@@ -211,15 +253,28 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     # `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` must still get its
     # baseline warmed — otherwise its reads land on cold on-demand inserts.
     # dict.fromkeys preserves order and dedupes teams in both lists.
+    active_team_ids: list[int] = []
+    if active_teams_pct > 0:
+        all_active = _fetch_active_wa_team_ids(ACTIVE_AUDIENCE_MAX_TEAMS)
+        take = max(1, len(all_active) * min(active_teams_pct, 100) // 100) if all_active else 0
+        active_team_ids = all_active[:take]
+
+    # Static lists first so the always-enrolled teams warm before the ramp
+    # audience when a run is truncated by the job's max_runtime.
     team_ids = list(
         dict.fromkeys(
             [
                 *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS,
                 *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS,
+                *active_team_ids,
             ]
         )
     )
-    diag = {"teams_configured": len(team_ids)}
+    diag = {
+        "teams_configured": len(team_ids),
+        "active_teams_pct": active_teams_pct,
+        "active_teams": len(active_team_ids),
+    }
     if not team_ids:
         return [], "no_teams_configured", diag
     return team_ids, "ok", diag
@@ -265,14 +320,16 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
         # through to the raw stats query and the paths preagg table stays cold.
         if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE):
             query["includeBounceRate"] = True
-        # EXIT_PAGE is served by the simple precompute, which bakes the cleaned-or-raw
-        # path into the stored breakdown value and the job hash (unlike PAGE/INITIAL_PAGE,
-        # whose paths precompute stores raw paths and cleans at read time). The End-paths
-        # tile sends `doPathCleaning=isPathCleaningEnabled` (true for teams with cleaning
-        # rules), so without this the warmer fills the raw variant while the dashboard
-        # reads the cleaned one and misses. True is a no-op for teams without cleaning
-        # rules (`apply_path_cleaning` returns the bare expression → identical hash).
-        if breakdown == WebStatsBreakdown.EXIT_PAGE:
+        # Every path breakdown bakes the cleaned-or-raw path into the stored breakdown
+        # value at INSERT time (#65660 for PAGE/INITIAL_PAGE via the paths precompute,
+        # and the simple precompute for EXIT_PAGE), so cleaned and raw are distinct job
+        # hashes. The dashboard tiles send `doPathCleaning=isPathCleaningEnabled` (true
+        # for teams with cleaning rules); without matching it here the warmer fills the
+        # raw variant while those teams' dashboards read the cleaned one and stay
+        # permanently cold, rebuilding synchronously on every real load. True is a
+        # no-op for teams without cleaning rules (`apply_path_cleaning` returns the
+        # bare expression, so the hash is identical).
+        if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.EXIT_PAGE):
             query["doPathCleaning"] = True
         queries.append(query)
 
@@ -312,9 +369,9 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             # Self-check the warm actually did its job: the tile must resolve to a
             # precompute read, not fall through to raw. `preComputeStrategy == LAZY_PRECOMPUTE` is only
             # True when the read passed the lazy executor's TTL freshness filter
-            # (`created_at + TTL >= now`; per LAZY_TTL_SECONDS the TTL ranges from 2h for
+            # (`created_at + TTL >= now`; per LAZY_TTL_SECONDS the TTL ranges from 4h for
             # today's window up to 14d for the oldest windows), so True is a
-            # guarantee the precomputed value is well within the current 2h TTL. A tile
+            # guarantee the precomputed value is well within the current 4h TTL. A tile
             # that comes back `not True` warmed nothing useful — surface it loudly so a
             # stale/missing precompute or a non-precomputable breakdown can't hide.
             if getattr(response, "preComputeStrategy", None) != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE:
@@ -368,11 +425,34 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
     return warmed, failed
 
 
+class EagerWarmConfig(dagster.Config):
+    # Percentage of the most active WA dashboard teams (last 24h, ranked by
+    # tile-query volume) to warm on top of the static enrollment lists. Defaults to
+    # 0 = static lists only; set in the run config when launching manually to ramp
+    # the warm-audience experiment (e.g. 5 -> 25 -> 100).
+    active_teams_pct: int = pydantic.Field(default=0, ge=0, le=100)
+
+
 @dagster.op
-def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int]:
+def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWarmConfig) -> dict[str, int]:
     """Run the baseline tile matrix against every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting."""
     started = time.monotonic()
-    team_ids, gate_reason, diagnostics = _resolve_eager_audience()
+    team_ids, gate_reason, diagnostics = _resolve_eager_audience(active_teams_pct=config.active_teams_pct)
+    # Captured before the ramp enrollment below mutates the setting — this set is
+    # what "statically enrolled" means for the priority sort further down.
+    static_ids = {
+        *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS,
+        *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS,
+    }
+    if config.active_teams_pct > 0:
+        # Enroll the ramp audience for the lifetime of this run's process: the warm
+        # queries route through `is_precompute_enabled_for_team`, whose org-flag
+        # fallback fails closed in Dagster — without this, ramp teams would silently
+        # take the RAW path and the experiment would fan heavy live queries across
+        # thousands of teams instead of building precompute windows.
+        settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS = list(
+            dict.fromkeys([*settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS, *team_ids])
+        )
     diag_str = " ".join(f"{k}={v}" for k, v in diagnostics.items())
     context.log.info(
         f"eager_baseline_warming_start teams={len(team_ids)} gate_reason={gate_reason} {diag_str}".rstrip()
@@ -443,7 +523,12 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
         .values_list("team_id", "last")
     )
     never_computed = datetime.min.replace(tzinfo=UTC)
-    eligible.sort(key=lambda t: last_computed.get(t.pk) or never_computed)
+    # Two tiers: statically enrolled teams first (stalest first within the tier),
+    # then the ramp audience. A large `active_teams_pct` audience is mostly
+    # never-warmed, and a flat staleness sort would push the always-enrolled teams
+    # behind thousands of ramp teams whenever a run hits `max_runtime`.
+    # `static_ids` was captured before the ramp enrollment mutated the setting.
+    eligible.sort(key=lambda t: (t.pk not in static_ids, last_computed.get(t.pk) or never_computed))
 
     # Running progress counter for the pool — `itertools.count.__next__` is
     # atomic under the GIL, so it's safe to call from the worker threads. Each
@@ -532,7 +617,7 @@ def web_analytics_eager_baseline_warming_job():
     # holds, delete this schedule + job. Left running (not `default_status`
     # STOPPED) so the stop is an explicit operational toggle, not a silent
     # code-deploy behavior change.
-    # Hourly. The lazy cache's 2h TTL absorbs a single missed cycle, so
+    # Hourly. The lazy cache's 4h today-TTL absorbs missed cycles, so
     # there's no need to align with shorter cadences. Offset by 5 min from
     # the top of the hour to avoid colliding with the existing
     # `web_analytics_cache_warming_schedule` (`0 * * * *`).

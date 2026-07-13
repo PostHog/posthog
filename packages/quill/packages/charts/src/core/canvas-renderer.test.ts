@@ -6,6 +6,7 @@ import {
     composeDrawHoverWithSelection,
     type DrawContext,
     drawArea,
+    drawAxes,
     drawGrid,
     drawLine,
     drawLineSeriesLayer,
@@ -754,6 +755,32 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('drawAxes — edge gating', () => {
+        it.each([
+            { name: 'default draws the left + bottom L only', opts: {}, x: true, y: true, right: false },
+            { name: 'rightAxis strokes the right edge', opts: { rightAxis: true }, x: true, y: true, right: true },
+            { name: 'x line off', opts: { xLine: false }, x: false, y: true, right: false },
+            { name: 'y line off', opts: { yLine: false }, x: true, y: false, right: false },
+            {
+                name: 'right axis follows the y line',
+                opts: { yLine: false, rightAxis: true },
+                x: true,
+                y: false,
+                right: false,
+            },
+        ])('$name', ({ opts, x, y, right }) => {
+            const ctx = mockCanvasContext()
+            drawAxes(makeDrawContext(ctx, ['a']), opts)
+            const leftX = Math.round(dimensions.plotLeft) + 0.5
+            const rightX = Math.round(dimensions.plotLeft + dimensions.plotWidth) + 0.5
+            const baselineY = Math.round(dimensions.plotTop + dimensions.plotHeight) + 0.5
+            expect(ctx.moveTo.mock.calls.some(([mx, my]) => mx === leftX && my === dimensions.plotTop)).toBe(y)
+            // The x line ends at the snapped right edge so it meets a right axis line exactly.
+            expect(ctx.lineTo.mock.calls.some(([lx, ly]) => lx === rightX && ly === baselineY)).toBe(x)
+            expect(ctx.moveTo.mock.calls.some(([mx, my]) => mx === rightX && my === dimensions.plotTop)).toBe(right)
+        })
+    })
+
     describe('drawGrid — frame gating', () => {
         it('keeps the plot-edge frame strokes and the baseline gridline by default', () => {
             const ctx = mockCanvasContext()
@@ -766,7 +793,10 @@ describe('hog-charts canvas-renderer', () => {
             expect(ctx.moveTo.mock.calls.some(([x]) => x === leftX)).toBe(true)
         })
 
-        it.each([{ frame: true, expectBaselineTick: true }, { frame: false, expectBaselineTick: false }])(
+        it.each([
+            { frame: true, expectBaselineTick: true },
+            { frame: false, expectBaselineTick: false },
+        ])(
             'horizontal orientation: baseline-hugging value gridline drawn only when framed (frame: $frame)',
             ({ frame, expectBaselineTick }) => {
                 const ctx = mockCanvasContext()
@@ -776,7 +806,9 @@ describe('hog-charts canvas-renderer', () => {
                 drawCtx.yScale = scaleLinear().domain([0, 100]).range([48, 784])
                 drawGrid(drawCtx, { orientation: 'horizontal', frame })
                 const baselineX = Math.round(48) + 0.5
-                const drewBaselineTick = ctx.moveTo.mock.calls.some(([x, y]) => x === baselineX && y === dimensions.plotTop)
+                const drewBaselineTick = ctx.moveTo.mock.calls.some(
+                    ([x, y]) => x === baselineX && y === dimensions.plotTop
+                )
                 expect(drewBaselineTick).toBe(expectBaselineTick)
             }
         )
@@ -1072,17 +1104,13 @@ describe('hog-charts canvas-renderer', () => {
 
         it('draws a full-plot-height band spanning the dragged range', () => {
             const ctx = mockCanvasContext()
-            composeDrawHoverWithSelection(jest.fn())(
-                makeSelectionArgs(ctx, { x0: plotLeft + 100, x1: plotLeft + 250 })
-            )
+            composeDrawHoverWithSelection(jest.fn())(makeSelectionArgs(ctx, { x0: plotLeft + 100, x1: plotLeft + 250 }))
             expect(ctx.fillRect).toHaveBeenCalledWith(plotLeft + 100, plotTop, 150, plotHeight)
         })
 
         it('normalizes a right-to-left drag before drawing', () => {
             const ctx = mockCanvasContext()
-            composeDrawHoverWithSelection(jest.fn())(
-                makeSelectionArgs(ctx, { x0: plotLeft + 250, x1: plotLeft + 100 })
-            )
+            composeDrawHoverWithSelection(jest.fn())(makeSelectionArgs(ctx, { x0: plotLeft + 250, x1: plotLeft + 100 }))
             expect(ctx.fillRect).toHaveBeenCalledWith(plotLeft + 100, plotTop, 150, plotHeight)
         })
 
@@ -1096,9 +1124,7 @@ describe('hog-charts canvas-renderer', () => {
 
         it('draws nothing when the selection collapses to zero width', () => {
             const ctx = mockCanvasContext()
-            composeDrawHoverWithSelection(jest.fn())(
-                makeSelectionArgs(ctx, { x0: plotLeft + 10, x1: plotLeft + 10 })
-            )
+            composeDrawHoverWithSelection(jest.fn())(makeSelectionArgs(ctx, { x0: plotLeft + 10, x1: plotLeft + 10 }))
             expect(ctx.fillRect).not.toHaveBeenCalled()
         })
     })
@@ -1111,7 +1137,11 @@ describe('hog-charts canvas-renderer', () => {
         const resolveYScale = (): ScaleLinear<number, number> => yScale
 
         it.each([
-            { clipLeftEdge: true, expectedLeft: Math.round(dimensions.plotLeft), expectedWidth: dimensions.width - Math.round(dimensions.plotLeft) },
+            {
+                clipLeftEdge: true,
+                expectedLeft: Math.round(dimensions.plotLeft),
+                expectedWidth: dimensions.width - Math.round(dimensions.plotLeft),
+            },
             { clipLeftEdge: false, expectedLeft: 0, expectedWidth: dimensions.width },
         ])(
             'passes left=$expectedLeft width=$expectedWidth to ctx.rect when clipLeftEdge=$clipLeftEdge',

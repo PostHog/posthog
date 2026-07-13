@@ -41,6 +41,7 @@ from posthog.api.team import (
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     handle_logs_config,
+    report_conversations_settings_changes,
     validate_secret_token_generation,
     validate_team_attrs,
 )
@@ -1208,6 +1209,12 @@ class ProjectBackwardCompatSerializer(
                 should_team_be_saved_too = True
                 setattr(team, attr, value)
 
+        if "name" in validated_data:
+            # Keep Team.name mirroring Project.name: surfaces like the organization's teams
+            # list and the app context still read the name off the Team row
+            should_team_be_saved_too = True
+            team.name = validated_data["name"]
+
         instance.save()
         if should_team_be_saved_too:
             team.save()
@@ -1262,6 +1269,12 @@ class ProjectBackwardCompatSerializer(
                     changes=project_changes,
                 ),
             )
+
+        report_conversations_settings_changes(
+            cast(User, self.context["request"].user),
+            team_before_update.get("conversations_settings"),
+            team,
+        )
 
         return instance
 

@@ -26,12 +26,12 @@ hogli ci:preflight --fix
 1. Run with `--fix` — it formats, lints, and auto-fixes what is safe.
 2. Read each line: `✓ pass`, `✗ fail`, `→ advisory` (do it yourself), `· skipped` (capability absent).
 3. Resolve every `✗ fail` — these are what `--fix` could not (real lint error, broken lockfile, migration conflict). These block the push.
-4. Act on every `→ advisory` — e.g. `openapi` advisory → run `hogli build:openapi` and commit the drift; `staleness` advisory → `git merge origin/master`. Advisories never block, but ignoring them ships the failure to CI.
+4. Act on every `→ advisory` — e.g. `openapi` advisory → run `hogli build:openapi` and commit the drift; `staleness` advisory → `git merge origin/master`. Advisories never block, but ignoring them ships the failure to CI. **Resolve them before pushing, including drift you didn't introduce — you own the branch state you push.**
 5. Re-run until clean, then push.
 
 ## Notes
 
-- **Strict = failures only.** `--strict` (what the hook runs) exits non-zero only on `✗ fail` — advisories are unverifiable-locally classes, so they warn without blocking. A clean exit means "nothing left to fix", not "CI will pass" — CI stays the authoritative gate.
+- **Strict = failures only.** `--strict` (what the hook runs) exits non-zero only on `✗ fail` — advisories are unverifiable-locally classes, so they warn without blocking. A clean exit means "nothing left to fix", not "CI will pass" — CI stays the authoritative gate. Non-blocking is a mechanism limit, not permission to skip.
 - **Staleness is risk-based.** It fires when merging master _now_ would actually break something — textual merge conflicts (computed via `git merge-tree`, working tree untouched), migrations added on both sides, generated-file inputs changed on both sides, or CI workflows changed on master — plus a behind/age backstop, aggressive by default (5 commits / 2 days; env-tunable via `HOGLI_PREFLIGHT_STALE_COMMITS`/`HOGLI_PREFLIGHT_STALE_DAYS`) so we over-warn to start and tune down from telemetry. Merge master in when it fires. Advisory only, never auto-merged.
 - **`· skipped (needs stack/node)`** is expected on a bare checkout or sandbox. Start the stack with `hogli start` to run those, or let CI cover them. No hooks in your environment (no `node_modules`)? Run the loop yourself before pushing.
 - **Flags.** `--against <ref>` diffs against an explicit base; `--json` emits a machine-readable summary.

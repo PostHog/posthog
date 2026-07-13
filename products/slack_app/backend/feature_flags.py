@@ -32,6 +32,8 @@ SLACK_APP_OAUTH_FLAG = "slack-app-oauth"
 SLACK_APP_HOME_FLAG = "slack-app-home"
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_ASSISTANT_FLAG = "slack-app-assistant"
+SLACK_APP_BOT_PRS_FLAG = "slack-app-bot-prs"
+SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG = "slack-app-canvas-file-artifacts"
 UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 
 
@@ -111,6 +113,30 @@ def is_slack_app_agent_design_enabled(integration: Integration) -> bool:
         return False
 
 
+def is_slack_app_canvas_file_artifacts_enabled(integration: Integration) -> bool:
+    """Gate for living-artifact delivery that depends on the in-review Slack scopes
+    (``canvases:write`` for the canvas adapter, ``files:write`` for the file adapter).
+    Stays off until Slack approves those scopes for the public app; the adapters also
+    verify the granted scopes at point of use. Keyed on the Slack workspace + PostHog org."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG,
+                f"slack_workspace:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_canvas_file_artifacts_feature_flag_check_failed",
+            integration_id=integration.id,
+        )
+        return False
+
+
 def is_slack_app_untagged_thread_followups_enabled(integration: Integration, slack_team_id: str) -> bool:
     """Gate for the untagged-thread followup path: when on, every message in a
     tagged thread is eligible for classification + forward instead of requiring
@@ -132,6 +158,26 @@ def is_slack_app_untagged_thread_followups_enabled(integration: Integration, sla
             slack_team_id=slack_team_id,
             integration_id=integration.id,
         )
+        return False
+
+
+def is_slack_app_bot_prs_enabled(team: Team) -> bool:
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_BOT_PRS_FLAG,
+                str(team.uuid),
+                groups={"organization": organization_id, "project": project_id},
+                group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("slack_app_bot_prs_flag_check_failed", team_id=team.id)
         return False
 
 

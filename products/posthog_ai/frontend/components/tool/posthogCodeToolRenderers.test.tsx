@@ -52,13 +52,13 @@ describe('posthog-code tool renderers', () => {
         expect(screen.getByText('Signed commits · 2 commits')).toBeInTheDocument()
         expect(screen.getByText('fix(api): handle null series')).toBeInTheDocument()
         // The commit links live in the collapsed accordion, not always-visible — reveal them first.
-        expect(screen.queryByRole('link', { name: /a1b2c3d/ })).not.toBeInTheDocument()
+        expect(screen.queryByText(/a1b2c3d/)).not.toBeInTheDocument()
         fireEvent.click(screen.getByRole('button'))
-        expect(screen.getByRole('link', { name: /a1b2c3d/ })).toHaveAttribute(
+        expect(screen.getByText(/a1b2c3d/).closest('a')).toHaveAttribute(
             'href',
             'https://github.com/posthog/posthog/commit/a1b2c3dabcdef'
         )
-        expect(screen.getByRole('link', { name: /e4f5a6b/ })).toHaveAttribute(
+        expect(screen.getByText(/e4f5a6b/).closest('a')).toHaveAttribute(
             'href',
             'https://github.com/posthog/posthog/commit/e4f5a6babcdef'
         )
@@ -106,7 +106,7 @@ describe('posthog-code tool renderers', () => {
         expect(screen.getByText('List repositories · 2')).toBeInTheDocument()
         fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText('Product analytics platform')).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: /posthog-js/ })).toHaveAttribute(
+        expect(screen.getByText(/posthog-js/).closest('a')).toHaveAttribute(
             'href',
             'https://github.com/posthog/posthog-js'
         )
@@ -128,7 +128,7 @@ describe('posthog-code tool renderers', () => {
             />
         )
         expect(screen.getByText('Clone repository')).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: /posthog\/posthog/ })).toHaveAttribute(
+        expect(screen.getByText(/posthog\/posthog/).closest('a')).toHaveAttribute(
             'href',
             'https://github.com/posthog/posthog'
         )

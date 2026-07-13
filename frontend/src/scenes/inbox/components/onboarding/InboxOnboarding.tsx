@@ -5,7 +5,7 @@ import { useActions } from 'kea'
 import { IconBolt, IconGithub, IconInfo, IconNotebook, IconPause, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { JumpingLogomark } from 'lib/brand/JumpingLogomark'
+import { Logomark } from 'lib/brand'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
@@ -104,7 +104,7 @@ function SelfDrivingCommand({ size = 'md' }: { size?: 'sm' | 'md' }): JSX.Elemen
 function Hero(): JSX.Element {
     return (
         <div className="flex flex-col items-start gap-3">
-            <JumpingLogomark className="w-fit [&_svg]:h-7 [&_svg]:w-auto" />
+            <Logomark jumpOnClick size="md" />
             <h1 className="m-0 text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
                 Put your product on self-driving
             </h1>

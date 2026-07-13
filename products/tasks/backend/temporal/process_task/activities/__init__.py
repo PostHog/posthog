@@ -37,6 +37,15 @@ from .refresh_sandbox_credentials import (
 from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .run_wizard import RunWizardInput, run_wizard
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .send_permission_response_to_sandbox import (
+    PostPermissionDeliveryFailureInput,
+    SendPermissionDenialGuidanceInput,
+    SendPermissionResponseToSandboxInput,
+    post_permission_delivery_failure_notice,
+    send_permission_denial_guidance,
+    send_permission_response_to_sandbox,
+)
+from .slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .start_agent_server import (
     MarkRepoReadyInput,
     StartAgentServerInput,
@@ -79,7 +88,11 @@ __all__ = [
     "TaskProcessingContext",
     "TrackWorkflowEventInput",
     "UpdateTaskRunStatusInput",
+    "RelayAgentDesignSignalsInput",
     "RelaySandboxEventsInput",
+    "PostPermissionDeliveryFailureInput",
+    "SendPermissionDenialGuidanceInput",
+    "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
     "cleanup_sandbox",
     "create_resume_snapshot",
@@ -87,7 +100,11 @@ __all__ = [
     "emit_progress_activity",
     "execute_task_in_sandbox",
     "forward_pending_user_message",
+    "relay_agent_design_signals",
     "relay_sandbox_events",
+    "post_permission_delivery_failure_notice",
+    "send_permission_denial_guidance",
+    "send_permission_response_to_sandbox",
     "send_followup_to_sandbox",
     "get_sandbox_for_repository",
     "get_task_processing_context",

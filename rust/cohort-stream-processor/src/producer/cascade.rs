@@ -2,7 +2,7 @@
 //!
 //! [`cascade_key`] keys on `(team, person)` over the same `murmur2_random` partitioner as the
 //! shuffler, so a flip co-partitions with `cohort_stream_events` and lands on the worker that owns
-//! that person's `cf_stage1`/`cf_stage2`.
+//! that person's `cf_behavioral`/`cf_stage2`.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;

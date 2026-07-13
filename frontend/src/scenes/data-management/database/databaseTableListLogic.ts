@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { objectsEqual } from 'lib/utils/objects'
@@ -39,29 +39,49 @@ const toMapById = <T extends { id: string }>(items: T[]): Record<string, T> =>
 let inFlightDatabaseLoadKey: string | null = null
 let inFlightDatabaseLoadPromise: Promise<Required<DatabaseSchemaQueryResponse> | null> | null = null
 
+// Monotonic epoch advanced only when a load issues a fresh request. A newer load (e.g. one
+// triggered by a schema mutation via refreshDatabaseSchema) supersedes older in-flight ones, so a
+// slow or out-of-order response can never overwrite a fresher schema. Piggybacking loads adopt the
+// in-flight request's epoch rather than advancing it, so they never make the original fetcher look
+// superseded.
+let latestDatabaseLoadEpoch = 0
+let inFlightDatabaseLoadEpoch = 0
+
 export const databaseTableListLogic = kea<databaseTableListLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setConnection: (connectionId: string | null) => ({ connectionId }),
+        refreshDatabaseSchema: true,
     }),
     loaders(({ values }) => ({
         database: [
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
-                loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
+                loadDatabase: async ({
+                    force,
+                }: { force?: boolean } = {}): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
                     const requestConnectionId = values.connectionId ?? undefined
                     const requestKey = requestConnectionId ?? '__posthog__'
 
-                    if (inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
-                        const inFlight = inFlightDatabaseLoadPromise
-                        const result = await inFlight
+                    // Non-forced loads may piggyback on an identical in-flight request and adopt its
+                    // epoch (they don't start a new generation). A forced refresh always issues a
+                    // fresh request so it can never return pre-mutation data (and never waits on a
+                    // hung stale request).
+                    if (!force && inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
+                        const epoch = inFlightDatabaseLoadEpoch
+                        const result = await inFlightDatabaseLoadPromise
+                        // Reading `values` post-unmount throws kea's path-not-found error.
                         if (!databaseTableListLogic.isMounted()) {
                             return null
+                        }
+                        if (epoch !== latestDatabaseLoadEpoch) {
+                            return values.database
                         }
                         return result
                     }
 
+                    const epoch = ++latestDatabaseLoadEpoch
                     const request = performQuery(
                         setLatestVersionsOnQuery({
                             kind: NodeKind.DatabaseSchemaQuery,
@@ -71,12 +91,15 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
 
                     inFlightDatabaseLoadKey = requestKey
                     inFlightDatabaseLoadPromise = request
+                    inFlightDatabaseLoadEpoch = epoch
 
                     let database: Required<DatabaseSchemaQueryResponse> | null = null
                     try {
                         database = await request
                     } finally {
-                        if (inFlightDatabaseLoadKey === requestKey) {
+                        // Identity check, not key equality: a concurrent forced refresh may have
+                        // replaced the in-flight slot with its own request under the same key.
+                        if (inFlightDatabaseLoadPromise === request) {
                             inFlightDatabaseLoadKey = null
                             inFlightDatabaseLoadPromise = null
                         }
@@ -85,6 +108,12 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     // Reading `values` post-unmount throws kea's path-not-found error.
                     if (!databaseTableListLogic.isMounted()) {
                         return null
+                    }
+
+                    // A newer load or refresh started after us: discard this possibly-stale response
+                    // rather than clobbering the fresher schema.
+                    if (epoch !== latestDatabaseLoadEpoch) {
+                        return values.database
                     }
 
                     const currentConnectionId = values.connectionId ?? undefined
@@ -268,4 +297,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
     }),
+    listeners(({ actions }) => ({
+        refreshDatabaseSchema: () => {
+            actions.loadDatabase({ force: true })
+        },
+    })),
 ])

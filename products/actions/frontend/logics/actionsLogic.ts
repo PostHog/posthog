@@ -1,104 +1,150 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
 
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { createFuse } from 'lib/utils/fuseSearch'
+import { objectsEqual } from 'lib/utils/objects'
+import { toParams } from 'lib/utils/url'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { actionsModel } from '~/models/actionsModel'
 import { ActionType, ActivityScope, Breadcrumb } from '~/types'
 
 import type { actionsLogicType } from './actionsLogicType'
 
-export type ActionsFilterType = 'all' | 'me'
+export const ACTIONS_PER_PAGE = 50
 
-export const actionsFuse = createFuse<ActionType>([], {
-    keys: [{ name: 'name', weight: 2 }, 'description', 'tags'],
-    threshold: 0.3,
-    ignoreLocation: true,
-    includeMatches: true,
-})
+export type ActionsResponse = CountedPaginatedResponse<ActionType>
 
-// Called from actionsLogic's connect() — before dependencies are mounted. We read the flag via
-// findMounted() because featureFlagLogic is mounted at app bootstrap, long before the actions scene.
-// If it's somehow not mounted yet, we safely fall back to the non-reference-count path.
-export const getActionsModelParams = (): string => {
-    const referenceCountEnabled =
-        !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.ACTION_REFERENCE_COUNT]
-    return referenceCountEnabled ? 'include_count=1&include_reference_count=1' : 'include_count=1'
+export interface ActionsFilters {
+    createdBy: number[]
+    tags: string[]
+    ordering: string
+}
+
+const DEFAULT_FILTERS: ActionsFilters = {
+    createdBy: [],
+    tags: [],
+    ordering: '-created_by',
 }
 
 export const actionsLogic = kea<actionsLogicType>([
     path(['products', 'actions', 'actionsLogic']),
     connect(() => ({
-        values: [
-            actionsModel({ params: getActionsModelParams() }),
-            ['actions', 'actionsLoading'],
-            userLogic,
-            ['user'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
-        setFilterType: (filterType: ActionsFilterType) => ({ filterType }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setFilters: (filters: Partial<ActionsFilters>) => ({ filters }),
+        setPage: (page: number) => ({ page }),
     }),
     reducers({
-        filterType: [
-            'all' as ActionsFilterType,
-            { persist: true },
-            {
-                setFilterType: (_, { filterType }) => filterType,
-            },
-        ],
         searchTerm: [
             '',
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
-    }),
-    selectors({
-        actionsFiltered: [
-            (s) => [s.actions, s.filterType, s.searchTerm, s.user],
-            (actions, filterType, searchTerm, user) => {
-                let data: ActionType[] = actions
-                // Trim before handing the query to Fuse: a trailing space inflates the pattern
-                // length, which raises the effective edit budget (threshold × length) and lets
-                // unrelated items leak in (e.g. searching "mcp " matches "Map clicked").
-                const trimmedSearchTerm = searchTerm.trim()
-                if (trimmedSearchTerm) {
-                    data = actionsFuse.search(trimmedSearchTerm).map((result) => result.item)
-                }
-                if (filterType === 'me') {
-                    data = data.filter((item) => item.created_by?.uuid === user?.uuid)
-                }
-                return data
+        filters: [
+            DEFAULT_FILTERS,
+            {
+                setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
-        shouldShowEmptyState: [
-            (s) => [s.actionsFiltered, s.actionsLoading, s.searchTerm],
-            (actionsFiltered: ActionType[], actionsLoading: boolean, searchTerm: string): boolean => {
-                return actionsFiltered.length == 0 && !actionsLoading && !searchTerm.length
+        page: [
+            1,
+            {
+                setPage: (_, { page }) => page,
+                setFilters: () => 1,
+                setSearchTerm: () => 1,
             },
+        ],
+    }),
+    loaders(({ values, actions }) => ({
+        actionsResponse: [
+            { count: 0, results: [] } as ActionsResponse,
+            {
+                loadActions: async () => {
+                    const response = await api.actions.list(values.apiParams)
+                    return { count: response.count ?? 0, results: response.results ?? [] }
+                },
+                pinAction: async (action: ActionType) => {
+                    const updated = await api.actions.update(action.id, {
+                        name: action.name,
+                        pinned_at: new Date().toISOString(),
+                    })
+                    // Patch the row for instant icon feedback, then reload so server-side
+                    // ordering (e.g. by pinned_at) reflects the change.
+                    actions.loadActions()
+                    return {
+                        ...values.actionsResponse,
+                        results: values.actionsResponse.results.map((a) => (a.id === updated.id ? updated : a)),
+                    }
+                },
+                unpinAction: async (action: ActionType) => {
+                    const updated = await api.actions.update(action.id, {
+                        name: action.name,
+                        pinned_at: null,
+                    })
+                    actions.loadActions()
+                    return {
+                        ...values.actionsResponse,
+                        results: values.actionsResponse.results.map((a) => (a.id === updated.id ? updated : a)),
+                    }
+                },
+            },
+        ],
+    })),
+    selectors({
+        actionsList: [(s) => [s.actionsResponse], (response): ActionType[] => response.results],
+        actionCount: [(s) => [s.actionsResponse], (response): number => response.count],
+        apiParams: [
+            (s) => [s.searchTerm, s.filters, s.page, s.featureFlags],
+            (searchTerm, filters, page, featureFlags): string => {
+                const params: Record<string, any> = {
+                    limit: ACTIONS_PER_PAGE,
+                    offset: (page - 1) * ACTIONS_PER_PAGE,
+                    ordering: filters.ordering,
+                    include_count: 1,
+                }
+                if (searchTerm.trim()) {
+                    params.search = searchTerm.trim()
+                }
+                if (filters.createdBy.length > 0) {
+                    params.created_by = filters.createdBy.join(',')
+                }
+                if (filters.tags.length > 0) {
+                    params.tags = JSON.stringify(filters.tags)
+                }
+                if (featureFlags[FEATURE_FLAGS.ACTION_REFERENCE_COUNT]) {
+                    params.include_reference_count = 1
+                }
+                return toParams(params)
+            },
+        ],
+        hasActiveFilters: [
+            (s) => [s.searchTerm, s.filters],
+            (searchTerm, filters): boolean =>
+                !!searchTerm.trim() || filters.createdBy.length > 0 || filters.tags.length > 0,
+        ],
+        shouldShowEmptyState: [
+            (s) => [s.actionCount, s.actionsResponseLoading, s.hasActiveFilters],
+            (actionCount: number, actionsResponseLoading: boolean, hasActiveFilters: boolean): boolean =>
+                actionCount === 0 && !actionsResponseLoading && !hasActiveFilters,
         ],
         breadcrumbs: [
             () => [],
-            (): Breadcrumb[] => {
-                return [
-                    {
-                        key: DataManagementTab.Actions,
-                        name: 'Actions',
-                        path: urls.actions(),
-                        iconType: 'action',
-                    },
-                ]
-            },
+            (): Breadcrumb[] => [
+                {
+                    key: DataManagementTab.Actions,
+                    name: 'Actions',
+                    path: urls.actions(),
+                    iconType: 'action',
+                },
+            ],
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [],
@@ -107,9 +153,41 @@ export const actionsLogic = kea<actionsLogicType>([
             }),
         ],
     }),
-    subscriptions({
-        actions: (actions) => {
-            actionsFuse.setCollection(actions)
+    listeners(({ actions }) => ({
+        setFilters: () => actions.loadActions(),
+        setPage: () => actions.loadActions(),
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadActions()
         },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.actions()]: (_, searchParams) => {
+            const urlFilters: ActionsFilters = {
+                ...DEFAULT_FILTERS,
+                ...(searchParams.ordering !== undefined && { ordering: searchParams.ordering }),
+                ...(Array.isArray(searchParams.tags) && { tags: searchParams.tags }),
+                ...(Array.isArray(searchParams.created_by) && { createdBy: searchParams.created_by.map(Number) }),
+            }
+            if (!objectsEqual(values.filters, urlFilters)) {
+                actions.setFilters(urlFilters)
+            } else if (!values.actionsResponse.results.length && !values.actionsResponseLoading) {
+                actions.loadActions()
+            }
+        },
+    })),
+    // Search term and page are intentionally not URL-synced; only the shareable filters are.
+    actionToUrl(({ values }) => {
+        const buildUrl = (): [string, Record<string, any>] => [
+            urls.actions(),
+            {
+                ...(values.filters.ordering !== DEFAULT_FILTERS.ordering && { ordering: values.filters.ordering }),
+                ...(values.filters.tags.length > 0 && { tags: values.filters.tags }),
+                ...(values.filters.createdBy.length > 0 && { created_by: values.filters.createdBy }),
+            },
+        ]
+        return {
+            setFilters: buildUrl,
+        }
     }),
 ])

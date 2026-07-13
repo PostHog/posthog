@@ -723,7 +723,6 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
                 capture_exception(e)
 
     def _log_evaluation_context_change(self, obj: FeatureFlag, before: list[str], after: list[str]) -> None:
-
         from posthog.models.activity_logging.activity_log import Change, Detail
 
         request = self.context.get("request")
@@ -1019,6 +1018,11 @@ class FeatureFlagSerializer(
         self._validate_archived_flags_are_disabled(attrs)
         self._validate_flag_limits()
 
+        # Materialize the remote-config 100% rollout default here, before the approval gate runs in
+        # create(), so a remote-config create trips the rollout policy instead of slipping past it.
+        if self.instance is None:
+            self._apply_remote_config_default_filters(attrs, filters_key="get_filters")
+
         request = self.context.get("request")
         if not request:
             return attrs
@@ -1133,6 +1137,32 @@ class FeatureFlagSerializer(
 
         if has_encrypted and not is_remote:
             raise serializers.ValidationError("Encrypted payloads require the flag to be a remote configuration.")
+
+    @staticmethod
+    def _apply_remote_config_default_filters(validated_data: dict, filters_key: str) -> None:
+        """Remote-config flags always resolve to a 100% rollout.
+
+        Synthesize that default into ``validated_data`` so it is present *before* the approval gate
+        inspects the change. Otherwise a remote-config create with no ``filters`` would skip the
+        rollout (``feature_flag.update``) policy, and the 100% rollout would then be applied below
+        the gate unapproved. ``filters_key`` is ``get_filters`` during serializer validation (the
+        field's source) and ``filters`` once ``_update_filters`` has renamed it in ``create``.
+        """
+        if not validated_data.get("is_remote_configuration", False):
+            return
+
+        filters = validated_data.get(filters_key, {}) or {}
+        groups = filters.get("groups", [])
+
+        # If no groups exist, create one with 100% rollout
+        if not groups:
+            filters["groups"] = [{"properties": [], "rollout_percentage": 100, "variant": None}]
+            validated_data[filters_key] = filters
+        else:
+            # If groups exist, update any with 0% or None rollout to 100%
+            for group in groups:
+                if group.get("rollout_percentage") in [0, None]:
+                    group["rollout_percentage"] = 100
 
     def validate_key(self, value):
         exclude_kwargs = {}
@@ -1701,6 +1731,7 @@ class FeatureFlagSerializer(
                 flag.key = flag.tombstoned_key()
                 flag.save(update_fields=["key"])
 
+    @approval_gate(["feature_flag.enable", "feature_flag.update"])
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -1716,20 +1747,9 @@ class FeatureFlagSerializer(
         should_create_usage_dashboard = validated_data.pop("_should_create_usage_dashboard")
         self._update_filters(validated_data)
 
-        # Set default filters for remote config flags to 100% rollout
-        if validated_data.get("is_remote_configuration", False):
-            filters = validated_data.get("filters", {}) or {}
-            groups = filters.get("groups", [])
-
-            # If no groups exist, create one with 100% rollout
-            if not groups:
-                filters["groups"] = [{"properties": [], "rollout_percentage": 100, "variant": None}]
-                validated_data["filters"] = filters
-            else:
-                # If groups exist, update any with 0% or None rollout to 100%
-                for group in groups:
-                    if group.get("rollout_percentage") in [0, None]:
-                        group["rollout_percentage"] = 100
+        # Safety net: validate() already materialized this for gated creates, but keep it here for
+        # any path that reaches create() without it (e.g. approved-CR re-apply builds a fresh payload).
+        self._apply_remote_config_default_filters(validated_data, filters_key="filters")
 
         encrypt_flag_payloads(validated_data)
 
@@ -1962,9 +1982,8 @@ class FeatureFlagSerializer(
                 # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
-        # The linked feature flag is the source of truth for variants and aggregation group type.
-        # Experiment reads derive these from the flag (see ExperimentBaseSerializer), so there is no
-        # longer a `parameters` mirror to keep in sync here.
+        # The linked feature flag is the source of truth for variants and aggregation group type;
+        # experiment reads derive these from the flag (see ExperimentBaseSerializer).
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
@@ -2684,6 +2703,8 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    # Record a tags change per flag when bulk_update_tags mutates it, matching the single-object path.
+    bulk_tag_activity_scope = "FeatureFlag"
     psak_allowed_actions = ["remote_config"]
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still

@@ -78,13 +78,60 @@ impl EtcdStore {
         }
     }
 
+    /// Like `get_versioned`, but returns the key's `mod_revision` instead
+    /// of its per-key `version` counter. Compare-and-swap guards that must
+    /// not match across a delete-and-recreate of the same key MUST use
+    /// this: `version` resets to 1 when a key is recreated, so a guard on
+    /// `version` can accept a different incarnation of the key, while
+    /// `mod_revision` is globally monotonic and never repeats.
+    pub async fn get_with_mod_revision<T: DeserializeOwned>(
+        &self,
+        key: &str,
+    ) -> Result<Option<(T, i64)>> {
+        let resp = self.client.clone().get(key, None).await?;
+        match resp.kvs().first() {
+            Some(kv) => {
+                let value = serde_json::from_slice(kv.value())?;
+                Ok(Some((value, kv.mod_revision())))
+            }
+            None => Ok(None),
+        }
+    }
+
     pub async fn list<T: DeserializeOwned>(&self, prefix: &str) -> Result<Vec<T>> {
+        Ok(self.list_with_revision(prefix).await?.0)
+    }
+
+    /// Like `list`, but also returns the etcd store revision the snapshot
+    /// was taken at. Pair with `watch_from(prefix, revision + 1)` for a
+    /// gap-free snapshot-then-watch handshake: every event at or before
+    /// the revision is in the snapshot, every later one is delivered by
+    /// the watch, no matter when the watch actually attaches.
+    pub async fn list_with_revision<T: DeserializeOwned>(
+        &self,
+        prefix: &str,
+    ) -> Result<(Vec<T>, i64)> {
         let options = GetOptions::new().with_prefix();
         let resp = self.client.clone().get(prefix, Some(options)).await?;
-        resp.kvs()
+        let revision = resp.header().map(|h| h.revision()).unwrap_or(0);
+        let items = resp
+            .kvs()
             .iter()
             .map(|kv| serde_json::from_slice(kv.value()).map_err(Error::from))
-            .collect()
+            .collect::<Result<Vec<T>>>()?;
+        Ok((items, revision))
+    }
+
+    /// The current etcd store revision, for anchoring watches when no
+    /// snapshot read is involved.
+    pub async fn current_revision(&self) -> Result<i64> {
+        let options = GetOptions::new().with_prefix().with_count_only();
+        let resp = self
+            .client
+            .clone()
+            .get(self.config.prefix.clone(), Some(options))
+            .await?;
+        Ok(resp.header().map(|h| h.revision()).unwrap_or(0))
     }
 
     pub async fn put<T: Serialize>(
@@ -112,6 +159,21 @@ impl EtcdStore {
 
     pub async fn watch(&self, prefix: &str) -> Result<WatchStream> {
         let options = WatchOptions::new().with_prefix();
+        let stream = self.client.clone().watch(prefix, Some(options)).await?;
+        Ok(stream)
+    }
+
+    /// Watch the prefix starting from an explicit revision (inclusive).
+    /// Events since that revision are replayed even if they predate the
+    /// watch's creation, which removes the missed-event window between a
+    /// snapshot read and the watch attaching. If etcd has compacted past
+    /// the requested revision the stream is cancelled with an error; the
+    /// caller's watch loop treats that as fatal and the component restarts
+    /// with a fresh snapshot.
+    pub async fn watch_from(&self, prefix: &str, start_revision: i64) -> Result<WatchStream> {
+        let options = WatchOptions::new()
+            .with_prefix()
+            .with_start_revision(start_revision);
         let stream = self.client.clone().watch(prefix, Some(options)).await?;
         Ok(stream)
     }
