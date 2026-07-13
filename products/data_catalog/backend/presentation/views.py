@@ -9,7 +9,7 @@ from typing import cast
 from django.db.models import QuerySet
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action as drf_action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -200,7 +200,14 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(envelope)
 
 
-class CertificationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class CertificationViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     """Trust marks on warehouse tables and views. Reads exclude soft-deleted targets."""
 
     scope_object = "data_catalog"
@@ -209,6 +216,11 @@ class CertificationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet[TableCertification]) -> QuerySet[TableCertification]:
         return api.certifications_for_team(self.team)
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        if getattr(view, "action", None) == "destroy":
+            return ["data_catalog_approval:write"]
+        return None
 
     @extend_schema(request=CertificationCreateSerializer, responses={201: CertificationSerializer})
     def create(self, request: Request, *args, **kwargs) -> Response:

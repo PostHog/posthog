@@ -19,7 +19,6 @@ import type {
     DataCatalogMetricsRunCreateParams,
     PaginatedDataCatalogCertificationListApi,
     PaginatedDataCatalogMetricListApi,
-    PatchedDataCatalogCertificationApi,
     PatchedDataCatalogMetricApi,
 } from './api.schemas'
 
@@ -111,48 +110,6 @@ export const dataCatalogCertificationsRetrieve = async (
     return apiMutator<DataCatalogCertificationApi>(getDataCatalogCertificationsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getDataCatalogCertificationsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_catalog/certifications/${id}/`
-}
-
-/**
- * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
- */
-export const dataCatalogCertificationsUpdate = async (
-    projectId: string,
-    id: string,
-    dataCatalogCertificationApi?: NonReadonly<DataCatalogCertificationApi>,
-    options?: RequestInit
-): Promise<DataCatalogCertificationApi> => {
-    return apiMutator<DataCatalogCertificationApi>(getDataCatalogCertificationsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataCatalogCertificationApi),
-    })
-}
-
-export const getDataCatalogCertificationsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_catalog/certifications/${id}/`
-}
-
-/**
- * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
- */
-export const dataCatalogCertificationsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDataCatalogCertificationApi?: NonReadonly<PatchedDataCatalogCertificationApi>,
-    options?: RequestInit
-): Promise<DataCatalogCertificationApi> => {
-    return apiMutator<DataCatalogCertificationApi>(getDataCatalogCertificationsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDataCatalogCertificationApi),
     })
 }
 

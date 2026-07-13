@@ -15563,8 +15563,8 @@ export namespace Schemas {
       readonly status: string;
       /** Why this mark exists, e.g. 'canonical MRR source'. */
       notes?: string;
-      /** User who last set certified/deprecated. */
-      readonly certified_by: UserBasic;
+      /** User who last set certified/deprecated, or null. */
+      readonly certified_by: UserBasic | null;
       /** @nullable */
       readonly certified_at: string | null;
       /** @nullable */
@@ -40421,35 +40421,6 @@ export namespace Schemas {
       is_featured?: boolean;
       /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
       readonly non_portable_references?: NonPortableReferences;
-    }
-
-    export interface PatchedDataCatalogCertification {
-      readonly id?: string;
-      /**
-         * The warehouse table this mark applies to (XOR saved_query).
-         * @nullable
-         */
-      readonly table?: string | null;
-      /**
-         * The warehouse view this mark applies to (XOR table).
-         * @nullable
-         */
-      readonly saved_query?: string | null;
-      /** Whether the marked target is a 'table' or a 'view'. */
-      readonly target_type?: string;
-      /** Name of the marked table or view. */
-      readonly target_name?: string;
-      /** proposed, certified (prefer this source), or deprecated (avoid this source). */
-      readonly status?: string;
-      /** Why this mark exists, e.g. 'canonical MRR source'. */
-      notes?: string;
-      /** User who last set certified/deprecated. */
-      readonly certified_by?: UserBasic;
-      /** @nullable */
-      readonly certified_at?: string | null;
-      /** @nullable */
-      readonly created_by?: number | null;
-      readonly created_at?: string;
     }
 
     /**

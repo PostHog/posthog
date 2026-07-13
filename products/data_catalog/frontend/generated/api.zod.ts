@@ -14,27 +14,13 @@ import * as zod from 'zod'
  */
 export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
     .object({
-        table_id: zod.string().optional().describe('Warehouse table id to certify (XOR the other targets).'),
-        saved_query_id: zod.string().optional().describe('Warehouse view (saved query) id to certify.'),
+        table_id: zod.uuid().optional().describe('Warehouse table id to certify (XOR the other targets).'),
+        saved_query_id: zod.uuid().optional().describe('Warehouse view (saved query) id to certify.'),
         table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
         view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
         notes: zod.string().optional().describe('Why this mark exists.'),
     })
     .describe('Input for proposing a certification: address the target by id or (convenience) by name.')
-
-/**
- * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
- */
-export const DataCatalogCertificationsUpdateBody = /* @__PURE__ */ zod.object({
-    notes: zod.string().optional().describe("Why this mark exists, e.g. 'canonical MRR source'."),
-})
-
-/**
- * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
- */
-export const DataCatalogCertificationsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    notes: zod.string().optional().describe("Why this mark exists, e.g. 'canonical MRR source'."),
-})
 
 /**
  * Create a metric, or refine the one already holding this name for the team.

@@ -186,7 +186,9 @@ class CertificationSerializer(serializers.ModelSerializer):
     )
     target_type = serializers.SerializerMethodField(help_text="Whether the marked target is a 'table' or a 'view'.")
     target_name = serializers.SerializerMethodField(help_text="Name of the marked table or view.")
-    certified_by = UserBasicSerializer(read_only=True, help_text="User who last set certified/deprecated.")
+    certified_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who last set certified/deprecated, or null."
+    )
 
     class Meta:
         model = TableCertification
@@ -229,8 +231,8 @@ class CertificationSerializer(serializers.ModelSerializer):
 class CertificationCreateSerializer(serializers.Serializer):
     """Input for proposing a certification: address the target by id or (convenience) by name."""
 
-    table_id = serializers.CharField(required=False, help_text="Warehouse table id to certify (XOR the other targets).")
-    saved_query_id = serializers.CharField(required=False, help_text="Warehouse view (saved query) id to certify.")
+    table_id = serializers.UUIDField(required=False, help_text="Warehouse table id to certify (XOR the other targets).")
+    saved_query_id = serializers.UUIDField(required=False, help_text="Warehouse view (saved query) id to certify.")
     table_name = serializers.CharField(required=False, help_text="Table name; 409 with candidates if ambiguous.")
     view_name = serializers.CharField(required=False, help_text="View name; 409 with candidates if ambiguous.")
     notes = serializers.CharField(required=False, allow_blank=True, help_text="Why this mark exists.")

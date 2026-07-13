@@ -7,7 +7,9 @@ picks explicitly. Revocation is a hard delete; both are activity-logged.
 """
 
 from typing import Optional
+from uuid import UUID
 
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -57,7 +59,11 @@ def _capture(user: Optional[User], team: Team, event: str, cert: TableCertificat
     )
 
 
-def _resolve_table(team: Team, table_id: Optional[str], table_name: Optional[str]) -> DataWarehouseTable:
+def _duplicate_target_conflict(certification: TableCertification) -> CatalogConflict:
+    return CatalogConflict(detail={"error": f"This target is already marked '{certification.status}'."})
+
+
+def _resolve_table(team: Team, table_id: str | UUID | None, table_name: str | None) -> DataWarehouseTable:
     # queryable() drops soft-deleted tables and those orphaned by a soft-deleted source.
     live = DataWarehouseTable.objects.queryable().filter(team_id=team.id)
     if table_id:
@@ -79,7 +85,7 @@ def _resolve_table(team: Team, table_id: Optional[str], table_name: Optional[str
 
 
 def _resolve_saved_query(
-    team: Team, saved_query_id: Optional[str], view_name: Optional[str]
+    team: Team, saved_query_id: str | UUID | None, view_name: str | None
 ) -> DataWarehouseSavedQuery:
     live = DataWarehouseSavedQuery.objects.filter(team_id=team.id, deleted=False)
     if saved_query_id:
@@ -104,29 +110,48 @@ def propose_certification(
     *,
     team: Team,
     user: Optional[User],
-    table_id: Optional[str] = None,
-    saved_query_id: Optional[str] = None,
-    table_name: Optional[str] = None,
-    view_name: Optional[str] = None,
+    table_id: str | UUID | None = None,
+    saved_query_id: str | UUID | None = None,
+    table_name: str | None = None,
+    view_name: str | None = None,
     notes: str = "",
 ) -> TableCertification:
+    selectors = {
+        "table_id": table_id,
+        "saved_query_id": saved_query_id,
+        "table_name": table_name,
+        "view_name": view_name,
+    }
+    if sum(value is not None for value in selectors.values()) != 1:
+        raise ValidationError({"target": "Provide exactly one of table_id, saved_query_id, table_name, or view_name."})
+
     target_table = target_saved_query = None
-    if table_id or table_name:
+    if table_id is not None or table_name is not None:
         target_table = _resolve_table(team, table_id, table_name)
-    elif saved_query_id or view_name:
-        target_saved_query = _resolve_saved_query(team, saved_query_id, view_name)
     else:
-        raise ValidationError({"target": "Provide a table (table_id/table_name) or a view (saved_query_id/view_name)."})
+        target_saved_query = _resolve_saved_query(team, saved_query_id, view_name)
 
-    existing = (
-        TableCertification.objects.for_team(team.id).filter(table=target_table, saved_query=target_saved_query).first()
-    )
+    canonical_team = team.parent_team or team
+    certifications = TableCertification.objects.for_team(canonical_team.id, canonical=True)
+    existing = certifications.filter(table=target_table, saved_query=target_saved_query).first()
     if existing is not None:
-        raise CatalogConflict(detail={"error": f"This target is already marked '{existing.status}'."})
+        raise _duplicate_target_conflict(existing)
 
-    cert = TableCertification.objects.for_team(team.id).create(
-        team=team, table=target_table, saved_query=target_saved_query, notes=notes
-    )
+    try:
+        with transaction.atomic():
+            cert = certifications.create(
+                team=canonical_team,
+                table=target_table,
+                saved_query=target_saved_query,
+                notes=notes,
+                created_by=user,
+            )
+    except IntegrityError:
+        existing = certifications.filter(table=target_table, saved_query=target_saved_query).first()
+        if existing is None:
+            raise
+        raise _duplicate_target_conflict(existing)
+
     _log(user, cert, "created")
     _capture(user, team, "data catalog certification proposed", cert)
     return cert
@@ -163,9 +188,12 @@ def revoke_certification(cert: TableCertification, user: Optional[User]) -> None
 
 def certifications_for_team(team: Team) -> QuerySet[TableCertification]:
     """Certifications whose target is not soft-deleted, newest first."""
+    canonical_team_id = team.parent_team_id or team.id
     return (
-        TableCertification.objects.for_team(team.id)
+        TableCertification.objects.for_team(canonical_team_id, canonical=True)
         .exclude(table__deleted=True)
+        .exclude(table__external_data_source__deleted=True)
         .exclude(saved_query__deleted=True)
+        .select_related("table", "saved_query", "certified_by")
         .order_by("-created_at")
     )

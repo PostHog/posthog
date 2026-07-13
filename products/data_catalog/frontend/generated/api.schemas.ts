@@ -82,8 +82,8 @@ export interface DataCatalogCertificationApi {
     readonly status: string
     /** Why this mark exists, e.g. 'canonical MRR source'. */
     notes?: string
-    /** User who last set certified/deprecated. */
-    readonly certified_by: UserBasicApi
+    /** User who last set certified/deprecated, or null. */
+    readonly certified_by: UserBasicApi | null
     /** @nullable */
     readonly certified_at: string | null
     /** @nullable */
@@ -114,35 +114,6 @@ export interface CertificationCreateApi {
     view_name?: string
     /** Why this mark exists. */
     notes?: string
-}
-
-export interface PatchedDataCatalogCertificationApi {
-    readonly id?: string
-    /**
-     * The warehouse table this mark applies to (XOR saved_query).
-     * @nullable
-     */
-    readonly table?: string | null
-    /**
-     * The warehouse view this mark applies to (XOR table).
-     * @nullable
-     */
-    readonly saved_query?: string | null
-    /** Whether the marked target is a 'table' or a 'view'. */
-    readonly target_type?: string
-    /** Name of the marked table or view. */
-    readonly target_name?: string
-    /** proposed, certified (prefer this source), or deprecated (avoid this source). */
-    readonly status?: string
-    /** Why this mark exists, e.g. 'canonical MRR source'. */
-    notes?: string
-    /** User who last set certified/deprecated. */
-    readonly certified_by?: UserBasicApi
-    /** @nullable */
-    readonly certified_at?: string | null
-    /** @nullable */
-    readonly created_by?: number | null
-    readonly created_at?: string
 }
 
 /**

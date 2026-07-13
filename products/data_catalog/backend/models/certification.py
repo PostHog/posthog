@@ -15,6 +15,13 @@ class TableCertification(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFiel
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable",
         on_delete=models.CASCADE,
