@@ -146,7 +146,11 @@ def _resolve_auth_headers(base_url: str, auth: MetabaseAuth, logger: FilteringBo
     except requests.exceptions.JSONDecodeError as e:
         # A 2xx with a non-JSON body means the Instance URL isn't Metabase's session API (e.g. an
         # SSO/login page or a proxy). Deterministic, so surface it as a non-retryable auth error.
-        raise MetabaseAuthError(SESSION_RESPONSE_NOT_JSON_ERROR) from e
+        # Keep the stable substring first so both the non-retryable classifier and validate_credentials
+        # (which returns this message straight to the user) carry the guidance.
+        raise MetabaseAuthError(
+            f"{SESSION_RESPONSE_NOT_JSON_ERROR}. Check that the Instance URL points to your Metabase instance."
+        ) from e
     if not token:
         raise MetabaseAuthError("Metabase session response did not contain a token")
     return {"X-Metabase-Session": token, "Accept": "application/json"}
