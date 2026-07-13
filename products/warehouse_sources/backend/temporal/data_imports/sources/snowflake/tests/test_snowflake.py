@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
+    _SNOWFLAKE_QUERY_TIMEOUT_SECONDS,
     SnowflakeImplementation,
     _build_query,
     _parse_clustering_key_leading_column,
@@ -561,6 +562,9 @@ class TestGetRowsToSync:
     def test_returns_count(self, impl, cursor, logger):
         cursor.fetchone.return_value = (321,)
         assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 321
+        # The COUNT(*) probe scans the same table, so it carries the same long per-query timeout —
+        # otherwise a large table trips the connector timebomb and the probe spuriously logs a 604.
+        assert cursor.execute.call_args.kwargs["timeout"] == _SNOWFLAKE_QUERY_TIMEOUT_SECONDS
 
     def test_returns_zero_on_exception(self, impl, cursor, logger):
         # Sync must never bail because the COUNT(*) probe failed
@@ -605,6 +609,11 @@ class TestBuildPipeline:
             assert list(response.items()) == [b"batch-1", b"batch-2"]
             # Pin a single timestamp unit so mixed ns/us batches don't break pyarrow assembly.
             streaming_cursor.fetch_arrow_batches.assert_called_once_with(force_microsecond_precision=True)
+            # The streaming scan must run with a per-query timeout well above `network_timeout`, or the
+            # connector's timebomb cancels a legitimately long full-table sync with ProgrammingError
+            # 000604/57014. Guards the regression that reused the 300s `network_timeout` as the cap.
+            assert streaming_cursor.execute.call_args.kwargs["timeout"] == _SNOWFLAKE_QUERY_TIMEOUT_SECONDS
+            assert _SNOWFLAKE_QUERY_TIMEOUT_SECONDS > _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS
 
     def test_multi_schema_row_routes_to_qualified_namespace(self, impl):
         # A blank-namespace source pins each row's schema via the dotted schema_name.
