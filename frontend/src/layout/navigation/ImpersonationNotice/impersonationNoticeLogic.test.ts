@@ -840,4 +840,30 @@ describe('impersonationNoticeLogic', () => {
             }
         })
     })
+
+    describe('downgrade modal', () => {
+        it('toggles isDowngradeModalOpen', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openDowngradeModal()
+            }).toMatchValues({ isDowngradeModalOpen: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.closeDowngradeModal()
+            }).toMatchValues({ isDowngradeModalOpen: false })
+        })
+
+        it('closes the modal on a successful downgrade once the user is read-only', async () => {
+            userLogic.actions.loadUserSuccess({ ...MOCK_IMPERSONATED_USER, is_impersonated_read_only: false })
+            logic.actions.openDowngradeModal()
+
+            await expectLogic(logic, () => {
+                userLogic.actions.downgradeImpersonationSuccess({
+                    ...MOCK_IMPERSONATED_USER,
+                    is_impersonated_read_only: true,
+                })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ isDowngradeModalOpen: false })
+        })
+    })
 })

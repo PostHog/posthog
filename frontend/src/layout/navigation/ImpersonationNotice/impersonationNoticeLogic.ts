@@ -52,10 +52,22 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
     path(['layout', 'navigation', 'ImpersonationNotice', 'impersonationNoticeLogic']),
 
     connect(() => ({
-        values: [userLogic, ['user', 'isImpersonationUpgradeInProgress'], membersLogic, ['members', 'membersLoading']],
+        values: [
+            userLogic,
+            ['user', 'isImpersonationUpgradeInProgress', 'isImpersonationDowngradeInProgress'],
+            membersLogic,
+            ['members', 'membersLoading'],
+        ],
         actions: [
             userLogic,
-            ['upgradeImpersonation', 'upgradeImpersonationSuccess', 'loadUser', 'loadUserSuccess'],
+            [
+                'upgradeImpersonation',
+                'upgradeImpersonationSuccess',
+                'downgradeImpersonation',
+                'downgradeImpersonationSuccess',
+                'loadUser',
+                'loadUserSuccess',
+            ],
             membersLogic,
             ['ensureAllMembersLoaded'],
         ],
@@ -66,6 +78,8 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
         maximize: true,
         openUpgradeModal: true,
         closeUpgradeModal: true,
+        openDowngradeModal: true,
+        closeDowngradeModal: true,
         setPageVisible: (visible: boolean) => ({ visible }),
         clearPageHiddenAt: true,
         setTicketContext: (context: ImpersonationTicketContext | null) => ({ context }),
@@ -90,6 +104,13 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
             {
                 openUpgradeModal: () => true,
                 closeUpgradeModal: () => false,
+            },
+        ],
+        isDowngradeModalOpen: [
+            false,
+            {
+                openDowngradeModal: () => true,
+                closeDowngradeModal: () => false,
             },
         ],
         pageHiddenAt: [
@@ -181,6 +202,11 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
         upgradeImpersonationSuccess: () => {
             if (values.isUpgradeModalOpen && !values.isReadOnly) {
                 actions.closeUpgradeModal()
+            }
+        },
+        downgradeImpersonationSuccess: () => {
+            if (values.isDowngradeModalOpen && values.isReadOnly) {
+                actions.closeDowngradeModal()
             }
         },
         reImpersonate: async ({ reason, readOnly }) => {

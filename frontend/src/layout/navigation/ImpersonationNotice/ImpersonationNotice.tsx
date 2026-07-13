@@ -142,6 +142,8 @@ function ImpersonationNoticeContent(): JSX.Element {
         isReadOnly,
         isUpgradeModalOpen,
         isImpersonationUpgradeInProgress,
+        isDowngradeModalOpen,
+        isImpersonationDowngradeInProgress,
         changeableMembers,
         isChangingUser,
         membersLoading,
@@ -149,6 +151,8 @@ function ImpersonationNoticeContent(): JSX.Element {
     const {
         closeUpgradeModal,
         upgradeImpersonation,
+        closeDowngradeModal,
+        downgradeImpersonation,
         setSessionExpired,
         returnToPostHog,
         changeUser,
@@ -159,7 +163,7 @@ function ImpersonationNoticeContent(): JSX.Element {
     const [pendingUserId, setPendingUserId] = useState<number | null>(null)
 
     // The reason given when impersonation of the current user started (persisted server-side),
-    // used to pre-fill the change-user and upgrade modals.
+    // used to pre-fill the change-user and upgrade/downgrade modals.
     const storedReason = user?.is_impersonated_reason
 
     const changeUserItems =
@@ -240,7 +244,7 @@ function ImpersonationNoticeContent(): JSX.Element {
                     Log out to admin
                 </LemonButton>
             </div>
-            {isReadOnly && (
+            {isReadOnly ? (
                 <ImpersonationReasonModal
                     isOpen={isUpgradeModalOpen}
                     onClose={closeUpgradeModal}
@@ -249,6 +253,17 @@ function ImpersonationNoticeContent(): JSX.Element {
                     description="Read-write mode allows you to make changes on behalf of the user. Please provide a reason for this upgrade."
                     confirmText="Upgrade"
                     loading={isImpersonationUpgradeInProgress}
+                    initialReason={storedReason ?? ''}
+                />
+            ) : (
+                <ImpersonationReasonModal
+                    isOpen={isDowngradeModalOpen}
+                    onClose={closeDowngradeModal}
+                    onConfirm={downgradeImpersonation}
+                    title="Downgrade to read-only impersonation"
+                    description="Read-only mode prevents you from making changes on behalf of the user. Please provide a reason for this downgrade."
+                    confirmText="Downgrade"
+                    loading={isImpersonationDowngradeInProgress}
                     initialReason={storedReason ?? ''}
                 />
             )}
@@ -283,7 +298,8 @@ export function ImpersonationNotice(): JSX.Element | null {
         ticketContext,
         adminLoginUrls,
     } = useValues(impersonationNoticeLogic)
-    const { minimize, maximize, openUpgradeModal, setPageVisible } = useActions(impersonationNoticeLogic)
+    const { minimize, maximize, openUpgradeModal, openDowngradeModal, setPageVisible } =
+        useActions(impersonationNoticeLogic)
 
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -354,13 +370,18 @@ export function ImpersonationNotice(): JSX.Element | null {
                         <div className="ImpersonationNotice__header">
                             <IconWarning className="ImpersonationNotice__warning-icon" />
                             <span className="ImpersonationNotice__title">{title}</span>
-                            {isImpersonated && isReadOnly && (
+                            {isImpersonated && (
                                 <LemonMenu
                                     items={[
-                                        {
-                                            label: 'Upgrade to read-write',
-                                            onClick: openUpgradeModal,
-                                        },
+                                        isReadOnly
+                                            ? {
+                                                  label: 'Upgrade to read-write',
+                                                  onClick: openUpgradeModal,
+                                              }
+                                            : {
+                                                  label: 'Downgrade to read-only',
+                                                  onClick: openDowngradeModal,
+                                              },
                                     ]}
                                 >
                                     <LemonButton size="xsmall" icon={<IconEllipsis />} />

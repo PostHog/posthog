@@ -1540,6 +1540,121 @@ class TestUpgradeImpersonation(APIBaseTest):
         assert response.json()["error"] == "Unable to upgrade impersonation"
 
 
+class TestDowngradeImpersonation(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        self.client = cast(Any, DjangoClient())
+        self.client.force_login(self.user)
+
+    def login_as_read_only(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true", "reason": "Initial read-only impersonation"},
+            follow=True,
+        )
+
+    def login_as_read_write(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false", "reason": "Initial read-write impersonation"},
+            follow=True,
+        )
+
+    def test_downgrade_succeeds_from_read_write_with_reason(self):
+        self.login_as_read_write()
+
+        # Verify we're in read-write mode
+        user_response = self.client.get("/api/users/@me/")
+        assert user_response.json()["is_impersonated_read_only"] is False
+
+        # Downgrade to read-only
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Done making changes, returning to read-only"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+        # Verify we're now in read-only mode
+        user_response = self.client.get("/api/users/@me/")
+        assert user_response.json()["is_impersonated_read_only"] is True
+
+    def test_downgrade_returns_404_when_not_impersonated(self):
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+
+    def test_downgrade_returns_404_when_already_read_only(self):
+        self.login_as_read_only()
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+
+    def test_downgrade_returns_400_without_reason(self):
+        self.login_as_read_write()
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert "reason" in response.json()["error"].lower()
+
+    def test_downgrade_returns_400_with_empty_reason(self):
+        self.login_as_read_write()
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "   "}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    @patch("ee.admin.loginas_views.get_original_user_from_session", return_value=None)
+    def test_downgrade_returns_400_when_staff_user_not_found(self, mock_get_staff):
+        self.login_as_read_write()
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "Unable to downgrade impersonation"
+
+    def test_downgrade_returns_400_when_staff_demoted_mid_session(self):
+        self.login_as_read_write()
+
+        # Revoke staff privileges mid-session
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "Unable to downgrade impersonation"
+
+
 @override_settings(SESSION_COOKIE_AGE=100)
 class TestSessionAgeMiddleware(APIBaseTest):
     def setUp(self):
