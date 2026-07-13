@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { isLogEntryPropertyFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
+import { metricCount, metricHistogram } from 'lib/operationalMetrics'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -94,11 +95,15 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
                 snapshot_source: metadata?.snapshot_source || 'unknown',
             }
             posthog.capture(`recording loaded`, payload)
+            metricCount('replay_player_recordings_loaded', 1, {
+                snapshot_source: metadata?.snapshot_source || 'unknown',
+            })
         },
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
         reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter }) => {
+            metricHistogram('replay_list_load_ms', loadTime, 'ms')
             try {
                 const filterValues = filtersFromUniversalFilterGroups(filters)
 

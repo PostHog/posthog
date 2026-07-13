@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { metricCount } from 'lib/operationalMetrics'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { visionObservationsList, visionScannersObserveCreate } from '../generated/api'
@@ -140,6 +141,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     const response = await visionObservationsList(String(teamId), { session_id: props.sessionId })
                     actions.loadObservationsSuccess(response.results ?? [])
                 } catch {
+                    metricCount('replay_vision_frontend_observations_load_failures')
                     actions.loadObservationsFailure()
                 }
             },
@@ -147,6 +149,10 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             // Poll while in flight and through the observe grace window; rescheduled on failure so one hiccup can't kill it.
             loadObservationsSuccess: reschedulePoll,
             loadObservationsFailure: reschedulePoll,
+
+            observeFailure: () => {
+                metricCount('replay_vision_frontend_observe_failures')
+            },
 
             observe: async ({ scannerId }) => {
                 actions.setScannerPickerOpen(false)

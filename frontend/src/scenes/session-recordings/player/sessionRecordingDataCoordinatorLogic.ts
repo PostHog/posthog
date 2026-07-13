@@ -14,6 +14,7 @@ import {
 } from '@posthog/replay-shared'
 
 import { Dayjs, dayjs, now } from 'lib/dayjs'
+import { metricCount } from 'lib/operationalMetrics'
 
 import {
     RecordingSegment,
@@ -186,6 +187,10 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             actions.reportUsageIfFullyLoaded()
         },
 
+        loadRecordingMetaFailure: () => {
+            metricCount('replay_player_load_failures', 1, { kind: 'meta' })
+        },
+
         loadNextSnapshotSource: () => {
             actions.reportUsageIfFullyLoaded()
         },
@@ -265,6 +270,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 } else {
                     // Give up loudly: nothing re-triggers processing from here, so surface a terminal
                     // error instead of leaving the player buffering forever.
+                    metricCount('replay_player_load_failures', 1, { kind: 'snapshot_processing' })
                     actions.snapshotProcessingFailed()
                 }
                 return
