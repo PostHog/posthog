@@ -290,6 +290,30 @@ x-posthog-mcp-mode: tools
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
+Claude web and desktop impose an 18,000-character limit on each complete serialized tool entry.
+In cli mode, the `posthog` tool keeps the guidance needed for routine calls in its schema.
+The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
+Optional, task-specific guidance is served through the same tool:
+
+- `learn` lists the available built-in guides and the product skill discovery syntax.
+- `learn analytics` loads detailed analytics guidance and examples.
+- `learn visualizations` loads rendering guidance when visualizations are available.
+- `learn feedback` loads feedback guidance when feedback is available.
+- `learn skills` lists the names of the product skills in the latest published skill bundle.
+- `learn -s <query>` searches skill names, descriptions, Markdown bodies, and bundled file paths.
+- `learn <skill> [path]` reads a skill or one of its bundled files.
+- `learn <skill> <path> -s <query>` searches within one Markdown file.
+- `learn <skill> <path> --lines <start>:<end>` reads an inclusive line range.
+
+The skill bundle is cached in Redis with stale-while-revalidate behavior and a seven-day hard expiry.
+By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
+Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
+Individual `learn` responses stay below 44,000 characters; large references return a heading outline for follow-up search or line reads.
+The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
+`consumer=plugin` omits `learn` because the plugin already supplies its own skill context.
+
+Other clients keep the full inline command reference.
+
 ### Consumer attribution
 
 Wrapping apps and AI-tool plugins that install or proxy the PostHog MCP can self-identify so usage can be attributed to the install path (e.g. plugin-installed vs. manually-pasted URL). The wrapped MCP client (Claude Code, Cursor, …) is already captured separately via the MCP `clientInfo` handshake — this signal is only for the wrapping context.
