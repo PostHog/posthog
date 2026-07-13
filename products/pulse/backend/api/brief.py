@@ -79,7 +79,8 @@ class BriefConfigSerializer(serializers.ModelSerializer):
                 "help_text": "Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false."
             },
             "accountability_min_age_days": {
-                "help_text": "How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7."
+                "min_value": 1,
+                "help_text": "How many days old a surfaced opportunity must be before the accountability section re-scores it. Defaults to 7.",
             },
         }
 

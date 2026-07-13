@@ -49,7 +49,7 @@ export function AccountabilityPanel({ lines }: { lines: readonly AccountabilityS
                     Metrics re-measured against when each was suggested — movement, not attribution.
                 </p>
             </div>
-            <LemonTable dataSource={lines as AccountabilityStatusLineApi[]} columns={columns} rowKey="opportunity_id" />
+            <LemonTable dataSource={[...lines]} columns={columns} rowKey="opportunity_id" />
         </div>
     )
 }

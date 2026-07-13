@@ -5,7 +5,6 @@ import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import {
     pulseOpportunitiesActedCreate,
@@ -16,6 +15,7 @@ import {
 import type { OpportunityApi } from './generated/api.schemas'
 import { OpportunityStatusEnumApi } from './generated/api.schemas'
 import type { opportunitiesLogicType } from './opportunitiesLogicType'
+import { currentProjectId, LIST_PAGE_SIZE } from './utils'
 
 export type OpportunityTransition = 'dismiss' | 'acted' | 'reopen'
 
@@ -41,13 +41,6 @@ export function transitionsForStatus(
     return (Object.keys(OPPORTUNITY_TRANSITIONS) as OpportunityTransition[])
         .filter((transition) => OPPORTUNITY_TRANSITIONS[transition].from === status)
         .map((transition) => ({ transition, label: OPPORTUNITY_TRANSITIONS[transition].label }))
-}
-
-/** First page only — deliberate for alpha; load-more is a follow-up. */
-const LIST_PAGE_SIZE = 100
-
-function currentProjectId(): string {
-    return String(getCurrentTeamId())
 }
 
 export const opportunitiesLogic = kea<opportunitiesLogicType>([

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.db import connection
 from django.utils import timezone
 
 import structlog
@@ -77,6 +78,15 @@ class _InsightResultsCache:
         return self._results[insight.short_id]
 
 
+def _run_and_close_connection(insight: Insight, team: Team) -> list[Any]:
+    # Runs in a spawned worker thread that Django won't tear down for us, so close the
+    # thread-local DB connection ourselves — otherwise a timed-out query strands its connection.
+    try:
+        return calculate_insight_results(insight, team)
+    finally:
+        connection.close()
+
+
 def _execute_within_timeout(insight: Insight, team: Team) -> list[Any]:
     """Run a blocking insight execution with a hard wall-clock cap.
 
@@ -86,7 +96,7 @@ def _execute_within_timeout(insight: Insight, team: Team) -> list[Any]:
     hung query never blocks the collector).
     """
     executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(calculate_insight_results, insight, team)
+    future = executor.submit(_run_and_close_connection, insight, team)
     try:
         return future.result(timeout=_INSIGHT_TIMEOUT_SECONDS)
     finally:

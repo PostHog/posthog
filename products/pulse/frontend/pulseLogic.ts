@@ -7,7 +7,6 @@ import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
@@ -29,6 +28,7 @@ import type {
 } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
 import type { pulseLogicType } from './pulseLogicType'
+import { currentProjectId, LIST_PAGE_SIZE } from './utils'
 
 /** A `"type:ref"` evidence citation split into its parts, e.g. `insight:abc123`. */
 export interface BriefCitation {
@@ -99,18 +99,11 @@ export const BRIEF_POLL_INTERVAL_MS = 3000
 /** Stop polling and surface an error after this many consecutive rounds where every retrieve failed. */
 export const MAX_CONSECUTIVE_POLL_FAILURES = 5
 
-/** First page only — deliberate for alpha; load-more is a follow-up. */
-const LIST_PAGE_SIZE = 100
-
 export const BRIEF_ALREADY_GENERATING_MESSAGE = 'A brief is already being generated'
 
 // Cross-boundary contract: must match the ValidationError code raised by the generate endpoint
 // in products/pulse/backend/api/brief.py — rename both sides together.
 const AI_CONSENT_ERROR_CODE = 'ai_consent_required'
-
-function currentProjectId(): string {
-    return String(getCurrentTeamId())
-}
 
 function isAiConsentError(error: unknown): boolean {
     return error instanceof ApiError && error.code === AI_CONSENT_ERROR_CODE
