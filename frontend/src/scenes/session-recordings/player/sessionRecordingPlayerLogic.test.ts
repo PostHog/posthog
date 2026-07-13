@@ -256,6 +256,20 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('terminal data failures', () => {
+        // Give-up signals must surface as a player error even when partial data already loaded —
+        // otherwise the affected range buffers forever with no error shown.
+        it.each(['snapshotProcessingFailed', 'snapshotSourceLoadExhausted'] as const)(
+            '%s sets a player error',
+            (action) => {
+                const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+                logic.actions[action]()
+                expect(logic.values.playerError).toBe(action)
+                consoleError.mockRestore()
+            }
+        )
+    })
+
     describe('currentPlayerTime clamping', () => {
         // Mock recording: start=1682952380877, end=1682952392745, durationMs=11868
         const START = 1682952380877
@@ -329,6 +343,10 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('load snapshot errors and triggers error state', async () => {
+            silenceKeaLoadersErrors()
+            // the player deliberately reports the missing snapshots via console.error
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -363,6 +381,10 @@ describe('sessionRecordingPlayerLogic', () => {
                 },
                 playerError: 'loadSnapshotSourcesFailure',
             })
+            expect(consoleErrorSpy).toHaveBeenCalledWith('PostHog Recording Playback Error: No snapshots loaded')
+
+            consoleErrorSpy.mockRestore()
+            resumeKeaLoadersErrors()
         })
 
         it('ensures the cache initialization is reset after the player is unmounted', async () => {

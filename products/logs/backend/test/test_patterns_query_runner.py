@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import datetime as dt
 
@@ -75,6 +76,9 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert example["severity_text"] == "error"
         assert example["service_name"] == "auth"
         assert example["timestamp"].startswith("2026-06-23T12:00:00")
+        # The pivot predicate ships validated: it must match the pattern's own examples.
+        assert re.search(by_template["User <*> not found"]["match_regex"], example["body"])
+        assert by_template["User <*> not found"]["match_literal"] == "not found"
         # Unsliced windows bucket uniformly; every sampled occurrence lands in some bucket.
         assert len(results["sparkline_buckets"]) == 24
         assert sum(by_template["User <*> not found"]["sparkline"]) == 3

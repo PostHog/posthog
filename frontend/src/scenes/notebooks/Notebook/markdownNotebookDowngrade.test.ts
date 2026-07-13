@@ -45,6 +45,20 @@ describe('markdownNotebookDowngrade', () => {
         })
     })
 
+    it('wraps quoted headings in a blockquote', () => {
+        expect(convertMarkdownToNotebookContent('> ## Quoted heading')).toEqual({
+            type: 'doc',
+            content: [
+                {
+                    type: 'blockquote',
+                    content: [
+                        { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Quoted heading' }] },
+                    ],
+                },
+            ],
+        })
+    })
+
     it.each<[string, string, JSONContentMarks]>([
         ['**bold**', 'bold', [{ type: 'bold' }]],
         ['*italic*', 'italic', [{ type: 'italic' }]],

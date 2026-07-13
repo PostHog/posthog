@@ -12,6 +12,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.temporal.constants import (
     ACK_TIMEOUT,
     CI_FOLLOW_UP_DELAY,
@@ -381,7 +382,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             raise
 
         except Exception as e:
-            error_message = str(e)[:500]
+            error_message = truncate_error_message(str(e))
             await self._track_workflow_event(
                 "task_management_failed",
                 {
@@ -391,7 +392,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     "error_message": error_message,
                 },
             )
-            await self._update_task_run_status("failed", error_message=error_message)
+            await self._update_task_run_status("failed", error_message=error_message, error_type=type(e).__name__)
             return TaskRunManagementOutput(
                 success=False,
                 error=error_message,
@@ -907,7 +908,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         )
         if not pr_context:
             return CIFollowUpDecision.NO_PR
-        if pr_context.pr_state == "closed":
+        if pr_context.pr_state in ("closed", "merged"):
             workflow.logger.info(
                 "task_management_ci_skipped_pr_closed",
                 run_id=self._run_id,
@@ -971,6 +972,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self,
         status: str,
         error_message: Optional[str] = None,
+        error_type: Optional[str] = None,
     ) -> None:
         run_id = self._run_id
         if run_id is None:
@@ -981,6 +983,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 run_id=run_id,
                 status=status,
                 error_message=error_message,
+                error_type=error_type,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),

@@ -37,10 +37,10 @@ const taxonomicGroupTypes = [
 ]
 
 export function TracingFilterBar(): JSX.Element {
-    const { spansLoading } = useValues(tracingDataLogic())
-    const { runQuery } = useActions(tracingDataLogic())
-    const { filters, utcDateRange, timezone } = useValues(tracingFiltersLogic())
-    const { setDateRange, setTimezone, setServiceNames, setFilterGroup } = useActions(tracingFiltersLogic())
+    const { spansLoading } = useValues(tracingDataLogic)
+    const { runQuery } = useActions(tracingDataLogic)
+    const { filters, utcDateRange, timezone } = useValues(tracingFiltersLogic)
+    const { setDateRange, setTimezone, setServiceNames, setFilterGroup } = useActions(tracingFiltersLogic)
     const { dateRange, serviceNames, filterGroup } = filters
 
     return (
@@ -90,11 +90,13 @@ function TracingFilterGroup({
     onFilterGroupChange: (filterGroup: UniversalFiltersGroup) => void
     children: React.ReactNode
 }): JSX.Element {
-    const { utcDateRange, filters } = useValues(tracingFiltersLogic())
+    const { utcDateRange, filters, queryFilterGroup } = useValues(tracingFiltersLogic)
 
+    // Suggestions are scoped by the query-facing group (pinned filters included) so an
+    // embedded viewer only suggests values that exist within its pinned scope.
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-        filterGroup,
+        filterGroup: queryFilterGroup,
         serviceNames: filters.serviceNames,
     }
 
@@ -115,7 +117,7 @@ function TracingFilterGroup({
 
 function TracingFilterSearch(): JSX.Element {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, filters: tracingFilters } = useValues(tracingFiltersLogic())
+    const { utcDateRange, filters: tracingFilters, queryFilterGroup } = useValues(tracingFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -132,7 +134,7 @@ function TracingFilterSearch(): JSX.Element {
         taxonomicGroupTypes,
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-            filterGroup: tracingFilters.filterGroup,
+            filterGroup: queryFilterGroup,
             serviceNames: tracingFilters.serviceNames,
         },
         onChange: (taxonomicGroup, value, item) => {

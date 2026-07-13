@@ -51,6 +51,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.replay_vision.backend.billing import get_replay_vision_credits_by_team
 from products.signals.backend.billing import get_signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
@@ -115,6 +116,14 @@ USAGE_REPORT_TASK_KWARGS = {
     "expires": 14400,  # 4h
 }
 
+# The all-org parent can run longer than Redis' default visibility timeout, so
+# late acking it can redeliver the same producer while the first copy is alive.
+USAGE_REPORT_PARENT_TASK_KWARGS = {
+    **USAGE_REPORT_TASK_KWARGS,
+    "acks_late": False,
+    "reject_on_worker_lost": False,
+}
+
 
 @dataclasses.dataclass
 class UsageReportCounters:
@@ -135,7 +144,7 @@ class UsageReportCounters:
     mobile_billable_recording_count_in_period: int
 
     # Replay Vision
-    recording_observations_count_in_period: int
+    replay_vision_credits_used_in_period: int
 
     # Persons and Groups
     group_types_total: int
@@ -913,23 +922,9 @@ def get_teams_with_recording_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_recording_observations_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
-    # Replay Vision emits one `$recording_observed` event per observation into the team's events table,
-    # with `event_uuid` set to the observation id. Count distinct uuids so at-least-once ingestion
-    # duplicates (same observation, same uuid) aren't over-counted — this is a billing input.
-    with tags_context(product=Product.REPLAY_VISION, feature=Feature.USAGE_REPORT):
-        return sync_execute(
-            """
-            SELECT team_id, count(distinct uuid) as count
-            FROM events
-            WHERE event = '$recording_observed' AND timestamp >= %(begin)s AND timestamp < %(end)s
-            GROUP BY team_id
-        """,
-            {"begin": begin, "end": end},
-            workload=Workload.OFFLINE,
-            settings=CH_BILLING_SETTINGS,
-            ch_user=ClickHouseUser.BILLING,
-        )
+def get_teams_with_replay_vision_credits_used_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    # Billed from the ReplayObservationUsage receipt ledger, the same source the in-product quota meter reads.
+    return get_replay_vision_credits_by_team(begin, end)
 
 
 @timed_log()
@@ -1265,6 +1260,8 @@ def get_teams_with_ai_event_count_in_period(
 
 # AI billing markup: 20% markup on top of cost
 AI_COST_MARKUP_PERCENT = 0.2
+# PostHog Code bills model costs as pure pass-through: no markup
+POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
 AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
@@ -1287,6 +1284,7 @@ POSTHOG_AI_PRODUCTS = [
     "alert_investigation_agent",
     "product_analytics",
     "surveys",
+    "replay_vision",
 ]
 
 # ai_product values billed as PostHog Code credits.
@@ -1317,6 +1315,7 @@ def _get_teams_with_ai_credits_for_products(
     ai_products: list[str],
     usage_report_tag: str,
     product_tag: Product = Product.MAX_AI,
+    markup_percent: float = AI_COST_MARKUP_PERCENT,
 ) -> list[tuple[int, int]]:
     """
     Shared implementation for AI billing credit aggregation, whitelisting on the
@@ -1476,7 +1475,7 @@ def _get_teams_with_ai_credits_for_products(
                 "team_to_query": team_to_query,
                 "begin": begin,
                 "end": end,
-                "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
+                "markup_multiplier": 1 + markup_percent,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
                 "ai_products": tuple(ai_products),
                 **region_filter_params,
@@ -1522,13 +1521,17 @@ def get_teams_with_posthog_code_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """PostHog Code billing credits — only events tagged with ai_product='posthog_code'."""
+    """PostHog Code billing credits — only events tagged with ai_product='posthog_code'.
+
+    Billed as pure pass-through of model costs (no markup), unlike PostHog AI's 20%.
+    """
     return _get_teams_with_ai_credits_for_products(
         begin,
         end,
         ai_products=POSTHOG_CODE_AI_PRODUCTS,
         usage_report_tag="posthog_code_credits",
         product_tag=Product.POSTHOG_CODE,
+        markup_percent=POSTHOG_CODE_COST_MARKUP_PERCENT,
     )
 
 
@@ -2252,7 +2255,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
         or report.workflow_billable_invocations_in_period > 0
-        or report.recording_observations_count_in_period > 0
+        or report.replay_vision_credits_used_in_period > 0
     )
 
 
@@ -2341,7 +2344,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_mobile_billable_recording_count_in_period": get_teams_with_mobile_billable_recording_count_in_period(
             period_start, period_end
         ),
-        "teams_with_recording_observations_count_in_period": get_teams_with_recording_observations_count_in_period(
+        "teams_with_replay_vision_credits_used_in_period": get_teams_with_replay_vision_credits_used_in_period(
             period_start, period_end
         ),
         "teams_with_decide_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
@@ -2596,7 +2599,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         mobile_billable_recording_count_in_period=all_data["teams_with_mobile_billable_recording_count_in_period"].get(
             team.id, 0
         ),
-        recording_observations_count_in_period=all_data["teams_with_recording_observations_count_in_period"].get(
+        replay_vision_credits_used_in_period=all_data["teams_with_replay_vision_credits_used_in_period"].get(
             team.id, 0
         ),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
@@ -2843,7 +2846,7 @@ def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[st
     return
 
 
-@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
+@shared_task(**USAGE_REPORT_PARENT_TASK_KWARGS, max_retries=3)
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,

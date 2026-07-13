@@ -1925,7 +1925,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert all(r["name"] != "Totally unrelated" for r in results)
 
-    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("slack notification", "notification slack", "slcak metrics", "Engineering metrics"):
             HogFunction.objects.create(team=self.team, name=name, type="destination", hog="return event")
 
@@ -1937,11 +1937,19 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert match_type_by_name == {
             "slack notification": "exact",
             "notification slack": "exact",
-            "slcak metrics": "similar",
-        }
+        }, "similar matches must be hidden when exact matches exist"
 
-        match_types = [r["search_match_type"] for r in results]
-        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+    def test_list_filter_by_search_decides_match_tier_after_type_filter(self):
+        HogFunction.objects.create(team=self.team, name="slack notification", type="destination", hog="return event")
+        HogFunction.objects.create(team=self.team, name="slcak transform", type="transformation", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search=slack&type=transformation")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert [(r["name"], r["search_match_type"]) for r in results] == [("slcak transform", "similar")], (
+            "an exact match removed by the type filter must not suppress the similar matches that survive it"
+        )
 
     def test_list_filter_by_search_match_type_absent_without_search(self):
         HogFunction.objects.create(team=self.team, name="Alpha", type="destination", hog="return event")

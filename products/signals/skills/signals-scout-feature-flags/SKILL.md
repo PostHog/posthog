@@ -138,7 +138,7 @@ LIMIT 50
 
 Two ghost classes come back, with different stories:
 
-- **Soft-deleted but still called** — the key exists in `system.feature_flags` with `deleted = 1`. `activity-log-list {scope: "FeatureFlag"}` can often date the deletion; calls continuing after it measure exactly how stale the shipped code is. Before authoring, pull the deleted row's `id` from `system.feature_flags` and call `feature-flag-get-definition` — the list endpoint hides deleted flags, and a deleted flag can still be experiment-linked (`experiment_set`): lingering experiment flags belong to the experiments scout, not your ghost finding.
+- **Soft-deleted but still called** — the key exists in `system.feature_flags` with `deleted = 1`. `advanced-activity-logs-list {scopes: ["FeatureFlag"]}` can often date the deletion; calls continuing after it measure exactly how stale the shipped code is. Before authoring, pull the deleted row's `id` from `system.feature_flags` and call `feature-flag-get-definition` — the list endpoint hides deleted flags, and a deleted flag can still be experiment-linked (`experiment_set`): lingering experiment flags belong to the experiments scout, not your ghost finding.
 - **Absent entirely** — no row at any `deleted` value: the flag was hard-deleted or the code shipped a check for a flag that was never created. These can run shockingly hot (six-figure weekly calls) because nothing in the flag UI ever surfaces them.
 
 Sustained volume (≥ ~100 calls/day) is the bar. Before claiming either class, confirm with `feature-flag-get-all {"search": "<key>"}` that the key isn't renamed, freshly created mid-window, or visible to the API but not the system table — the REST roster is the authority when the two disagree. The finding: name the key, the call volume and reach (`persons_7d`), how long it's been orphaned, and what the silent fallback means (users get the off path).
@@ -163,7 +163,7 @@ Compare each response's **share within its own window**, never the raw counts �
 
 A material shift (e.g. a 25% rollout flag suddenly serving `false` to ~everyone, a variant's share collapsing) is signal **only without a matching edit** — check `feature-flags-activity-retrieve` first. No edit + shifted responses points at condition drift: a release condition keyed on a person/group property whose real-world values changed (a cohort emptied, a property stopped being set upstream). Confirm the mechanism with `feature-flag-get-definition` (read the `filters` groups) and one SQL count on the targeted property before authoring — a distribution shift you can't mechanically explain is a `pattern:` memory, not a finding.
 
-**Cohort-targeted flags hide their edits:** if `filters` reference a cohort, a cohort definition update changes the response mix with **no** `FeatureFlag` activity entry. Check `activity-log-list {scope: "Cohort", item_id: <cohort-id>}` before calling drift — an intentional cohort edit near the shift is deliberate maintenance (context, not a finding).
+**Cohort-targeted flags hide their edits:** if `filters` reference a cohort, a cohort definition update changes the response mix with **no** `FeatureFlag` activity entry. Check `advanced-activity-logs-list {scopes: ["Cohort"], item_ids: [<cohort-id>]}` before calling drift — an intentional cohort edit near the shift is deliberate maintenance (context, not a finding).
 
 #### Flag-debt hygiene (P3 bundle)
 
@@ -241,7 +241,7 @@ Direct calls (read-only):
 - `feature-flags-status-retrieve` — health status (`active` / `stale` / `deleted` / `unknown`) with a human-readable reason; good for citing staleness precisely.
 - `feature-flags-activity-retrieve` — one flag's edit history with diffs; how you date edits against traffic shifts.
 - `feature-flags-dependent-flags-retrieve` — flags whose conditions reference this one; cleanup-safety check for the debt bundle.
-- `activity-log-list` (`scope: "FeatureFlag"`) — project-wide flag change timeline, including deletions that `feature-flags-activity-retrieve` can't reach anymore.
+- `advanced-activity-logs-list` (`scopes: ["FeatureFlag"]`) — project-wide flag change timeline, including deletions that `feature-flags-activity-retrieve` can't reach anymore.
 - `execute-sql` against `events` — the traffic side. Properties on `$feature_flag_called`: `$feature_flag` (key), `$feature_flag_response` (`true`/`false`/variant key).
 - `execute-sql` against `system.feature_flags` — the bulk roster side (`id`, `key`, `name`, `filters`, `rollout_percentage`, `deleted`; no `active` column). Powers the ghost anti-join and any roster-wide aggregation without pagination.
 - `read-data-schema` — confirm `$feature_flag_called` exists and check property shape before aggregating.

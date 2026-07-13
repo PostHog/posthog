@@ -11,7 +11,7 @@ import {
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
-import { createBatch, createNewPipeline, createUnwrapper } from '~/ingestion/framework/helpers'
+import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { PipelineResult, dlq, drop, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -271,11 +271,13 @@ describe('Pipeline Integration Tests', () => {
             const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
+                        .gather()
+                        .pipeBatch(batchStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -351,11 +353,13 @@ describe('Pipeline Integration Tests', () => {
             )
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                    builder
+                        .concurrently((b) => b.pipe(step1))
+                        .gather()
+                        .pipeBatch(batchStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -418,11 +422,13 @@ describe('Pipeline Integration Tests', () => {
             )
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                    builder
+                        .concurrently((b) => b.pipe(step1))
+                        .gather()
+                        .pipeBatch(batchStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -494,11 +500,13 @@ describe('Pipeline Integration Tests', () => {
             >(batchStep2Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                    builder
+                        .concurrently((b) => b.pipe(step1))
+                        .gather()
+                        .pipeBatch(batchStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -680,11 +688,13 @@ describe('Pipeline Integration Tests', () => {
             const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
+                        .gather()
+                        .pipeBatch(batchStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -847,11 +857,13 @@ describe('Pipeline Integration Tests', () => {
             const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
+                        .gather()
+                        .pipeBatch(batchStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -995,11 +1007,13 @@ describe('Pipeline Integration Tests', () => {
             const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
+                        .gather()
+                        .pipeBatch(batchStep4)
                 )
                 .handleResults({
                     outputs: mockOutputs,
@@ -1154,12 +1168,11 @@ describe('Pipeline Integration Tests', () => {
             const batchStep3 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep3Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
-                        .pipeConcurrently(preprocessingPipeline)
+                        .concurrently((b) => b.pipe(step1))
                         .gather()
                         .pipeBatch(batchStep1)
                         .pipeBatch(batchStep2)
@@ -1259,10 +1272,9 @@ describe('Pipeline Integration Tests', () => {
             )
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
-                .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
+                .messageAware((builder) => builder.concurrently((b) => b.pipe(step1).pipe(step2)).gather())
                 .handleResults({
                     outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
@@ -1288,7 +1300,7 @@ describe('Pipeline Integration Tests', () => {
     })
 
     describe('Concurrent Processing', () => {
-        it('should preserve ordering with pipeConcurrently and gather using deterministic mocks', async () => {
+        it('should preserve ordering with concurrently and gather using deterministic mocks', async () => {
             const messages: Message[] = [
                 {
                     topic: 'test-topic',
@@ -1373,10 +1385,9 @@ describe('Pipeline Integration Tests', () => {
             const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
-                .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
+                .messageAware((builder) => builder.concurrently((b) => b.pipe(step1).pipe(step2)).gather())
                 .handleResults({
                     outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
@@ -1639,11 +1650,13 @@ describe('Pipeline Integration Tests', () => {
             const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
+                        .gather()
+                        .pipeBatch(batchStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1904,11 +1917,13 @@ describe('Pipeline Integration Tests', () => {
             const batchStep2 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep2Map)
 
             // Create pipeline with single async step
-            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                    builder
+                        .concurrently((b) => b.pipe(step1))
+                        .gather()
+                        .pipeBatch(batchStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })

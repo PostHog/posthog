@@ -85,7 +85,10 @@ export interface InsightThresholdApi {
 export interface ThresholdApi {
     readonly id: string
     readonly created_at: string
-    /** Optional name for the threshold. */
+    /**
+     * Optional name for the threshold.
+     * @maxLength 255
+     */
     name?: string
     /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
     configuration: InsightThresholdApi
@@ -494,7 +497,10 @@ export interface AlertApi {
     readonly created_at: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight: number
-    /** Human-readable name for the alert. */
+    /**
+     * Human-readable name for the alert.
+     * @maxLength 255
+     */
     name?: string
     /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
     subscribed_users: number[]
@@ -557,7 +563,7 @@ export interface AlertApi {
      * * `notify` - Notify
      * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -576,7 +582,10 @@ export interface PatchedAlertApi {
     readonly created_at?: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight?: number
-    /** Human-readable name for the alert. */
+    /**
+     * Human-readable name for the alert.
+     * @maxLength 255
+     */
     name?: string
     /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
     subscribed_users?: number[]
@@ -639,7 +648,7 @@ export interface PatchedAlertApi {
      * * `notify` - Notify
      * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
@@ -713,7 +722,10 @@ export interface AlertSimulateResponseApi {
 export interface ThresholdWithAlertApi {
     readonly id: string
     readonly created_at: string
-    /** Optional name for the threshold. */
+    /**
+     * Optional name for the threshold.
+     * @maxLength 255
+     */
     name?: string
     /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
     configuration: InsightThresholdApi

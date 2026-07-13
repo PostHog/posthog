@@ -7,7 +7,8 @@ parameters and return canonical contract types.
 ``repo`` is an optional ``owner/name`` filter, applied against the curated repo
 identity (mapped from ``base.repo.full_name``). ``branch`` is an optional exact
 ``head_branch`` filter for workflow health, a workflow's runs list, and its runner
-costs. ``date_from`` / ``date_to`` accept
+costs; workflow health additionally takes a broader ``run_scope`` filter
+(``pull_request`` scopes to PR-attributed runs). ``date_from`` / ``date_to`` accept
 relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
 ``source_id`` selects a specific connected GitHub source when the team has more than
 one; it defaults to the oldest connected source. ``user_access_control`` enforces the
@@ -25,6 +26,7 @@ from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
+    FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
     PRCostSummary,
@@ -241,6 +243,7 @@ def list_workflow_health(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowHealthItem]:
@@ -249,6 +252,28 @@ def list_workflow_health(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+        run_scope=run_scope,
+    )
+
+
+def list_flaky_tests(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_rerun_passes: int | None = None,
+    min_failed_prs: int | None = None,
+    limit: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> FlakyTestList:
+    return logic.build_flaky_tests(
+        curated=_authorized_source(team, source_id, user_access_control),
+        date_from=date_from,
+        date_to=date_to,
+        min_rerun_passes=min_rerun_passes,
+        min_failed_prs=min_failed_prs,
+        limit=limit,
     )
 
 

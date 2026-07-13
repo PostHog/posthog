@@ -144,8 +144,13 @@ def update_cached_state(
 
     # :TRICKY: We update _all_ states with same cache_key to avoid needless re-calculations and
     #   handle race conditions around cache_key changing.
-    return InsightCachingState.objects.filter(team_id=team_id, cache_key=cache_key).update(
-        last_refresh=timestamp, refresh_attempt=0
+    # We exclude rows already at these exact values so a warm dashboard read - where every tile is
+    #   a cache hit and reports its already-stored last_refresh - doesn't issue one redundant
+    #   UPDATE per tile. The end state is identical; only no-op writes are skipped.
+    return (
+        InsightCachingState.objects.filter(team_id=team_id, cache_key=cache_key)
+        .exclude(last_refresh=timestamp, refresh_attempt=0)
+        .update(last_refresh=timestamp, refresh_attempt=0)
     )
 
 

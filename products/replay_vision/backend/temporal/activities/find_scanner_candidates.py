@@ -49,6 +49,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         last_swept_at=scanner.last_swept_at,
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
+        sampling_mode=scanner.sampling_mode,
         last_seen_session_id=scanner.last_seen_session_id or None,
         candidate_limit=limit,
     )

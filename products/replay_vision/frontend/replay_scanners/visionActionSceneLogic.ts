@@ -54,7 +54,7 @@ export const visionActionSceneLogic = kea<visionActionSceneLogicType>([
                 }
                 breadcrumbs.push({
                     key: actionId ? `action-${actionId}` : 'action',
-                    name: context.name || 'Action',
+                    name: context.name || 'Summary',
                     path: urls.replayVisionAction(actionId),
                 })
                 return breadcrumbs
