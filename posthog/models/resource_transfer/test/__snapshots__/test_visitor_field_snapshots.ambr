@@ -838,7 +838,6 @@
     'tagged_items',
     'team_id',
     'tombstoned_key',
-    'transform_cohort_filters_for_easy_evaluation',
     'usage_dashboard',
     'usage_dashboard_has_enriched_insights',
     'usage_dashboard_id',
