@@ -8,20 +8,34 @@ from typing import cast
 
 from django.db.models import QuerySet
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.decorators import action as drf_action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, HogQLQueryThrottle
 
 from ..facade import api
+from ..facade.enums import HOGQL_DEFINITION_KIND, INSIGHT_DEFINITION_KINDS, NODE_DEFINITION_KINDS
 from ..facade.models import Metric
-from .serializers import MetricSerializer
+from .serializers import (
+    MetricRunQuerySerializer,
+    MetricRunRequestSerializer,
+    MetricRunResponseSerializer,
+    MetricSerializer,
+)
+
+# Kinds that execute a ClickHouse query through the trends/funnels pipeline (node kinds run as a
+# wrapped single-series trends query).
+_STRUCTURED_QUERY_KINDS = {*INSIGHT_DEFINITION_KINDS, *NODE_DEFINITION_KINDS}
 
 
 class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -41,6 +55,22 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if isinstance(request.data, dict) and request.data.get("source_insight_short_id"):
             return ["data_catalog:write", "insight:read"]
         return None
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # Running a metric executes a query, so it must carry the same query throttles as /query/;
+        # markdown and definition-less metrics never reach ClickHouse and keep the API defaults.
+        if getattr(self, "action", None) == "run":
+            kind = (
+                Metric.objects.for_team(self.team_id)
+                .filter(name=self.kwargs.get("name"), deleted=False)
+                .values_list("definition__kind", flat=True)
+                .first()
+            )
+            if kind == HOGQL_DEFINITION_KIND:
+                return [HogQLQueryThrottle()]
+            if kind in _STRUCTURED_QUERY_KINDS:
+                return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        return super().get_throttles()
 
     def list(self, request: Request, *args, **kwargs) -> Response:
         # Precompute drift for the whole page in one bulk query, so is_drifted doesn't fan out
@@ -123,3 +153,46 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Re-snapshot the linked insight's current query into the definition."""
         metric = api.refresh_metric_from_insight(self.get_object(), cast(User, request.user))
         return Response(self.get_serializer(metric).data)
+
+    # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
+    # annotation applied earlier — including @validated_request's — from the generated OpenAPI.
+    @extend_schema(
+        request=MetricRunRequestSerializer,
+        parameters=[MetricRunQuerySerializer],
+        responses={
+            200: OpenApiResponse(response=MetricRunResponseSerializer, description="The normalized run envelope."),
+            400: OpenApiResponse(
+                description="The metric has no runnable definition, an override is invalid for its kind, or the query failed."
+            ),
+            429: OpenApiResponse(description="Query rate limit or concurrency limit exceeded."),
+            500: OpenApiResponse(description="Unexpected error while executing the query."),
+        },
+    )
+    @drf_action(
+        detail=True,
+        methods=["POST"],
+        required_scopes=["data_catalog:read", "query:read"],
+    )
+    @validated_request(
+        request_serializer=MetricRunRequestSerializer,
+        query_serializer=MetricRunQuerySerializer,
+    )
+    def run(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Execute the metric's definition and return the normalized result envelope."""
+        # required_scopes gates tokens on query:read, but session users carry no scopes and
+        # AccessControlPermission only checks the data_catalog resource. Enforce query RBAC
+        # explicitly so a member with query access denied can't read data through a metric run.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to run a metric.")
+        overrides = request.validated_data
+        envelope = api.run_metric(
+            team=self.team,
+            metric=self.get_object(),
+            user=cast(User, request.user),
+            refresh=request.validated_query_data.get("refresh"),
+            date_from=overrides.get("date_from"),
+            date_to=overrides.get("date_to"),
+            interval=overrides.get("interval"),
+            query_id=overrides.get("query_id"),
+        )
+        return Response(envelope)
