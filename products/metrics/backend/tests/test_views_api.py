@@ -90,4 +90,4 @@ class TestMetricsViewAPI(APIBaseTest):
 
         response = self.client.post(self.base_url, {"name": "Bad view", "filters": filters}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "filters" in response.json()
+        assert response.json()["attr"] == "filters"
