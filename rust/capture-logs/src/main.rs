@@ -81,6 +81,9 @@ async fn main() {
         }
     };
 
+    // Push our own metrics into the PostHog metrics product (no-op unless configured).
+    capture_logs::self_metrics::spawn_exporter_if_configured(&config);
+
     let health_registry = HealthRegistry::new("liveness");
 
     let logs_sink_liveness = health_registry
@@ -187,6 +190,9 @@ async fn main() {
         .with_state(logs_service)
         .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
         .layer(axum::middleware::from_fn(track_metrics))
+        .layer(axum::middleware::from_fn(
+            capture_logs::self_metrics::track_http_requests,
+        ))
         .layer(RequestDecompressionLayer::new())
         .layer(axum::middleware::from_fn(translate_compression_query_param))
         .layer(cors);

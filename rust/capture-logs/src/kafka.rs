@@ -2,6 +2,7 @@ use crate::avro_schema::AVRO_SCHEMA;
 use crate::log_record::{sum_kafka_log_row_bytes, KafkaLogRow};
 use crate::metric_record::KafkaMetricRow;
 use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
+use crate::self_metrics;
 use crate::trace_record::KafkaTraceRow;
 use crate::traces_avro_schema::TRACES_AVRO_SCHEMA;
 use anyhow::anyhow;
@@ -20,6 +21,7 @@ use std::time::Duration;
 use tracing::log::{debug, info};
 
 struct KafkaContext {
+    producer_name: &'static str,
     liveness: HealthHandle,
 }
 
@@ -35,8 +37,22 @@ impl rdkafka::ClientContext for KafkaContext {
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
         gauge!("capture_kafka_producer_queue_depth",).set(stats.msg_cnt as f64);
         gauge!("capture_kafka_producer_queue_depth_limit",).set(stats.msg_max as f64);
-        gauge!("capture_kafka_producer_queue_bytes",).set(stats.msg_max as f64);
+        gauge!("capture_kafka_producer_queue_bytes",).set(stats.msg_size as f64);
         gauge!("capture_kafka_producer_queue_bytes_limit",).set(stats.msg_size_max as f64);
+
+        // OTLP-pushed twins, labelled by producer so the three sinks don't
+        // overwrite each other the way the unlabelled prom gauges above do.
+        let producer_attrs = [("producer", self.producer_name)];
+        self_metrics::global().gauge_set(
+            &self_metrics::PRODUCER_QUEUE_DEPTH,
+            &producer_attrs,
+            stats.msg_cnt as f64,
+        );
+        self_metrics::global().gauge_set(
+            &self_metrics::PRODUCER_QUEUE_BYTES,
+            &producer_attrs,
+            stats.msg_size as f64,
+        );
 
         for (topic, stats) in stats.topics {
             gauge!(
@@ -171,11 +187,12 @@ fn build_client_config(
 async fn build_producer(
     client_config: ClientConfig,
     liveness: HealthHandle,
-    label: &str,
+    label: &'static str,
 ) -> anyhow::Result<FutureProducer<KafkaContext>> {
     debug!("rdkafka {label} configuration: {client_config:?}");
     let producer: FutureProducer<KafkaContext> =
         client_config.create_with_context(KafkaContext {
+            producer_name: label,
             liveness: liveness.clone(),
         })?;
 
@@ -439,19 +456,20 @@ impl KafkaSink {
             counter!("capture_logs_records_bytes_exceed_payload").increment(1);
         }
 
-        self.write_avro_batch(
-            &self.logs_producer,
-            &self.logs_topic,
-            AVRO_SCHEMA,
-            token,
-            &rows,
-            uncompressed_bytes,
-            Some(records_uncompressed_bytes),
-            timestamps_overridden,
-        )
-        .await?;
-
-        Ok(())
+        let result = self
+            .write_avro_batch(
+                &self.logs_producer,
+                &self.logs_topic,
+                AVRO_SCHEMA,
+                token,
+                &rows,
+                uncompressed_bytes,
+                Some(records_uncompressed_bytes),
+                timestamps_overridden,
+            )
+            .await;
+        record_produce_outcome("logs", rows.len() as u64, uncompressed_bytes, &result);
+        result
     }
 
     pub async fn write_traces(
@@ -469,19 +487,20 @@ impl KafkaSink {
             counter!("capture_traces_timestamps_overridden").increment(timestamps_overridden);
         }
 
-        self.write_avro_batch(
-            &self.traces_producer,
-            &self.traces_topic,
-            TRACES_AVRO_SCHEMA,
-            token,
-            &rows,
-            uncompressed_bytes,
-            None,
-            timestamps_overridden,
-        )
-        .await?;
-
-        Ok(())
+        let result = self
+            .write_avro_batch(
+                &self.traces_producer,
+                &self.traces_topic,
+                TRACES_AVRO_SCHEMA,
+                token,
+                &rows,
+                uncompressed_bytes,
+                None,
+                timestamps_overridden,
+            )
+            .await;
+        record_produce_outcome("traces", rows.len() as u64, uncompressed_bytes, &result);
+        result
     }
 
     pub async fn write_metrics(
@@ -499,18 +518,52 @@ impl KafkaSink {
             counter!("capture_metrics_timestamps_overridden").increment(timestamps_overridden);
         }
 
-        self.write_avro_batch(
-            &self.metrics_producer,
-            &self.metrics_topic,
-            METRICS_AVRO_SCHEMA,
-            token,
-            &rows,
-            uncompressed_bytes,
-            None,
-            timestamps_overridden,
-        )
-        .await?;
+        let result = self
+            .write_avro_batch(
+                &self.metrics_producer,
+                &self.metrics_topic,
+                METRICS_AVRO_SCHEMA,
+                token,
+                &rows,
+                uncompressed_bytes,
+                None,
+                timestamps_overridden,
+            )
+            .await;
+        record_produce_outcome("metrics", rows.len() as u64, uncompressed_bytes, &result);
+        result
+    }
+}
 
-        Ok(())
+/// Dual-emit produce outcomes: the prom counters feed the scrape dashboards, the
+/// self-metrics registry feeds the OTLP push to PostHog's own metrics product.
+fn record_produce_outcome(
+    signal: &'static str,
+    records: u64,
+    uncompressed_bytes: u64,
+    result: &Result<(), anyhow::Error>,
+) {
+    let registry = self_metrics::global();
+    let signal_attrs = [("signal", signal)];
+    match result {
+        Ok(()) => {
+            counter!("capture_records_produced_total", "signal" => signal).increment(records);
+            counter!("capture_bytes_produced_total", "signal" => signal)
+                .increment(uncompressed_bytes);
+            registry.counter_add(
+                &self_metrics::RECORDS_PRODUCED,
+                &signal_attrs,
+                records as f64,
+            );
+            registry.counter_add(
+                &self_metrics::BYTES_PRODUCED,
+                &signal_attrs,
+                uncompressed_bytes as f64,
+            );
+        }
+        Err(_) => {
+            counter!("capture_produce_errors_total", "signal" => signal).increment(1);
+            registry.counter_add(&self_metrics::PRODUCE_ERRORS, &signal_attrs, 1.0);
+        }
     }
 }

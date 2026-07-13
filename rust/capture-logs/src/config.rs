@@ -28,6 +28,20 @@ pub struct Config {
 
     #[envconfig(from = "MAX_REQUEST_BODY_SIZE_BYTES", default = "2097152")] // 2MB (Axum default)
     pub max_request_body_size_bytes: usize,
+
+    // Self-metrics push to PostHog's own metrics ingest — same env contract as the
+    // Node.js services; off unless both URL and token are set.
+    #[envconfig(from = "OTEL_METRICS_EXPORT_URL")]
+    pub otel_metrics_export_url: Option<String>,
+
+    #[envconfig(from = "OTEL_METRICS_EXPORT_TOKEN")]
+    pub otel_metrics_export_token: Option<String>,
+
+    #[envconfig(from = "OTEL_METRICS_EXPORT_INTERVAL_MS", default = "15000")]
+    pub otel_metrics_export_interval_ms: u64,
+
+    #[envconfig(from = "OTEL_SERVICE_NAME", default = "capture-logs")]
+    pub otel_service_name: String,
 }
 
 impl Config {
