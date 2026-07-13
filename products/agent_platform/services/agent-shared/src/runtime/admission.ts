@@ -105,12 +105,23 @@ export class AdmissionService {
             //    identity is the prior OAuth link, not a token on this request).
             const binding = await this.deps.bindings.find(applicationId, transportUser.id)
             if (binding) {
-                const canonical = await this.deps.identities.getById(binding.canonicalAgentUserId)
-                if (canonical) {
-                    return this.admitted(authoritativeId, canonical, transportUser.id, 'binding')
+                // Bindings are provider-scoped: if the agent's authoritative
+                // provider changed since the link, the old binding is stale —
+                // fall through to re-auth against the current provider.
+                if (binding.provider !== authoritativeId) {
+                    this.deps.log?.('warn', 'admission.stale_binding_provider', {
+                        binding_id: binding.id,
+                        binding_provider: binding.provider,
+                        authoritative_provider: authoritativeId,
+                    })
+                } else {
+                    const canonical = await this.deps.identities.getById(binding.canonicalAgentUserId)
+                    if (canonical && canonical.principal_kind === canonicalKind(authoritativeId)) {
+                        return this.admitted(authoritativeId, canonical, transportUser.id, 'binding')
+                    }
+                    // Dangling / mismatched canonical → fall through to re-auth.
+                    this.deps.log?.('warn', 'admission.dangling_binding', { binding_id: binding.id })
                 }
-                // Dangling binding (canonical vanished) → fall through to re-auth.
-                this.deps.log?.('warn', 'admission.dangling_binding', { binding_id: binding.id })
             }
         }
 

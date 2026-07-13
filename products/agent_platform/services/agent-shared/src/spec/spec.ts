@@ -1058,6 +1058,14 @@ export const AgentSpecObjectSchema = z.object({
     ).optional(),
 })
 
+/**
+ * Trigger types whose ingress path calls `buildAdmission()` before enqueueing.
+ * Add a type here only once its handler resolves the authoritative identity —
+ * otherwise a spec with `authoritative_provider` set would silently admit the
+ * transport claim as the identity, defeating the gate.
+ */
+const ADMISSION_WIRED_TRIGGER_TYPES: readonly Trigger['type'][] = ['slack']
+
 export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
     // authoritative_provider must reference an identity_providers[] entry that can
     // prove a subject (posthog, or oauth2 with userinfo_url) — else admission
@@ -1080,6 +1088,20 @@ export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => 
             code: 'custom',
             path: ['authoritative_provider'],
             message: `authoritative_provider "${spec.authoritative_provider}" must establish identity (kind posthog, or oauth2 with userinfo_url)`,
+        })
+    }
+    // Fail-closed: refuse specs that combine an authoritative provider with a
+    // trigger whose ingress path does not yet call admission. Otherwise those
+    // triggers would enqueue sessions using the transport claim as the identity
+    // and bypass the gate. Loosen this as each trigger's ingress wires
+    // `buildAdmission()`.
+    const unsupported = spec.triggers.filter((t) => !ADMISSION_WIRED_TRIGGER_TYPES.includes(t.type))
+    if (unsupported.length > 0) {
+        const types = [...new Set(unsupported.map((t) => t.type))].sort().join(', ')
+        ctx.addIssue({
+            code: 'custom',
+            path: ['authoritative_provider'],
+            message: `authoritative_provider is not yet enforced on trigger types: ${types}. Supported: ${ADMISSION_WIRED_TRIGGER_TYPES.join(', ')}.`,
         })
     }
 })

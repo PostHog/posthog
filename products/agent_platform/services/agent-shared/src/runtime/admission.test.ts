@@ -530,6 +530,36 @@ describe('AdmissionService', () => {
         expect(again.kind).toBe('auth_required') // not a crash, not a stale admit
     })
 
+    it('stale binding: authoritative provider swapped since link → re-auth against the new provider', async () => {
+        // A binding is scoped to the provider that established it. If the agent
+        // switches its authoritative_provider, the prior binding must NOT admit
+        // the transport principal against the new provider — otherwise a
+        // once-linked Slack user stays "authenticated" as a different identity
+        // system than the current spec demands.
+        const work = makeIdp('https://work.example', 'alice')
+        const dogs = makeIdp('https://dogs.example', 'rex')
+        const h = harness([work, dogs])
+        const claim: TransportClaim = { transport: 'slack', subjectId: 'T:U' }
+
+        // Link under provider 'work'.
+        const first = await h.admission.resolve(claim, { application: APP, revision: revWith('work') })
+        expect(first.kind).toBe('auth_required')
+        if (first.kind === 'auth_required') {
+            await driveLink(h, first.authorizeUrl)
+        }
+        // Sanity: same claim + same authoritative provider → durable admit.
+        const durable = await h.admission.resolve(claim, { application: APP, revision: revWith('work') })
+        expect(durable.kind).toBe('admitted')
+
+        // Agent flips authoritative_provider to 'dogs'. The old binding must
+        // not carry over — force a fresh link against 'dogs'.
+        const flipped = await h.admission.resolve(claim, { application: APP, revision: revWith('dogs') })
+        expect(flipped.kind).toBe('auth_required')
+        if (flipped.kind === 'auth_required') {
+            expect(flipped.provider).toBe('dogs')
+        }
+    })
+
     it('re-auth as a different subject replaces the binding (account switch)', async () => {
         const work = makeIdp('https://work.example', 'alice')
         const h = harness([work])
@@ -616,6 +646,40 @@ describe('AgentSpecSchema.authoritative_provider validation', () => {
 
     it('accepts a spec with no authoritative_provider (passthrough)', () => {
         expect(AgentSpecSchema.safeParse(base).success).toBe(true)
+    })
+
+    it('rejects authoritative_provider combined with a trigger whose ingress does not yet call admission', () => {
+        // Fail-closed: today only the slack trigger runs `buildAdmission()`
+        // before enqueue. A spec that mixes an authoritative provider with a
+        // webhook / chat / mcp trigger would silently bypass admission on that
+        // path. Loosen this once the other triggers wire the gate.
+        const r = AgentSpecSchema.safeParse({
+            ...base,
+            authoritative_provider: 'posthog',
+            identity_providers: [{ kind: 'posthog', id: 'posthog' }],
+            triggers: [
+                {
+                    type: 'webhook',
+                    config: { path: '/hook' },
+                    auth: { modes: [{ type: 'shared_secret', header: 'x-key', secret_ref: 'S' }] },
+                },
+            ],
+        })
+        expect(r.success).toBe(false)
+        if (!r.success) {
+            const msg = r.error.issues.map((i) => i.message).join('\n')
+            expect(msg).toMatch(/webhook/)
+        }
+    })
+
+    it('accepts authoritative_provider combined with a slack trigger (admission-wired)', () => {
+        const r = AgentSpecSchema.safeParse({
+            ...base,
+            authoritative_provider: 'posthog',
+            identity_providers: [{ kind: 'posthog', id: 'posthog' }],
+            triggers: [{ type: 'slack', config: { trusted_workspaces: ['T01'] } }],
+        })
+        expect(r.success).toBe(true)
     })
 
     it('still serializes to JSON Schema (the refine does not break toJSONSchema)', () => {
