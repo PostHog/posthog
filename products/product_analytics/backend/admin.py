@@ -2,10 +2,12 @@ from typing import Any, cast
 
 from django import forms
 from django.contrib import admin, messages
+from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.timezone import now
 
 from posthog.admin.filters import DeletedFilter
 from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, bulk_log_activity
@@ -107,37 +109,42 @@ class InsightAdmin(admin.ModelAdmin):
     )
     def restore_selected(self, request: HttpRequest, queryset: QuerySet[Insight]) -> None:
         insights = list(queryset.filter(deleted=True).select_related("team"))
-        for insight in insights:
-            insight.deleted = False
-            insight.save()  # post_save signal re-creates the FileSystem entry
+        user = cast(User, request.user)
+        # Same shape as the bulk_restore endpoint: restore, re-activate tiles, and log the
+        # audit trail as one transaction, so a mid-batch failure can't leave insights restored
+        # without their tiles or activity entries (PostHog has no ATOMIC_REQUESTS).
+        with transaction.atomic():
+            for insight in insights:
+                insight.deleted = False
+                insight.last_modified_at = now()
+                insight.last_modified_by = user
+                insight.save()  # post_save signal re-creates the FileSystem entry
 
-        if insights:
-            # Mirror the bulk_restore endpoint: bring tiles back on dashboards that still
-            # exist, and leave an audit trail (Insight has no ModelActivityMixin, so
-            # nothing gets logged on save). Unnamed insights (e.g. experiment internals)
-            # are skipped in the log, matching the API paths.
-            DashboardTile.objects_including_soft_deleted.filter(
-                insight_id__in=[insight.id for insight in insights],
-                deleted=True,
-                dashboard__deleted=False,
-            ).update(deleted=False)
-            user = cast(User, request.user)
-            bulk_log_activity(
-                [
-                    LogActivityEntry(
-                        organization_id=insight.team.organization_id,
-                        team_id=insight.team_id,
-                        user=user,
-                        was_impersonated=False,
-                        item_id=insight.id,
-                        scope="Insight",
-                        activity="restored",
-                        detail=Detail(name=insight.name or insight.derived_name, short_id=insight.short_id),
-                    )
-                    for insight in insights
-                    if insight.name or insight.derived_name
-                ]
-            )
+            if insights:
+                # Bring tiles back on dashboards that still exist, and leave an audit trail
+                # (Insight has no ModelActivityMixin, so nothing gets logged on save). Unnamed
+                # insights (e.g. experiment internals) are skipped in the log, matching the API.
+                DashboardTile.objects_including_soft_deleted.filter(
+                    insight_id__in=[insight.id for insight in insights],
+                    deleted=True,
+                    dashboard__deleted=False,
+                ).update(deleted=False)
+                bulk_log_activity(
+                    [
+                        LogActivityEntry(
+                            organization_id=insight.team.organization_id,
+                            team_id=insight.team_id,
+                            user=user,
+                            was_impersonated=False,
+                            item_id=insight.id,
+                            scope="Insight",
+                            activity="restored",
+                            detail=Detail(name=insight.name or insight.derived_name, short_id=insight.short_id),
+                        )
+                        for insight in insights
+                        if insight.name or insight.derived_name
+                    ]
+                )
 
         skipped = queryset.count() - len(insights)
         message = f"Restored {len(insights)} insights."

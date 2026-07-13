@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.contrib import admin, messages
+from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
@@ -65,14 +66,16 @@ class DashboardAdmin(admin.ModelAdmin):
         )
 
         dashboards = list(queryset.filter(deleted=True))
-        for dashboard in dashboards:
-            # The same path PATCH {"deleted": false} runs: un-deletes the dashboard's tiles
-            # and any insights soft-deleted together with it, and re-syncs their FileSystem
-            # entries. save() re-syncs the dashboard's own entry and logs a "restored"
-            # activity via ModelActivityMixin.
-            DashboardSerializer._undo_delete_related_tiles(dashboard)
-            dashboard.deleted = False
-            dashboard.save()
+        with transaction.atomic():
+            for dashboard in dashboards:
+                # The same path PATCH {"deleted": false} runs: un-deletes the dashboard's tiles
+                # and any insights soft-deleted together with it, and re-syncs their FileSystem
+                # entries. save() re-syncs the dashboard's own entry and logs a "restored"
+                # activity via ModelActivityMixin. Wrapped in a transaction so a mid-batch
+                # failure can't leave a dashboard restored without its tiles (no ATOMIC_REQUESTS).
+                DashboardSerializer._undo_delete_related_tiles(dashboard)
+                dashboard.deleted = False
+                dashboard.save()
 
         skipped = queryset.count() - len(dashboards)
         message = f"Restored {len(dashboards)} dashboards."

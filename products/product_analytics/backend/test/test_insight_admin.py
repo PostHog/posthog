@@ -53,6 +53,8 @@ class TestInsightAdminRestore(BaseTest):
         tile_on_live.refresh_from_db()
         tile_on_deleted.refresh_from_db()
         assert deleted_insight.deleted is False
+        # Restore touches last-modified metadata, matching the bulk_restore endpoint.
+        assert deleted_insight.last_modified_by == self.user
         assert tile_on_live.deleted is False
         # The dashboard itself is still deleted, so its tile must stay hidden.
         assert tile_on_deleted.deleted is True
