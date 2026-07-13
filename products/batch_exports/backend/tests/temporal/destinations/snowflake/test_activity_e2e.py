@@ -234,6 +234,7 @@ async def test_insert_into_snowflake_activity_resolves_credentials_from_integrat
     )
 
     table_name = f"test_integration_activity_table_{ateam.pk}"
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
 
     await _run_activity(
         activity_environment=activity_environment,
@@ -246,6 +247,7 @@ async def test_insert_into_snowflake_activity_resolves_credentials_from_integrat
         table_name=table_name,
         batch_export_model=BatchExportModel(name="events", schema=None),
         integration_id=integration.id,
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 
