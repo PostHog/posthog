@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -203,19 +204,14 @@ describe('featureFlagLogic', () => {
 
     describe('stale list-cache reconciliation on mount', () => {
         it('refreshes a cache-painted flag so active reflects the server, not the stale list cache', async () => {
-            // The overview paints instantly from the list cache; if that cached `active` is
-            // stale (the flag was toggled elsewhere since the list loaded), the toggle and its
-            // confirmation dialog would otherwise contradict the flag's real state.
             logic.unmount()
 
             useMocks({
                 get: {
-                    // List cache holds the stale value: flag looks disabled.
                     '/api/projects/:projectId/feature_flags/': () => [
                         200,
                         { results: [{ ...MOCK_FEATURE_FLAG, active: false }], count: 1 },
                     ],
-                    // Server truth: the flag is actually enabled.
                     [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
                         200,
                         { ...MOCK_FEATURE_FLAG, active: true },
@@ -235,13 +231,11 @@ describe('featureFlagLogic', () => {
             logic = featureFlagLogic({ id: 1 })
             logic.mount()
 
-            // Cache paints the stale flag, then the silent refresh reconciles with the server.
             await expectLogic(logic)
                 .toDispatchActions(['setFeatureFlag', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
                 .toFinishAllListeners()
 
             expect(logic.values.featureFlag.active).toBe(true)
-            // The list cache is updated too, so the list view and the detail view agree.
             expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
 
             featureFlagsLogic.unmount()
@@ -1324,6 +1318,21 @@ describe('featureFlagLogic', () => {
             ])
             expect(logic.values.featureFlag.active).toBe(true)
             expect(logic.values.projectFlagsToggling).toEqual({})
+        })
+    })
+
+    describe('toggleFeatureFlagActive', () => {
+        it('opens one confirmation with matching disable copy', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: true })
+
+            await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(false)).toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            expect(dialogProps.title).toBe('Disable feature flag "test-flag"?')
+            expect(dialogProps.primaryButton?.children).toBe('Disable flag')
+            dialogOpenSpy.mockRestore()
         })
     })
 })

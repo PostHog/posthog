@@ -659,6 +659,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             onConfirm: () => void
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
+            requireStatusConfirmation?: boolean
         }) => payload,
         saveDescriptionInline: (name: string) => ({ name }),
         saveTagsInline: (tags: string[]) => ({ tags }),
@@ -1178,8 +1179,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             originalFlag: FeatureFlagType | null
             updatedFlag: Partial<FeatureFlagType>
             onConfirm: () => void
+            requireStatusConfirmation?: boolean
         }) => {
-            const { originalFlag, updatedFlag, onConfirm } = payload
+            const { originalFlag, updatedFlag, onConfirm, requireStatusConfirmation = false } = payload
             const isBeingDisabled = !!updatedFlag.id && originalFlag?.active === true && updatedFlag.active === false
 
             let dependentFlagsForConfirmation: DependentFlag[] = []
@@ -1205,6 +1207,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 onConfirm,
                 isBeingDisabled,
                 dependentFlags: dependentFlagsForConfirmation,
+                requireStatusConfirmation,
             })
         },
         showDependentFlagsConfirmation: (payload: {
@@ -1213,8 +1216,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             onConfirm: () => void
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
+            requireStatusConfirmation?: boolean
         }) => {
-            const { originalFlag, updatedFlag, onConfirm, dependentFlags, isBeingDisabled = false } = payload
+            const {
+                originalFlag,
+                updatedFlag,
+                onConfirm,
+                dependentFlags,
+                isBeingDisabled = false,
+                requireStatusConfirmation = false,
+            } = payload
 
             const featureFlagConfirmationEnabled = !!values.currentTeam?.feature_flag_confirmation_enabled
             let customConfirmationMessage: string | undefined
@@ -1232,7 +1243,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlagConfirmationEnabled,
                 onConfirm,
                 dependentFlags,
-                isBeingDisabled
+                isBeingDisabled,
+                requireStatusConfirmation
             )
 
             // If no confirmation was shown, proceed immediately
@@ -2441,6 +2453,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     onConfirm: () => {
                         actions.updateFeatureFlagActive(active)
                     },
+                    requireStatusConfirmation: true,
                 },
                 breakpoint,
                 action as any,

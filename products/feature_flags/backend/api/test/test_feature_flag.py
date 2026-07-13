@@ -1866,7 +1866,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # Successfully update the feature flag with the different user. This will increment the version
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
-                {"name": "Updated name", "version": original_version},
+                {"name": "Updated name", "active": False, "version": original_version},
                 format="json",
             )
 
@@ -1982,6 +1982,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
                 data={
                     "name": "Updated name",
+                    "active": True,
                     "filters": {
                         "groups": [
                             {
@@ -2002,6 +2003,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                     "original_flag": {
                         "name": "original name",  # This is the same as the name (though not the current name)
+                        "active": True,
                         "filters": {
                             "groups": [
                                 {
@@ -2031,6 +2033,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
             self.assertEqual(feature_flag.name, "Updated name")
+            self.assertFalse(feature_flag.active)
             self.assertEqual(feature_flag.last_modified_by, original_user)
             self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 45)
 

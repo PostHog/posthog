@@ -1941,15 +1941,17 @@ class FeatureFlagSerializer(
 
             # NOW check for conflicts after all transformations
             if version != -1 and version != locked_version:
+                original_flag = request.data.get("original_flag", {})
                 conflicting_changes = self._get_conflicting_changes(
                     locked_instance,
                     validated_data,
-                    request.data.get("original_flag", {}),
+                    original_flag,
                 )
                 if len(conflicting_changes) > 0:
                     raise Conflict(
                         f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
                     )
+                validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
 
             # Continue with the update
             validated_data["version"] = locked_version + 1
@@ -2004,6 +2006,16 @@ class FeatureFlagSerializer(
             )
 
         return instance
+
+    def _discard_unchanged_stale_fields(self, validated_data: dict, original_flag: dict | None) -> dict:
+        if not original_flag:
+            return validated_data
+
+        return {
+            field: new_value
+            for field, new_value in validated_data.items()
+            if field not in original_flag or new_value != original_flag[field]
+        }
 
     def _get_conflicting_changes(
         self,
