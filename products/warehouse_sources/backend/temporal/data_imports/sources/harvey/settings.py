@@ -26,10 +26,11 @@ class HarveyEndpointConfig:
     partition_key: str | None = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     should_sync_default: bool = True
-    # When False, this endpoint's responses are excluded from HTTP sample capture. Set it for
-    # endpoints whose bodies carry arbitrary user content (prompts, model responses, matter text)
-    # that the name-based sample scrubbers can't recognise, so it never lands in job telemetry.
-    capture_http_samples: bool = True
+    # HTTP sample capture is off by default. Harvey serves legal/business data, and most endpoints
+    # return free-text names, descriptions, or audit metadata the name-based sample scrubbers can't
+    # recognise, so capturing bodies would leak that content into job telemetry. Opt an endpoint
+    # back in only when its responses carry no user-controlled content.
+    capture_http_samples: bool = False
 
 
 HARVEY_ENDPOINTS: dict[str, HarveyEndpointConfig] = {
@@ -62,6 +63,9 @@ HARVEY_ENDPOINTS: dict[str, HarveyEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+        # Structured usage metrics only (counts, timestamps, model ids) - no free-text or
+        # prompt/response content - so this endpoint opts into HTTP sample capture.
+        capture_http_samples=True,
     ),
     # Usage events including the full prompt/response text, feedback, and deep link.
     "query_history": HarveyEndpointConfig(
@@ -76,16 +80,14 @@ HARVEY_ENDPOINTS: dict[str, HarveyEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
-        # Bodies carry confidential prompt/response text - keep them out of HTTP sample capture.
-        capture_http_samples=False,
+        # Bodies carry confidential prompt/response text; relies on the capture-off default.
     ),
     # Unpaginated full list with no server-side time filter - full refresh only.
     "client_matters": HarveyEndpointConfig(
         name="client_matters",
         primary_keys=["id"],
-        # A matter's description is free-text that can carry confidential client content -
-        # keep these bodies out of HTTP sample capture, like query_history.
-        capture_http_samples=False,
+        # A matter's description is free-text that can carry confidential client content;
+        # relies on the capture-off default.
     ),
     # Page-number pagination. Rows are mutable (file counts, sharing, update timestamps),
     # so full refresh keeps the table current.

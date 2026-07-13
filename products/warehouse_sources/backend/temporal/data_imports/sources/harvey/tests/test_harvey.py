@@ -250,11 +250,11 @@ class TestSessionRedaction:
 
 
 class TestHttpSampleCapture:
-    # query_history bodies carry confidential prompt/response text and client_matters bodies carry
-    # free-text matter descriptions. Capturing either into the HTTP sample bucket would leak that
-    # content past the scrubbers, so their sessions must be built with capture=False; the other
-    # endpoints keep capture on. A regression here (dropping the per-endpoint flag or hardcoding
-    # capture=True) would re-introduce the leak.
+    # Capture is off by default (Harvey serves confidential legal/business data); only endpoints
+    # returning purely structured metrics opt back in. usage_history is the lone opt-in; every other
+    # endpoint returns free-text names, descriptions, audit metadata, or prompt/response content that
+    # would leak past the scrubbers, so their sessions must be built with capture=False. A regression
+    # here (flipping the default back on or dropping the per-endpoint flag) would re-introduce the leak.
     @parameterized.expand(
         [
             # History endpoints resume at `now` so the window loop makes no request - the session is
@@ -262,6 +262,14 @@ class TestHttpSampleCapture:
             ("query_history", "query_history", HarveyResumeConfig(window_start=NOW_EPOCH), [], False),
             ("usage_history", "usage_history", HarveyResumeConfig(window_start=NOW_EPOCH), [], True),
             ("client_matters", "client_matters", None, [_response([])], False),
+            ("audit_logs", "audit_logs", HarveyResumeConfig(last_audit_log_id="log-1"), [_response([])], False),
+            (
+                "vault_projects",
+                "vault_projects",
+                HarveyResumeConfig(next_page=1),
+                [_response({"response": {"content": {"projects": []}}})],
+                False,
+            ),
         ]
     )
     def test_get_rows_capture_flag(
@@ -289,7 +297,13 @@ class TestHttpSampleCapture:
 
         assert mock_session.call_args.kwargs["capture"] is expected_capture
 
-    @parameterized.expand([("query_history", "query_history", False), ("audit_logs", "audit_logs", True)])
+    @parameterized.expand(
+        [
+            ("usage_history", "usage_history", True),
+            ("query_history", "query_history", False),
+            ("audit_logs", "audit_logs", False),
+        ]
+    )
     def test_check_endpoint_access_capture_flag(self, _name: str, endpoint: str, expected_capture: bool) -> None:
         session = _session_with([_response({})])
         with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session) as mock_session:

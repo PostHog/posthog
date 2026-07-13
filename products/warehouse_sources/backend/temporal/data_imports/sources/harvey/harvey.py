@@ -63,8 +63,9 @@ def _make_session(api_key: str, capture: bool = True) -> requests.Session:
 
 
 def _endpoint_captures_samples(endpoint: str) -> bool:
+    # Default off for anything unmapped - capture is opt-in per endpoint.
     config = HARVEY_ENDPOINTS.get(endpoint)
-    return config.capture_http_samples if config is not None else True
+    return config.capture_http_samples if config is not None else False
 
 
 def validate_credentials(api_key: str, region: str | None) -> bool:
