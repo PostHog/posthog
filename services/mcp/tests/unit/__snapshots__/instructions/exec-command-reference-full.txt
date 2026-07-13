@@ -67,13 +67,13 @@ Assistant: Now I have both schemas. Let me start by searching for existing reven
 <bad-example>
 User: Show me our feature flags
 Assistant: [Directly calls posthog:exec({ "command": "call feature-flag-get-all {}" }) with guessed parameters]
-WRONG — You must run `info feature-flag-get-all` FIRST to check the schema
+WRONG: Run `info feature-flag-get-all` once when its schema is missing.
 </bad-example>
 
 <bad-example>
 User: Query our events
 Assistant: [Calls three tools in parallel without any `info` calls first]
-WRONG — You must run `info` for ALL tools before making ANY `call` commands
+WRONG: Run `info` once for each missing schema.
 </bad-example>
 
 <bad-example>

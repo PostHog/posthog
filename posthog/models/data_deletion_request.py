@@ -380,6 +380,13 @@ class DataDeletionRequest(UUIDModel):
         blank=True,
         help_text="When execution was most recently attempted (updated on every APPROVED → IN_PROGRESS transition).",
     )
+    property_removal_marker = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="inserted_at/_timestamp stamp applied to cleaned re-inserts of this property_removal "
+        "request. Set once on the first execution attempt and reused by every retry so re-runs recognize "
+        "already-cleaned rows and never insert a second copy. Cleared when deletion criteria change.",
+    )
 
     # The team_id this request was loaded from the DB with (None until loaded). Set by from_db so
     # clean() can reject retargeting an existing request at a different team. Not a model field.

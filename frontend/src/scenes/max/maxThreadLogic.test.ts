@@ -591,6 +591,31 @@ describe('maxThreadLogic', () => {
             }
         })
 
+        it('sends promptly instead of waiting for the cap when the dashboard scene logic cannot be built', async () => {
+            jest.useFakeTimers()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            try {
+                const streamSpy = mockStream()
+                // On the dashboard scene, but its logic key hasn't resolved / can't be built, so there
+                // is no logic to wait on. The gate must not hold for the full cap in this state.
+                jest.spyOn(sceneLogic.selectors, 'activeSceneId').mockReturnValue(Scene.Dashboard)
+                jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue(null as any)
+
+                maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+                logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+                logic.mount()
+
+                logic.actions.askMax('what am I seeing on this dashboard?')
+
+                await jest.advanceTimersByTimeAsync(300)
+
+                expect(streamSpy).toHaveBeenCalledTimes(1)
+                expect(captureSpy).not.toHaveBeenCalledWith('max dashboard context wait timed out', expect.anything())
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('sends form_answers in ui_context when provided', async () => {
             const streamSpy = mockStream()
 

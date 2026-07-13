@@ -1,7 +1,7 @@
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 
 from django.conf import settings as django_settings
@@ -38,7 +38,12 @@ from posthog.models.data_deletion_request import (
     verify_queued_request,
 )
 from posthog.models.event.deletion import events_data_tables
-from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE, json_property_presence_expr
+from posthog.models.event.sql import (
+    DISTRIBUTED_EVENTS_JSON_TABLE,
+    EVENTS_DATA_TABLE,
+    EVENTS_JSON_DATA_TABLE,
+    json_property_presence_expr,
+)
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_recording_deletion,
@@ -66,8 +71,9 @@ class DeletionRequestContext:
     execution_mode: str = ExecutionMode.IMMEDIATE.value
     delete_all_events: bool = False
     hogql_predicate: str = ""
-    # Set by process_property_removal_per_shard; cleaned re-inserts get this exact value stamped
-    # onto inserted_at so the same op's delete pass can exclude them via inserted_at < marker.
+    # Set by load_property_removal_request from the persisted request field; cleaned re-inserts
+    # get this exact value stamped onto inserted_at so the delete pass can exclude them via
+    # inserted_at < marker, and re-runs recognize rows already cleaned by earlier attempts.
     inserted_at_marker: datetime | None = None
 
 
@@ -179,6 +185,7 @@ def _property_removal_where(
     inserted_at_max: str | None = None,
     hogql_compiled: tuple[str, dict] | None = None,
     json_schema: bool = False,
+    exclude_cleaned_from: str | None = None,
 ) -> tuple[str, dict]:
     """Full WHERE predicate + params for property-removal queries.
 
@@ -186,7 +193,9 @@ def _property_removal_where(
     originals afterward. The presence check (JSON ``properties`` and/or
     ``person_properties`` plus DEFAULT materialized columns) MUST match between
     the two passes — drift causes either data loss (delete > copy) or duplication
-    (copy > delete).
+    (copy > delete). For the same reason both passes MUST pass the identical
+    ``inserted_at_max``: a row ingested after the marker that only the copy pass
+    sees gets a cleaned twin whose original is never deleted.
 
     Honors the optional ``hogql_predicate`` on the request the same way
     ``_event_removal_where`` does, so an operator can scope a property removal
@@ -199,10 +208,15 @@ def _property_removal_where(
     when the worker holds a different DB connection from the test/request
     transaction.
 
-    The delete pass additionally passes ``inserted_at_max``: cleaned re-inserts
-    are stamped with that exact value, so ``inserted_at < marker`` skips them.
-    Legacy rows may have ``inserted_at IS NULL`` and are still originals to
-    delete — the NULL branch keeps them in scope.
+    ``inserted_at_max`` bounds both passes: cleaned re-inserts are stamped with
+    that exact value, so ``inserted_at < marker`` skips them. Legacy rows may
+    have ``inserted_at IS NULL`` and are still originals to delete — the NULL
+    branch keeps them in scope.
+
+    ``exclude_cleaned_from`` (a fully-qualified table name, copy pass only)
+    additionally skips rows whose uuid already has a cleaned twin stamped with
+    the marker, so however many times the job re-runs, at most one cleaned copy
+    of each original ever exists. Requires ``inserted_at_max``.
     """
     presence_clauses: list[str] = []
     if ctx.properties:
@@ -248,6 +262,14 @@ def _property_removal_where(
         # same truncation in the mutation, so both sides must use the cast.
         parts.append("AND (inserted_at IS NULL OR inserted_at < toDateTime64(%(inserted_at_max)s, 6, 'UTC'))")
         params["inserted_at_max"] = inserted_at_max
+    if exclude_cleaned_from is not None:
+        if inserted_at_max is None:
+            raise ValueError("exclude_cleaned_from requires inserted_at_max (the cleaned-rows marker)")
+        parts.append(
+            f"AND uuid NOT IN (SELECT uuid FROM {exclude_cleaned_from} "
+            "WHERE team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s "
+            "AND inserted_at = toDateTime64(%(inserted_at_max)s, 6, 'UTC'))"
+        )
     return " ".join(p for p in parts if p), params
 
 
@@ -501,6 +523,7 @@ def load_property_removal_request(
 ) -> DeletionRequestContext:
     """Load and validate a property removal request, transition to IN_PROGRESS."""
     from django.db import transaction
+    from django.utils import timezone
 
     with transaction.atomic():
         request = (
@@ -525,6 +548,12 @@ def load_property_removal_request(
             )
 
         _record_execution_attempt(request)
+
+        # Set once and reused verbatim by every retry: all attempts must agree on which
+        # inserted_at value identifies cleaned re-inserts, or re-runs duplicate them.
+        if request.property_removal_marker is None:
+            request.property_removal_marker = timezone.now()
+            request.save(update_fields=["property_removal_marker", "updated_at"])
 
     events_desc = "<all events>" if request.delete_all_events else f"{request.events}"
     context.log.info(
@@ -559,6 +588,7 @@ def load_property_removal_request(
         person_properties=person_properties,
         delete_all_events=request.delete_all_events,
         hogql_predicate=request.hogql_predicate or "",
+        inserted_at_marker=request.property_removal_marker,
     )
 
 
@@ -575,12 +605,14 @@ def process_property_removal_per_shard(
       1. Discover affected DEFAULT materialized columns for both ``properties``
          and ``person_properties``.
       2. Create the temp table.
-      3. Copy matching events from sharded_events into temp. Presence check covers
-         JSON ``properties`` and/or ``person_properties`` AND their materialized
-         columns — a row can carry the value in the column alone, and ``SELECT *``
-         would otherwise leave it behind.
+      3. Copy matching events that were ingested before the marker and do not
+         already have a cleaned twin from sharded_events into temp. Presence check
+         covers JSON ``properties`` and/or ``person_properties`` AND their
+         materialized columns — a row can carry the value in the column alone, and
+         ``SELECT *`` would otherwise leave it behind.
       4. Mutate the temp table: drop JSON keys from each targeted column, reset
-         materialized columns to their defaults, stamp ``inserted_at = marker``.
+         materialized columns to their defaults, stamp ``inserted_at = marker``
+         and bump ``_timestamp`` (the ReplacingMergeTree version) to the marker.
       5. Verify no target presence remains in temp (JSON or materialized columns).
       6. Re-insert cleaned events into sharded_events.
       7. Lightweight-delete the originals from sharded_events. Same presence check
@@ -588,22 +620,23 @@ def process_property_removal_per_shard(
          cleaned re-inserts (stamped with that exact marker) are skipped.
       8. Drop the temp table.
 
-    Steps 3 and 7 use the same predicate (modulo the ``inserted_at`` clause on
-    delete), generated by ``_property_removal_where`` from the same per-shard
-    ``mat_cols`` / ``person_mat_cols`` lists, so they cannot drift.
+    Steps 3 and 7 use the same predicate with the identical ``inserted_at_max``
+    (modulo the anti-join on copy), generated by ``_property_removal_where`` from
+    the same per-shard ``mat_cols`` / ``person_mat_cols`` lists, so they cannot
+    drift. The marker is persisted on the request by the load op, so every retry
+    agrees on which rows are already cleaned and never re-inserts a second twin.
     """
-    from django.utils import timezone
-
     db = django_settings.CLICKHOUSE_DATABASE
     properties = deletion_request.properties
     person_properties = deletion_request.person_properties
-    marker = timezone.now()
-    deletion_request.inserted_at_marker = marker
+    marker = deletion_request.inserted_at_marker
+    if marker is None:
+        raise dagster.Failure(description="property_removal_marker missing; load_property_removal_request must set it")
     # Format the marker as a string with microseconds — clickhouse-driver serializes Python
     # datetime values with second precision, which causes the cleaned re-inserts to be stamped
     # with a truncated inserted_at and the originals-delete predicate to mismatch by sub-second
     # offsets. Passing as ISO string and casting in SQL preserves the full precision.
-    marker_str = marker.strftime("%Y-%m-%d %H:%M:%S.%f")
+    marker_str = marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
     base_temp = _temp_table_name(deletion_request.team_id, deletion_request.request_id)
     # HogQL compilation reaches into the Django ORM (Team lookup); compile once on the main
     # thread before dispatching per-shard work, otherwise the worker thread's DB connection
@@ -664,8 +697,10 @@ def process_property_removal_per_shard(
             deletion_request,
             mat_cols=affected_mat_cols,
             person_mat_cols=affected_person_mat_cols,
+            inserted_at_max=marker_str,
             hogql_compiled=hogql_compiled,
             json_schema=json_schema,
+            exclude_cleaned_from=f"{db}.{source}",
         )
         execute("truncate-temp", f"TRUNCATE TABLE IF EXISTS {db}.{temp}")
         execute(
@@ -691,6 +726,15 @@ def process_property_removal_per_shard(
         # Cast to DateTime64(6) so microseconds survive the parameter binding —
         # mirrors the cast in the delete predicate so both sides agree on the marker.
         update_parts.append("inserted_at = toDateTime64(%(inserted_at_marker)s, 6, 'UTC')")
+        # Bump the ReplacingMergeTree version (ver=_timestamp): the cleaned row shares its
+        # original's sorting key AND (via SELECT *) its version, so a background merge would
+        # keep an arbitrary one of the pair. With the marker as version, merges
+        # deterministically prefer the cleaned row and identical cleaned twins collapse.
+        # +1 second because _timestamp is second-precision while the copy/delete bound
+        # (inserted_at < marker) is microsecond-precision: an original ingested within the
+        # marker's second is in scope but shares its truncated second — the version must be
+        # STRICTLY greater or the merge tie stays arbitrary for exactly those rows.
+        update_parts.append("_timestamp = toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1")
         for col_name, is_nullable in affected_mat_cols + affected_person_mat_cols:
             default = "NULL" if is_nullable else "''"
             update_parts.append(f"`{col_name}` = {default}")
@@ -795,6 +839,108 @@ def process_property_removal_per_shard(
                 f"temp dropped in {elapsed:.1f}s"
             )
 
+    return deletion_request
+
+
+@dagster.op(tags=OWNER_TAG)
+def verify_property_removal(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    deletion_request: DeletionRequestContext,
+) -> DeletionRequestContext:
+    """Fail the run when property removal left originals behind or duplicated cleaned rows.
+
+    Two checks over each distributed events table:
+    - remaining: rows still matching the full removal predicate (same builder and
+      ``inserted_at_max`` bound as the copy/delete passes, so post-marker ingestion
+      cannot wedge verification). Non-zero means an original survived.
+    - duplicates: uuids appearing more than once among marker-stamped rows. Non-zero
+      means a cleaned re-insert was duplicated.
+    """
+    marker = deletion_request.inserted_at_marker
+    if marker is None:
+        raise dagster.Failure(description="property_removal_marker missing; load_property_removal_request must set it")
+    marker_str = marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+    properties = deletion_request.properties
+    person_properties = deletion_request.person_properties
+    targets: list[tuple[str, bool, tuple[str, dict]]] = [
+        ("events", False, compile_hogql_predicate(deletion_request)),
+    ]
+    if EVENTS_JSON_DATA_TABLE in events_data_tables(cluster):
+        targets.append(
+            (
+                DISTRIBUTED_EVENTS_JSON_TABLE,
+                True,
+                compile_hogql_predicate(deletion_request, use_new_events_schema=True),
+            )
+        )
+
+    def check(
+        client: Client,
+        table: str,
+        json_schema: bool,
+        hogql_compiled: tuple[str, dict],
+    ) -> tuple[int, int]:
+        mat_cols = (
+            _get_affected_mat_columns(client, table, properties, table_column="properties")
+            if properties and not json_schema
+            else []
+        )
+        person_mat_cols = (
+            _get_affected_mat_columns(client, table, person_properties, table_column="person_properties")
+            if person_properties and not json_schema
+            else []
+        )
+        predicate, params = _property_removal_where(
+            deletion_request,
+            mat_cols=mat_cols,
+            person_mat_cols=person_mat_cols,
+            inserted_at_max=marker_str,
+            hogql_compiled=hogql_compiled,
+            json_schema=json_schema,
+        )
+        remaining = client.execute(
+            f"SELECT count() FROM {table} WHERE {predicate} AND _row_exists = 1",
+            params,
+            settings={"max_execution_time": 1800},
+        )[0][0]
+        duplicates = client.execute(
+            "SELECT count() FROM ("
+            f"SELECT uuid FROM {table} "
+            "WHERE team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s "
+            "AND inserted_at = toDateTime64(%(marker)s, 6, 'UTC') AND _row_exists = 1 "
+            "GROUP BY uuid HAVING count() > 1)",
+            {
+                "team_id": deletion_request.team_id,
+                "start_time": deletion_request.start_time,
+                "end_time": deletion_request.end_time,
+                "marker": marker_str,
+            },
+            settings={"max_execution_time": 1800},
+        )[0][0]
+        return remaining, duplicates
+
+    results = [
+        cluster.any_host(partial(check, table=table, json_schema=json_schema, hogql_compiled=hogql_compiled)).result()
+        for table, json_schema, hogql_compiled in targets
+    ]
+    remaining = sum(result[0] for result in results)
+    duplicates = sum(result[1] for result in results)
+    context.add_output_metadata(
+        {
+            "remaining_originals": dagster.MetadataValue.int(remaining),
+            "duplicated_cleaned_uuids": dagster.MetadataValue.int(duplicates),
+        }
+    )
+    if remaining or duplicates:
+        raise dagster.Failure(
+            description=(
+                f"Property removal verification failed for request {deletion_request.request_id}: "
+                f"{remaining} events still match the removal predicate, "
+                f"{duplicates} cleaned uuids are duplicated. Investigate before re-approving."
+            )
+        )
+    context.log.info("Property removal verified: no residual originals, no duplicated cleaned rows.")
     return deletion_request
 
 
@@ -1124,9 +1270,11 @@ def data_deletion_request_event_removal():
 @dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
 def data_deletion_request_property_removal():
     """Execute an approved property removal request: per shard, copy events, drop properties,
-    re-insert, delete originals, drop temp."""
+    re-insert, delete originals, drop temp — then verify completeness and uniqueness before
+    finalizing."""
     request = load_property_removal_request()
     request = process_property_removal_per_shard(request)
+    request = verify_property_removal(request)
     finalize_deletion_request(request)
 
 
