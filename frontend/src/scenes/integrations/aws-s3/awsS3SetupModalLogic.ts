@@ -130,27 +130,58 @@ export const awsS3SetupModalLogic = kea<awsS3SetupModalLogicType>([
     connect(() => ({
         actions: [integrationsLogic, ['loadIntegrations']],
     })),
+    actions({
+        setAuthMode: (mode: S3AuthMode) => ({ mode }),
+    }),
+    reducers({
+        authMode: [
+            'role' as S3AuthMode,
+            {
+                setAuthMode: (_, { mode }) => mode,
+            },
+        ],
+    }),
     forms(({ props, actions, values }) => ({
         awsS3Integration: {
             defaults: {
                 name: '',
                 awsAccessKeyId: '',
                 awsSecretAccessKey: '',
+                awsRoleArn: '',
             },
-            errors: ({ name, awsAccessKeyId, awsSecretAccessKey }) => ({
+            errors: ({ name, awsAccessKeyId, awsSecretAccessKey, awsRoleArn }) => ({
                 name: name.trim() ? undefined : 'Name is required',
-                awsAccessKeyId: awsAccessKeyId.trim() ? undefined : 'Access Key ID is required',
-                awsSecretAccessKey: awsSecretAccessKey.trim() ? undefined : 'Secret Access Key is required',
+                awsAccessKeyId:
+                    values.authMode === 'role' || awsAccessKeyId.trim() ? undefined : 'Access Key ID is required',
+                awsSecretAccessKey:
+                    values.authMode === 'role' || awsSecretAccessKey.trim()
+                        ? undefined
+                        : 'Secret Access Key is required',
+                awsRoleArn:
+                    values.authMode !== 'role'
+                        ? undefined
+                        : !awsRoleArn.trim()
+                          ? 'IAM role ARN is required'
+                          : !IAM_ROLE_ARN_REGEX.test(awsRoleArn.trim())
+                            ? 'Enter a valid IAM role ARN, e.g. arn:aws:iam::123456789012:role/my-role'
+                            : undefined,
             }),
             submit: async () => {
                 try {
+                    const { name, awsAccessKeyId, awsSecretAccessKey, awsRoleArn } = values.awsS3Integration
                     const integration = await api.integrations.create({
                         kind: 'aws-s3',
-                        config: {
-                            name: values.awsS3Integration.name,
-                            aws_access_key_id: values.awsS3Integration.awsAccessKeyId,
-                            aws_secret_access_key: values.awsS3Integration.awsSecretAccessKey,
-                        },
+                        config:
+                            values.authMode === 'role'
+                                ? {
+                                      name,
+                                      aws_role_arn: awsRoleArn.trim(),
+                                  }
+                                : {
+                                      name,
+                                      aws_access_key_id: awsAccessKeyId,
+                                      aws_secret_access_key: awsSecretAccessKey,
+                                  },
                     })
                     actions.loadIntegrations()
                     lemonToast.success('AWS S3 connection created successfully!')
@@ -160,6 +191,15 @@ export const awsS3SetupModalLogic = kea<awsS3SetupModalLogicType>([
                     throw error
                 }
             },
+        },
+    })),
+    listeners(({ actions }) => ({
+        setAuthMode: () => {
+            actions.setAwsS3IntegrationValues({
+                awsAccessKeyId: '',
+                awsSecretAccessKey: '',
+                awsRoleArn: '',
+            })
         },
     })),
 ])
