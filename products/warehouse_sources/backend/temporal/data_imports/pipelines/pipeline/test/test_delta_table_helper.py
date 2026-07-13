@@ -16,6 +16,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    MERGE_PARTITION_CHUNK_SIZE,
     DeltaTableHelper,
     _first_per_pk_table,
     _realign_decimal_buffers,
@@ -893,3 +894,119 @@ class TestIsTableCorrupted:
             result = await helper.is_table_corrupted()
 
         assert result is expected
+
+
+def _seed_partitioned_table(delta_path: str, partitions: list[str]) -> deltalake.DeltaTable:
+    seed = pa.table(
+        {
+            "id": pa.array(list(range(len(partitions)))),
+            "value": pa.array(["old"] * len(partitions)),
+            PARTITION_KEY: pa.array(partitions),
+        }
+    )
+    deltalake.write_deltalake(delta_path, seed, mode="error", partition_by=[PARTITION_KEY])
+    return deltalake.DeltaTable(delta_path)
+
+
+class TestChunkedPartitionMerges:
+    @pytest.mark.parametrize(
+        "partition_count",
+        [1, MERGE_PARTITION_CHUNK_SIZE, MERGE_PARTITION_CHUNK_SIZE + 5],
+        ids=["single", "exactly_one_chunk", "two_chunks"],
+    )
+    @pytest.mark.asyncio
+    async def test_merges_every_partition_in_chunks(self, partition_count: int, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        partitions = [f"p{i}" for i in range(partition_count)]
+        version_before = _seed_partitioned_table(delta_path, partitions).version()
+
+        # one update (existing id) and one insert (fresh id) per partition
+        batch = pa.table(
+            {
+                "id": pa.array(
+                    list(range(partition_count)) + [1000 + i for i in range(partition_count)], type=pa.int64()
+                ),
+                "value": pa.array(["new"] * partition_count + ["ins"] * partition_count),
+                PARTITION_KEY: pa.array(partitions + partitions),
+            }
+        )
+
+        helper = _make_local_helper(delta_path)
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 2 * partition_count
+        for i, partition in enumerate(partitions):
+            rows = final.filter(pc.equal(final[PARTITION_KEY], partition))
+            assert dict(zip(rows["id"].to_pylist(), rows["value"].to_pylist())) == {i: "new", 1000 + i: "ins"}
+
+        expected_merges = -(-partition_count // MERGE_PARTITION_CHUNK_SIZE)
+        assert result.version() - version_before == expected_merges
+
+    @pytest.mark.asyncio
+    async def test_same_pk_in_two_partitions_of_one_chunk(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        # (PK, partition) is row identity: seed the same id into both partitions. Both
+        # land in one chunk, so the merge predicate must keep the source=target partition
+        # equality — with only the IN pruning term this multi-matches and corrupts/errors.
+        seed = pa.table(
+            {
+                "id": pa.array([0, 0], type=pa.int64()),
+                "value": pa.array(["old-a", "old-b"]),
+                PARTITION_KEY: pa.array(["a", "b"]),
+            }
+        )
+        deltalake.write_deltalake(delta_path, seed, mode="error", partition_by=[PARTITION_KEY])
+
+        batch = pa.table(
+            {
+                "id": pa.array([0, 0], type=pa.int64()),
+                "value": pa.array(["new-a", "new-b"]),
+                PARTITION_KEY: pa.array(["a", "b"]),
+            }
+        )
+
+        helper = _make_local_helper(delta_path)
+        result = await helper.write_to_deltalake(
+            data=batch, write_type="incremental", should_overwrite_table=False, primary_keys=["id"]
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 2
+        by_partition = dict(zip(final[PARTITION_KEY].to_pylist(), final["value"].to_pylist()))
+        assert by_partition == {"a": "new-a", "b": "new-b"}
+
+    @pytest.mark.asyncio
+    async def test_commit_metadata_tags_only_final_chunk(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        partition_count = MERGE_PARTITION_CHUNK_SIZE + 5
+        partitions = [f"p{i}" for i in range(partition_count)]
+        _seed_partitioned_table(delta_path, partitions)
+
+        batch = pa.table(
+            {
+                "id": pa.array(list(range(partition_count)), type=pa.int64()),
+                "value": pa.array(["new"] * partition_count),
+                PARTITION_KEY: pa.array(partitions),
+            }
+        )
+
+        helper = _make_local_helper(delta_path)
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+            commit_metadata={"run_uuid": "run-1", "batch_index": "0"},
+        )
+
+        assert await helper.has_commit_with_metadata({"run_uuid": "run-1", "batch_index": "0"}) is True
+        # Crash-redelivery safety: an intermediate tagged chunk would make
+        # has_batch_been_committed skip the remaining chunks on redelivery.
+        tagged = [c for c in result.history(limit=10) if c.get("run_uuid") == "run-1"]
+        assert len(tagged) == 1
