@@ -79,12 +79,17 @@ class TestProductDBRouteLoading(SimpleTestCase):
                 "    optional: true\n"
                 "  - app_label: established_product\n"
                 "    database: established_product\n"
+                "  - app_label: quoted_product\n"
+                "    database: quoted_product\n"
+                '    optional: "false"\n'
             )
 
             routes = {route.app_label: route for route in load_product_db_routes(base_dir)}
 
         self.assertTrue(routes["staged_product"].optional)
         self.assertFalse(routes["established_product"].optional)
+        # Non-boolean values fail closed: a quoted "false" is a truthy string.
+        self.assertFalse(routes["quoted_product"].optional)
 
 
 class TestProductDBRouteChecks(SimpleTestCase):

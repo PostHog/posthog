@@ -45,12 +45,24 @@ def load_product_db_routes(base_dir: Path | str) -> tuple[ProductDBRoute, ...]:
             )
             continue
 
+        optional = route_config.get("optional", False)
+        if not isinstance(optional, bool):
+            # Fail closed: a quoted value like "false" is a truthy string, and
+            # treating it as optional would suppress the deploy-gating check.
+            logger.warning(
+                "Non-boolean 'optional' value %r for route %r in %s; treating the route as required",
+                optional,
+                app_label,
+                config_path,
+            )
+            optional = False
+
         routes.append(
             ProductDBRoute(
                 app_label=app_label,
                 database=database,
                 source=str(config_path),
-                optional=bool(route_config.get("optional", False)),
+                optional=optional,
             )
         )
 
