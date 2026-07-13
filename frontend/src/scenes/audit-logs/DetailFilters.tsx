@@ -359,6 +359,7 @@ export const DetailFilters = (): JSX.Element => {
             </div>
 
             <LemonSelect
+                searchable
                 value={undefined}
                 onChange={(value) => {
                     if (value === '__add_custom__') {

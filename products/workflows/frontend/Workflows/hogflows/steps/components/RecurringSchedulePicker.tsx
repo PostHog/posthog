@@ -246,6 +246,7 @@ function TimezoneMenuPicker({ value, onChange }: { value: string; onChange: (tim
 
     return (
         <LemonSelect
+            searchable
             value={value}
             options={options}
             onChange={(val) => val && onChange(val)}

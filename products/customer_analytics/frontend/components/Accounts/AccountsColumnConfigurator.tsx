@@ -282,6 +282,7 @@ function CategoryPicker({
 }): JSX.Element {
     return (
         <LemonSelect
+            searchable
             size="xsmall"
             value={activeKey}
             options={groups.map((group) => ({

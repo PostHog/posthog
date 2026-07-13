@@ -176,6 +176,7 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                 </p>
                             </div>
                             <LemonSelect<number | null>
+                                searchable
                                 className="w-full"
                                 fullWidth
                                 options={projectDefaultDashboardOptions}

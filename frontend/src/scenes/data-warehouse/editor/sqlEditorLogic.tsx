@@ -1355,6 +1355,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     <LemonField name="folderId" label="Add to folder" className="flex-1">
                                         {({ value, onChange }) => (
                                             <LemonSelect<string | null>
+                                                searchable
                                                 value={value}
                                                 onChange={onChange}
                                                 searchPlaceholder="Search folders"

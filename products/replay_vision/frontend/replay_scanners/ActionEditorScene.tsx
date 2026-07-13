@@ -50,6 +50,7 @@ function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: str
     )
     return (
         <LemonSelect
+            searchable
             value={value}
             options={options}
             onChange={(val) => val && onChange(val)}

@@ -221,6 +221,7 @@ export function CustomPropertyModal(): JSX.Element {
                             >
                                 {({ value, onChange }) => (
                                     <LemonSelect
+                                        searchable
                                         value={value}
                                         onChange={(newValue) => {
                                             onChange(newValue)
@@ -248,6 +249,7 @@ export function CustomPropertyModal(): JSX.Element {
                             >
                                 {({ value, onChange }) => (
                                     <LemonSelect
+                                        searchable
                                         value={value}
                                         onChange={onChange}
                                         options={selectedSourceColumns.map((column) => ({
@@ -270,6 +272,7 @@ export function CustomPropertyModal(): JSX.Element {
                             >
                                 {({ value, onChange }) => (
                                     <LemonSelect
+                                        searchable
                                         value={value}
                                         onChange={onChange}
                                         options={selectedSourceColumns.map((column) => ({

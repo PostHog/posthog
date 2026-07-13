@@ -49,6 +49,7 @@ function GitHubRepositoryDropdown({ integrationId }: { integrationId: number }):
         <LemonField name="repository" label="Repository">
             {({ value, onChange }) => (
                 <LemonSelect
+                    searchable
                     data-attr="repository"
                     placeholder="Select a repository"
                     searchPlaceholder="Search repositories..."

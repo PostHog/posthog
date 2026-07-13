@@ -126,6 +126,7 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                             ) : (
                                 <Field name="joining_table_name">
                                     <LemonSelect
+                                        searchable
                                         fullWidth
                                         options={tableOptions}
                                         onSelect={selectJoiningTable}
@@ -404,6 +405,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                                     ) : (
                                         <Field name="joining_table_name">
                                             <LemonSelect
+                                                searchable
                                                 fullWidth
                                                 options={tableOptions}
                                                 onSelect={selectJoiningTable}
