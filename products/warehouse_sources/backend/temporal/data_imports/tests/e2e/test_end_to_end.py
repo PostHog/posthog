@@ -2732,7 +2732,7 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
     assert job.status == ExternalDataJob.Status.FAILED
     assert job.latest_error is not None
     assert (
-        "The primary keys for this table are not unique. We can't sync incrementally until the table has a unique primary key"
+        "The primary key set for this table isn't unique, so incremental syncing can't reliably match rows to update"
         in job.latest_error
     )
 

@@ -349,7 +349,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "and password configured for this source match what the proxy expects, then "
                 "re-enable the sync."
             ),
-            "No primary key defined for table": None,
+            "No primary key defined for table": (
+                "This table needs a primary key to sync incrementally, but none is set. Choose a primary "
+                "key for the table in its sync settings, or switch it to full table replication, then "
+                "re-enable the sync."
+            ),
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
             # It denotes an established SSL connection being dropped on connect or mid-stream (idle
