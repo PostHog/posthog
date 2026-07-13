@@ -408,7 +408,11 @@ export const areDatesValidForInterval = (
     const parsedOldDateTo = dateStringToDayJs(oldDateTo) || dayjs()
 
     if (oldDateFrom === 'all' || !parsedOldDateFrom) {
-        return interval === 'month'
+        return interval === 'month' || interval === 'quarter' || interval === 'year'
+    } else if (interval === 'year') {
+        return parsedOldDateTo.diff(parsedOldDateFrom, 'year') >= 2
+    } else if (interval === 'quarter') {
+        return parsedOldDateTo.diff(parsedOldDateFrom, 'quarter') >= 2
     } else if (interval === 'month') {
         return parsedOldDateTo.diff(parsedOldDateFrom, 'month') >= 2
     } else if (interval === 'week') {
@@ -435,13 +439,15 @@ export const areDatesValidForInterval = (
     throw new UnexpectedNeverError(interval)
 }
 
-const defaultDatesForInterval = {
+const defaultDatesForInterval: Record<IntervalType, { dateFrom: string; dateTo: null }> = {
     second: { dateFrom: '-1M', dateTo: null },
     minute: { dateFrom: '-1h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },
     week: { dateFrom: '-28d', dateTo: null },
     month: { dateFrom: '-6m', dateTo: null },
+    quarter: { dateFrom: '-3y', dateTo: null },
+    year: { dateFrom: '-5y', dateTo: null },
 }
 
 export const updateDatesWithInterval = (

@@ -28,7 +28,7 @@ function OnboardingCard({ children }: { children: ReactNode }): JSX.Element {
 }
 
 const meta: Meta<typeof SourcesStepInner> = {
-    title: 'Scenes-Other/Onboarding/Turn on your sources',
+    title: 'Scenes-Other/Onboarding/Self-Driving/Turn on your sources',
     component: SourcesStepInner,
     parameters: {
         layout: 'fullscreen',

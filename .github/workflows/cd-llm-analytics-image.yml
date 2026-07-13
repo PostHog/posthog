@@ -22,8 +22,22 @@ on:
             - '.github/workflows/cd-llm-analytics-image.yml'
             - 'pyproject.toml'
             - 'bin/temporal-django-worker'
+    # paths mirror the push trigger; the build-llm-analytics-image label only
+    # forces a build on PRs touching these paths, use workflow_dispatch otherwise.
     pull_request:
         types: [opened, synchronize, reopened, labeled]
+        paths:
+            - 'posthog/temporal/ai_observability/**'
+            - 'posthog/temporal/llm_analytics/**'
+            - 'products/ai_observability/**'
+            - 'products/llm_analytics/**'
+            - 'posthog/temporal/common/**'
+            - 'posthog/management/commands/start_temporal_worker.py'
+            - 'posthog/clickhouse/migrations/**'
+            - 'Dockerfile.llm-analytics'
+            - '.github/workflows/cd-llm-analytics-image.yml'
+            - 'pyproject.toml'
+            - 'bin/temporal-django-worker'
     workflow_dispatch:
 
 jobs:

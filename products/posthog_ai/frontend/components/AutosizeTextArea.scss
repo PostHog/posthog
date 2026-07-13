@@ -1,0 +1,31 @@
+.AutosizeTextArea {
+    display: block;
+    width: 100%;
+    min-height: 2.5rem;
+    padding: 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--text-3000);
+    text-align: left;
+    text-overflow: ellipsis;
+    cursor: text;
+    resize: none;
+    background: none;
+    background-color: var(--color-bg-fill-input);
+    outline: none;
+    box-shadow: none;
+
+    &:disabled {
+        cursor: not-allowed;
+        opacity: var(--opacity-disabled);
+    }
+}
+
+// Native autosizing where supported. The 1rem term is the vertical padding (0.5rem × 2);
+// rows are clamped via min/max-height since field-sizing ignores the `rows` attribute.
+.AutosizeTextArea--native {
+    /* stylelint-disable-next-line property-no-unknown -- field-sizing is a valid CSS property */
+    field-sizing: content;
+    min-height: max(2.5rem, calc(var(--autosize-textarea-min-rows, 1) * 1lh + 1rem));
+    max-height: calc(var(--autosize-textarea-max-rows, 1000) * 1lh + 1rem);
+}

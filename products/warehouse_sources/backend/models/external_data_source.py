@@ -1,7 +1,7 @@
-from datetime import datetime
 from uuid import UUID
 
 from django.db import models
+from django.utils import timezone
 
 import structlog
 
@@ -128,7 +128,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def soft_delete(self):
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.save()
 
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.

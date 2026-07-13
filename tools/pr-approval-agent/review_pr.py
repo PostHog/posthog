@@ -5,6 +5,7 @@
 #     "claude-agent-sdk",
 #     "anthropic",
 #     "posthoganalytics",
+#     "pyyaml",
 # ]
 # ///
 # ruff: noqa: T201
@@ -20,17 +21,22 @@ second-pass audit.
 Requires `gh` CLI authenticated and ANTHROPIC_API_KEY in env.
 """
 
+import os
 import json
 import time
 import argparse
+import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
     MAX_FILES,
     MAX_LINES,
+    POLICY,
     assign_tier,
+    build_ownership,
     category_fully_exempt,
     classify_files,
     dependency_manifests_without_lockfile,
@@ -40,21 +46,20 @@ from gates import (
     has_ci_workflow_changes,
     has_dependency_changes,
     is_allow_listed_only,
-    parse_codeowners_soft,
     parse_conventional_commit,
     scope_breadth,
     substantive_size,
     t1_risk_subclass,
     test_only,
 )
-from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr
+from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr, write_pr_diff
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
+from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
 from reviewer import Reviewer
+from version import STAMPHOG_VERSION
 
 try:
-    import os
-
     import posthoganalytics
 
     posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")  # ty: ignore[invalid-assignment]
@@ -65,17 +70,22 @@ except ImportError:
 
 # ── Repo root detection ──────────────────────────────────────────
 
-
-def _repo_root() -> Path:
-    here = Path(__file__).resolve().parent
-    for parent in [here, *here.parents]:
-        if (parent / ".git").exists():
-            return parent
-    raise RuntimeError("Cannot find git repo root from script location")
+REPO_ROOT = repo_root()
 
 
-REPO_ROOT = _repo_root()
-CODEOWNERS_SOFT = REPO_ROOT / ".github" / "CODEOWNERS-soft"
+def _head_commit_sha() -> str:
+    """HEAD sha of the checked-out policy tree, or 'unknown' if git is unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
 # ── Terminal formatting ──────────────────────────────────────────
@@ -169,6 +179,8 @@ class Pipeline:
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.classification: dict = {}
+        self.effective_policy: EffectivePolicy | None = None
+        self._diff_path: Path | None = None
         self.gate_results: list[GateResult] = []
         self.reviewer_output: dict | None = None
         self.final_verdict: str = ""
@@ -202,7 +214,12 @@ class Pipeline:
                 if self._only_pending_migration_check():
                     return self._refuse_pending_migration_check()
 
-        self._llm_review(gate_verdict)
+        try:
+            self._maybe_compute_familiarity()
+            self._llm_review(gate_verdict)
+        finally:
+            if self._diff_path is not None:
+                self._diff_path.unlink(missing_ok=True)
         return self.final_verdict
 
     def _classify_and_gate(self) -> str:
@@ -372,8 +389,8 @@ class Pipeline:
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
         allow_only = is_allow_listed_only(file_paths) and not has_dependency_changes(file_paths) and not dep_manifests
         is_test = test_only(categories)
-        ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
-        ownership = detect_ownership(file_paths, ownership_rules)
+        ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
+        ownership = detect_ownership(file_paths, ownership_resolvers)
 
         tier = assign_tier(
             deny_categories=deny,
@@ -393,6 +410,11 @@ class Pipeline:
                 breadth=breadth,
             )
 
+        # Resolve any per-folder override for this PR's file set once. Its
+        # effective size gate feeds _check_size; its advisory prose (untrusted)
+        # is threaded to the reviewer prompt; its provenance goes in the bundle.
+        self.effective_policy = resolve(POLICY, file_paths)
+
         self.classification = {
             "tier": tier,
             "t1_subclass": subclass,
@@ -410,7 +432,82 @@ class Pipeline:
             "manifest_script_changes": risky_manifests,
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
+            "folder_policy_prose": self.effective_policy.folder_prose,
+            "assurance": self._summarize_assurance(),
+            # Judgment-layer signal, filled in later only for the T1-agent path
+            # (see _maybe_compute_familiarity). None here keeps every other path
+            # - and the reviewer prompt - byte-identical to before.
+            "familiarity": None,
         }
+
+    def _summarize_assurance(self) -> dict:
+        """Deterministic pre-digest of review state for the TRUSTED prompt block.
+
+        Derived only from GitHub review metadata (states, head-ness) — never
+        author-controlled text — so the reviewer gets a trustworthy at-a-glance
+        summary of who has actually vouched for the current head.
+        """
+        pr = self.pr
+        head_approvals = sorted(
+            {r["user"] for r in pr.reviews if r.get("is_current_head") and r.get("state") == "APPROVED"}
+        )
+        head_commented_users = sorted(
+            {r["user"] for r in pr.reviews if r.get("is_current_head") and r.get("state") == "COMMENTED"}
+        )
+        # Count unresolved conversations, not flattened comments: replies inherit
+        # the thread's resolution state, so a single 4-reply thread must read as
+        # one unresolved thread, not five unresolved comments.
+        unresolved_threads = sum(
+            1
+            for c in pr.review_comments
+            if c.get("in_reply_to_id") is None and not c.get("is_resolved") and not c.get("is_outdated")
+        )
+        return {
+            "head_approvals": head_approvals,
+            "head_commented_users": head_commented_users,
+            "head_commented": len(head_commented_users),
+            "unresolved_threads": unresolved_threads,
+            "discussion": len(pr.discussion),
+        }
+
+    def _maybe_compute_familiarity(self) -> None:
+        """Attach the author-familiarity signal for the T1-agent path only.
+
+        Judgment layer only - never touches gates, and any failure leaves the
+        signal absent (None) so behavior stays exactly as before. T0 skips the
+        LLM and T2 is a deny, so neither benefits from the signal.
+        """
+        if self.classification.get("tier") != "T1-agent":
+            return
+        self.classification["familiarity"] = self._compute_familiarity()
+
+    def _compute_familiarity(self) -> AuthorFamiliarity | None:
+        pr = self.pr
+        try:
+            return compute_familiarity(
+                author_login=pr.author,
+                diff_path=self._ensure_diff_path(),
+                base_sha=pr.base_sha,
+                head_sha=pr.head_sha,
+                repo=self.repo,
+                repo_root=REPO_ROOT,
+                thresholds=POLICY.familiarity,
+            )
+        except Exception as exc:
+            print(_warn(f"familiarity computation failed ({exc}); continuing without the signal"))
+            return None
+
+    def _ensure_diff_path(self) -> Path:
+        """Write the PR diff once per run; familiarity and the reviewer share it.
+
+        One producer keeps the two consumers grading the same diff. run() owns
+        cleanup so the file never lingers in the repo working tree.
+        """
+        if self._diff_path is None:
+            self._diff_path = write_pr_diff(
+                self.pr.base_sha, self.pr.head_sha, REPO_ROOT / ".pr-review-diff.patch", REPO_ROOT
+            )
+        return self._diff_path
 
     def _run_gates(self) -> None:
         print(_bold("Gates"))
@@ -492,6 +589,7 @@ class Pipeline:
 
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.pr.files)
+        max_lines = self.effective_policy.max_lines if self.effective_policy else MAX_LINES
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
         exempt_files = len(self.pr.files) - files
         suffix_parts = []
@@ -500,13 +598,31 @@ class Pipeline:
         if exempt_files:
             suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
         suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""
-        if lines > MAX_LINES or files > MAX_FILES:
+        if lines > max_lines:
             return (
                 False,
-                f"too large for auto-review ({lines}L, {files}F substantive{suffix} — "
-                f"ceiling is {MAX_LINES}L / {MAX_FILES}F)",
+                f"too large for auto-review ({lines}L, {files}F substantive{suffix} — ceiling is {max_lines}L)",
             )
+        # Mixed PRs get mixed leniency: each file counts against the budget of
+        # the scope governing it (a folder override or the global pool), so a
+        # folder's higher ceiling covers its own files and nothing else.
+        for scope in self._size_scopes():
+            in_scope = set(scope.files)
+            _, scope_files = substantive_size([f for f in self.pr.files if f["filename"] in in_scope])
+            if scope_files > scope.max_files:
+                where = scope.path or "global"
+                return (
+                    False,
+                    f"too large for auto-review ({scope_files}F substantive in {where} — "
+                    f"ceiling is {scope.max_files}F; {lines}L, {files}F total{suffix})",
+                )
         return True, f"{lines}L, {files}F substantive{suffix} — within ceiling"
+
+    def _size_scopes(self) -> tuple[ScopeBudget, ...]:
+        if self.effective_policy is not None:
+            return self.effective_policy.scopes
+        all_files = tuple(f["filename"] for f in self.pr.files)
+        return (ScopeBudget(path=None, max_files=MAX_FILES, files=all_files),)
 
     def _check_tier(self) -> tuple[bool, str]:
         cl = self.classification
@@ -524,6 +640,9 @@ class Pipeline:
     def _llm_review(self, gate_verdict: str) -> None:
         print(f"\n{_bold('LLM Review')}")
         reviewer = Reviewer(REPO_ROOT, verbose=self.verbose)
+        # Outside the retry loop: a diff-write hiccup must not masquerade as a
+        # retryable reviewer failure and burn the backoff budget.
+        diff_path = self._ensure_diff_path()
 
         gate_context = {
             "gate_verdict": gate_verdict,
@@ -539,6 +658,7 @@ class Pipeline:
                     self.pr,
                     self.classification,
                     gate_context,
+                    diff_path=diff_path,
                 )
                 break
             except Exception as e:
@@ -632,6 +752,8 @@ class Pipeline:
             event="stamphog_review_completed",
             properties={
                 "ai_product": "stamphog",
+                "stamphog_version": STAMPHOG_VERSION,
+                "stamphog_commit": _head_commit_sha(),
                 "stamphog_pr_number": pr.number,
                 "stamphog_repo": pr.repo,
                 "stamphog_author": pr.author,
@@ -655,8 +777,64 @@ class Pipeline:
 
     # ── Output ───────────────────────────────────────────────────
 
+    def _render_review_body(self) -> str | None:
+        """The verdict comment body: reasoning first, judgment bullets, mechanics folded.
+
+        Judgment leads and the gate mechanics (budgets, tier, policy version)
+        stay inside a collapsed details block. Built only from GFM constructs a
+        GitHub comment actually renders.
+        """
+        if self.reviewer_output is None:
+            return None
+        reasoning = str(self.reviewer_output.get("reasoning", "")).strip()
+
+        bullets: list[str] = []
+        fam = self.classification.get("familiarity")
+        if fam is not None and fam.band in ("STRONG", "MODERATE"):
+            bullets.append(
+                f"Author wrote {fam.blame_overlap_pct:.0f}% of the modified lines and has "
+                f"{fam.prior_prs_in_paths} merged PRs in these paths (familiarity {fam.band})."
+            )
+        # Reuse the assurance digest's head-reviewer derivation rather than
+        # re-deriving it here. classification is empty {} on early-exit paths
+        # (bot-author REFUSE), so guard with .get and skip the bullet then.
+        assurance = self.classification.get("assurance") or {}
+        head_reviewers = sorted(
+            _sanitize_untrusted(u, max_len=50)
+            for u in {*assurance.get("head_approvals", []), *assurance.get("head_commented_users", [])}
+        )
+        thumbs = sorted(
+            {_sanitize_untrusted(r["user"], max_len=50) for r in self.pr.pr_reactions if r.get("emoji") == "👍"}
+        )
+        if head_reviewers:
+            bullets.append(f"{', '.join(head_reviewers)} reviewed the current head.")
+        elif thumbs:
+            bullets.append(f"👍 on the PR from {', '.join(thumbs)}.")
+        if self.effective_policy is not None:
+            for scope in self.effective_policy.scopes:
+                if scope.path and scope.files:
+                    bullets.append(
+                        f"{len(scope.files)} of the {len(self.pr.files)} changed files are governed by `{scope.path}`."
+                    )
+        bullets.extend(str(issue) for issue in (self.reviewer_output.get("issues") or [])[:3])
+
+        rows = [f"| {g.gate} | {'✓' if g.passed else '✗'} | {g.message} |" for g in self.gate_results if g]
+        rows.append(
+            f"| stamphog {STAMPHOG_VERSION} |  | `.stamphog/policy.yml` @ `{_head_commit_sha()[:7]}`"
+            f" · reviewed head `{self.pr.head_sha[:7]}` |"
+        )
+        details = (
+            "<details>\n<summary>Gate mechanics and policy version</summary>\n\n"
+            "| Gate |  | Result |\n|---|---|---|\n" + "\n".join(rows) + "\n\n</details>"
+        )
+
+        parts = [part for part in (reasoning, "\n".join(f"- {b}" for b in bullets) if bullets else "") if part]
+        parts.append(details)
+        return "\n\n".join(parts)
+
     def to_dict(self) -> dict:
         return {
+            "stamphog_version": STAMPHOG_VERSION,
             "pr_number": self.pr.number,
             "repo": self.pr.repo,
             "title": self.pr.title,
@@ -676,11 +854,28 @@ class Pipeline:
                 "title_scrutiny_flags": self.classification.get("title_scrutiny_flags", []),
                 "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
+                "familiarity": familiarity_evidence(self.classification.get("familiarity")),
             },
             "gates": [
                 {"gate": g.gate, "passed": g.passed, "message": g.message} for g in self.gate_results if g is not None
             ],
+            "policy": {
+                "commit_sha": _head_commit_sha(),
+                "policy_file": ".stamphog/policy.yml",
+                "scopes": (
+                    [
+                        {"path": s.path, "max_files": s.max_files, "files": len(s.files)}
+                        for s in self.effective_policy.scopes
+                    ]
+                    if self.effective_policy
+                    else []
+                ),
+                "invalid_folder_files": (
+                    list(self.effective_policy.invalid_folder_files) if self.effective_policy else []
+                ),
+            },
             "reviewer": self.reviewer_output,
+            "review_body": self._render_review_body(),
             "final_verdict": self.final_verdict,
         }
 
@@ -709,6 +904,15 @@ def main() -> None:
 
     if verdict == "DRY-RUN":
         print(f"\n{_dim('DRY RUN — would proceed to LLM review')}")
+
+    # Show the comment exactly as it would be posted (the workflow posts
+    # review_body verbatim), gate-mechanics table included.
+    review_body = pipeline._render_review_body()
+    if review_body:
+        print(f"\n{_bold('Review comment (as posted)')}")
+        print(_dim("─" * 60))
+        print(review_body)
+        print(_dim("─" * 60))
 
     if args.output_json:
         pipeline.save_json(args.output_json)

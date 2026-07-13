@@ -141,10 +141,17 @@ export type HogFlowEditorActionMetrics = {
     filtered: number
 }
 
+export type OutputMappingSuggestion = {
+    key: string
+    result_path: string
+    label: string
+}
+
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
     output_variable?: HogFlowAction['output_variable']
     getDefaultInputs?: () => Record<string, CyclotronInputType> | undefined
+    getOutputMappingSuggestions?: () => Promise<OutputMappingSuggestion[]>
 }
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([

@@ -1,10 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -20,10 +21,13 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { recordingClickmapLogic } from './recordingClickmapLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function ExportButton({
     iframeRef,
@@ -349,8 +353,7 @@ export function HeatmapsBrowser(): JSX.Element {
     const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
-    const { clickmapEnabled, clickmapAvailable } = useValues(clickmapLogic)
-    const { setClickmapEnabled } = useActions(clickmapLogic)
+    const { clickmapAvailable } = useValues(clickmapLogic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -360,9 +363,10 @@ export function HeatmapsBrowser(): JSX.Element {
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
                     <FilterPanel
-                        clickmapEnabled={hasValidReplayIframeData && clickmapAvailable ? clickmapEnabled : undefined}
-                        onClickmapEnabledChange={
-                            hasValidReplayIframeData && clickmapAvailable ? setClickmapEnabled : undefined
+                        clickmapSettings={
+                            hasValidReplayIframeData && clickmapAvailable ? (
+                                <ClickmapSettings iframeRef={iframeRef} />
+                            ) : undefined
                         }
                     />
                     <LemonDivider className="my-4" />

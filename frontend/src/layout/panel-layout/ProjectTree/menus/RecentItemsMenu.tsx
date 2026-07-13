@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconClock } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { keybindToKeyboardShortcutProps } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
@@ -19,7 +20,6 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'

@@ -35,7 +35,7 @@ def _opportunity(confidence: float) -> OpportunityOut:
 def _item() -> SourceItem:
     return SourceItem(
         source="anchored_insights",
-        kind="movement",
+        kind=SourceItemKind.MOVEMENT,
         title="t",
         description="d",
         metrics={"pct_change": -30.0},

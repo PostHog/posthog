@@ -451,6 +451,10 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                     )
                                                     const { isSticky: isPinned, leftPosition } = stickyInfo
 
+                                                    // Truncate only when a max width is set and the column isn't sized by its author.
+                                                    const truncateHeader =
+                                                        !!maxHeaderWidth && !column.width && !column.fullWidth
+
                                                     return (
                                                         <th
                                                             key={`LemonTable-th-${columnGroupIndex}-${columnKey}`}
@@ -519,12 +523,15 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                 <div
                                                                     className={clsx(
                                                                         'flex items-center',
+                                                                        // Clip at maxWidth: sticky headers keep `overflow: visible` on the th, so
+                                                                        // without this an over-wide title spills across the neighbouring headers
+                                                                        truncateHeader && 'overflow-hidden',
                                                                         column?.fullWidth && 'w-full',
                                                                         column.sorter && 'cursor-pointer'
                                                                     )}
                                                                     /* eslint-disable-next-line react/forbid-dom-props */
                                                                     style={
-                                                                        maxHeaderWidth
+                                                                        truncateHeader
                                                                             ? { maxWidth: maxHeaderWidth }
                                                                             : undefined
                                                                     }
@@ -536,6 +543,14 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                 <IconInfo className="ml-1 text-base" />
                                                                             </div>
                                                                         </Tooltip>
+                                                                    ) : truncateHeader &&
+                                                                      typeof column.title === 'string' ? (
+                                                                        <div
+                                                                            className="min-w-0 truncate"
+                                                                            title={column.title}
+                                                                        >
+                                                                            {column.title}
+                                                                        </div>
                                                                     ) : (
                                                                         column.title
                                                                     )}

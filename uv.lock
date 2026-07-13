@@ -15,12 +15,13 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
+hogql-parser-rs = false
 pixelhog = false
 hogql-parser = false
 posthoganalytics = false
 django = false
+posthog-hogland = false
 modal = false
-hogql-parser-rs = false
 
 [manifest]
 members = [

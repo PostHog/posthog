@@ -211,7 +211,7 @@ export const sdksLogic = kea<sdksLogicType>([
                             },
                         }
                     )
-                    const hasEvents = !!(res.results?.length ?? 0 > 0)
+                    const hasEvents = !!((res.results?.length ?? 0) > 0)
                     const snippetHosts = res.results?.map((result) => result[1]).filter((val) => !!val) ?? []
                     if (hasEvents) {
                         actions.setSnippetHosts(snippetHosts)

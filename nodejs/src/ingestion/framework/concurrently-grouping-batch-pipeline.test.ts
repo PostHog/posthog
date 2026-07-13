@@ -315,6 +315,144 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
         })
     })
 
+    describe('bounded concurrency', () => {
+        it('caps how many groups (not items) process at once when maxConcurrency is set', async () => {
+            // Real timers so a full drain naturally lets each item's delay elapse; peak concurrency
+            // is observed across the whole run.
+            jest.useRealTimers()
+
+            const groupCount = 6
+            const itemsPerGroup = 3
+            const maxConcurrency = 2
+            // Track concurrent groups: a group is active from its first item's start to its last item's
+            // end. Items within a group run sequentially under one slot, so items-in-flight would peak
+            // higher than groups-in-flight if the cap counted items.
+            const activeItemsByGroup = new Map<string, number>()
+            let peakGroups = 0
+            let peakItems = 0
+
+            const processor = createNewPipeline<{ index: number; group: string }>().pipe(async (input) => {
+                activeItemsByGroup.set(input.group, (activeItemsByGroup.get(input.group) ?? 0) + 1)
+                peakGroups = Math.max(peakGroups, activeItemsByGroup.size)
+                peakItems = Math.max(
+                    peakItems,
+                    [...activeItemsByGroup.values()].reduce((a, b) => a + b, 0)
+                )
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                const remaining = (activeItemsByGroup.get(input.group) ?? 1) - 1
+                if (remaining === 0) {
+                    activeItemsByGroup.delete(input.group)
+                } else {
+                    activeItemsByGroup.set(input.group, remaining)
+                }
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ index: number; group: string }>().build()
+
+            const testBatch = []
+            let index = 0
+            for (let g = 0; g < groupCount; g++) {
+                for (let i = 0; i < itemsPerGroup; i++) {
+                    testBatch.push(createOkContext({ index: index++, group: `group-${g}` }, context1))
+                }
+            }
+            previousPipeline.feed(testBatch)
+
+            const pipeline = new ConcurrentlyGroupingBatchPipeline(
+                (input) => input.group,
+                processor,
+                previousPipeline,
+                maxConcurrency
+            )
+
+            const results: PipelineResultWithContext<any, any>[] = []
+            let result = await pipeline.next()
+            while (result !== null) {
+                results.push(...result)
+                result = await pipeline.next()
+            }
+
+            expect(results).toHaveLength(groupCount * itemsPerGroup)
+            // The cap is on groups: at most `maxConcurrency` groups run at once...
+            expect(peakGroups).toBe(maxConcurrency)
+            // ...and a group's items run sequentially under its single slot, so items-in-flight never
+            // exceeds the group cap either (one active item per active group).
+            expect(peakItems).toBe(maxConcurrency)
+        })
+
+        it('preserves per-key ordering when a group parks for a permit and more same-key items arrive', async () => {
+            // The key is claimed in activeProcessing synchronously when a group is started, so a
+            // same-key item fed while that group is still parked waiting for a permit must queue
+            // behind it rather than spawn a second concurrent runner. Two slow occupants (Y, Z) hold
+            // both permits so A genuinely parks; if the claim regressed to happen only once the permit
+            // is granted, a1 and a2 would run concurrently and A's peak concurrency would be 2.
+            const processingOrder: string[] = []
+            const activeByGroup = new Map<string, number>()
+            const peakByGroup = new Map<string, number>()
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
+                const active = (activeByGroup.get(input.group) ?? 0) + 1
+                activeByGroup.set(input.group, active)
+                peakByGroup.set(input.group, Math.max(peakByGroup.get(input.group) ?? 0, active))
+                processingOrder.push(`start-${input.value}`)
+                await new Promise((resolve) => setTimeout(resolve, input.group === 'A' ? 10 : 100))
+                processingOrder.push(`end-${input.value}`)
+                activeByGroup.set(input.group, (activeByGroup.get(input.group) ?? 1) - 1)
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingBatchPipeline(
+                (input) => input.group,
+                processor,
+                previousPipeline,
+                2
+            )
+
+            // Two slow groups fill both permits. Fed before the drain parks so they start on the
+            // first next(); later same-key feeds go through the pipeline to wake the parked drain.
+            previousPipeline.feed([
+                createOkContext({ value: 'y1', group: 'Y' }, context1),
+                createOkContext({ value: 'z1', group: 'Z' }, context2),
+            ])
+
+            const drained: PipelineResultWithContext<any, any>[] = []
+            const run = (async () => {
+                let result = await pipeline.next()
+                while (result !== null) {
+                    drained.push(...result)
+                    result = await pipeline.next()
+                }
+            })()
+
+            await jest.advanceTimersByTimeAsync(0)
+            expect(processingOrder).toEqual(['start-y1', 'start-z1'])
+
+            // A's first item parks (no permit free) and claims key A. Fed through the pipeline so the
+            // wake-up reaches the parked drain.
+            pipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context3)])
+            await jest.advanceTimersByTimeAsync(0)
+            expect(processingOrder).toEqual(['start-y1', 'start-z1'])
+
+            // A's second item, fed while A is still parked, must queue — not start a second A runner.
+            pipeline.feed([createOkContext({ value: 'a2', group: 'A' }, context4)])
+            await jest.advanceTimersByTimeAsync(0)
+            expect(processingOrder).toEqual(['start-y1', 'start-z1'])
+
+            // Free both permits and let everything drain.
+            await jest.advanceTimersByTimeAsync(1000)
+            await run
+
+            expect(drained).toHaveLength(4)
+            // A never ran two items at once, and a1 fully preceded a2.
+            expect(peakByGroup.get('A')).toBe(1)
+            expect(processingOrder.filter((s) => s.endsWith('a1') || s.endsWith('a2'))).toEqual([
+                'start-a1',
+                'end-a1',
+                'start-a2',
+                'end-a2',
+            ])
+        })
+    })
+
     describe('non-success results', () => {
         it('should preserve non-success results without processing', async () => {
             let processorCallCount = 0
@@ -374,14 +512,15 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
         })
     })
 
-    describe('groupBy builder DSL', () => {
-        it('should work with the groupBy builder method', async () => {
+    describe('concurrentlyPerGroup builder DSL', () => {
+        it('should work with the concurrentlyPerGroup builder method', async () => {
             const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
-                .groupBy((input) => input.group)
-                .concurrently((group) =>
-                    group.sequentially((builder) =>
-                        builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
-                    )
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (group) =>
+                        group.sequentially((builder) =>
+                            builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
+                        )
                 )
                 .build()
 
@@ -405,11 +544,12 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
         it('should chain with gather to collect all results', async () => {
             const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
-                .groupBy((input) => input.group)
-                .concurrently((group) =>
-                    group.sequentially((builder) =>
-                        builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
-                    )
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (group) =>
+                        group.sequentially((builder) =>
+                            builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
+                        )
                 )
                 .gather()
                 .build()
@@ -615,16 +755,17 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
         it('should handle multiple items per group with sequential processing', async () => {
             const processingOrder: string[] = []
             const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
-                .groupBy((input) => input.group)
-                .concurrently((group) =>
-                    group.sequentially((builder) =>
-                        builder.pipe(async (input) => {
-                            processingOrder.push(`start-${input.value}`)
-                            await new Promise((resolve) => setTimeout(resolve, 10))
-                            processingOrder.push(`end-${input.value}`)
-                            return ok({ ...input, processed: true })
-                        })
-                    )
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (group) =>
+                        group.sequentially((builder) =>
+                            builder.pipe(async (input) => {
+                                processingOrder.push(`start-${input.value}`)
+                                await new Promise((resolve) => setTimeout(resolve, 10))
+                                processingOrder.push(`end-${input.value}`)
+                                return ok({ ...input, processed: true })
+                            })
+                        )
                 )
                 .gather()
                 .build()
@@ -663,11 +804,12 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
         it('should handle empty batches gracefully', async () => {
             const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
-                .groupBy((input) => input.group)
-                .concurrently((group) =>
-                    group.sequentially((builder) =>
-                        builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
-                    )
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (group) =>
+                        group.sequentially((builder) =>
+                            builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
+                        )
                 )
                 .build()
 
@@ -679,11 +821,12 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
         it('should handle single item groups', async () => {
             const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
-                .groupBy((input) => input.group)
-                .concurrently((group) =>
-                    group.sequentially((builder) =>
-                        builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
-                    )
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (group) =>
+                        group.sequentially((builder) =>
+                            builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
+                        )
                 )
                 .gather()
                 .build()

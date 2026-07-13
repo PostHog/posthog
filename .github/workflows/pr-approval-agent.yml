@@ -74,6 +74,11 @@ jobs:
                   # doesn't break stamphog (and vice versa). The env var name
                   # stays ANTHROPIC_API_KEY — that's what the Claude Agent SDK reads.
                   ANTHROPIC_API_KEY: ${{ secrets.STAMPHOG_ANTHROPIC_API_KEY }}
+                  # ai-gateway cutover: when both are set, the review routes through
+                  # the Go ai-gateway (phs_ secret) instead of Anthropic directly.
+                  # Unset = direct path, so setting them is the cutover.
+                  AI_GATEWAY_URL: ${{ secrets.STAMPHOG_AI_GATEWAY_URL }}
+                  AI_GATEWAY_API_KEY: ${{ secrets.STAMPHOG_AI_GATEWAY_API_KEY }}
                   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_TOKEN }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
@@ -85,9 +90,14 @@ jobs:
             - name: Post review
               if: always()
               env:
-                  # Use GITHUB_TOKEN for approvals so github-actions[bot] is the
-                  # reviewer — its approvals count toward branch protection rules,
-                  # unlike GitHub App bot approvals which show author_association NONE.
+                  # Approvals are posted twice, on purpose. The Stamphog app
+                  # (GH_TOKEN) posts the review body as an approval so the
+                  # human-facing feedback carries the bot's own identity;
+                  # github-actions[bot] (GH_TOKEN_APPROVE) posts a second,
+                  # bodyless approval. We keep both while we confirm which
+                  # identity's approval actually counts toward branch protection
+                  # — GitHub App bot approvals have shown author_association NONE.
+                  # If the github-actions[bot] one proves redundant, drop it.
                   GH_TOKEN_APPROVE: ${{ github.token }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   # Derived from the token step so the sticky-comment author
@@ -97,7 +107,10 @@ jobs:
                   PR=${{ github.event.pull_request.number }}
                   REPO=${{ github.repository }}
                   VERDICT=$(jq -r '.final_verdict // ""' /tmp/review.json 2>/dev/null || echo "")
-                  REASONING=$(jq -r '.reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
+                  # Prefer the structured comment body (reasoning + judgment
+                  # bullets + folded gate mechanics); fall back to the bare
+                  # reasoning when the script predates the field.
+                  REASONING=$(jq -r '.review_body // .reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
                   REVIEWED_SHA=$(jq -r '.head_sha // ""' /tmp/review.json 2>/dev/null || echo "")
 
                   # Lock the review to the sha the LLM actually saw — `gh pr
@@ -109,11 +122,24 @@ jobs:
                   fi
 
                   if [ "$VERDICT" = "APPROVED" ]; then
-                    GH_TOKEN="$GH_TOKEN_APPROVE" gh api \
+                    # Stamphog app approval, carrying the review body. Best-effort:
+                    # the step runs under `set -e`, so a failure here (e.g. the App
+                    # install missing Pull-requests write, or a transient error)
+                    # would otherwise abort before the github-actions[bot] approval
+                    # below — the identity currently known to unblock PRs. Keep it
+                    # non-fatal and surface the failure as a warning instead.
+                    gh api \
                       -X POST "repos/$REPO/pulls/$PR/reviews" \
                       "${SHA_ARGS[@]}" \
                       -f event=APPROVE \
-                      -f body="$REASONING"
+                      -f body="$REASONING" \
+                      || echo "::warning::stamphog app approval failed to post; continuing with the github-actions[bot] approval"
+                    # Bodyless github-actions[bot] approval — kept alongside the
+                    # app approval until we've confirmed which one unblocks PRs.
+                    GH_TOKEN="$GH_TOKEN_APPROVE" gh api \
+                      -X POST "repos/$REPO/pulls/$PR/reviews" \
+                      "${SHA_ARGS[@]}" \
+                      -f event=APPROVE
                   else
                     # Non-approve verdicts share ONE sticky comment, updated in
                     # place, instead of a fresh COMMENT review per run. Review
@@ -127,12 +153,13 @@ jobs:
                     # Author + leading-marker filter: on a public repo anyone can
                     # post a comment containing the marker; without the filter the
                     # bot would PATCH (clobber) a third-party comment. Slurp so the
-                    # jq runs once over all pages — per-page --jq could emit one
-                    # object per page. The || guard keeps a transient lookup
-                    # failure from aborting the step before the label strip below
-                    # (it degrades to posting a fresh comment instead).
+                    # jq runs once over all pages (per-page filtering could emit
+                    # one object per page); gh rejects --slurp combined with --jq,
+                    # so pipe to standalone jq. The || guard keeps a transient
+                    # lookup failure from aborting the step before the label strip
+                    # below (it degrades to posting a fresh comment instead).
                     EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
-                      --jq "[.[][] | select(.user.login == \"$BOT_LOGIN\" and (.body | startswith(\"$MARKER\")))][0] // empty" \
+                      | jq "[.[][] | select(.user.login == \"$BOT_LOGIN\" and (.body | startswith(\"$MARKER\")))][0] // empty" \
                       || echo "")
                     COMMENT_ID=""
                     EXISTING_BODY=""
@@ -337,7 +364,7 @@ jobs:
         steps:
             - name: Dismiss stale bot approvals
               env:
-                  # Same identity (github-actions[bot]) that posted the approval.
+                  # github.token can dismiss both bot identities' approvals.
                   GH_TOKEN: ${{ github.token }}
                   PR: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
@@ -345,11 +372,13 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  # Only dismiss APPROVED reviews made by github-actions[bot] —
-                  # human reviews and non-approval reviews are untouched.
+                  # Dismiss APPROVED reviews from either Stamphog identity —
+                  # github-actions[bot] (bodyless approval) and stamphog[bot]
+                  # (the app approval carrying the review body). Human reviews
+                  # and non-approval reviews are untouched.
                   mapfile -t REVIEW_IDS < <(
                       gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
-                        --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED") | .id'
+                        --jq '.[] | select((.user.login == "github-actions[bot]" or .user.login == "stamphog[bot]") and .state == "APPROVED") | .id'
                   )
 
                   for id in "${REVIEW_IDS[@]}"; do

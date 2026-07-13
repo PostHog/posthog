@@ -18,14 +18,16 @@ rollout, configuration, and operator guidance.
 The public HTTP contract stays `POST /process`: callers send an array of
 events and receive an equally sized array in the same order, with `null` in a
 slot only when the normal cymbal pipeline suppresses that event. The
-Node.js error-tracking consumer can keep using its existing DNS/team routing
+Node.js error-tracking consumer can keep using its existing DNS routing
 and HTTP body-size chunking because remote symbol resolution happens behind
 the same cymbal HTTP boundary.
 
 When remote resolution is enabled, `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE`
 controls a deterministic event-level rollout. Events selected for remote
-processing are grouped per team, flattened into exception-level `ResolveItem`s,
-and submitted over a bidirectional `Resolve` stream. Each item carries JSON
+processing are flattened into exception-level `ResolveItem`s, grouped by a
+symbol-set routing key when one is available, and submitted over a
+bidirectional `Resolve` stream. Items without a symbol-set reference fall back
+to the existing per-team key. Each item carries JSON
 `metadata` bytes for resolver-specific context such as
 `debug_images_json`, and each terminal `ResolveOutcome` is correlated by
 item id. Sampled remote attempts do not fall back to local resolution if the
@@ -43,10 +45,9 @@ endpoint is also excluded from new routing in that cymbal process. Repeated
 overloads double the endpoint cooldown up to
 `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MAX_MS`, and a quiet
 `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_DECAY_MS` window resets it.
-`LoadEvent` is only a freshness/draining signal for endpoint routing, not an
-overload or dynamic batch-size control plane. `CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER`
-flattens traffic across the rendezvous-ranked candidate list: `0.0` sends all traffic to
-the top-ranked endpoint, `1.0` is uniform across candidates, and intermediate values decay by rank.
+`LoadEvent` carries freshness, draining, and item-concurrency load (`in_flight` / `max_in_flight`).
+Cymbal uses that load as a soft routing bias: busier endpoints are less likely to win the rendezvous-ranked candidate list, while stale or draining endpoints remain excluded.
+`CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER` flattens traffic across the load-adjusted rendezvous-ranked candidate list: `0.0` sends traffic to the top load-adjusted endpoint, `1.0` makes selection load-weighted across candidates, and intermediate values decay by rank.
 
 See [`docs/compatibility.md`](docs/compatibility.md) for the Node consumer
 compatibility checklist and [`src/modes/resolution/README.md`](src/modes/resolution/README.md)

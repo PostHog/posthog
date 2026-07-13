@@ -28,7 +28,7 @@
         "babel-jest": "^29.7.0",
         "jest": "^29.7.0",
         "oxfmt": "^0.35.0",
-        "oxlint": "^1.0.0",
+        "oxlint": "^1.72.0",
         "typescript": "^5.7.2"
     },
     "packageManager": "pnpm@10.29.3",
