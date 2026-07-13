@@ -2032,6 +2032,7 @@ class FileSystemIconType(StrEnum):
     LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
+    MCP_ANALYTICS = "mcp_analytics"
     EXPORTS = "exports"
 
 
