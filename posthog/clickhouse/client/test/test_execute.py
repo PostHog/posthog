@@ -32,3 +32,19 @@ def test_process_query_task_workload_routing(client_from_pool, workload, expecte
     called_workload, _, _, called_ch_user = client_from_pool.call_args[0]
     assert called_workload == expected_workload
     assert called_ch_user == ClickHouseUser.APP
+
+
+@pytest.mark.parametrize(
+    "workload,expected_workload",
+    [
+        (Workload.DEFAULT, Workload.ENDPOINTS),
+        (Workload.LOGS, Workload.LOGS),
+    ],
+)
+def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_workload):
+    # The ENDPOINTS tag reroutes queries to the endpoints cluster, but must not override
+    # the LOGS cluster pin either.
+    with tags_context(kind="request", id="api/endpoint", workload=Workload.ENDPOINTS):
+        sync_execute("SELECT 1", workload=workload, flush=False)
+
+    assert client_from_pool.call_args[0][0] == expected_workload

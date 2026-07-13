@@ -347,7 +347,7 @@ def sync_execute(
             workload = Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
-    if tags.workload == Workload.ENDPOINTS:
+    if tags.workload == Workload.ENDPOINTS and workload != Workload.LOGS:
         workload = Workload.ENDPOINTS
 
     if workload == Workload.DEFAULT:
