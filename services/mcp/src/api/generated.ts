@@ -15608,6 +15608,8 @@ export namespace Schemas {
     export interface DataCatalogMetricRun {
       /** Lifecycle state of the metric that produced these results. */
       status: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). Only status 'approved' with is_drifted false is canonical. */
+      is_drifted: boolean;
       /**
          * Unit of the result, e.g. usd, percent.
          * @nullable
@@ -15640,6 +15642,30 @@ export namespace Schemas {
     }
 
     /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type DataCatalogMetricRunRequestIntervalEnum = typeof DataCatalogMetricRunRequestIntervalEnum[keyof typeof DataCatalogMetricRunRequestIntervalEnum];
+
+
+    export const DataCatalogMetricRunRequestIntervalEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    /**
      * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
      */
     export interface DataCatalogMetricRunRequest {
@@ -15647,8 +15673,17 @@ export namespace Schemas {
       date_from?: string;
       /** Override the end of the query window. */
       date_to?: string;
-      /** Override the bucket interval (e.g. 'day', 'week'). */
-      interval?: string;
+      /** Override the bucket interval. Rejected for HogQLQuery metrics.
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `hour` - hour
+       * * `day` - day
+       * * `week` - week
+       * * `month` - month
+       * * `quarter` - quarter
+       * * `year` - year */
+      interval?: DataCatalogMetricRunRequestIntervalEnum;
       /** Client-supplied id to correlate or cancel the run. */
       query_id?: string;
     }
@@ -67973,6 +68008,33 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type DataCatalogMetricsRunCreateParams = {
+    /**
+     * Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.
+     *
+     * * `blocking` - blocking
+     * * `async` - async
+     * * `lazy_async` - lazy_async
+     * * `force_blocking` - force_blocking
+     * * `force_async` - force_async
+     * * `force_cache` - force_cache
+     * @minLength 1
+     */
+    refresh?: DataCatalogMetricsRunCreateRefresh;
+    };
+
+    export type DataCatalogMetricsRunCreateRefresh = typeof DataCatalogMetricsRunCreateRefresh[keyof typeof DataCatalogMetricsRunCreateRefresh];
+
+
+    export const DataCatalogMetricsRunCreateRefresh = {
+      Blocking: 'blocking',
+      Async: 'async',
+      LazyAsync: 'lazy_async',
+      ForceBlocking: 'force_blocking',
+      ForceAsync: 'force_async',
+      ForceCache: 'force_cache',
+    } as const;
 
     export type DataColorThemesListParams = {
     /**

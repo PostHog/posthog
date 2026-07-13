@@ -13,6 +13,7 @@ import type {
     DataCatalogMetricRunApi,
     DataCatalogMetricRunRequestApi,
     DataCatalogMetricsListParams,
+    DataCatalogMetricsRunCreateParams,
     PaginatedDataCatalogMetricListApi,
     PatchedDataCatalogMetricApi,
 } from './api.schemas'
@@ -198,8 +199,24 @@ export const dataCatalogMetricsRefreshFromInsightCreate = async (
     })
 }
 
-export const getDataCatalogMetricsRunCreateUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/data_catalog/metrics/${name}/run/`
+export const getDataCatalogMetricsRunCreateUrl = (
+    projectId: string,
+    name: string,
+    params?: DataCatalogMetricsRunCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_catalog/metrics/${name}/run/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_catalog/metrics/${name}/run/`
 }
 
 /**
@@ -209,9 +226,10 @@ export const dataCatalogMetricsRunCreate = async (
     projectId: string,
     name: string,
     dataCatalogMetricRunRequestApi?: DataCatalogMetricRunRequestApi,
+    params?: DataCatalogMetricsRunCreateParams,
     options?: RequestInit
 ): Promise<DataCatalogMetricRunApi> => {
-    return apiMutator<DataCatalogMetricRunApi>(getDataCatalogMetricsRunCreateUrl(projectId, name), {
+    return apiMutator<DataCatalogMetricRunApi>(getDataCatalogMetricsRunCreateUrl(projectId, name, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

@@ -10,6 +10,7 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.schema_enums import IntervalType
 
 from ..facade import api
 from ..facade.enums import CreatedSource
@@ -31,6 +32,10 @@ class MetricRunResponseSerializer(serializers.Serializer):
     """Normalized envelope returned by the metric-run endpoint."""
 
     status = serializers.CharField(help_text="Lifecycle state of the metric that produced these results.")
+    is_drifted = serializers.BooleanField(
+        help_text="True when the definition has drifted from its linked source insight (or the insight is gone). "
+        "Only status 'approved' with is_drifted false is canonical."
+    )
     unit = serializers.CharField(allow_null=True, help_text="Unit of the result, e.g. usd, percent.")
     kind = serializers.CharField(allow_null=True, help_text="Query kind that was executed.")
     results = _FreeJSONField(
@@ -56,8 +61,24 @@ class MetricRunRequestSerializer(serializers.Serializer):
         help_text="Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL.",
     )
     date_to = serializers.CharField(required=False, help_text="Override the end of the query window.")
-    interval = serializers.CharField(required=False, help_text="Override the bucket interval (e.g. 'day', 'week').")
+    interval = serializers.ChoiceField(
+        choices=[t.value for t in IntervalType],
+        required=False,
+        help_text="Override the bucket interval. Rejected for HogQLQuery metrics.",
+    )
     query_id = serializers.CharField(required=False, help_text="Client-supplied id to correlate or cancel the run.")
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricRunQuery")
+class MetricRunQuerySerializer(serializers.Serializer):
+    """Query params for the metric-run endpoint."""
+
+    refresh = serializers.ChoiceField(
+        choices=["blocking", "async", "lazy_async", "force_blocking", "force_async", "force_cache"],
+        required=False,
+        help_text="Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache "
+        "hit and calculate blocking when stale.",
+    )
 
 
 @extend_schema_serializer(component_name="DataCatalogMetric")

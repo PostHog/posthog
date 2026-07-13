@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -9,13 +11,16 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import ClickHouseBurstRateThrottle, HogQLQueryThrottle
 
 from products.data_catalog.backend.facade.enums import MetricStatus
 from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.models import Metric
+from products.data_catalog.backend.presentation.serializers import MetricRunQuerySerializer, MetricRunRequestSerializer
 from products.product_analytics.backend.models.insight import Insight
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() from events"}
+_PROCESS_QUERY = "products.data_catalog.backend.logic.execution.process_query_dict"
 
 
 class TestMetricAPI(APIBaseTest):
@@ -264,3 +269,108 @@ class TestMetricLifecycleAPI(APIBaseTest):
         assert body["kind"] == "MarkdownDefinition"
         assert body["results"] is None
         assert "A then B" in body["instructions"]
+
+    @parameterized.expand(
+        [
+            ("invalid_interval_in_body", {"interval": "fortnight"}, ""),
+            ("invalid_refresh_query_param", {}, "?refresh=nope"),
+        ]
+    )
+    def test_run_rejects_malformed_input(self, _name: str, body: dict, query_string: str) -> None:
+        # Wiring guard: the run action must validate through its serializers, so malformed input
+        # never reaches the query engine. The value matrix lives in TestMetricRunInputValidation.
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        response = self.client.post(f"{self.url}mrr/run/{query_string}", body, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_run_reports_drift_on_approved_metric(self) -> None:
+        # An approved metric whose source insight has moved on must say so in the run envelope —
+        # an agent decides trust from this response alone.
+        insight = Insight.objects.create(team=self.team, created_by=self.user, query=_HOGQL)
+        self.client.post(
+            self.url, {"name": "mrr", "description": "d", "source_insight_short_id": insight.short_id}, format="json"
+        )
+        assert self.client.post(f"{self.url}mrr/approve/").status_code == status.HTTP_200_OK
+        Insight.objects.filter(pk=insight.pk).update(
+            query={"kind": "HogQLQuery", "query": "select count() from persons"}
+        )
+
+        with patch(_PROCESS_QUERY, return_value={"results": [[1]], "hogql": "SELECT 1"}):
+            response = self.client.post(f"{self.url}mrr/run/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["status"] == MetricStatus.APPROVED
+        assert body["is_drifted"] is True
+
+
+class TestMetricRunThrottles(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/data_catalog/metrics/"
+
+    def _denied(self, throttle_class: type) -> tuple:
+        return (
+            patch.object(throttle_class, "allow_request", return_value=False),
+            patch.object(throttle_class, "wait", return_value=None),
+        )
+
+    def test_hogql_metric_uses_hogql_query_throttle(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        deny, wait = self._denied(HogQLQueryThrottle)
+        with deny, wait:
+            response = self.client.post(f"{self.url}mrr/run/")
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_structured_metric_uses_clickhouse_throttles(self) -> None:
+        upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="purchases",
+            description="d",
+            definition={"kind": "EventsNode", "event": "purchase"},
+        )
+        deny, wait = self._denied(ClickHouseBurstRateThrottle)
+        with deny, wait:
+            response = self.client.post(f"{self.url}purchases/run/")
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_markdown_metric_keeps_default_throttles(self) -> None:
+        upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="activation",
+            description="d",
+            definition={"kind": "MarkdownDefinition", "markdown": "1. Count."},
+        )
+        hogql_deny, hogql_wait = self._denied(HogQLQueryThrottle)
+        ch_deny, ch_wait = self._denied(ClickHouseBurstRateThrottle)
+        with hogql_deny, hogql_wait, ch_deny, ch_wait:
+            response = self.client.post(f"{self.url}activation/run/")
+        assert response.status_code == status.HTTP_200_OK
+
+
+class TestMetricRunInputValidation(SimpleTestCase):
+    @parameterized.expand([("day", True), ("month", True), ("fortnight", False), ("5m", False)])
+    def test_interval_choices(self, value: str, valid: bool) -> None:
+        serializer = MetricRunRequestSerializer(data={"interval": value})
+        assert serializer.is_valid() is valid
+        if not valid:
+            assert "interval" in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("blocking", True),
+            ("async", True),
+            ("lazy_async", True),
+            ("force_blocking", True),
+            ("force_async", True),
+            ("force_cache", True),
+            ("true", False),
+            ("nope", False),
+        ]
+    )
+    def test_refresh_choices(self, value: str, valid: bool) -> None:
+        serializer = MetricRunQuerySerializer(data={"refresh": value})
+        assert serializer.is_valid() is valid
+        if not valid:
+            assert "refresh" in serializer.errors

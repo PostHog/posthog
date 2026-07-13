@@ -196,7 +196,15 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
                 "Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL."
             ),
         date_to: zod.string().optional().describe('Override the end of the query window.'),
-        interval: zod.string().optional().describe("Override the bucket interval (e.g. 'day', 'week')."),
+        interval: zod
+            .enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
+            .describe(
+                '\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
+            )
+            .optional()
+            .describe(
+                'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
+            ),
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })
     .describe('Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.')
