@@ -69,7 +69,11 @@ export const coerceListVariableValue = (value: unknown): string | null => {
             }
         }
     }
-    return JSON.stringify(value) ?? null
+    try {
+        return JSON.stringify(value) ?? null
+    } catch {
+        return String(value)
+    }
 }
 
 // `values` can also be non-array data for older records, so coerce defensively

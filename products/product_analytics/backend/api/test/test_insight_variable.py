@@ -211,6 +211,21 @@ class TestInsightVariable(APIBaseTest):
         assert variable.name == "Renamed"
         assert variable.values == legacy_values
 
+    def test_list_variable_with_legacy_values_is_coerced_on_read(self):
+        variable = InsightVariable.objects.create(
+            team=self.team,
+            name="List Var",
+            type="List",
+            code_name="list_var",
+            values=[{"label": "School 1", "value": "1"}, 2, None, "keep"],
+            default_value={"value": "1"},
+        )
+        response = self.client.get(f"/api/environments/{self.team.pk}/insight_variables/{variable.id}/")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["values"] == ["1", "2", "keep"]
+        assert body["default_value"] == "1"
+
     def test_update_type_to_list_coerces_null_values(self):
         variable = InsightVariable.objects.create(team=self.team, name="Str Var", type="String", code_name="str_var")
         response = self.client.patch(

@@ -152,14 +152,23 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
                 if (!variable || variableLoading) {
                     return false
                 }
+                // Normalize the saved side exactly as `variableToFormValues` normalizes the
+                // form, otherwise a freshly loaded List variable holding legacy (non-string)
+                // values compares unequal to its own coerced form and reports perpetual changes.
+                const isList = variable.type === 'List'
                 const defaultValueForm = variableForm.default_value ?? ''
-                const defaultValueSaved = variable.default_value ?? ''
+                const defaultValueSaved = isList
+                    ? (coerceListVariableValue(variable.default_value) ?? '')
+                    : (variable.default_value ?? '')
+                const valuesForm = (variableForm as any).values ?? null
+                const valuesSaved = isList
+                    ? getListVariableValues(variable as ListVariable)
+                    : ((variable as any).values ?? null)
                 return (
                     (variableForm.name ?? '') !== (variable.name ?? '') ||
                     variableType !== variable.type ||
                     JSON.stringify(defaultValueForm) !== JSON.stringify(defaultValueSaved) ||
-                    JSON.stringify((variableForm as any).values ?? null) !==
-                        JSON.stringify((variable as any).values ?? null)
+                    JSON.stringify(valuesForm) !== JSON.stringify(valuesSaved)
                 )
             },
         ],
