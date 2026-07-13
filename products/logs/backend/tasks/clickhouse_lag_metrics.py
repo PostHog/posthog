@@ -15,6 +15,7 @@ capture-logs and Node.js ingestion services; a no-op unless both are set).
 """
 
 import time
+from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -66,16 +67,16 @@ def build_otlp_payload(rows: list[LagRow], now_unix_nanos: int) -> dict[str, Any
             "asDouble": value,
         }
 
-    metric_defs = [
+    metric_defs: list[tuple[str, str, Callable[[LagRow], int]]] = [
         (
             LAST_INSERT_AGE_METRIC,
             "Seconds since the ClickHouse Kafka engine last inserted a row, by topic and partition",
-            2,
+            lambda row: row[2],
         ),
         (
             NEWEST_RECORD_AGE_METRIC,
             "Age of the newest record consumed into ClickHouse, by topic and partition",
-            3,
+            lambda row: row[3],
         ),
     ]
     return {
@@ -94,9 +95,9 @@ def build_otlp_payload(rows: list[LagRow], now_unix_nanos: int) -> dict[str, Any
                                 "name": name,
                                 "description": description,
                                 "unit": "s",
-                                "gauge": {"dataPoints": [data_point(row[0], row[1], row[value_index]) for row in rows]},
+                                "gauge": {"dataPoints": [data_point(row[0], row[1], value_of(row)) for row in rows]},
                             }
-                            for name, description, value_index in metric_defs
+                            for name, description, value_of in metric_defs
                         ],
                     }
                 ],
