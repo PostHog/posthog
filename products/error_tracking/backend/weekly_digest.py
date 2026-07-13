@@ -34,7 +34,7 @@ def get_org_ids_with_exceptions() -> list[str]:
 
 
 def _query_daily_rows(team: Team) -> list:
-    """Per-day counts over 14 days (≤14 rows — HogQL silently appends LIMIT 100 to unbounded selects).
+    """Per-day counts over 14 days. Explicit LIMIT: HogQL appends LIMIT 100 to unlimited selects.
 
     Missing ``$exception_issue_id`` = ingestion failure. Query errors propagate so the task retries
     instead of mistaking a failure for "no activity".
@@ -56,6 +56,7 @@ def _query_daily_rows(team: Team) -> list:
             AND {filters}
             GROUP BY day
             ORDER BY day ASC
+            LIMIT 14
         """,
         team=team,
         filters=HogQLFilters(filterTestAccounts=True),
@@ -244,36 +245,18 @@ def get_daily_exception_counts(team: Team, daily_rows: list | None = None) -> li
     return daily_counts
 
 
-def _new_issue_ids(team: Team) -> list[str]:
-    """IDs of issues first created in the last 7 days."""
-    from products.error_tracking.backend.models import ErrorTrackingIssue
-
-    week_ago = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(days=7)
-    return [
-        str(i)
-        for i in ErrorTrackingIssue.objects.filter(team=team, created_at__gte=week_ago).values_list("id", flat=True)
-    ]
-
-
-def _query_issue_rows(team: Team, new_issue_ids: list[str]) -> list:
+def _query_issue_rows(team: Team) -> list:
     """Ranked ``(issue_id, occurrence_count, daily_counts, is_new)`` rows for the last 7 days.
 
     ``LIMIT 5 BY is_new`` (≤10 rows) feeds both the top-issues and new-issues sections: the overall
-    top 5 is always a subset of the per-group union. ``issue_id_v2`` attributes merged issues like
-    the error tracking UI does.
+    top 5 is always a subset of the per-group union. ``issue_id_v2`` and ``issue_first_seen`` come
+    from the fingerprint issue state table, so merged issues are attributed and dated like the error
+    tracking UI. Newness is computed in-query — embedding issue ids would make the rendered SQL grow
+    with issue cardinality (ClickHouse caps query text at 1 MiB).
     """
-    from posthog.hogql import ast
-    from posthog.hogql.parser import parse_expr
     from posthog.hogql.query import execute_hogql_query
 
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:issue_rows")
-
-    # `x IN []` is a ClickHouse type error, so an empty id list becomes a constant instead.
-    is_new_expr: ast.Expr = (
-        parse_expr("issue_id IN {ids}", {"ids": ast.Constant(value=new_issue_ids)})
-        if new_issue_ids
-        else ast.Constant(value=0)
-    )
 
     response = execute_hogql_query(
         query="""
@@ -281,9 +264,13 @@ def _query_issue_rows(team: Team, new_issue_ids: list[str]) -> list:
                 issue_id,
                 sum(day_count) AS occurrence_count,
                 arrayMap(x -> tupleElement(x, 2), arraySort(x -> tupleElement(x, 1), groupArray(tuple(day, day_count)))) AS daily_counts,
-                {is_new} AS is_new
+                if(min(first_seen) >= toStartOfDay(now()) - INTERVAL 7 DAY, 1, 0) AS is_new
             FROM (
-                SELECT issue_id_v2 AS issue_id, toDate(timestamp) AS day, count() AS day_count
+                SELECT
+                    issue_id_v2 AS issue_id,
+                    toDate(timestamp) AS day,
+                    count() AS day_count,
+                    min(issue_first_seen) AS first_seen
                 FROM events
                 WHERE event = '$exception'
                 AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
@@ -298,7 +285,6 @@ def _query_issue_rows(team: Team, new_issue_ids: list[str]) -> list:
             LIMIT 10
         """,
         team=team,
-        placeholders={"is_new": is_new_expr},
         filters=HogQLFilters(filterTestAccounts=True),
     )
     return response.results or []
@@ -321,17 +307,14 @@ def _issues_payload(issue_rows: list, team: Team) -> list[dict]:
 def get_top_issues_for_team(team: Team, issue_rows: list | None = None) -> list[dict]:
     """Top 5 issues by occurrence count for the last 7 days with sparkline data."""
     if issue_rows is None:
-        issue_rows = _query_issue_rows(team, [])
+        issue_rows = _query_issue_rows(team)
     return _issues_payload(issue_rows, team)
 
 
 def get_new_issues_for_team(team: Team, issue_rows: list | None = None) -> list[dict]:
     """Top 5 issues first seen in the last 7 days ranked by occurrence count with sparkline data."""
     if issue_rows is None:
-        new_issue_ids = _new_issue_ids(team)
-        if not new_issue_ids:
-            return []
-        issue_rows = _query_issue_rows(team, new_issue_ids)
+        issue_rows = _query_issue_rows(team)
     return _issues_payload([row for row in issue_rows if row[3]], team)
 
 
@@ -417,7 +400,7 @@ def build_team_digest_data(team: Team) -> dict[str, Any] | None:
     if not counts or counts["exception_count"] == 0:
         return None
 
-    issue_rows = _query_issue_rows(team, _new_issue_ids(team))
+    issue_rows = _query_issue_rows(team)
 
     return {
         "team": team,

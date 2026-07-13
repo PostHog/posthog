@@ -266,6 +266,10 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         )
         ErrorTrackingIssue.objects.filter(id=old_issue.id).update(created_at=timezone.now() - timedelta(days=14))
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=old_issue, fingerprint=str(uuid4()))
+        # first_seen is auto_now_add; backdate it so the issue counts as old (newness comes from state-table first_seen)
+        ErrorTrackingIssueFingerprintV2.objects.filter(issue=old_issue).update(
+            first_seen=timezone.now() - timedelta(days=14)
+        )
         sync_issues_to_clickhouse(issue_ids=[old_issue.id], team_id=self.team.pk)
         for _ in range(10):
             self._create_exception_event(issue_id=old_issue.id)
@@ -284,7 +288,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
     def test_summary_not_suppressed_by_high_issue_cardinality(self):
         # 101+ prior-week issues used to fill HogQL's injected LIMIT 100 and truncate away the current week
         for _ in range(101):
-            self._create_exception_event(issue_id=uuid7(), timestamp=_days_ago(10))
+            self._create_exception_event(issue_id=str(uuid7()), timestamp=_days_ago(10))
         issue = self._create_issue()
         self._create_exception_event(issue_id=issue.id)
         flush_persons_and_events()
