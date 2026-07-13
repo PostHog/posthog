@@ -42,6 +42,10 @@ tools/hogli-commands/hogli_commands/__init__.py @PostHog/team-security
 # Top-level modules in the resolver's sys.path root could shadow stdlib/pyyaml
 # imports (yaml.py, json.py) for that privileged process, so gate those too.
 tools/hogli-commands/*.py @PostHog/team-security
+# A new top-level regular package (yaml/__init__.py) would shadow imports the
+# same way; namespace dirs without __init__.py cannot (regular modules found
+# later on sys.path win), so gating the __init__.py is sufficient.
+tools/hogli-commands/*/__init__.py @PostHog/team-security
 
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect the distributed owners.yaml files, which drive non-required reviewer
