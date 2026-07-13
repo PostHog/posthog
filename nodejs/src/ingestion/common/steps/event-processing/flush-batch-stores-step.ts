@@ -194,8 +194,12 @@ function createPersonProducePromises(personsStoreMessages: FlushResult[], output
  * Creates Kafka produce promises for all group store flush results, mirroring
  * the person handling: MessageSizeTooLarge emits a group-specific ingestion
  * warning (non-fatal), other errors fail the side effect.
+ *
+ * Exported so callers outside the batch pipeline (e.g. the ingestion API
+ * server's shutdown cleanup) can produce a bare `groupStore.flush()` result
+ * without duplicating the MessageSizeTooLarge handling.
  */
-function createGroupProducePromises(
+export function createGroupProducePromises(
     groupResults: GroupFlushResult[],
     outputs: FlushBatchStoresOutputs
 ): Promise<unknown>[] {
