@@ -213,6 +213,11 @@ class LogsFilterBuilder:
     Standalone — no QueryRunner dependency.
     """
 
+    # The hot logs table keeps typed attribute maps (attributes_map_str/_float), addressed via
+    # __str/__float key suffixes resolved by the property-groups config. Tables without that
+    # config (e.g. the archive) must keep raw keys and filter the plain attributes map.
+    TYPED_ATTRIBUTE_MAPS = True
+
     def __init__(
         self,
         query: LogsQuery,
@@ -274,6 +279,10 @@ class LogsFilterBuilder:
                     continue
 
                 if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
+                    if not self.TYPED_ATTRIBUTE_MAPS:
+                        self.attribute_filters.insert(0, property_filter)
+                        continue
+
                     property_type = "str"
                     if isinstance(property_filter.value, list):
                         property_types = {_get_property_type(v) for v in property_filter.value}
@@ -298,19 +307,34 @@ class LogsFilterBuilder:
                 f for f in self.resource_attribute_negative_filters if f.key != self.exclude_resource_attribute
             ]
 
-    def where(self) -> ast.Expr:
-        exprs: list[ast.Expr] = []
-
+    def _partition_pruning_exprs(self) -> list[ast.Expr]:
         # add time_bucket to filter so we get part+granule pruning at the primary key level
         # this is important as it reduces the parts/granules that need to have their skip indexes loaded
-        exprs.append(
+        return [
             parse_expr(
                 "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                 },
             )
+        ]
+
+    def _cursor_partition_pruning_expr(self, ts_op: str, cursor_ts: dt.datetime) -> ast.Expr:
+        # The logs table is sorted by (team_id, time_bucket, ..., timestamp) where
+        # time_bucket = toStartOfDay(timestamp). ClickHouse only prunes efficiently when
+        # the WHERE clause matches the sorting key. A tuple comparison like
+        # (timestamp, uuid) < (x, y) won't trigger pruning.
+        # We add explicit scalar bounds on both time_bucket and timestamp to ensure
+        # ClickHouse can use the primary index and skip irrelevant parts.
+        return parse_expr(
+            f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
+            placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
         )
+
+    def where(self) -> ast.Expr:
+        exprs: list[ast.Expr] = []
+
+        exprs.extend(self._partition_pruning_exprs())
 
         if self.query.serviceNames and self.exclude_facet_field != "service_name":
             exprs.append(
@@ -398,18 +422,7 @@ class LogsFilterBuilder:
             # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
             op = ">" if self.query.orderBy == "earliest" else "<"
             ts_op = ">=" if self.query.orderBy == "earliest" else "<="
-            # The logs table is sorted by (team_id, time_bucket, ..., timestamp) where
-            # time_bucket = toStartOfDay(timestamp). ClickHouse only prunes efficiently when
-            # the WHERE clause matches the sorting key. A tuple comparison like
-            # (timestamp, uuid) < (x, y) won't trigger pruning.
-            # We add explicit scalar bounds on both time_bucket and timestamp to ensure
-            # ClickHouse can use the primary index and skip irrelevant parts.
-            exprs.append(
-                parse_expr(
-                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
-                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
-                )
-            )
+            exprs.append(self._cursor_partition_pruning_expr(ts_op, cursor_ts))
             exprs.append(
                 parse_expr(
                     f"timestamp {ts_op} {{cursor_ts}}",
@@ -466,6 +479,11 @@ class LogsQueryRunnerMixin(QueryRunner):
     # Subclasses can override per-instance to request a different resolution.
     BUCKET_TARGET: int = 50
 
+    # The table queries read from and the filter builder matching its schema.
+    # Archive runners override both to target the Iceberg-backed archive.
+    LOGS_TABLE: str = "logs"
+    FILTER_BUILDER_CLASS: type[LogsFilterBuilder] = LogsFilterBuilder
+
     @cached_property
     def settings(self):
         return HogQLGlobalSettings(
@@ -487,7 +505,7 @@ class LogsQueryRunnerMixin(QueryRunner):
 
     @cached_property
     def _filter_builder(self) -> LogsFilterBuilder:
-        return LogsFilterBuilder(self.query, self.team, self.query_date_range)
+        return self.FILTER_BUILDER_CLASS(self.query, self.team, self.query_date_range)
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
@@ -627,34 +645,37 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return response
 
+    def _live_logs_checkpoint_expr(self) -> ast.Expr:
+        return LIVE_LOGS_CHECKPOINT_QUERY
+
     def to_query(self) -> ast.SelectQuery:
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
 
         query = self.paginator.paginate(
             parse_select(
-                """
+                f"""
             SELECT
                 uuid,
                 hex(tryBase64Decode(trace_id)),
                 hex(tryBase64Decode(span_id)),
                 body,
-                {attributes},
+                {{attributes}},
                 timestamp,
                 observed_timestamp,
                 severity_text,
                 severity_number,
                 severity_text as level,
-                {resource_attributes},
+                {{resource_attributes}},
                 resource_fingerprint,
                 instrumentation_scope,
                 event_name,
-                {live_logs_checkpoint} as live_logs_checkpoint
-            FROM logs
-            WHERE {where}
+                {{live_logs_checkpoint}} as live_logs_checkpoint
+            FROM {self.LOGS_TABLE}
+            WHERE {{where}}
         """,
                 placeholders={
                     "where": self.where(),
-                    "live_logs_checkpoint": LIVE_LOGS_CHECKPOINT_QUERY,
+                    "live_logs_checkpoint": self._live_logs_checkpoint_expr(),
                     # Attribute maps dominate payload size. When excluded we still SELECT a column
                     # (an empty map) so the positional result mapping in _calculate stays stable.
                     "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),

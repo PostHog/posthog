@@ -3516,6 +3516,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
      * Values come back on each result row keyed by the aliases in `LogsQueryResponse.columns`.
      */
     customColumns?: string[]
+    /** Query the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled. */
+    useArchive?: boolean
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {

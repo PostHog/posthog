@@ -11,7 +11,7 @@ from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
-from posthog.hogql.database.schema.logs import LogAttributesTable, LogsTable
+from posthog.hogql.database.schema.logs import LogAttributesTable, LogsArchiveTable, LogsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
@@ -98,7 +98,7 @@ class ReplaceFilters(CloningVisitor):
                         found_events = True
                     if isinstance(resolved, SessionsTableV1 | SessionsTableV2 | SessionsTableV3):
                         found_sessions = True
-                    if isinstance(resolved, (LogsTable, LogAttributesTable)):
+                    if isinstance(resolved, (LogsTable, LogAttributesTable, LogsArchiveTable)):
                         found_logs = True
                     if isinstance(resolved, TraceSpansTable):
                         found_traces = True

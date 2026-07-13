@@ -25849,6 +25849,13 @@ class LogsQuery(BaseModel):
         description=("Field to break down sparkline data by (used only by sparkline endpoint)"),
     )
     tags: QueryLogTags | None = None
+    useArchive: bool | None = Field(
+        default=None,
+        description=(
+            "Query the logs archive (cold storage) instead of the hot tables. Only"
+            " honoured when the logs-archive-search feature flag is enabled."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

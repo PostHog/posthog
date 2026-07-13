@@ -1,5 +1,6 @@
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
+    DateDatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
     IntegerDatabaseField,
@@ -92,6 +93,126 @@ class LogsTable(Table):
 
     def to_printed_hogql(self):
         return "logs"
+
+
+class LogsArchiveTable(Table):
+    description: str = "Iceberg-backed archive of all ingested log records, partitioned by (team_id, log_date). Serves searches beyond the hot logs retention window."
+    workload: Workload | None = Workload.LOGS
+
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "uuid": StringDatabaseField(name="uuid", nullable=False, description="Unique identifier of this log record."),
+        "trace_id": StringDatabaseField(
+            name="trace_id",
+            nullable=False,
+            description="Trace this log belongs to, base64-encoded like the hot logs table.",
+        ),
+        "span_id": StringDatabaseField(
+            name="span_id", nullable=False, description="Span this log was emitted within, base64-encoded."
+        ),
+        "trace_flags": IntegerDatabaseField(
+            name="trace_flags", nullable=False, description="OpenTelemetry trace flags."
+        ),
+        "message": StringDatabaseField(
+            name="body", nullable=False, description="The log message text; alias of `body`."
+        ),
+        "body": StringDatabaseField(name="body", nullable=False, description="The raw log message text."),
+        "attributes": MapStringDatabaseField(
+            name="attributes", nullable=False, description="Per-record OpenTelemetry log attributes as a string map."
+        ),
+        "timestamp": DateTimeDatabaseField(
+            name="timestamp", nullable=False, description="When the log event occurred (event timestamp)."
+        ),
+        "observed_timestamp": DateTimeDatabaseField(
+            name="observed_timestamp",
+            nullable=False,
+            description="When the collector observed/ingested the log; differs from `timestamp`.",
+        ),
+        "original_expiry_timestamp": DateTimeDatabaseField(
+            name="original_expiry_timestamp",
+            nullable=False,
+            description="When this record expires from the hot logs table.",
+        ),
+        "severity_text": StringDatabaseField(
+            name="severity_text", nullable=False, description="OpenTelemetry severity text, e.g. 'INFO', 'ERROR'."
+        ),
+        "severity_number": IntegerDatabaseField(
+            name="severity_number",
+            nullable=False,
+            description="OpenTelemetry numeric severity (1-24, higher is more severe).",
+        ),
+        "level": StringDatabaseField(
+            name="severity_text", nullable=False, description="Normalized log level; alias of `severity_text`."
+        ),
+        "resource_attributes": MapStringDatabaseField(
+            name="resource_attributes",
+            nullable=False,
+            description="OpenTelemetry resource attributes (the emitting service/host) as a string map.",
+        ),
+        "resource_fingerprint": IntegerDatabaseField(
+            name="resource_fingerprint",
+            nullable=False,
+            description="Hash of the resource attributes, used to deduplicate/group resources.",
+        ),
+        "instrumentation_scope": StringDatabaseField(
+            name="instrumentation_scope",
+            nullable=False,
+            description="OpenTelemetry instrumentation scope (library/module that emitted the log).",
+        ),
+        "event_name": StringDatabaseField(
+            name="event_name", nullable=False, description="OpenTelemetry log event name, when set."
+        ),
+        "service_name": StringDatabaseField(
+            name="service_name", nullable=False, description="Name of the service that emitted the log."
+        ),
+        "log_date": DateDatabaseField(
+            name="log_date", nullable=False, description="Partition column; toDate(timestamp)."
+        ),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "logs_archive"
+
+    def to_printed_hogql(self):
+        return "logs_archive"
+
+
+class LogsArchiveSparklineTable(Table):
+    description: str = "Pre-aggregated per-minute log counts in the Iceberg archive, by service, severity and resource; powers archive sparklines."
+    workload: Workload | None = Workload.LOGS
+
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "time_bucket": DateTimeDatabaseField(
+            name="time_bucket", nullable=False, description="Day bucket the counts fall in; toStartOfDay(timestamp)."
+        ),
+        "time_minute": DateTimeDatabaseField(
+            name="time_minute", nullable=False, description="Minute the counts fall in; toStartOfMinute(timestamp)."
+        ),
+        "service_name": StringDatabaseField(
+            name="service_name", nullable=False, description="Service the counts are scoped to."
+        ),
+        "severity_text": StringDatabaseField(
+            name="severity_text", nullable=False, description="OpenTelemetry severity text the counts are scoped to."
+        ),
+        "resource_fingerprint": IntegerDatabaseField(
+            name="resource_fingerprint",
+            nullable=False,
+            description="Hash of the resource attributes the counts are scoped to.",
+        ),
+        "event_count": IntegerDatabaseField(
+            name="event_count", nullable=False, description="Number of log records in this minute."
+        ),
+        "log_date": DateDatabaseField(
+            name="log_date", nullable=False, description="Partition column; toDate(timestamp)."
+        ),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "logs_archive_sparkline"
+
+    def to_printed_hogql(self):
+        return "logs_archive_sparkline"
 
 
 class LogAttributesTable(Table):

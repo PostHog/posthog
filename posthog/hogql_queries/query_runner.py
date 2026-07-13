@@ -1247,10 +1247,12 @@ def get_query_runner(
 
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
     # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
+    # The factory routes to the archive runner when the export requested it (flag-gated
+    # at export-creation time).
     if kind == "LogsQuery":
-        from products.logs.backend.facade.queries import LogsQueryRunner
+        from products.logs.backend.facade.queries import build_logs_query_runner_for_export
 
-        return LogsQueryRunner(
+        return build_logs_query_runner_for_export(
             query=query,
             team=team,
             timings=timings,

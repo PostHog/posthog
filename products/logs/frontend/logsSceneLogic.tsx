@@ -44,8 +44,12 @@ export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.cu
 
 const VALID_VIEW_MODES: LogsViewerViewMode[] = ['logs', 'patterns', 'group']
 
-export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'configuration'
-const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'sql', 'configuration']
+// The Archive tab is a second, independent viewer instance (its own filters/config/state) that
+// queries the logs archive. A distinct id keeps its persisted state from colliding with the hot viewer.
+export const LOGS_SCENE_ARCHIVE_VIEWER_ID = `logs-scene-archive-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
+
+export type LogsSceneActiveTab = 'viewer' | 'archive' | 'services' | 'alerts' | 'sql' | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'archive', 'services', 'alerts', 'sql', 'configuration']
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 
 const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null => {

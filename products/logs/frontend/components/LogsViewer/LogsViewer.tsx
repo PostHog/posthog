@@ -38,6 +38,8 @@ export interface LogsViewerProps {
     // Filters enforced by the embedding scene. Merged into the user-editable filterGroup
     // and rendered without an X so users can't accidentally drop the scope.
     pinnedFilters?: UniversalFiltersGroup
+    // Query the logs archive (cold storage) instead of the hot tables. Used by the Archive tab.
+    archive?: boolean
 }
 
 export function LogsViewer({
@@ -46,9 +48,10 @@ export function LogsViewer({
     showSavedViewsButton = false,
     initialFilters,
     pinnedFilters,
+    archive,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters }}>
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, archive }}>
             <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>

@@ -38,6 +38,11 @@ export interface LogsViewerFiltersLogicProps {
     // can't drift when the pinned shape changes (e.g. `logs_distinct_id_attribute_key`
     // resolves to a non-default key after mount).
     pinnedFilters?: UniversalFiltersGroup
+    // When true, this viewer instance queries the logs archive (cold storage) rather than the
+    // hot tables. Set by the Archive tab; consumers read it via the `archive` value and forward
+    // it as `useArchive` on every request. Mirrored into state (see `setArchive`) so bare
+    // `logsViewerFiltersLogic({ id })` connects can't clobber it back to the prop default.
+    archive?: boolean
 }
 
 // Combines the user-editable filterGroup with pinned filters (prepended to the inner
@@ -90,6 +95,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         // useValues without going through the kea selector input-prop machinery
         // (which doesn't accept optional props).
         setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => ({ pinnedFilters }),
+
+        // Mirror of the `archive` prop into state (see prop docs above).
+        setArchive: (archive: boolean) => ({ archive }),
 
         zoomDateRange: (multiplier: number) => ({ multiplier }),
 
@@ -154,6 +162,12 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             undefined as UniversalFiltersGroup | undefined,
             {
                 setPinnedFilters: (_, { pinnedFilters }) => pinnedFilters,
+            },
+        ],
+        archive: [
+            false,
+            {
+                setArchive: (_, { archive }) => archive,
             },
         ],
     }),
@@ -249,6 +263,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         }
         if (logicProps.pinnedFilters) {
             actions.setPinnedFilters(logicProps.pinnedFilters)
+        }
+        if (logicProps.archive) {
+            actions.setArchive(true)
         }
     }),
 ])

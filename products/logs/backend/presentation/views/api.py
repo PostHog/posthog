@@ -41,6 +41,14 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.tasks.exporter import export_asset
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.logs.backend.archive_query_runners import (
+    ArchivedLogAttributesQueryRunner,
+    ArchivedLogFacetValuesQueryRunner,
+    ArchivedLogsQueryRunner,
+    ArchivedLogValuesQueryRunner,
+    ArchivedSparklineQueryRunner,
+)
+from products.logs.backend.archive_routing import use_archive_requested
 from products.logs.backend.column_expressions import canonical_key
 from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.count_ranges_query_runner import (
@@ -205,6 +213,11 @@ class _LogsAttributesQuerySerializer(serializers.Serializer):
         default=[],
         help_text="Property filters to narrow which logs are scanned for attributes.",
     )
+    useArchive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, read attribute keys from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.",
+    )
 
 
 class _LogsValuesQuerySerializer(serializers.Serializer):
@@ -230,6 +243,11 @@ class _LogsValuesQuerySerializer(serializers.Serializer):
         required=False,
         default=[],
         help_text="Property filters to narrow which logs are scanned for values.",
+    )
+    useArchive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, read attribute values from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.",
     )
 
 
@@ -280,6 +298,11 @@ class _LogsQueryBodySerializer(serializers.Serializer):
             "Values come back on each result row keyed by the aliases echoed in the response `columns` field."
         ),
     )
+    useArchive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, query the logs archive (Iceberg-backed cold storage) instead of the hot ClickHouse tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Archive queries are slower and have no live-tail. Defaults to false.",
+    )
 
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
@@ -314,6 +337,11 @@ class _LogsSparklineBodySerializer(serializers.Serializer):
         choices=["severity", "service"],
         required=False,
         help_text='Break down sparkline by "severity" (default) or "service".',
+    )
+    useArchive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, compute the sparkline from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.",
     )
 
 
@@ -403,6 +431,11 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         required=False,
         default=list,
         help_text="Property filters for the query.",
+    )
+    useArchive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, compute facet values from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.",
     )
 
 
@@ -567,6 +600,9 @@ class _LogsQueryResponseSerializer(serializers.Serializer):
             "Aliases for the requested `customColumns`, in request order. Each result row carries its "
             "custom column values under these keys. Null when no custom columns were requested."
         ),
+    )
+    usedArchive = serializers.BooleanField(
+        help_text="True when the query was served from the logs archive (because the request set useArchive and the logs-archive-search flag is enabled). Archive queries are slower and have no live-tail or byte-size data.",
     )
 
 
@@ -1146,8 +1182,15 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = LogsQuery(**logs_query_params)
         analytics_props = get_request_analytics_properties(request)
 
+        # Decide hot vs archive once, before time slicing, so all slices agree. Live tail
+        # always stays on the hot table.
+        use_archive = not live_logs_checkpoint and use_archive_requested(
+            request.user, self.team, query_data.get("useArchive", False)
+        )
+        runner_cls = ArchivedLogsQueryRunner if use_archive else LogsQueryRunner
+
         def make_runner(date_range: DateRange) -> LogsQueryRunner:
-            return LogsQueryRunner(LogsQuery(**{**query.model_dump(), "dateRange": date_range}), self.team)
+            return runner_cls(LogsQuery(**{**query.model_dump(), "dateRange": date_range}), self.team)
 
         # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
@@ -1161,7 +1204,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             else:
                 results = list(
                     time_sliced_results(
-                        runner=LogsQueryRunner(query, self.team),
+                        runner=runner_cls(query, self.team),
                         order_by_earliest=order_by == LogsOrderBy.EARLIEST,
                         make_runner=make_runner,
                         analytics_props=analytics_props,
@@ -1195,6 +1238,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                     "severity_levels_count": len(query_data.get("severityLevels", [])),
                     "service_names_count": len(query_data.get("serviceNames", [])),
                     "is_paginated": bool(after_cursor),
+                    "used_archive": use_archive,
                 },
                 team=self.team,
                 request=request,
@@ -1208,6 +1252,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "nextCursor": next_cursor,
                 "maxExportableLogs": LOGS_MAX_EXPORT_ROWS,
                 "columns": [canonical_key(c) for c in custom_columns] or None,
+                "usedArchive": use_archive,
             },
             status=200,
         )
@@ -1231,7 +1276,12 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
         )
 
-        runner = SparklineQueryRunner(team=self.team, query=query)
+        sparkline_runner_cls = (
+            ArchivedSparklineQueryRunner
+            if use_archive_requested(request.user, self.team, query_data.get("useArchive", False))
+            else SparklineQueryRunner
+        )
+        runner = sparkline_runner_cls(team=self.team, query=query)
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1278,7 +1328,12 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
 
-        runner = LogFacetValuesQueryRunner(
+        facet_runner_cls = (
+            ArchivedLogFacetValuesQueryRunner
+            if use_archive_requested(request.user, self.team, query_data.get("useArchive", False))
+            else LogFacetValuesQueryRunner
+        )
+        runner = facet_runner_cls(
             team=self.team,
             query=query,
             facet_field=facet_field or None,
@@ -1577,7 +1632,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=filterGroup,
         )
 
-        runner = LogAttributesQueryRunner(team=self.team, query=query)
+        use_archive = request.GET.get("useArchive", "false").lower() == "true"
+        attributes_runner_cls = (
+            ArchivedLogAttributesQueryRunner
+            if use_archive_requested(request.user, self.team, use_archive)
+            else LogAttributesQueryRunner
+        )
+        runner = attributes_runner_cls(team=self.team, query=query)
 
         result = runner.calculate()
         return Response(
@@ -1652,7 +1713,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 filterGroup=filterGroup,
             )
 
-            runner = LogValuesQueryRunner(team=self.team, query=query)
+            use_archive = request.GET.get("useArchive", "false").lower() == "true"
+            values_runner_cls = (
+                ArchivedLogValuesQueryRunner
+                if use_archive_requested(request.user, self.team, use_archive)
+                else LogValuesQueryRunner
+            )
+            runner = values_runner_cls(team=self.team, query=query)
 
             result = runner.calculate()
             span.set_attribute("result_count", len(result.results))
@@ -1695,11 +1762,15 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         columns = request.data.get("columns") or []
         filename = self._generate_export_filename(query_data)
 
+        # Gate archive routing by the flag here, at export creation, so the persisted source can't
+        # request the archive without it — the Celery export runs later with no request to re-check.
+        use_archive = use_archive_requested(request.user, self.team, query_data.get("useArchive", False))
+
         asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
             export_context={
-                "source": {**query_data, "kind": "LogsQuery", "limit": LOGS_MAX_EXPORT_ROWS},
+                "source": {**query_data, "kind": "LogsQuery", "limit": LOGS_MAX_EXPORT_ROWS, "useArchive": use_archive},
                 "columns": columns,
                 "filename": filename,
                 "row_limit": LOGS_MAX_EXPORT_ROWS,

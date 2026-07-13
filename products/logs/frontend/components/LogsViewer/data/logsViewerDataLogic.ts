@@ -136,7 +136,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
         values: [
             logsViewerFiltersLogic({ id }),
-            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup'],
+            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup', 'archive'],
             logsViewerConfigLogic({ id }),
             ['sparklineBreakdownBy', 'orderBy', 'customColumns'],
         ],
@@ -329,6 +329,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
                             customColumns: sentCustomColumns,
+                            useArchive: values.archive,
                         },
                         signal,
                     })
@@ -375,6 +376,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             serviceNames: values.filters.serviceNames,
                             customColumns: values.customColumns,
                             after: values.nextCursor,
+                            useArchive: values.archive,
                         },
                         signal,
                     })
@@ -403,6 +405,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
                             sparklineBreakdownBy: values.sparklineBreakdownBy,
+                            useArchive: values.archive,
                         },
                         signal,
                     })
@@ -416,13 +419,18 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
     selectors({
         liveTailDisabledReason: [
-            (s) => [s.orderBy, s.filters, s.logsLoading, s.liveTailExpired],
+            (s) => [s.orderBy, s.filters, s.logsLoading, s.liveTailExpired, s.archive],
             (
                 orderBy: LogsQuery['orderBy'],
                 filters: LogsViewerFilters,
                 logsLoading: boolean,
-                liveTailExpired: boolean
+                liveTailExpired: boolean,
+                archive: boolean
             ): string | undefined => {
+                if (archive) {
+                    return 'Live tail is unavailable for archived logs'
+                }
+
                 if (orderBy !== 'latest') {
                     return 'Live tail only works with "Latest" ordering'
                 }

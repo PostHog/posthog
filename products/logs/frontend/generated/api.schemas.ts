@@ -1418,6 +1418,8 @@ export interface _LogsQueryResponseApi {
      * @nullable
      */
     columns?: string[] | null
+    /** True when the query was served from the logs archive (because the request set useArchive and the logs-archive-search flag is enabled). Archive queries are slower and have no live-tail or byte-size data. */
+    usedArchive: boolean
 }
 
 /**
