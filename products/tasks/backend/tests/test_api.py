@@ -8765,3 +8765,37 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "scanning")
         mock_workflow.assert_called_once()
+
+
+class TestCodeCustomInstructionsAPI(BaseTaskAPITest):
+    base_url = "/api/projects/@current/code_custom_instructions/"
+
+    def test_get_seeds_and_save_roundtrips(self):
+        seeded = self.client.get(self.base_url)
+        self.assertEqual(seeded.status_code, status.HTTP_200_OK)
+        self.assertEqual(seeded.json()["content"], "")
+
+        saved = self.client.post(
+            self.base_url + "save/",
+            {"config": {"content": "Prefer tabs."}, "expectedVersion": seeded.json()["version"]},
+            format="json",
+        )
+        self.assertEqual(saved.status_code, status.HTTP_200_OK)
+        self.assertEqual(saved.json()["status"], "saved")
+        self.assertEqual(saved.json()["config"]["content"], "Prefer tabs.")
+
+    def test_stale_version_returns_409(self):
+        seeded = self.client.get(self.base_url).json()
+        self.client.post(
+            self.base_url + "save/",
+            {"config": {"content": "first"}, "expectedVersion": seeded["version"]},
+            format="json",
+        )
+
+        response = self.client.post(
+            self.base_url + "save/",
+            {"config": {"content": "second"}, "expectedVersion": seeded["version"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["status"], "conflict")

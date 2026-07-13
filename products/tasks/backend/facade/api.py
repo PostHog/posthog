@@ -51,7 +51,9 @@ from products.tasks.backend.logic.services.image_builder import (
 )
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
+    CODE_CUSTOM_INSTRUCTIONS_MAX_LENGTH,
     Channel,
+    CodeCustomInstructions,
     CodeInvite,
     CodeInviteRedemption,
     CodeWorkflowConfig,
@@ -96,6 +98,13 @@ CODE_WORKFLOW_SAVED = "saved"
 CODE_WORKFLOW_CONFLICT = "conflict"
 CODE_WORKFLOW_INVALID = "invalid"
 
+# --- Code custom-instructions save outcomes ---
+# Returned on ``CodeCustomInstructionsSaveResult.outcome``; the presentation layer maps each to
+# an HTTP status (saved -> 200, conflict -> 409, invalid -> 422).
+CODE_CUSTOM_INSTRUCTIONS_SAVED = "saved"
+CODE_CUSTOM_INSTRUCTIONS_CONFLICT = "conflict"
+CODE_CUSTOM_INSTRUCTIONS_INVALID = "invalid"
+
 # --- Code-home tuning ---
 # An agent run counts as "active" only if it updated within this window.
 CODE_HOME_ACTIVE_AGENT_WINDOW = timedelta(minutes=30)
@@ -103,6 +112,9 @@ _CODE_HOME_RUNNING_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS
 WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
 __all__ = [
+    "CODE_CUSTOM_INSTRUCTIONS_CONFLICT",
+    "CODE_CUSTOM_INSTRUCTIONS_INVALID",
+    "CODE_CUSTOM_INSTRUCTIONS_SAVED",
     "CODE_INVITE_INVALID_CODE",
     "CODE_INVITE_NOT_REDEEMABLE",
     "CODE_INVITE_REDEEMED",
@@ -144,6 +156,7 @@ __all__ = [
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
+    "get_code_custom_instructions",
     "get_code_home",
     "get_code_workflow_config",
     "get_conversation_task_dtos",
@@ -187,12 +200,14 @@ __all__ = [
     "redispatch_task_run",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
+    "reset_code_custom_instructions",
     "reset_code_workflow_bindings",
     "resolve_slack_thread_context",
     "respond_to_permission_request",
     "resume_task_run_in_cloud",
     "run_task",
     "run_task_automation_now",
+    "save_code_custom_instructions",
     "save_code_workflow_bindings",
     "send_cancel",
     "send_user_message",
@@ -4498,6 +4513,76 @@ def reset_code_workflow_bindings(team_id: int, user_id: int) -> contracts.CodeWo
         config.version = config.version + 1
         config.save(update_fields=["bindings", "version", "updated_at"])
     return _code_workflow_config_to_dto(config)
+
+
+def _code_custom_instructions_to_dto(row: CodeCustomInstructions) -> contracts.CodeCustomInstructionsDTO:
+    return contracts.CodeCustomInstructionsDTO(
+        id=str(row.id),
+        version=row.version,
+        updated_at=row.updated_at,
+        content=row.content,
+    )
+
+
+def get_code_custom_instructions(team_id: int, user_id: int) -> contracts.CodeCustomInstructionsDTO:
+    """Return the user's instructions for the team, seeding an empty row on first access."""
+    row, _ = CodeCustomInstructions.objects.for_team(team_id).get_or_create(team_id=team_id, user_id=user_id)
+    return _code_custom_instructions_to_dto(row)
+
+
+def save_code_custom_instructions(
+    team_id: int, user_id: int, *, content: object, expected_version: object
+) -> contracts.CodeCustomInstructionsSaveResult:
+    """Validate and save personal instructions under optimistic locking.
+
+    Returns a ``conflict`` result when ``expected_version`` is not an int or does not match the
+    stored version, an ``invalid`` result when the content is not a string or exceeds the length
+    cap, or a ``saved`` result with the version-bumped row.
+    """
+    with transaction.atomic():
+        current, _ = (
+            CodeCustomInstructions.objects.for_team(team_id)
+            .select_for_update()
+            .get_or_create(team_id=team_id, user_id=user_id)
+        )
+        if (
+            not isinstance(expected_version, int)
+            or isinstance(expected_version, bool)
+            or current.version != expected_version
+        ):
+            return contracts.CodeCustomInstructionsSaveResult(
+                outcome=CODE_CUSTOM_INSTRUCTIONS_CONFLICT,
+                config=_code_custom_instructions_to_dto(current),
+            )
+
+        if not isinstance(content, str) or len(content) > CODE_CUSTOM_INSTRUCTIONS_MAX_LENGTH:
+            return contracts.CodeCustomInstructionsSaveResult(
+                outcome=CODE_CUSTOM_INSTRUCTIONS_INVALID,
+                config=_code_custom_instructions_to_dto(current),
+            )
+
+        current.content = content
+        current.version = current.version + 1
+        current.save(update_fields=["content", "version", "updated_at"])
+
+    return contracts.CodeCustomInstructionsSaveResult(
+        outcome=CODE_CUSTOM_INSTRUCTIONS_SAVED,
+        config=_code_custom_instructions_to_dto(current),
+    )
+
+
+def reset_code_custom_instructions(team_id: int, user_id: int) -> contracts.CodeCustomInstructionsDTO:
+    """Clear the user's instructions back to empty and bump the version."""
+    with transaction.atomic():
+        row, _ = (
+            CodeCustomInstructions.objects.for_team(team_id)
+            .select_for_update()
+            .get_or_create(team_id=team_id, user_id=user_id)
+        )
+        row.content = ""
+        row.version = row.version + 1
+        row.save(update_fields=["content", "version", "updated_at"])
+    return _code_custom_instructions_to_dto(row)
 
 
 # --- Code home board ---

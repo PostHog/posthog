@@ -20,6 +20,10 @@ from products.tasks.backend.logic.services.agent_command import (
     send_user_message,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.personal_instructions import (
+    build_first_message,
+    mark_personal_instructions_applied,
+)
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.models import TaskRun
@@ -141,9 +145,14 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
             _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
             raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
+    # For interactive runs the first agent turn arrives here (not via forward_pending_user_message),
+    # so the run's first message is decorated on this path; the state marker keeps later follow-ups
+    # from being re-decorated.
+    outgoing_message, mark_instructions_applied = build_first_message(task_run, input.message, actor_user)
+
     result = send_user_message(
         task_run,
-        input.message,
+        outgoing_message,
         artifacts=artifacts,
         auth_token=auth_token,
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
@@ -155,6 +164,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         has_message=bool(input.message),
         artifact_count=len(artifacts or []),
     )
+
+    # Mark on every branch where the message reached the sandbox (delivered, duplicate redelivery,
+    # or turn-still-running), not just the fully-completed one — otherwise a first turn that runs
+    # past the ack timeout, or a retry that the agent-server dedupes, leaves the run unmarked and
+    # the next genuine follow-up re-injects the instructions.
+    if mark_instructions_applied and (result.success or result.turn_in_flight):
+        mark_personal_instructions_applied(input.run_id)
 
     if result.success:
         if _is_duplicate_delivery(result.data):

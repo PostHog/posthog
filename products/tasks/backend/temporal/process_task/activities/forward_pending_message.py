@@ -57,6 +57,10 @@ def forward_pending_user_message(run_id: str) -> None:
     """
     from products.tasks.backend.logic.services.agent_command import send_user_message
     from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+    from products.tasks.backend.logic.services.personal_instructions import (
+        PERSONAL_INSTRUCTIONS_APPLIED_STATE_KEY,
+        build_first_message,
+    )
     from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
     from products.tasks.backend.metrics import observe_followup_delivery_failed
     from products.tasks.backend.models import TaskRun
@@ -106,9 +110,11 @@ def forward_pending_user_message(run_id: str) -> None:
                 task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
             )
 
+        outgoing_message, mark_instructions_applied = build_first_message(task_run, pending_message, actor_user)
+
         result = send_user_message(
             task_run,
-            pending_message,
+            outgoing_message,
             artifacts=pending_artifacts or None,
             auth_token=auth_token,
             timeout=90,
@@ -122,7 +128,7 @@ def forward_pending_user_message(run_id: str) -> None:
         if not result.success and result.retryable and result.status_code != 504:
             result = send_user_message(
                 task_run,
-                pending_message,
+                outgoing_message,
                 artifacts=pending_artifacts or None,
                 auth_token=auth_token,
                 timeout=90,
@@ -146,8 +152,15 @@ def forward_pending_user_message(run_id: str) -> None:
             else:
                 _enqueue_pending_delivery_failure_relay(task_run, pending_message_ts, result.error)
 
+        # Fold the personal-instructions marker into the same atomic write that clears the pending
+        # keys. A separate write could be skipped by a crash between the two, after which the retry
+        # short-circuits on the cleared pending keys and the next follow-up re-injects.
+        applied_update = (
+            {PERSONAL_INSTRUCTIONS_APPLIED_STATE_KEY: True} if (result.success and mark_instructions_applied) else None
+        )
         TaskRun.update_state_atomic(
             run_id,
+            updates=applied_update,
             remove_keys=["pending_user_message", "pending_user_artifact_ids", "pending_user_message_ts"],
         )
 

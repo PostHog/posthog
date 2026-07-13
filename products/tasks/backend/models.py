@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxLengthValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
@@ -2096,6 +2097,38 @@ class CodeWorkflowConfig(TeamScopedRootMixin):
 
     def __str__(self):
         return f"CodeWorkflowConfig(team={self.team_id}, user={self.user_id}, v{self.version})"
+
+
+# Matches the character cap the desktop composer enforces on the same field, so instructions
+# authored in either place round-trip without silent truncation.
+CODE_CUSTOM_INSTRUCTIONS_MAX_LENGTH = 20_000
+
+
+class CodeCustomInstructions(TeamScopedRootMixin):
+    """Per-user, per-team personal instructions injected into the agent's first message on cloud runs."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    version = models.PositiveIntegerField(default=1)
+    content = models.TextField(
+        default="",
+        blank=True,
+        validators=[MaxLengthValidator(CODE_CUSTOM_INSTRUCTIONS_MAX_LENGTH)],
+        help_text="Free-form personal instructions the agent receives as preferences on cloud runs.",
+    )
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_custom_instructions"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="code_custom_instructions_team_user_unique"),
+        ]
+
+    def __str__(self):
+        return f"CodeCustomInstructions(team={self.team_id}, user={self.user_id}, v{self.version})"
 
 
 class CodePrSnapshot(TeamScopedRootMixin):
