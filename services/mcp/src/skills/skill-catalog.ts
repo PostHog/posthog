@@ -27,16 +27,28 @@ export interface SkillDefinition {
     files: readonly SkillFile[]
 }
 
-interface SearchSnippet {
+export interface SkillManifestEntry {
+    path: string
+    lineCount?: number
+    charCount?: number
+}
+
+export interface LearnSearchSnippet {
     path: string
     line: number
     text: string
 }
 
+export interface LearnSearchResult {
+    identifier: string
+    description: string
+    snippets: LearnSearchSnippet[]
+}
+
 interface RankedSkill {
     skill: SkillDefinition
     score: number
-    snippets: SearchSnippet[]
+    snippets: LearnSearchSnippet[]
 }
 
 /**
@@ -133,92 +145,50 @@ export class SkillCatalog {
         return this.skillsByName.has(name)
     }
 
-    search(query: string): string {
+    searchResults(query: string, namespace = ''): LearnSearchResult[] {
         const normalizedQuery = normalizeQuery(query)
-        const ranked = [...this.skillsByName.values()]
+        return [...this.skillsByName.values()]
             .map((skill) => rankSkill(skill, normalizedQuery))
             .filter((result): result is RankedSkill => result !== null)
             .sort((left, right) => right.score - left.score || left.skill.name.localeCompare(right.skill.name))
             .slice(0, MAX_GLOBAL_SKILLS)
-
-        if (ranked.length === 0) {
-            return `No skills matched "${query}".`
-        }
-
-        const sections = ranked.map(({ skill, snippets }) => {
-            const lines = [`## ${skill.name}`, '', skill.description]
-            if (snippets.length > 0) {
-                lines.push('', ...snippets.map((snippet) => `${snippet.path}:${snippet.line}: ${snippet.text}`))
-            }
-            return lines.join('\n')
-        })
-        return fitOutput(sections.join('\n\n'))
+            .map(({ skill, snippets }) => ({
+                identifier: `${namespace}${skill.name}`,
+                description: skill.description,
+                snippets,
+            }))
     }
 
-    read(name: string, path?: string): string {
+    search(query: string, namespace = ''): string {
+        const results = this.searchResults(query, namespace)
+
+        if (results.length === 0) {
+            return `No skills matched "${query}".`
+        }
+        return formatLearnSearchResults(results)
+    }
+
+    read(name: string, path?: string, identifier = name): string {
         const skill = this.requireSkill(name)
         if (path) {
-            const file = this.requireFile(skill, path)
-            return formatFile(skill, file)
+            const file = this.requireFile(skill, path, identifier)
+            return formatLearnFile(identifier, file)
         }
 
         const skillFile = this.requireFile(skill, 'SKILL.md')
-        const manifest = formatManifest(skill)
-        const full = `# ${skill.name}\n\n${skill.description}\n\n${manifest}\n\n## SKILL.md\n\n${skillFile.content}`
-        if (full.length <= LEARN_OUTPUT_CHAR_LIMIT) {
-            return full
-        }
-        return formatOversizedFile(skill, skillFile, manifest)
+        return formatLearnDocument(identifier, skill.description, skillFile, skill.files)
     }
 
-    searchFile(name: string, path: string, query: string): string {
+    searchFile(name: string, path: string, query: string, identifier = name): string {
         const skill = this.requireSkill(name)
-        const file = this.requireFile(skill, path)
-        if (file.kind !== 'markdown') {
-            throw new Error('Only Markdown contents are searchable. Read the file directly or use --lines instead.')
-        }
-
-        const normalizedQuery = normalizeQuery(query)
-        const lines = splitLines(file.content)
-        const matchingLines = lines
-            .map((line, index) => ({ line, index }))
-            .filter(({ line }) => matchesQuery(line, normalizedQuery))
-            .slice(0, MAX_SCOPED_MATCHES)
-
-        if (matchingLines.length === 0) {
-            return `No matches for "${query}" in ${name}/${path}.`
-        }
-
-        const blocks = matchingLines.map(({ index }) => {
-            const start = Math.max(0, index - SEARCH_CONTEXT_LINES)
-            const end = Math.min(lines.length - 1, index + SEARCH_CONTEXT_LINES)
-            return lines
-                .slice(start, end + 1)
-                .map((line, offset) => `${start + offset + 1}: ${line}`)
-                .join('\n')
-        })
-        return fitOutput(`# ${name}/${path}\n\n${blocks.join('\n\n')}`)
+        const file = this.requireFile(skill, path, identifier)
+        return searchLearnFile(identifier, file, query)
     }
 
-    readLines(name: string, path: string, start: number, end: number): string {
+    readLines(name: string, path: string, start: number, end: number, identifier = name): string {
         const skill = this.requireSkill(name)
-        const file = this.requireFile(skill, path)
-        const lines = splitLines(file.content)
-        if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > lines.length) {
-            throw new Error(`Invalid line range ${start}:${end}. ${name}/${path} has ${lines.length} lines.`)
-        }
-
-        const body = lines
-            .slice(start - 1, end)
-            .map((line, index) => `${start + index}: ${line}`)
-            .join('\n')
-        const result = `# ${name}/${path} lines ${start}:${end}\n\n${body}`
-        if (result.length > LEARN_OUTPUT_CHAR_LIMIT) {
-            throw new Error(
-                `Requested line range is ${result.length} characters. Narrow it to at most ${LEARN_OUTPUT_CHAR_LIMIT} characters.`
-            )
-        }
-        return result
+        const file = this.requireFile(skill, path, identifier)
+        return readLearnLines(identifier, file, start, end)
     }
 
     private requireSkill(name: string): SkillDefinition {
@@ -229,12 +199,12 @@ export class SkillCatalog {
         return skill
     }
 
-    private requireFile(skill: SkillDefinition, path: string): SkillFile {
+    private requireFile(skill: SkillDefinition, path: string, identifier = skill.name): SkillFile {
         validateRelativePath(path)
         const file = skill.files.find((candidate) => candidate.path === path)
         if (!file) {
             throw new Error(
-                `Unknown file: "${path}" in skill "${skill.name}". Run \`learn ${skill.name}\` for its manifest.`
+                `Unknown file: "${path}" in skill "${identifier}". Run \`learn ${identifier}\` for its manifest.`
             )
         }
         return file
@@ -279,12 +249,13 @@ function validateRelativePath(path: string): void {
     }
 }
 
-function makeSkillFile(path: string, content: string): SkillFile {
-    const kind: SkillFileKind = path.toLowerCase().endsWith('.md')
-        ? 'markdown'
-        : path === 'scripts' || path.startsWith('scripts/')
-          ? 'script'
-          : 'other'
+export function makeSkillFile(path: string, content: string, contentType?: string): SkillFile {
+    const kind: SkillFileKind =
+        path.toLowerCase().endsWith('.md') || contentType?.toLowerCase().includes('markdown')
+            ? 'markdown'
+            : path === 'scripts' || path.startsWith('scripts/')
+              ? 'script'
+              : 'other'
     return {
         path,
         content,
@@ -304,35 +275,110 @@ function compareSkillPaths(left: string, right: string): number {
     return left.localeCompare(right)
 }
 
-function formatManifest(skill: SkillDefinition): string {
-    const lines = skill.files.map((file) => `- ${file.path} (${file.lineCount} lines, ${file.charCount} chars)`)
+function formatManifest(files: readonly SkillManifestEntry[]): string {
+    const lines = files.map((file) =>
+        file.lineCount === undefined || file.charCount === undefined
+            ? `- ${file.path}`
+            : `- ${file.path} (${file.lineCount} lines, ${file.charCount} chars)`
+    )
     return `## Files\n\n${lines.join('\n')}`
 }
 
-function formatFile(skill: SkillDefinition, file: SkillFile): string {
-    const header = `# ${skill.name}/${file.path}\n\n${file.lineCount} lines, ${file.charCount} chars`
+export function formatLearnDocument(
+    identifier: string,
+    description: string,
+    skillFile: SkillFile,
+    manifestFiles: readonly SkillManifestEntry[]
+): string {
+    const manifest = formatManifest(manifestFiles)
+    const full = `# ${identifier}\n\n${description}\n\n${manifest}\n\n## SKILL.md\n\n${skillFile.content}`
+    if (full.length <= LEARN_OUTPUT_CHAR_LIMIT) {
+        return full
+    }
+    return formatOversizedFile(identifier, skillFile, manifest)
+}
+
+export function formatLearnFile(identifier: string, file: SkillFile): string {
+    const header = `# ${identifier}/${file.path}\n\n${file.lineCount} lines, ${file.charCount} chars`
     const full = `${header}\n\n${file.content}`
     if (full.length <= LEARN_OUTPUT_CHAR_LIMIT) {
         return full
     }
-    return formatOversizedFile(skill, file)
+    return formatOversizedFile(identifier, file)
 }
 
-function formatOversizedFile(skill: SkillDefinition, file: SkillFile, manifest?: string): string {
+function formatOversizedFile(identifier: string, file: SkillFile, manifest?: string): string {
     const headings = splitLines(file.content)
         .map((line, index) => ({ line, number: index + 1 }))
         .filter(({ line }) => /^#{1,6}\s+/.test(line))
         .map(({ line, number }) => `${number}: ${line}`)
     const outline = headings.length > 0 ? headings.join('\n') : '(No Markdown headings found.)'
     const scope = manifest ? `${manifest}\n\n` : ''
-    return fitOutput(
-        `# ${skill.name}/${file.path}\n\n${file.lineCount} lines, ${file.charCount} chars. This file is too large to return in full. Use \`learn ${skill.name} ${file.path} -s <query>\` or \`learn ${skill.name} ${file.path} --lines <start>:<end>\`.\n\n${scope}## Heading outline\n\n${outline}`
+    return fitLearnOutput(
+        `# ${identifier}/${file.path}\n\n${file.lineCount} lines, ${file.charCount} chars. This file is too large to return in full. Use \`learn ${identifier} ${file.path} -s <query>\` or \`learn ${identifier} ${file.path} --lines <start>:<end>\`.\n\n${scope}## Heading outline\n\n${outline}`
     )
+}
+
+export function searchLearnFile(identifier: string, file: SkillFile, query: string): string {
+    if (file.kind !== 'markdown') {
+        throw new Error('Only Markdown contents are searchable. Read the file directly or use --lines instead.')
+    }
+
+    const normalizedQuery = normalizeQuery(query)
+    const lines = splitLines(file.content)
+    const matchingLines = lines
+        .map((line, index) => ({ line, index }))
+        .filter(({ line }) => matchesQuery(line, normalizedQuery))
+        .slice(0, MAX_SCOPED_MATCHES)
+
+    if (matchingLines.length === 0) {
+        return `No matches for "${query}" in ${identifier}/${file.path}.`
+    }
+
+    const blocks = matchingLines.map(({ index }) => {
+        const start = Math.max(0, index - SEARCH_CONTEXT_LINES)
+        const end = Math.min(lines.length - 1, index + SEARCH_CONTEXT_LINES)
+        return lines
+            .slice(start, end + 1)
+            .map((line, offset) => `${start + offset + 1}: ${line}`)
+            .join('\n')
+    })
+    return fitLearnOutput(`# ${identifier}/${file.path}\n\n${blocks.join('\n\n')}`)
+}
+
+export function readLearnLines(identifier: string, file: SkillFile, start: number, end: number): string {
+    const lines = splitLines(file.content)
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > lines.length) {
+        throw new Error(`Invalid line range ${start}:${end}. ${identifier}/${file.path} has ${lines.length} lines.`)
+    }
+
+    const body = lines
+        .slice(start - 1, end)
+        .map((line, index) => `${start + index}: ${line}`)
+        .join('\n')
+    const result = `# ${identifier}/${file.path} lines ${start}:${end}\n\n${body}`
+    if (result.length > LEARN_OUTPUT_CHAR_LIMIT) {
+        throw new Error(
+            `Requested line range is ${result.length} characters. Narrow it to at most ${LEARN_OUTPUT_CHAR_LIMIT} characters.`
+        )
+    }
+    return result
+}
+
+export function formatLearnSearchResults(results: readonly LearnSearchResult[]): string {
+    const sections = results.map(({ identifier, description, snippets }) => {
+        const lines = [`## ${identifier}`, '', description]
+        if (snippets.length > 0) {
+            lines.push('', ...snippets.map((snippet) => `${snippet.path}:${snippet.line}: ${snippet.text}`))
+        }
+        return lines.join('\n')
+    })
+    return fitLearnOutput(sections.join('\n\n'))
 }
 
 function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill | null {
     let score = scoreText(skill.name, query, 1_000) + scoreText(skill.description, query, 300)
-    const snippets: SearchSnippet[] = []
+    const snippets: LearnSearchSnippet[] = []
 
     for (const file of skill.files) {
         score += scoreText(file.path, query, 120)
@@ -386,7 +432,7 @@ function matchesQuery(text: string, query: NormalizedQuery): boolean {
     return normalizedText.includes(query.phrase) || query.tokens.every((token) => normalizedText.includes(token))
 }
 
-function findSnippet(file: SkillFile, query: NormalizedQuery): SearchSnippet | undefined {
+function findSnippet(file: SkillFile, query: NormalizedQuery): LearnSearchSnippet | undefined {
     const lines = splitLines(file.content)
     const index = lines.findIndex((line) => matchesQuery(line, query))
     if (index === -1) {
@@ -395,7 +441,7 @@ function findSnippet(file: SkillFile, query: NormalizedQuery): SearchSnippet | u
     return { path: file.path, line: index + 1, text: lines[index]!.trim() }
 }
 
-function fitOutput(value: string): string {
+export function fitLearnOutput(value: string): string {
     if (value.length <= LEARN_OUTPUT_CHAR_LIMIT) {
         return value
     }

@@ -311,6 +311,62 @@ describe('ToolExecutor', () => {
             expect(result.content[0]!.text).toContain('sample-skill')
         })
 
+        it('discovers and searches current-project skills when the connection has read scope', async () => {
+            const apiRequest = vi.fn().mockImplementation(async ({ path }: { path: string }) => {
+                if (path.endsWith('/search/')) {
+                    return {
+                        count: 1,
+                        results: [
+                            {
+                                name: 'team-retention',
+                                description: 'Project-specific retention guidance.',
+                                matches: [
+                                    {
+                                        matched_field: 'body',
+                                        path: 'SKILL.md',
+                                        line: 3,
+                                        excerpt: 'Use weekly retention cohorts.',
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                }
+                return { count: 1, results: [{ name: 'team-retention' }] }
+            })
+            const state = makeState([], {
+                useSingleExec: true,
+                apiKeyScopes: ['llm_skill:read'],
+                context: {
+                    api: { request: apiRequest },
+                    stateManager: { getProjectId: vi.fn().mockResolvedValue(12) },
+                } as any,
+            })
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'learn -s retention' } },
+                state
+            )) as { content: { text: string }[] }
+
+            expect(result.content[0]!.text).toContain('## project:team-retention')
+            expect(apiRequest).toHaveBeenCalledWith({
+                method: 'GET',
+                path: '/api/projects/12/llm_skills/search/',
+                query: { query: 'retention' },
+            })
+
+            const listResult = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'learn skills' } },
+                state
+            )) as { content: { text: string }[] }
+            expect(listResult.content[0]!.text).toContain('project:team-retention')
+            expect(apiRequest).toHaveBeenCalledWith({
+                method: 'GET',
+                path: '/api/projects/12/llm_skills/',
+                query: { category: '', limit: 100, offset: 0, order_by: 'name' },
+            })
+        })
+
         it('does not advertise or serve learn for the effective plugin consumer', async () => {
             const state = makeState(
                 catalog

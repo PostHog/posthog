@@ -3,7 +3,7 @@ from typing import Any
 
 from django.db import transaction
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -128,6 +128,51 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
         help_text='Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to '
         "return only uncategorized skills. Omit the parameter entirely to return skills of every category.",
     )
+
+
+class LLMSkillSearchQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        min_length=1,
+        max_length=200,
+        trim_whitespace=True,
+        help_text="Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.",
+    )
+
+
+class LLMSkillSearchMatchSerializer(serializers.Serializer):
+    matched_field = serializers.ChoiceField(
+        choices=["name", "description", "body", "file_path", "file_content"],
+        help_text="Skill field that matched the search query.",
+    )
+    path = serializers.CharField(
+        required=False,
+        help_text="Skill-relative file path for body or bundled-file matches. Omitted for name and description matches.",
+    )
+    line = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="One-based line containing the match when the result came from a body or bundled file.",
+    )
+    excerpt = serializers.CharField(help_text="Short excerpt showing why this skill matched.")
+
+
+class LLMSkillSearchResultSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Unique skill name.")
+    description = serializers.CharField(help_text="What this skill does and when to use it.")
+    matches = LLMSkillSearchMatchSerializer(
+        many=True,
+        help_text="Up to two locations that matched the search query, ordered by field relevance.",
+    )
+
+
+@extend_schema_serializer(many=False)
+class LLMSkillSearchResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of matching skills returned, capped at 10.")
+    results = LLMSkillSearchResultSerializer(many=True, help_text="Matching ordinary skills in relevance order.")
+
+
+class LLMSkillSearchErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Explanation of why the skill search could not complete.")
 
 
 class LLMSkillResolveQuerySerializer(LLMSkillFetchQuerySerializer):

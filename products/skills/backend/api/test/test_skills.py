@@ -331,6 +331,95 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == len(expected_names)
         assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
 
+    # --- Search ---
+
+    def test_search_skills_orders_fields_by_relevance_and_skips_non_markdown_file_contents(self):
+        self.create_skill(name="needle", description="Exact name match.", body="# Exact")
+        self.create_skill(name="needle-name", description="Partial name match.", body="# Name")
+        self.create_skill(name="description-skill", description="Contains the needle here.", body="# Description")
+        self.create_skill(name="body-skill", description="Body match.", body="# Body\nContains the needle here.")
+
+        path_skill = self.create_skill(name="file-path-skill", description="Path match.", body="# Path")
+        LLMSkillFile.objects.create(
+            skill=path_skill,
+            path="references/needle-guide.txt",
+            content="No matching content.",
+        )
+        content_skill = self.create_skill(name="file-content-skill", description="File match.", body="# File")
+        LLMSkillFile.objects.create(
+            skill=content_skill,
+            path="references/guide.md",
+            content="# Guide\nContains the needle here.",
+            content_type="text/markdown",
+        )
+        script_skill = self.create_skill(name="script-content-skill", description="Script match.", body="# Script")
+        LLMSkillFile.objects.create(
+            skill=script_skill,
+            path="scripts/run.py",
+            content="print('needle')",
+            content_type="text/x-python",
+        )
+
+        response = self.client.get(self._url("search?query=NeEdLe"))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["name"] for result in results] == [
+            "needle",
+            "needle-name",
+            "description-skill",
+            "body-skill",
+            "file-path-skill",
+            "file-content-skill",
+        ]
+        assert [result["matches"][0]["matched_field"] for result in results] == [
+            "name",
+            "name",
+            "description",
+            "body",
+            "file_path",
+            "file_content",
+        ]
+        assert results[3]["matches"][0]["path"] == "SKILL.md"
+        assert results[5]["matches"][0]["line"] == 2
+
+    def test_search_skills_returns_only_latest_active_ordinary_skills_for_the_current_team(self):
+        self.create_skill(name="current-skill", body="Contains boundary-match.")
+        self.create_skill(name="scout-skill", body="Contains boundary-match.", category="scout")
+        self.create_skill(name="deleted-skill", body="Contains boundary-match.", deleted=True)
+        self.create_skill(name="versioned-skill", body="Old boundary-match.", version=1, is_latest=False)
+        self.create_skill(name="versioned-skill", body="Latest content.", version=2, is_latest=True)
+
+        other_team = self.create_team_with_organization(self.organization)
+        LLMSkill.objects.create(
+            team=other_team,
+            name="other-team-skill",
+            description="Other team.",
+            body="Contains boundary-match.",
+            created_by=self.user,
+        )
+
+        response = self.client.get(self._url("search?query=boundary-match"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == ["current-skill"]
+
+    @parameterized.expand(
+        [
+            ("read_scope_allowed", ["llm_skill:read"], status.HTTP_200_OK),
+            ("unrelated_scope_denied", ["dashboard:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_search_skills_pak_scope_end_to_end(self, _label, scopes, expected_status):
+        self.create_skill(name="scope-search-skill")
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.get(self._url("search?query=scope"))
+
+        assert response.status_code == expected_status
+
     # --- Get by name ---
 
     def test_get_skill_by_name(self):

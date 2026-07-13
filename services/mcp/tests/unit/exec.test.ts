@@ -93,13 +93,15 @@ describe('exec tool', () => {
                     },
                 ],
                 skills: {
-                    available: false,
+                    posthogAvailable: false,
+                    projectAvailable: false,
                     commands: [
                         'learn skills',
                         'learn -s <query>',
-                        'learn <skill> [path]',
-                        'learn <skill> <path> -s <query>',
-                        'learn <skill> <path> --lines <start>:<end>',
+                        'learn posthog:<skill> [path]',
+                        'learn project:<skill> [path]',
+                        'learn <source>:<skill> <path> -s <query>',
+                        'learn <source>:<skill> <path> --lines <start>:<end>',
                     ],
                 },
             })
@@ -113,11 +115,14 @@ describe('exec tool', () => {
             )
         })
 
-        it('keeps core exec usable when the skill archive is unavailable', async () => {
+        it('keeps core exec usable and reports each unavailable skill source', async () => {
             const exec = createExec(undefined, undefined, { learnCatalog })
 
-            await expect(exec.handler(mockContext, { command: 'learn skills' })).rejects.toThrow(
-                'Product skills are temporarily unavailable'
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'learn skills' })) as string)
+            expect(result.posthog.available).toBe(false)
+            expect(result.project.available).toBe(false)
+            await expect(exec.handler(mockContext, { command: 'learn posthog:missing' })).rejects.toThrow(
+                'PostHog skills are temporarily unavailable'
             )
             await expect(exec.handler(mockContext, { command: 'tools' })).resolves.toContain('mock-tool')
         })

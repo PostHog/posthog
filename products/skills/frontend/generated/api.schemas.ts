@@ -461,6 +461,64 @@ export interface LLMSkillResolveResponseApi {
     has_more: boolean
 }
 
+/**
+ * * `name` - name
+ * * `description` - description
+ * * `body` - body
+ * * `file_path` - file_path
+ * * `file_content` - file_content
+ */
+export type MatchedFieldEnumApi = (typeof MatchedFieldEnumApi)[keyof typeof MatchedFieldEnumApi]
+
+export const MatchedFieldEnumApi = {
+    Name: 'name',
+    Description: 'description',
+    Body: 'body',
+    FilePath: 'file_path',
+    FileContent: 'file_content',
+} as const
+
+export interface LLMSkillSearchMatchApi {
+    /** Skill field that matched the search query.
+     *
+     * * `name` - name
+     * * `description` - description
+     * * `body` - body
+     * * `file_path` - file_path
+     * * `file_content` - file_content */
+    matched_field: MatchedFieldEnumApi
+    /** Skill-relative file path for body or bundled-file matches. Omitted for name and description matches. */
+    path?: string
+    /**
+     * One-based line containing the match when the result came from a body or bundled file.
+     * @minimum 1
+     */
+    line?: number
+    /** Short excerpt showing why this skill matched. */
+    excerpt: string
+}
+
+export interface LLMSkillSearchResultApi {
+    /** Unique skill name. */
+    name: string
+    /** What this skill does and when to use it. */
+    description: string
+    /** Up to two locations that matched the search query, ordered by field relevance. */
+    matches: LLMSkillSearchMatchApi[]
+}
+
+export interface LLMSkillSearchResponseApi {
+    /** Number of matching skills returned, capped at 10. */
+    count: number
+    /** Matching ordinary skills in relevance order. */
+    results: LLMSkillSearchResultApi[]
+}
+
+export interface LLMSkillSearchErrorApi {
+    /** Explanation of why the skill search could not complete. */
+    detail: string
+}
+
 export type LlmSkillsListParams = {
     /**
      * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
@@ -542,4 +600,13 @@ export type LlmSkillsResolveNameRetrieveParams = {
      * Exact skill version UUID to resolve.
      */
     version_id?: string
+}
+
+export type LlmSkillsSearchRetrieveParams = {
+    /**
+     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
+     * @minLength 1
+     * @maxLength 200
+     */
+    query: string
 }
