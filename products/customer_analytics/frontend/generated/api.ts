@@ -19,6 +19,9 @@ import type {
     AccountsListParams,
     AccountsNotebooksListParams,
     AccountsRelationshipsListParams,
+    AnnouncementApi,
+    AnnouncementChannelApi,
+    AnnouncementsListParams,
     CustomPropertyDefinitionApi,
     CustomPropertyDefinitionsListParams,
     CustomPropertyDefinitionsValuesRetrieveParams,
@@ -38,6 +41,7 @@ import type {
     PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
     PaginatedAccountRelationshipDefinitionListApi,
+    PaginatedAnnouncementListApi,
     PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomPropertySourceListApi,
     PaginatedCustomerJourneyListApi,
@@ -495,6 +499,82 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getAccountsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAnnouncementsListUrl = (projectId: string, params?: AnnouncementsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/announcements/?${stringifiedParams}`
+        : `/api/projects/${projectId}/announcements/`
+}
+
+export const announcementsList = async (
+    projectId: string,
+    params?: AnnouncementsListParams,
+    options?: RequestInit
+): Promise<PaginatedAnnouncementListApi> => {
+    return apiMutator<PaginatedAnnouncementListApi>(getAnnouncementsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAnnouncementsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/announcements/`
+}
+
+export const announcementsCreate = async (
+    projectId: string,
+    announcementApi: NonReadonly<AnnouncementApi>,
+    options?: RequestInit
+): Promise<AnnouncementApi> => {
+    return apiMutator<AnnouncementApi>(getAnnouncementsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(announcementApi),
+    })
+}
+
+export const getAnnouncementsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/announcements/${shortId}/`
+}
+
+export const announcementsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<AnnouncementApi> => {
+    return apiMutator<AnnouncementApi>(getAnnouncementsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAnnouncementsChannelsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/announcements/channels/`
+}
+
+/**
+ * Slack channels the SupportHog bot can post to, labeled by customer account name.
+ */
+export const announcementsChannelsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AnnouncementChannelApi[]> => {
+    return apiMutator<AnnouncementChannelApi[]>(getAnnouncementsChannelsListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

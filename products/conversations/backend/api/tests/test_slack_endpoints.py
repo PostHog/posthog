@@ -272,7 +272,7 @@ class TestSlackChannelsAPI(APIBaseTest):
         response = APIClient().post("/api/conversations/v1/slack/channels", {})
         assert response.status_code == 401
 
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_returns_503_when_support_bot_token_missing(self, mock_get_token: MagicMock):
         mock_get_token.return_value = ""
 
@@ -280,8 +280,8 @@ class TestSlackChannelsAPI(APIBaseTest):
 
         assert response.status_code == 503
 
-    @patch("products.conversations.backend.api.slack_channels.WebClient")
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.WebClient")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_handles_slack_api_error(self, mock_get_token: MagicMock, mock_web_client: MagicMock):
         mock_get_token.return_value = "xoxb-support-token"
         client = MagicMock()
@@ -293,8 +293,8 @@ class TestSlackChannelsAPI(APIBaseTest):
         assert response.status_code == 400
         assert "Slack API error" in response.json()["error"]
 
-    @patch("products.conversations.backend.api.slack_channels.WebClient")
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.WebClient")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_paginates_and_sorts_channels(self, mock_get_token: MagicMock, mock_web_client: MagicMock):
         mock_get_token.return_value = "xoxb-support-token"
         client = MagicMock()
@@ -318,9 +318,9 @@ class TestSlackChannelsAPI(APIBaseTest):
             {"id": "C2", "name": "beta"},
         ]
 
-    @patch("products.conversations.backend.api.slack_channels.MAX_CHANNEL_PAGES", 2)
-    @patch("products.conversations.backend.api.slack_channels.WebClient")
-    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    @patch("products.conversations.backend.support_slack_channels.MAX_CHANNEL_PAGES", 2)
+    @patch("products.conversations.backend.support_slack_channels.WebClient")
+    @patch("products.conversations.backend.support_slack_channels.get_support_slack_bot_token")
     def test_returns_error_when_page_cap_exceeded(self, mock_support_config: MagicMock, mock_web_client: MagicMock):
         mock_support_config.return_value = "xoxb-support-token"
         client = MagicMock()

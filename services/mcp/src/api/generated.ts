@@ -9557,6 +9557,112 @@ export namespace Schemas {
       hidden_in_user_interface?: boolean | null;
     }
 
+    /**
+     * * `pending` - Pending
+     * * `sending` - Sending
+     * * `sent` - Sent
+     * * `partially_failed` - Partially failed
+     * * `failed` - Failed
+     */
+    export type AnnouncementStatusEnum = typeof AnnouncementStatusEnum[keyof typeof AnnouncementStatusEnum];
+
+
+    export const AnnouncementStatusEnum = {
+      Pending: 'pending',
+      Sending: 'sending',
+      Sent: 'sent',
+      PartiallyFailed: 'partially_failed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `sent` - Sent
+     * * `failed` - Failed
+     */
+    export type AnnouncementDeliveryStatusEnum = typeof AnnouncementDeliveryStatusEnum[keyof typeof AnnouncementDeliveryStatusEnum];
+
+
+    export const AnnouncementDeliveryStatusEnum = {
+      Pending: 'pending',
+      Sent: 'sent',
+      Failed: 'failed',
+    } as const;
+
+    export interface AnnouncementDelivery {
+      readonly id: string;
+      /** Slack channel ID the message was sent to (e.g. C0123ABCD). */
+      readonly slack_channel_id: string;
+      /** Slack channel display name at send time (without the leading #). */
+      readonly slack_channel_name: string;
+      /** Per-channel delivery status: pending, sent, or failed.
+       *
+       * * `pending` - Pending
+       * * `sent` - Sent
+       * * `failed` - Failed */
+      readonly status: AnnouncementDeliveryStatusEnum;
+      /** Slack error code when delivery to this channel failed; empty otherwise. */
+      readonly error: string;
+      /** Timestamp ID of the posted Slack message, when delivery succeeded. */
+      readonly slack_message_ts: string;
+      /**
+         * When the message was delivered to this channel. Null until sent.
+         * @nullable
+         */
+      readonly sent_at: string | null;
+    }
+
+    export interface Announcement {
+      readonly id: string;
+      /** Short human-friendly identifier for the announcement. */
+      readonly short_id: string;
+      /** Message body to send, rendered as Slack mrkdwn. */
+      message: string;
+      /** Overall status: pending, sending, sent, partially_failed, or failed.
+       *
+       * * `pending` - Pending
+       * * `sending` - Sending
+       * * `sent` - Sent
+       * * `partially_failed` - Partially failed
+       * * `failed` - Failed */
+      readonly status: AnnouncementStatusEnum;
+      /** Number of channels this announcement targets. */
+      readonly total_channels: number;
+      /** Number of channels the message was successfully delivered to. */
+      readonly sent_count: number;
+      /** Number of channels delivery failed for. */
+      readonly failed_count: number;
+      /**
+         * When delivery finished (all channels resolved). Null while pending/sending.
+         * @nullable
+         */
+      readonly sent_at: string | null;
+      /** When the announcement was created. */
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** Per-channel delivery rows, one per selected Slack channel. */
+      readonly deliveries: readonly AnnouncementDelivery[];
+      /** Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side. */
+      channels: string[];
+    }
+
+    /**
+     * A selectable Slack channel in the composer picker, labeled by customer where known.
+     */
+    export interface AnnouncementChannel {
+      /** Slack channel ID (e.g. C0123ABCD). */
+      id: string;
+      /** Slack channel display name (without the leading #). */
+      name: string;
+      /** Whether the SupportHog bot is a member of this channel. */
+      is_member: boolean;
+      /**
+         * Name of the customer account whose slack_channel_id points at this channel, or null if unmapped.
+         * @nullable
+         */
+      customer_name: string | null;
+    }
+
     export interface AppContract {
       /** User who created this app. */
       created_by?: StreamlitAppUserInfo | null;
@@ -33693,6 +33799,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Annotation[];
+    }
+
+    export interface PaginatedAnnouncementList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Announcement[];
     }
 
     export interface PaginatedAppContractList {
@@ -65922,6 +66037,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type AnnouncementsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type ApprovalPoliciesListParams = {
