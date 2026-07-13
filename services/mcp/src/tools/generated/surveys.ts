@@ -343,7 +343,14 @@ const surveyUpdate = (): ToolBase<
         },
     })
 
-const SurveysGetAllSchema = SurveysListQueryParams
+const SurveysGetAllSchema = SurveysListQueryParams.extend({
+    basic: SurveysListQueryParams.shape['basic']
+        .default(true)
+        .optional()
+        .describe(
+            "Return lightweight rows that omit the heavy questions, targeting, appearance, linked-flag, and creator fields. Defaults to true, which is best for browsing and identifying surveys; use survey-get for a single survey's full configuration. Set to false only when you genuinely need the full configuration of every row inline."
+        ),
+})
 
 const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Schemas.PaginatedSurveyList>> =>
     withUiApp('survey-list', {
@@ -356,6 +363,7 @@ const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Sc
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/`,
                 query: {
                     archived: params.archived,
+                    basic: params.basic,
                     ids: Array.isArray(params.ids) ? params.ids.join(',') || undefined : params.ids,
                     limit: params.limit,
                     offset: params.offset,

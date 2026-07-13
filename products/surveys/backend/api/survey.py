@@ -63,6 +63,7 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.utils import str_to_bool
 from posthog.utils_cors import cors_response
 
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
@@ -774,6 +775,33 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
             "untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`."
         ),
     )
+
+    # Heavy configuration and creator-identity fields dropped from the basic list payload
+    # (opt-in via `?basic=true` on the list endpoint). A survey list only needs metadata to
+    # identify rows; the full configuration is available from the detail (retrieve) endpoint.
+    BASIC_LIST_EXCLUDED_FIELDS = (
+        "questions",
+        "conditions",
+        "appearance",
+        "linked_flag",
+        "targeting_flag",
+        "internal_targeting_flag",
+        "feature_flag_keys",
+        "created_by",
+        "translations",
+        "form_content",
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Trimmed list payload (opt-in via `?basic=true`): drop the heavy question,
+        # targeting, styling, linked-flag, and creator fields the survey picker never
+        # reads. Keeps responses small for teams with many surveys and avoids exposing
+        # full configuration and creator identity in a plain list. Default output is
+        # unchanged; only callers that explicitly ask get the trimmed shape.
+        if self.context.get("basic_survey_list"):
+            for field_name in self.BASIC_LIST_EXCLUDED_FIELDS:
+                self.fields.pop(field_name, None)
 
     @extend_schema_field(
         serializers.ListField(
@@ -2072,6 +2100,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         else:
             return SurveySerializer
 
+    def _is_basic_list_request(self) -> bool:
+        # `?basic=true` on the list endpoint: trimmed payload that omits heavy config and
+        # creator fields. The single source of truth for the serializer path.
+        return self.action == "list" and str_to_bool(self.request.query_params.get("basic", "0"))
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["basic_survey_list"] = self._is_basic_list_request()
+        return context
+
     def safely_get_queryset(self, queryset):
         queryset = queryset.exclude(product_tour__isnull=False)
         if self.action == "list":
@@ -2091,6 +2129,23 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="basic",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return a trimmed list payload that omits the heavy `questions`, `conditions`, "
+                    "`appearance`, linked/targeting flag, `feature_flag_keys`, `created_by`, "
+                    "`translations`, and `form_content` fields. Use this when you only need to identify "
+                    "surveys (id, name, type, schedule, status, dates); fetch the full configuration from "
+                    "the retrieve endpoint."
+                ),
+            ),
+        ],
+    )
     @tracer.start_as_current_span("SurveyViewSet.list")
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         response = super().list(request, *args, **kwargs)

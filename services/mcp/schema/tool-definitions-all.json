@@ -8262,7 +8262,7 @@
         }
     },
     "surveys-get-all": {
-        "description": "List surveys in the project. Use `search` for fuzzy match against survey name and description (handles typos and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey, api). Use `archived` to filter archived state. Combine with pagination via `limit`/`offset`.\nCompanion tools to avoid the recon-loop pattern: - For individual response rows: surveys-responses-list - For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)",
+        "description": "List surveys in the project. Returns a lightweight row per survey (id, name, type, schedule, status, dates) rather than the full configuration. Use `search` for fuzzy match against survey name and description (handles typos and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey, api). Use `archived` to filter archived state. Combine with pagination via `limit`/`offset`.\nTo read a survey's questions, targeting, appearance, linked flags, or creator, call survey-get for that id. Companion tools to avoid the recon-loop pattern: - For individual response rows: surveys-responses-list - For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "List surveys in the project (server-side search + filters).",
