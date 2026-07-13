@@ -341,7 +341,7 @@ def _strip_regional_inference_prefix(model: str) -> str:
 # CRIS-only claude-sonnet-4-6 has no dated foundation-model id yet counts fine on runtime (its
 # only failures are request-content validation errors like oversized prompts). Models not listed
 # here keep the try-runtime-first behavior and fall back to mantle if AWS rejects them; re-verify
-# with scripts/count_tokens_probe.py before adding an entry.
+# against the live CountTokens API before adding an entry.
 BEDROCK_RUNTIME_COUNT_TOKENS_UNSUPPORTED: Final[frozenset[str]] = frozenset(
     {
         "anthropic.claude-opus-4-8",
