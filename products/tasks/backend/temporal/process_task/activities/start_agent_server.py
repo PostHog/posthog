@@ -301,10 +301,10 @@ def _invoke_start_agent_server(
             wait_for_health=wait_for_health,
         )
 
-        # Mark startup-time token issuance so follow-ups within the next
-        # 30m window skip the redundant refresh.
-        if params.mcp_configs:
-            mark_mcp_token_issued(ctx.run_id)
+        # Mark startup-time token issuance so the creator's follow-ups within
+        # the refresh window skip a redundant refresh_session round-trip.
+        if params.mcp_configs and ctx.task_created_by_id:
+            mark_mcp_token_issued(sandbox.id, ctx.task_created_by_id)
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)

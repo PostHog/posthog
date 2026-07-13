@@ -17,7 +17,7 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     _mcp_token_issued_cache_key,
-    clear_sandbox_identities,
+    _sandbox_identity_cache_key,
     get_last_sandbox_identity,
     mark_mcp_token_issued,
     mark_sandbox_identity,
@@ -33,17 +33,15 @@ def _clear_mcp_token_cache():
     is scoped to ``(run_id, user_id)`` so cross-user follow-ups don't get
     silently blocked by a same-run prior refresh — clear both shapes."""
     keys = [
-        _mcp_token_issued_cache_key("run-1"),
-        _mcp_token_issued_cache_key("run-1:42"),
-        _mcp_token_issued_cache_key("run-1:43"),
+        _mcp_token_issued_cache_key("run-1", 42),
+        _mcp_token_issued_cache_key("run-1", 43),
+        _sandbox_identity_cache_key("run-1", "mcp"),
     ]
     for key in keys:
         cache.delete(key)
-    clear_sandbox_identities("run-1")
     yield
     for key in keys:
         cache.delete(key)
-    clear_sandbox_identities("run-1")
 
 
 def _make_mcp_config(name: str = "posthog", token: str = "tok") -> McpServerConfig:
@@ -77,9 +75,8 @@ def _make_user_mock(user_id: int = 42) -> MagicMock:
     return user
 
 
-_OAUTH_FOR_USER_PATH = "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_user"
-_OAUTH_APP_PATH = (
-    "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.oauth_application_for_task"
+_OAUTH_MINT_PATH = (
+    "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token"
 )
 _PH_CONFIGS_PATH = (
     "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
@@ -101,13 +98,9 @@ class TestRefreshSandboxMcpForUser:
     @patch(_SEND_REFRESH_PATH)
     @patch(_USER_CONFIGS_PATH)
     @patch(_PH_CONFIGS_PATH)
-    @patch(_OAUTH_APP_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
-    def test_success_path_single_call(
-        self, mock_oauth, mock_oauth_app, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
+    @patch(_OAUTH_MINT_PATH)
+    def test_success_path_single_call(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
         mock_oauth.return_value = "fresh-token"
-        mock_oauth_app.return_value = "array"
         mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
         mock_user_configs.return_value = []
         mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
@@ -116,7 +109,7 @@ class TestRefreshSandboxMcpForUser:
         user = _make_user_mock(user_id=42)
         refresh_sandbox_mcp_for_user(task_run, user, scopes="read_only", auth_token="jwt")
 
-        mock_oauth.assert_called_once_with(user, 7, scopes="read_only", application="array")
+        mock_oauth.assert_called_once_with(task_run.task, scopes="read_only", user=user)
         mock_ph_configs.assert_called_once_with(
             token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
         )
@@ -133,10 +126,9 @@ class TestRefreshSandboxMcpForUser:
     @patch(_SEND_REFRESH_PATH)
     @patch(_USER_CONFIGS_PATH)
     @patch(_PH_CONFIGS_PATH)
-    @patch(_OAUTH_APP_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_retries_once_on_first_failure(
-        self, mock_oauth, mock_oauth_app, mock_ph_configs, mock_user_configs, mock_send_refresh, mock_sleep
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, mock_sleep
     ):
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
@@ -155,10 +147,9 @@ class TestRefreshSandboxMcpForUser:
     @patch(_SEND_REFRESH_PATH)
     @patch(_USER_CONFIGS_PATH)
     @patch(_PH_CONFIGS_PATH)
-    @patch(_OAUTH_APP_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_two_failures_are_non_fatal(
-        self, mock_oauth, mock_oauth_app, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
     ):
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
@@ -173,10 +164,9 @@ class TestRefreshSandboxMcpForUser:
     @patch(_SEND_REFRESH_PATH)
     @patch(_USER_CONFIGS_PATH)
     @patch(_PH_CONFIGS_PATH)
-    @patch(_OAUTH_APP_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_token_mint_failure_is_non_fatal_and_skips_send(
-        self, mock_oauth, mock_oauth_app, mock_ph_configs, mock_user_configs, mock_send_refresh
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
     ):
         mock_oauth.side_effect = RuntimeError("oauth service down")
 
@@ -189,10 +179,9 @@ class TestRefreshSandboxMcpForUser:
     @patch(_SEND_REFRESH_PATH)
     @patch(_USER_CONFIGS_PATH)
     @patch(_PH_CONFIGS_PATH)
-    @patch(_OAUTH_APP_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_skips_send_when_no_mcp_configs_resolved(
-        self, mock_oauth, mock_oauth_app, mock_ph_configs, mock_user_configs, mock_send_refresh
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
     ):
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = []
@@ -205,26 +194,25 @@ class TestRefreshSandboxMcpForUser:
     @patch(_SEND_REFRESH_PATH)
     @patch(_USER_CONFIGS_PATH)
     @patch(_PH_CONFIGS_PATH)
-    @patch(_OAUTH_APP_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_scopes_propagate_to_oauth_and_configs(
-        self, mock_oauth, mock_oauth_app, mock_ph_configs, mock_user_configs, mock_send_refresh
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
     ):
         mock_oauth.return_value = "fresh-token"
-        mock_oauth_app.return_value = "array"
         mock_ph_configs.return_value = [_make_mcp_config()]
         mock_user_configs.return_value = []
         mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
 
         refresh_sandbox_mcp_for_user(_make_task_run_mock(), _make_user_mock(), scopes="full", auth_token=None)
 
-        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], 7, scopes="full", application="array")
+        mock_oauth.assert_called_once()
+        assert mock_oauth.call_args.kwargs["scopes"] == "full"
         mock_ph_configs.assert_called_once_with(
             token="fresh-token", project_id=7, scopes="full", interaction_origin=None, task_id="task-1"
         )
 
     @patch(_SEND_REFRESH_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_legacy_wrapper_skips_when_no_creator(self, mock_oauth, mock_send_refresh):
         """``_refresh_sandbox_mcp`` (the no-actor wrapper used by the web-layer
         signal path) short-circuits when the task has no ``created_by``. The
@@ -244,9 +232,9 @@ class TestRefreshIntervalGate:
     a prior same-run refresh under a different identity."""
 
     @patch(_SEND_REFRESH_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_skipped_when_token_recently_issued(self, mock_oauth, mock_send_refresh):
-        mark_mcp_token_issued("run-1:42")
+        mark_mcp_token_issued("run-1", 42)
 
         refresh_sandbox_mcp_for_user(_make_task_run_mock(), _make_user_mock(), scopes="read_only", auth_token=None)
 
@@ -254,19 +242,18 @@ class TestRefreshIntervalGate:
         mock_send_refresh.assert_not_called()
 
     @patch(_SEND_REFRESH_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_identity_transition_bypasses_rate_limit(self, mock_oauth, mock_send_refresh):
         """When the actor differs from the identity the sandbox currently
         holds (default: the task creator), the refresh must go through even if
         this actor's own rate-limit window is warm — an identity swap is never
         silently skipped."""
-        mark_mcp_token_issued("run-1:43")
+        mark_mcp_token_issued("run-1", 43)
         mock_oauth.return_value = "fresh-token"
         mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
         with (
             patch(_PH_CONFIGS_PATH, return_value=[_make_mcp_config()]),
             patch(_USER_CONFIGS_PATH, return_value=[]),
-            patch(_OAUTH_APP_PATH, return_value="array"),
         ):
             refresh_sandbox_mcp_for_user(
                 _make_task_run_mock(), _make_user_mock(user_id=43), scopes="read_only", auth_token=None
@@ -277,20 +264,19 @@ class TestRefreshIntervalGate:
         assert get_last_sandbox_identity("run-1", "mcp") == 43
 
     @patch(_SEND_REFRESH_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_switching_back_to_creator_refreshes(self, mock_oauth, mock_send_refresh):
         """Ping-pong threads: after a teammate took over the sandbox identity,
         a message from the task creator must rebind the MCP back to them —
         "actor == creator" alone is not proof the sandbox is authed as the
         creator."""
         mark_sandbox_identity("run-1", "mcp", 43)
-        mark_mcp_token_issued("run-1:42")
+        mark_mcp_token_issued("run-1", 42)
         mock_oauth.return_value = "fresh-token"
         mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
         with (
             patch(_PH_CONFIGS_PATH, return_value=[_make_mcp_config()]),
             patch(_USER_CONFIGS_PATH, return_value=[]),
-            patch(_OAUTH_APP_PATH, return_value="array"),
         ):
             refresh_sandbox_mcp_for_user(
                 _make_task_run_mock(), _make_user_mock(user_id=42), scopes="read_only", auth_token=None
@@ -302,11 +288,8 @@ class TestRefreshIntervalGate:
     @patch(_SEND_REFRESH_PATH)
     @patch(_USER_CONFIGS_PATH)
     @patch(_PH_CONFIGS_PATH)
-    @patch(_OAUTH_APP_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
-    def test_marks_after_successful_refresh(
-        self, mock_oauth, mock_oauth_app, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
+    @patch(_OAUTH_MINT_PATH)
+    def test_marks_after_successful_refresh(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
         mock_user_configs.return_value = []
@@ -315,16 +298,15 @@ class TestRefreshIntervalGate:
         refresh_sandbox_mcp_for_user(_make_task_run_mock(), _make_user_mock(), scopes="read_only", auth_token=None)
 
         # Cache entry now exists → next refresh within the interval is gated.
-        assert cache.get(_mcp_token_issued_cache_key("run-1:42")) is True
+        assert cache.get(_mcp_token_issued_cache_key("run-1", 42)) is True
 
     @patch(_TIME_SLEEP_PATH)
     @patch(_SEND_REFRESH_PATH)
     @patch(_USER_CONFIGS_PATH)
     @patch(_PH_CONFIGS_PATH)
-    @patch(_OAUTH_APP_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_marks_after_successful_retry(
-        self, mock_oauth, mock_oauth_app, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
     ):
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
@@ -336,16 +318,15 @@ class TestRefreshIntervalGate:
 
         refresh_sandbox_mcp_for_user(_make_task_run_mock(), _make_user_mock(), scopes="read_only", auth_token=None)
 
-        assert cache.get(_mcp_token_issued_cache_key("run-1:42")) is True
+        assert cache.get(_mcp_token_issued_cache_key("run-1", 42)) is True
 
     @patch(_TIME_SLEEP_PATH)
     @patch(_SEND_REFRESH_PATH)
     @patch(_USER_CONFIGS_PATH)
     @patch(_PH_CONFIGS_PATH)
-    @patch(_OAUTH_APP_PATH)
-    @patch(_OAUTH_FOR_USER_PATH)
+    @patch(_OAUTH_MINT_PATH)
     def test_does_not_mark_after_two_failures(
-        self, mock_oauth, mock_oauth_app, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
     ):
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
@@ -355,7 +336,7 @@ class TestRefreshIntervalGate:
         refresh_sandbox_mcp_for_user(_make_task_run_mock(), _make_user_mock(), scopes="read_only", auth_token=None)
 
         # Cache stays empty so the next follow-up retries the dispatch.
-        assert cache.get(_mcp_token_issued_cache_key("run-1:42")) is None
+        assert cache.get(_mcp_token_issued_cache_key("run-1", 42)) is None
 
 
 class TestSendFollowupActivityRefreshOrdering:

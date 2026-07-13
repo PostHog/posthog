@@ -18,22 +18,24 @@ __all__ = [
     "create_oauth_access_token",
     "create_oauth_access_token_for_user",
     "create_wizard_oauth_access_token",
-    "oauth_application_for_task",
 ]
 
 
-def oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
+def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
     if task.origin_product == Task.OriginProduct.POSTHOG_AI:
         return "posthog_ai"
     return "array"
 
 
-def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_only") -> str:
+def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_only", user=None) -> str:
     """Create an OAuth access token for the task's sandbox app, scoped to the task's team.
 
-    OAuth tokens auto-expire after 6 hours, so no cleanup is needed.
+    Minted for ``user`` when given — per-message identity rebinds mint for the
+    live Slack actor — otherwise for the task creator. OAuth tokens
+    auto-expire after 6 hours, so no cleanup is needed.
     """
-    if not task.created_by:
+    target = user or task.created_by
+    if not target:
         raise TaskInvalidStateError(
             f"Task {task.id} has no created_by user",
             {"task_id": task.id},
@@ -41,10 +43,10 @@ def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_on
         )
 
     return create_oauth_access_token_for_user(
-        task.created_by,
+        target,
         task.team_id,
         scopes=scopes,
-        application=oauth_application_for_task(task),
+        application=_oauth_application_for_task(task),
     )
 
 

@@ -175,8 +175,8 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
-    "redeem_code_invite",
     "rebind_sandbox_identity_for_user",
+    "redeem_code_invite",
     "redispatch_task_run",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
@@ -4614,6 +4614,9 @@ def rebind_sandbox_identity_for_user(
         return
 
     try:
+        # Mirrors the scope Slack-originated runs boot with. The effective
+        # per-run scope isn't persisted in run state (follow-up); a non-Slack
+        # caller of this facade must revisit this constant.
         refresh_sandbox_mcp_for_user(run, user, scopes="full", auth_token=auth_token)
     except Exception:
         logger.exception("Sandbox MCP identity rebind failed", extra={"run_id": str(run_id), "user_id": user_id})

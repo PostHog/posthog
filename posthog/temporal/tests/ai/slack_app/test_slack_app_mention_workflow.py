@@ -41,6 +41,8 @@ class _Recorder:
     def __init__(self) -> None:
         # (ts, repository) per create-task call, in execution order.
         self.created: list[tuple[str, str | None]] = []
+        # per_message_identity as seen by the first activity of each message.
+        self.identity_flags: list[bool] = []
         # ts per hourglass->eyes reaction swap, in execution order.
         self.processing_marked: list[str] = []
         # ts per forwarded followup, in execution order.
@@ -61,6 +63,7 @@ def _fake_activities(rec: _Recorder) -> list:
     async def quota(
         inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
     ) -> bool:
+        rec.identity_flags.append(inputs.per_message_identity)
         return False
 
     @activity.defn(name="classify_untagged_followup_activity")
@@ -287,6 +290,9 @@ async def test_queued_messages_process_serially_in_arrival_order():
     assert rec.created == [("1.1", "org/auto-repo"), ("1.2", "org/auto-repo"), ("1.3", "org/auto-repo")]
     # Each mention gets its hourglass swapped for eyes as it leaves the queue.
     assert rec.processing_marked == ["1.1", "1.2", "1.3"]
+    # The queue workflow stamps per-message identity on every message it
+    # processes — the payload arrives with the field unset.
+    assert rec.identity_flags == [True, True, True]
 
 
 @pytest.mark.asyncio

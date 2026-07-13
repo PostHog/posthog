@@ -787,7 +787,6 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         ]
         assert not post_calls
 
-    @patch("products.tasks.backend.facade.api.rebind_sandbox_identity_for_user")
     @patch(
         "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
         return_value="jwt-token",
@@ -796,7 +795,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
     def test_cross_user_followup_falls_back_to_email_when_no_full_name(
-        self, mock_slack_cls, mock_resolve, mock_send, mock_token, mock_rebind
+        self, mock_slack_cls, mock_resolve, mock_send, mock_token
     ):
         self._create_mapping(mentioning_user="U_ALICE")
         bob = User.objects.create(email="bob@test.com")  # no full name

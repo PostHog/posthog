@@ -132,6 +132,10 @@ class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
                 return
 
             message = self._queue.pop(0)
+            # Being processed by the queue workflow is what per-message
+            # identity *means* — stamping here (not at dispatch) makes it
+            # impossible for a future dispatcher into this workflow to forget.
+            message.per_message_identity = True
             self._signals.reset()
             await self._mark_processing(message)
             # Never raises: internal errors are posted back to the thread, so
