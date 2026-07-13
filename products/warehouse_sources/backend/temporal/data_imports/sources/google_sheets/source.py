@@ -3,7 +3,7 @@ from typing import Optional, cast
 from django.conf import settings
 
 import gspread
-from google.auth.exceptions import RefreshError
+from google.auth import exceptions as google_auth_exceptions
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -163,11 +163,6 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
                 False,
                 "Permissions missing from spreadsheet. View documentation at https://posthog.com/docs/cdp/sources/google-sheets",
             )
-        except RefreshError:
-            return (
-                False,
-                "PostHog couldn't authenticate with your Google account. Please reconnect it and try again.",
-            )
         except gspread.exceptions.APIError as e:
             # gspread stringifies these as "APIError: [<code>]: <message>", which isn't actionable.
             # The common case is an uploaded Office file (.xlsx) the Sheets API can't read.
@@ -183,6 +178,30 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
                 False,
                 "Google Sheets could not open this spreadsheet. Please check the URL and that it is shared "
                 "with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
+            )
+        except (google_auth_exceptions.RefreshError, google_auth_exceptions.TransportError) as e:
+            # A token refresh failed. On the OAuth path it's the user's connected account that couldn't
+            # be refreshed, so tell them to reconnect it.
+            if integration_id:
+                return (
+                    False,
+                    "PostHog couldn't authenticate with your Google account. Please reconnect it and try again.",
+                )
+            # Otherwise these come from fetching PostHog's own service-account OAuth token (the user only
+            # shares their sheet with our service account), not from the user's credentials. google-auth
+            # flags a transient Google-side blip as retryable; its str() is otherwise a raw server message
+            # like "A server error occurred." A non-retryable failure (e.g. invalid_grant from a rotated
+            # key) is a persistent problem on our side, so don't dress it up as merely temporary.
+            if getattr(e, "retryable", False):
+                return (
+                    False,
+                    "PostHog couldn't verify access to your Google Sheet right now because Google returned a "
+                    "temporary error. Please try again in a moment.",
+                )
+            return (
+                False,
+                "PostHog couldn't authenticate with Google to verify access to your Google Sheet. This looks "
+                "like a problem on our side, so please contact support if it keeps happening.",
             )
         except Exception as e:
             return False, str(e)

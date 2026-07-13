@@ -113,6 +113,16 @@ def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
     return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
 
 
+EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-suggestion"
+# Sized for a full run at the session cap (100 sessions, 4 concurrent, a few minutes each).
+EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT = dt.timedelta(hours=3)
+
+
+def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
+    """Deterministic id: one evaluation per suggestion (WorkflowAlreadyStartedError on a duplicate trigger)."""
+    return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
+
+
 def replay_vision_distinct_id(team_id: int) -> str:
     """`posthog_distinct_id` for analytics events emitted by Replay Vision when no human user is attributable."""
     return f"replay-vision:{team_id}"

@@ -176,9 +176,12 @@ describe('TrendsLifecycleChart', () => {
             })
 
             const canvas = await screen.findByLabelText(/chart with/i)
-            dragSelection(canvas.parentElement!, 1, 3, LIFECYCLE_LABELS.length)
 
+            // The chart commits its interactive scales/dimensions in a post-render effect
+            // (useChartCanvas) after the labeled canvas mounts, so a drag fired immediately
+            // can be silently dropped. Retry it (like hoverUntilTooltip) until it lands.
             await waitFor(() => {
+                dragSelection(canvas.parentElement!, 1, 3, LIFECYCLE_LABELS.length)
                 expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
             })
         })

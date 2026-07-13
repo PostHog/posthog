@@ -8075,6 +8075,7 @@ export enum ProductIntentContext {
 
     // Session Replay
     SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
+    SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = 'session_replay_experiment_link_clicked',
 
     // Error Tracking
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
@@ -8102,6 +8103,10 @@ export enum ProductIntentContext {
 
     // Metrics
     METRICS_DOCS_VIEWED = 'metrics_docs_viewed',
+    METRICS_VIEWER_QUERY_RUN = 'metrics_viewer_query_run',
+    METRICS_SQL_QUERY_RUN = 'metrics_sql_query_run',
+    METRICS_QUERY_SAVED = 'metrics_query_saved',
+    METRICS_FIRST_INGESTED = 'metrics_first_ingested',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
