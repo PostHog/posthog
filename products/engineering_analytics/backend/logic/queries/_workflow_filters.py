@@ -16,9 +16,12 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowHeal
 DURATION_PERCENTILE_CONDITION = "status = 'completed' AND conclusion = 'success'"
 
 # The one "failing right now" signal, per workflow: did the latest completed run fail?
-# argMaxIf defaults to 0 (false) over zero matching rows, so consumers must pair it with a
-# completed-run count to tell "latest run passed" apart from "no completed run yet".
-LATEST_COMPLETED_RUN_FAILED = "argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed')"
+# Ordered by (run_started_at, id) so a same-second tie resolves deterministically to the
+# later-created run. argMaxIf defaults to 0 (false) over zero matching rows, so consumers must
+# pair it with a completed-run count to tell "latest run passed" apart from "no completed run yet".
+LATEST_COMPLETED_RUN_FAILED = (
+    "argMaxIf(conclusion IN ('failure', 'timed_out'), (run_started_at, id), status = 'completed')"
+)
 
 
 def branch_filter_clause(

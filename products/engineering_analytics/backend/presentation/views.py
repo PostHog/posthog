@@ -166,6 +166,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "flaky_tests",
         "repo_overview",
         "repo_run_activity",
+        "current_branch_health",
         "master_failures",
         "run_failure_logs",
         "job_aggregates",
