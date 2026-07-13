@@ -127,6 +127,69 @@ describe('handleClientIngestionWarningStep', () => {
         })
     })
 
+    describe('structured backend warnings', () => {
+        it('preserves the structured type, source, and details from the envelope', async () => {
+            const step = createHandleClientIngestionWarningStep(mockOutputs)
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_type: 'missing_event_name',
+                        $$client_ingestion_warning_source: 'capture',
+                        $$client_ingestion_warning_details: {
+                            distinctId: 'offending-id',
+                            eventUuid: 'offending-uuid',
+                            count: 3,
+                            pipelineStep: 'capture_validation',
+                        },
+                    },
+                },
+            }
+
+            const result = await step(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            const warning = producedWarning()
+            expect(warning.type).toBe('missing_event_name')
+            expect((warning as any).source).toBe('capture')
+            // The producer's own ids win over the synthetic warning event's ids.
+            expect(warning.details).toMatchObject({
+                distinctId: 'offending-id',
+                eventUuid: 'offending-uuid',
+                count: 3,
+                pipelineStep: 'capture_validation',
+                // Category/severity come from the registry, not the envelope.
+                category: 'event',
+                severity: 'error',
+            })
+        })
+
+        it('falls back to the client warning shape for an unrecognized structured type', async () => {
+            const step = createHandleClientIngestionWarningStep(mockOutputs)
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_type: 'not_a_real_type',
+                        $$client_ingestion_warning_message: 'legacy',
+                    },
+                },
+            }
+
+            const result = await step(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            const warning = producedWarning()
+            expect(warning.type).toBe('client_ingestion_warning')
+            expect((warning as any).source).toBe('plugin-server')
+            expect(warning.details.message).toBe('legacy')
+        })
+    })
+
     describe('non-client ingestion warning events', () => {
         it.each([['$pageview'], ['$identify'], ['custom_event']])('DLQs %s events', async (eventName) => {
             const step = createHandleClientIngestionWarningStep(mockOutputs)

@@ -44,6 +44,20 @@ export const INGESTION_WARNING_TYPES = {
 
     // Event validation — malformed or rejected event data
     client_ingestion_warning: { category: 'event', severity: 'info' },
+    // Capture-side validation drops (Rust capture; see rust/common/ingestion_warnings/src/registry.rs).
+    // Kept in sync with that registry — the registry-sync test asserts the Rust set is a subset of these.
+    missing_event_name: { category: 'event', severity: 'error' },
+    event_name_too_long: { category: 'event', severity: 'error' },
+    missing_distinct_id: { category: 'event', severity: 'error' },
+    distinct_id_too_large: { category: 'event', severity: 'error' },
+    invalid_event_timestamp: { category: 'event', severity: 'error' },
+    malformed_event_properties: { category: 'event', severity: 'error' },
+    invalid_options: { category: 'event', severity: 'error' },
+    empty_batch: { category: 'event', severity: 'error' },
+    invalid_batch: { category: 'event', severity: 'error' },
+    missing_event_uuid: { category: 'event', severity: 'error' },
+    invalid_event_uuid: { category: 'event', severity: 'error' },
+    duplicate_event_uuid: { category: 'event', severity: 'error' },
     ignored_invalid_timestamp: { category: 'event', severity: 'warning' },
     schema_validation_failed: { category: 'event', severity: 'error' },
     skipping_event_invalid_distinct_id: { category: 'event', severity: 'error' },
@@ -89,6 +103,9 @@ export interface IngestionWarning {
     pipelineStep?: string
     key?: string
     alwaysSend?: boolean
+    // Producing service, stamped into the v2 message `source` column. Defaults
+    // to 'plugin-server'; other producers (e.g. 'capture') set it explicitly.
+    source?: string
 }
 
 function serializeIngestionWarning(teamId: TeamId, warning: IngestionWarning): string {
@@ -104,7 +121,7 @@ function serializeIngestionWarning(teamId: TeamId, warning: IngestionWarning): s
     return JSON.stringify({
         team_id: teamId,
         type: warning.type,
-        source: 'plugin-server',
+        source: warning.source ?? 'plugin-server',
         details: JSON.stringify(fullDetails),
         timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
     })
