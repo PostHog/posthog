@@ -74,6 +74,13 @@ from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import DUCKGRES_BUCKET_REGION, _get_org_id_for_team, get_duckgres_server_for_organization
 from posthog.ducklake.models import DuckgresServerTeam
 
+from products.data_warehouse.backend.logic.backfill_status import (
+    BackfillOutcome,
+    historical_backfill_months,
+    record_backfill_finished,
+    record_backfill_outcome,
+    record_backfill_started,
+)
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
 
 logger = structlog.get_logger(__name__)
@@ -695,87 +702,15 @@ duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_even
 duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
 
 
-def _mark_managed_warehouse_backfill_started(*, team_id: int, dataset: str, partition_key: str, run_id: str) -> None:
-    try:
-        ManagedWarehouseBackfillPartition.objects.for_team(team_id).update_or_create(
-            environment_id=team_id,
-            dataset=dataset,
-            partition_key=partition_key,
-            defaults={
-                "team_id": team_id,
-                "lifecycle_state": ManagedWarehouseBackfillPartition.LifecycleState.RUNNING,
-                "run_id": run_id,
-                "started_at": timezone.now(),
-                "completed_at": None,
-                "last_error": None,
-            },
-        )
-    except DatabaseError:
-        logger.exception(
-            "managed_warehouse_backfill_status_write_failed",
-            team_id=team_id,
-            dataset=dataset,
-            partition_key=partition_key,
-        )
-
-
-def _mark_managed_warehouse_backfill_finished(
-    *, team_id: int, dataset: str, partition_key: str, run_id: str, error: Exception | None = None
-) -> None:
-    updates: dict[str, Any] = {
-        "run_id": run_id,
-        "completed_at": timezone.now(),
-    }
-    if error is None:
-        updates.update(
-            lifecycle_state=ManagedWarehouseBackfillPartition.LifecycleState.COMPLETED,
-            last_error=None,
-        )
-    else:
-        updates.update(
-            lifecycle_state=ManagedWarehouseBackfillPartition.LifecycleState.FAILED,
-            last_error=type(error).__name__[:128],
-        )
-
-    try:
-        ManagedWarehouseBackfillPartition.objects.for_team(team_id).filter(
-            environment_id=team_id,
-            dataset=dataset,
-            partition_key=partition_key,
-        ).update(**updates)
-    except DatabaseError:
-        logger.exception(
-            "managed_warehouse_backfill_status_write_failed",
-            team_id=team_id,
-            dataset=dataset,
-            partition_key=partition_key,
-        )
-
-
-def _project_managed_warehouse_backfill_run(
-    *, team_id: int, dataset: str, partition_key: str, run_id: str, run_status: DagsterRunStatus
-) -> None:
-    _mark_managed_warehouse_backfill_started(
-        team_id=team_id,
-        dataset=dataset,
-        partition_key=partition_key,
-        run_id=run_id,
-    )
+# The recording API itself lives in the product (logic.backfill_status) and knows nothing about
+# Dagster. This adapter is the boundary: it translates Dagster's run vocabulary into ours, so a
+# different scheduler only has to supply its own translation.
+def _outcome_from_run_status(run_status: DagsterRunStatus) -> BackfillOutcome:
     if run_status == DagsterRunStatus.SUCCESS:
-        _mark_managed_warehouse_backfill_finished(
-            team_id=team_id,
-            dataset=dataset,
-            partition_key=partition_key,
-            run_id=run_id,
-        )
-    elif run_status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
-        _mark_managed_warehouse_backfill_finished(
-            team_id=team_id,
-            dataset=dataset,
-            partition_key=partition_key,
-            run_id=run_id,
-            error=RuntimeError("Backfill run did not complete"),
-        )
+        return BackfillOutcome.SUCCEEDED
+    if run_status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+        return BackfillOutcome.FAILED
+    return BackfillOutcome.RUNNING
 
 
 # SQL for creating the events table in DuckLake if it doesn't exist
@@ -2391,7 +2326,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         return
 
     run_id = context.run.run_id
-    _mark_managed_warehouse_backfill_started(
+    record_backfill_started(
         team_id=team_id,
         dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
         partition_key=context.partition_key,
@@ -2400,7 +2335,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     try:
         _run_duckling_events_backfill(context, config)
     except Exception as error:
-        _mark_managed_warehouse_backfill_finished(
+        record_backfill_finished(
             team_id=team_id,
             dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
             partition_key=context.partition_key,
@@ -2409,7 +2344,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         )
         raise
 
-    _mark_managed_warehouse_backfill_finished(
+    record_backfill_finished(
         team_id=team_id,
         dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
         partition_key=context.partition_key,
@@ -2597,7 +2532,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         return
 
     run_id = context.run.run_id
-    _mark_managed_warehouse_backfill_started(
+    record_backfill_started(
         team_id=team_id,
         dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
         partition_key=partition_key,
@@ -2606,7 +2541,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     try:
         _run_duckling_persons_backfill(context, config)
     except Exception as error:
-        _mark_managed_warehouse_backfill_finished(
+        record_backfill_finished(
             team_id=team_id,
             dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
             partition_key=partition_key,
@@ -2615,7 +2550,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         )
         raise
 
-    _mark_managed_warehouse_backfill_finished(
+    record_backfill_finished(
         team_id=team_id,
         dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
         partition_key=partition_key,
@@ -3037,24 +2972,17 @@ _NO_HISTORY_SENTINEL = date(9999, 12, 31)
 _FULL_BACKFILL_RUN_TAG = {"duckling_backfill_type": "full"}
 
 
-def get_months_in_range(start_date: date, end_date: date) -> list[str]:
-    """Generate list of month strings (YYYY-MM) between start and end dates."""
-    months = []
-    current = date(start_date.year, start_date.month, 1)
-    end_month = date(end_date.year, end_date.month, 1)
-
-    while current <= end_month:
-        months.append(current.strftime("%Y-%m"))
-        # Move to next month
-        if current.month == 12:
-            current = date(current.year + 1, 1, 1)
-        else:
-            current = date(current.year, current.month + 1, 1)
-
-    return months
-
-
 def _reconcile_events_backfill_statuses(context: SensorEvaluationContext, partition_keys: list[str]) -> None:
+    """Backfill the status projection for partitions that ran before it existed.
+
+    TEMPORARY BRIDGE — the only part of this instrumentation that can't move off Dagster: it
+    reconstructs status by reading Dagster's own run storage. Everything else records status as
+    the run happens, through the scheduler-agnostic API in logic.backfill_status.
+
+    Delete this (and its persons counterpart in the full-backfill sensor) once every live
+    partition has a row, which happens within a few ticks of deploy. Until then, a scheduler
+    migration would have to drop it rather than port it.
+    """
     if not partition_keys:
         return
 
@@ -3084,12 +3012,12 @@ def _reconcile_events_backfill_statuses(context: SensorEvaluationContext, partit
         if not runs:
             continue
         latest_run = runs[0]
-        _project_managed_warehouse_backfill_run(
+        record_backfill_outcome(
             team_id=int(partition_key.split("_", 1)[0]),
             dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
             partition_key=partition_key,
             run_id=latest_run.run_id,
-            run_status=latest_run.status,
+            outcome=_outcome_from_run_status(latest_run.status),
         )
 
 
@@ -3133,7 +3061,8 @@ def duckling_events_full_backfill_sensor(
     # re-registers exactly the days the daily runs are handling, racing them under DuckLake's
     # per-table OCC (that conflict is why the current-month monthly partition goes red while the
     # daily partitions succeed).
-    last_month_end = timezone.now().date().replace(day=1) - timedelta(days=1)
+    today = timezone.now().date()
+    last_month_end = today.replace(day=1) - timedelta(days=1)
 
     backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
     if not backfills:
@@ -3168,7 +3097,7 @@ def duckling_events_full_backfill_sensor(
             # in the current month — no complete month to full-backfill (the daily sensor owns
             # the current month), so skip it.
             continue
-        keys = [f"{bf.team_id}_{m}" for m in get_months_in_range(earliest, last_month_end)]
+        keys = [f"{bf.team_id}_{m}" for m in historical_backfill_months(earliest, today=today)]
         existing_historical_partitions.extend(key for key in keys if key in existing)
         remaining = [k for k in keys if k not in existing]
         if remaining:
@@ -3412,12 +3341,12 @@ def duckling_persons_full_backfill_sensor(
             if runs:
                 latest_run = runs[0]
                 if partition_key not in projected_persons_partitions:
-                    _project_managed_warehouse_backfill_run(
+                    record_backfill_outcome(
                         team_id=team_id,
                         dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
                         partition_key=partition_key,
                         run_id=latest_run.run_id,
-                        run_status=latest_run.status,
+                        outcome=_outcome_from_run_status(latest_run.status),
                     )
                 # Only retry if failed - skip if in progress or succeeded
                 if latest_run.status == DagsterRunStatus.FAILURE:

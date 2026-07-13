@@ -51,7 +51,6 @@ from posthog.dags.events_backfill_to_duckling import (
     export_events_to_duckling_s3,
     export_persons_full_to_duckling_s3,
     export_persons_to_duckling_s3,
-    get_months_in_range,
     get_s3_url_for_clickhouse,
     is_full_export_partition,
     parse_partition_key,
@@ -60,6 +59,8 @@ from posthog.dags.events_backfill_to_duckling import (
     register_persons_files_with_duckling,
     table_exists,
 )
+
+from products.data_warehouse.backend.logic.backfill_status import get_months_in_range
 
 
 @pytest.fixture(autouse=True)

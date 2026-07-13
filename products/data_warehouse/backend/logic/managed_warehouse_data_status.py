@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime, timedelta
 from typing import Literal, TypedDict
 
@@ -12,6 +11,7 @@ import structlog
 
 from posthog.ducklake.models import DuckgresServerTeam, DuckgresSinkSchemaState
 
+from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources_queue.backend.models import (
@@ -34,7 +34,6 @@ ReadinessState = Literal[
 
 QUEUE_RETENTION_DAYS = 14
 PERSISTENT_BACKFILL_FAILURES = 3
-HISTORICAL_EVENT_PARTITION = re.compile(r"^\d+_\d{4}-\d{2}$")
 READINESS_PRIORITY: tuple[ReadinessState, ...] = (
     "needs_attention",
     "backfilling",
@@ -95,14 +94,11 @@ def _event_historical_partition_count(backfill: DuckgresServerTeam) -> int | Non
     if backfill.earliest_event_date is None:
         return None
 
-    last_complete_month = timezone.now().date().replace(day=1) - timedelta(days=1)
-    earliest = backfill.earliest_event_date
-    if earliest > last_complete_month:
-        return 0
-    return (last_complete_month.year - earliest.year) * 12 + last_complete_month.month - earliest.month + 1
+    # Same helper the scheduler enqueues from, so this denominator always matches what actually runs.
+    return len(historical_backfill_months(backfill.earliest_event_date))
 
 
-def _dataset_status(
+def dataset_status(
     *,
     dataset: Literal["events", "persons"],
     backfill: DuckgresServerTeam | None,
@@ -120,21 +116,21 @@ def _dataset_status(
         }
 
     relevant_partitions = partitions
+    # History is per-month for events and a single full export for persons. Both are read off the
+    # granularity column rather than the key's spelling, so a scheduler that names its partitions
+    # differently can't silently change what these numbers mean.
     if dataset == "events":
-        historical_partitions = [row for row in partitions if HISTORICAL_EVENT_PARTITION.fullmatch(row.partition_key)]
+        historical_granularity = ManagedWarehouseBackfillPartition.Granularity.MONTH
         total_partitions = _event_historical_partition_count(backfill)
-        completed_partitions = sum(
-            row.lifecycle_state == ManagedWarehouseBackfillPartition.LifecycleState.COMPLETED
-            for row in historical_partitions
-        )
     else:
-        full_partition_key = str(backfill.team_id)
-        historical_partitions = [row for row in partitions if row.partition_key == full_partition_key]
+        historical_granularity = ManagedWarehouseBackfillPartition.Granularity.FULL
         total_partitions = 1
-        completed_partitions = sum(
-            row.lifecycle_state == ManagedWarehouseBackfillPartition.LifecycleState.COMPLETED
-            for row in historical_partitions
-        )
+
+    historical_partitions = [row for row in partitions if row.granularity == historical_granularity]
+    completed_partitions = sum(
+        row.lifecycle_state == ManagedWarehouseBackfillPartition.LifecycleState.COMPLETED
+        for row in historical_partitions
+    )
 
     failed = next(
         (
@@ -360,12 +356,12 @@ def get_managed_warehouse_data_status(team_id: int) -> ManagedWarehouseDataStatu
         .filter(environment_id=team_id)
         .order_by("-updated_at")
     )
-    events = _dataset_status(
+    events = dataset_status(
         dataset="events",
         backfill=backfill,
         partitions=[row for row in partitions if row.dataset == ManagedWarehouseBackfillPartition.Dataset.EVENTS],
     )
-    persons = _dataset_status(
+    persons = dataset_status(
         dataset="persons",
         backfill=backfill,
         partitions=[row for row in partitions if row.dataset == ManagedWarehouseBackfillPartition.Dataset.PERSONS],
