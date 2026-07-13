@@ -82,11 +82,25 @@ def _inputs() -> ImportDataActivityInputs:
 
 
 @pytest.mark.asyncio
-async def test_non_retryable_setup_error_routes_through_handler():
+@pytest.mark.parametrize(
+    "non_retryable,expected_user_message",
+    [
+        # No friendly copy classified for this pattern — nothing to surface to the customer.
+        ({"The DNS query name does not exist": None}, None),
+        # A classified user-facing message (e.g. GitLab's read_api hint) must reach the handler so
+        # it lands on latest_error / error tracking instead of a bare, empty NonRetryableException.
+        (
+            {"403 Client Error": "Your token needs the `read_api` scope."},
+            "Your token needs the `read_api` scope.",
+        ),
+    ],
+)
+async def test_non_retryable_setup_error_routes_through_handler(non_retryable, expected_user_message):
     # A MongoDB mongodb+srv:// URI resolves DNS in the MongoClient constructor, so a deleted
     # cluster hostname raises during source setup (source_for_pipeline), before the run phase.
-    error = Exception("The DNS query name does not exist: _mongodb._tcp.cluster0.example.mongodb.net.")
-    source = _make_source(error, {"The DNS query name does not exist": None})
+    key = next(iter(non_retryable))
+    error = Exception(f"{key}: the source rejected the request")
+    source = _make_source(error, non_retryable)
 
     with _patched_activity(source) as handle_mock:
         # handle_non_retryable_error always raises (re-raises the error, or NonRetryableException
@@ -97,6 +111,7 @@ async def test_non_retryable_setup_error_routes_through_handler():
 
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.kwargs.get("user_message") == expected_user_message
 
 
 @pytest.mark.asyncio
