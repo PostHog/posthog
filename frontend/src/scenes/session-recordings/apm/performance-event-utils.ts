@@ -2,7 +2,7 @@ import { CapturedNetworkRequest } from 'posthog-js'
 import { eventWithTime } from 'posthog-js/rrweb-types'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
-import { assignField, isKeyOf } from 'lib/utils/guards'
+import { assignField, isKeyOf, isObject } from 'lib/utils/guards'
 import { humanizeBytes } from 'lib/utils/numbers'
 
 import { PerformanceEvent } from '~/types'
@@ -270,9 +270,13 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
 
                 const serverTimings: Record<string, PerformanceEvent[]> = {}
 
-                const perfEvents = payload.requests.map((capturedRequest: CapturedNetworkRequest) => {
-                    return mapRRWebNetworkRequest(capturedRequest, windowId, snapshot.timestamp)
-                })
+                const perfEvents = payload.requests
+                    // a malformed payload can contain primitives instead of request objects,
+                    // and the `in` operator used when mapping fields throws on those
+                    .filter((capturedRequest: unknown) => isObject(capturedRequest))
+                    .map((capturedRequest: CapturedNetworkRequest) => {
+                        return mapRRWebNetworkRequest(capturedRequest, windowId, snapshot.timestamp)
+                    })
 
                 // first find all server timings and store them by timestamp
                 perfEvents.forEach((perfEvent: PerformanceEvent) => {
