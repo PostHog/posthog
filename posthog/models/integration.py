@@ -83,8 +83,73 @@ def _decode_jwt_payload(token: str) -> dict | None:
 
 
 oauth_refresh_counter = Counter(
-    "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
+    "integration_oauth_refresh",
+    "Number of times an oauth refresh has been attempted",
+    labelnames=["kind", "result", "reason", "attempt"],
 )
+
+# Consecutive-failure backoff for the every-minute refresh sweep (posthog/tasks/integrations.py).
+# Without it, permanently dead integrations (revoked grants, deleted consumers) are retried every
+# minute forever, hammering providers and drowning the failure metric in a noise floor that
+# masks real fleet-wide breakage.
+REFRESH_BACKOFF_BASE_SECONDS = 120
+REFRESH_BACKOFF_MAX_SECONDS = 3600
+REFRESH_TERMINAL_FAILURE_COUNT = 5
+
+# Values for the counter's `reason` label, bucketed from the OAuth error response.
+REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
+REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
+REFRESH_FAILURE_REASON_HTTP_5XX = "http_5xx"
+REFRESH_FAILURE_REASON_OTHER = "other"
+
+
+def oauth_refresh_failure_reason(status_code: int, body: dict) -> str:
+    error = body.get("error")
+    if error == REFRESH_FAILURE_REASON_INVALID_GRANT:
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
+    if error == REFRESH_FAILURE_REASON_INVALID_CLIENT:
+        return REFRESH_FAILURE_REASON_INVALID_CLIENT
+    if status_code >= 500:
+        return REFRESH_FAILURE_REASON_HTTP_5XX
+    return REFRESH_FAILURE_REASON_OTHER
+
+
+def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_FAILURE_REASON_OTHER) -> str:
+    """Track a consecutive refresh failure on the integration's config; caller saves.
+
+    Schedules the next attempt with capped exponential backoff. `invalid_grant` means the grant
+    itself is dead and only a customer re-auth can fix it, so after enough consecutive ones the
+    integration goes terminal and the sweep stops retrying entirely. Other reasons (invalid_client,
+    5xx, network) never go terminal - a platform-side credential fix must let the fleet self-recover.
+
+    Returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
+    connections are newly breaking, regardless of retry noise.
+    """
+    count = int(integration.config.get("refresh_failure_count") or 0)
+    attempt = "first" if count == 0 else "retry"
+    count += 1
+    integration.config["refresh_failure_count"] = count
+    integration.config["refresh_next_attempt_at"] = int(time.time()) + min(
+        REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS
+    )
+    if reason == REFRESH_FAILURE_REASON_INVALID_GRANT and count >= REFRESH_TERMINAL_FAILURE_COUNT:
+        integration.config["refresh_terminal"] = True
+    return attempt
+
+
+def record_refresh_success(integration: "Integration") -> None:
+    for key in ("refresh_failure_count", "refresh_next_attempt_at", "refresh_terminal"):
+        integration.config.pop(key, None)
+
+
+def refresh_backoff_active(integration: "Integration") -> bool:
+    """Whether the refresh sweep should skip this integration. Reconnecting resets the state
+    (the OAuth callback replaces `config` wholesale), and on-demand API refreshes bypass this."""
+    if integration.config.get("refresh_terminal"):
+        return True
+    next_attempt_at = integration.config.get("refresh_next_attempt_at")
+    return bool(next_attempt_at) and time.time() < next_attempt_at
+
 
 # `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
 # paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
@@ -1186,14 +1251,23 @@ class OauthIntegration:
                 timeout=10,
             )
 
-        config: dict = res.json()
+        try:
+            config: dict = res.json()
+        except ValueError:
+            # e.g. an HTML error page from a proxy/5xx - still a failed refresh, not an exception
+            config = {}
 
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            reason = oauth_refresh_failure_reason(res.status_code, config)
+            attempt = record_refresh_failure(self.integration, reason=reason)
+            oauth_refresh_counter.labels(
+                kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
+            ).inc()
         else:
             logger.info(f"Refreshed access token for {self}")
+            record_refresh_success(self.integration)
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
             # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
@@ -1213,7 +1287,7 @@ class OauthIntegration:
             self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+            oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
 
         self.integration.save()
 
@@ -1734,8 +1808,11 @@ class GoogleCloudIntegration:
         try:
             credentials.refresh(GoogleRequest())
         except Exception:
+            record_refresh_failure(self.integration)
+            self.integration.save(update_fields=["config"])
             raise ValidationError(f"Failed to authenticate with provided service account key")
 
+        # Wholesale replacement also clears any refresh backoff state
         self.integration.config = {
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
@@ -1831,8 +1908,11 @@ class FirebaseIntegration:
         try:
             credentials.refresh(GoogleRequest())
         except Exception:
+            record_refresh_failure(self.integration)
+            self.integration.save(update_fields=["config"])
             raise ValidationError("Failed to authenticate with provided Firebase service account key")
 
+        record_refresh_success(self.integration)
         self.integration.config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
         self.integration.config["refreshed_at"] = int(time.time())
         self.integration.sensitive_config["access_token"] = credentials.token
@@ -2627,14 +2707,17 @@ class GitHubIntegration(GitHubIntegrationBase):
         # A permanently-gone installation (uninstalled/suspended) drops expires_in/refreshed_at so the
         # every-minute beat loop stops re-minting it; the errors + config change persist in one save.
         self._disarm_proactive_refresh_if_installation_gone(response)
-        oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        reason = REFRESH_FAILURE_REASON_HTTP_5XX if response.status_code >= 500 else REFRESH_FAILURE_REASON_OTHER
+        attempt = record_refresh_failure(self.integration, reason=reason)
+        oauth_refresh_counter.labels(kind=self.integration.kind, result="failed", reason=reason, attempt=attempt).inc()
         self.integration.save()
 
     def _on_token_refreshed(self) -> None:
         logger.info(f"Refreshed access token for {self}")
         self.integration.errors = ""
+        record_refresh_success(self.integration)
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-        oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+        oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
 
     @database_sync_to_async
     def list_cached_repositories_async(
@@ -3087,21 +3170,29 @@ class MetaAdsIntegration:
             timeout=10,
         )
 
-        config: dict = res.json()
+        try:
+            config: dict = res.json()
+        except ValueError:
+            config = {}
 
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            reason = oauth_refresh_failure_reason(res.status_code, config)
+            attempt = record_refresh_failure(self.integration, reason=reason)
+            oauth_refresh_counter.labels(
+                kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
+            ).inc()
         else:
             logger.info(f"Refreshed access token for {self}")
+            record_refresh_success(self.integration)
             self.integration.sensitive_config["access_token"] = config["access_token"]
             self.integration.errors = ""
             self.integration.config["expires_in"] = config.get("expires_in")
             self.integration.config["refreshed_at"] = int(time.time())
             # not used in CDP yet
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+            oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
         self.integration.save()
 
 

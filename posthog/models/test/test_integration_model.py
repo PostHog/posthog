@@ -50,6 +50,7 @@ from posthog.models.integration import (
     SnowflakeIntegration,
     SnowflakeIntegrationError,
     invalidate_github_repository_caches_for_installation,
+    oauth_refresh_failure_reason,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -557,6 +558,143 @@ class TestOauthIntegrationModel(BaseTest):
 
         integration.refresh_from_db()
         assert integration.errors == ""
+
+    @parameterized.expand(
+        [
+            ("first_failure", 0, 120),
+            ("second_failure", 1, 240),
+            ("capped", 10, 3600),
+        ]
+    )
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_failure_schedules_backoff(self, _name, prior_failures, expected_delay, mock_post, mock_reload):
+        mock_post.return_value.status_code = 401
+        mock_post.return_value.json.return_value = {"error": "BROKEN"}
+
+        config: dict = {"expires_in": 1000}
+        if prior_failures:
+            config["refresh_failure_count"] = prior_failures
+        integration = self.create_integration(kind="hubspot", config=config)
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.config["refresh_failure_count"] == prior_failures + 1
+        assert integration.config["refresh_next_attempt_at"] == 1704117600 + expected_delay
+        assert "refresh_terminal" not in integration.config
+
+    @parameterized.expand(
+        [
+            ("invalid_grant_below_threshold", "invalid_grant", 3, False),
+            ("invalid_grant_at_threshold", "invalid_grant", 4, True),
+            ("invalid_client_never_terminal", "invalid_client", 10, False),
+        ]
+    )
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_failure_terminal_state(
+        self, _name, error, prior_failures, expected_terminal, mock_post, mock_reload
+    ):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.json.return_value = {"error": error}
+
+        integration = self.create_integration(
+            kind="hubspot", config={"expires_in": 1000, "refresh_failure_count": prior_failures}
+        )
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert bool(integration.config.get("refresh_terminal")) is expected_terminal
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_success_clears_backoff_state(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED_ACCESS_TOKEN", "expires_in": 1000}
+
+        integration = self.create_integration(
+            kind="hubspot",
+            config={
+                "expires_in": 1000,
+                "refresh_failure_count": 5,
+                "refresh_next_attempt_at": 1704117600,
+                "refresh_terminal": True,
+            },
+        )
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert "refresh_failure_count" not in integration.config
+        assert "refresh_next_attempt_at" not in integration.config
+        assert "refresh_terminal" not in integration.config
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_failure_with_non_json_body_still_backs_off(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 502
+        mock_post.return_value.json.side_effect = ValueError("not json")
+        mock_post.return_value.text = "<html>Bad Gateway</html>"
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+        assert integration.config["refresh_failure_count"] == 1
+
+    @parameterized.expand(
+        [
+            ("invalid_grant", 400, {"error": "invalid_grant"}, "invalid_grant"),
+            ("invalid_client", 401, {"error": "invalid_client"}, "invalid_client"),
+            ("server_error", 502, {}, "http_5xx"),
+            ("other_4xx", 400, {"error": "temporarily_unavailable"}, "other"),
+            ("non_string_error", 400, {"error": {"code": 1}}, "other"),
+        ]
+    )
+    def test_oauth_refresh_failure_reason(self, _name, status_code, body, expected):
+        assert oauth_refresh_failure_reason(status_code, body) == expected
+
+    @patch("posthog.models.integration.requests.post")
+    def test_reconnect_clears_backoff_state(self, mock_post):
+        # A customer re-authing must un-brick a terminal integration, or "please reconnect"
+        # comms leave them permanently dead.
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            # integration_from_oauth_response pops fields out of the response dict, so each call
+            # needs a fresh one
+            mock_post.return_value.json.side_effect = lambda: {
+                "access_token": "FAKES_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "instance_url": "https://fake.salesforce.com",
+                "expires_in": 3600,
+            }
+            oauth_payload = {"code": "code", "state": "next=/projects/test"}
+
+            integration = OauthIntegration.integration_from_oauth_response(
+                "salesforce", self.team.id, self.user, oauth_payload
+            )
+            integration.config.update(
+                {"refresh_failure_count": 5, "refresh_next_attempt_at": 1704117600, "refresh_terminal": True}
+            )
+            integration.save()
+
+            reconnected = OauthIntegration.integration_from_oauth_response(
+                "salesforce", self.team.id, self.user, oauth_payload
+            )
+
+        assert reconnected.id == integration.id
+        assert "refresh_failure_count" not in reconnected.config
+        assert "refresh_next_attempt_at" not in reconnected.config
+        assert "refresh_terminal" not in reconnected.config
 
     @patch("posthog.models.integration.requests.post")
     def test_salesforce_integration_without_expires_in_initial_response(self, mock_post):
@@ -1345,6 +1483,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         integration.refresh_from_db()
         assert integration.errors == "TOKEN_REFRESH_FAILED"
+        assert integration.config["refresh_failure_count"] == 1
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
