@@ -566,7 +566,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     }
 
     const isAlert = actionForm.mode === VisionActionModeEnumApi.Alert
-    const noun = isAlert ? 'alert' : 'summary'
+    const noun = isAlert ? 'alert' : 'group summary'
     const title = isNew
         ? scannerName
             ? `New ${noun} for ${scannerName}`

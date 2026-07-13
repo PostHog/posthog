@@ -130,7 +130,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                             path: `${urls.replayVision(effectiveScannerId)}?tab=actions`,
                         })
                     }
-                    crumbs.push({ key: 'new-action', name: 'New summary' })
+                    crumbs.push({ key: 'new-action', name: 'New' })
                     return crumbs
                 }
                 crumbs.push(
@@ -190,14 +190,16 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 if (values.isNew) {
                     const created = await visionActionsCreate(String(teamId), body)
                     lemonToast.success(
-                        form.mode === VisionActionModeEnumApi.Alert ? 'Alert created' : 'Summary created'
+                        form.mode === VisionActionModeEnumApi.Alert ? 'Alert created' : 'Group summary created'
                     )
                     visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                     router.actions.push(urls.replayVisionAction(created.id))
                     return
                 }
                 const updated = await visionActionsPartialUpdate(String(teamId), values.actionId, body)
-                lemonToast.success(form.mode === VisionActionModeEnumApi.Alert ? 'Alert updated' : 'Summary updated')
+                lemonToast.success(
+                    form.mode === VisionActionModeEnumApi.Alert ? 'Alert updated' : 'Group summary updated'
+                )
                 visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                 const runsLogic = visionActionRunsLogic.findMounted({ actionId: updated.id })
                 runsLogic?.actions.loadAction()
