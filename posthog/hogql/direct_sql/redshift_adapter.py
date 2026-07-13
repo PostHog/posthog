@@ -31,6 +31,22 @@ DIRECT_REDSHIFT_ROW_CAP_ERROR = (
     f"Redshift query returned more than {DIRECT_REDSHIFT_MAX_ROWS:,} rows. Add a LIMIT clause."
 )
 RAW_REDSHIFT_READ_ONLY_ERROR = "Raw Redshift queries must be read-only SELECT statements."
+RAW_REDSHIFT_BLOCKED_FUNCTION_ERROR = "This Redshift function is not allowed in direct queries."
+
+# Redshift's system-administration functions run from a plain SELECT, so the read-only statement
+# gate alone doesn't stop a viewer cancelling other queries, changing priorities, or rebooting
+# the cluster when the configured credential has the privilege.
+_RAW_REDSHIFT_BLOCKED_FUNCTIONS = frozenset(
+    {
+        "CHANGE_QUERY_PRIORITY",
+        "CHANGE_SESSION_PRIORITY",
+        "CHANGE_USER_PRIORITY",
+        "PG_CANCEL_BACKEND",
+        "PG_TERMINATE_BACKEND",
+        "REBOOT_CLUSTER",
+        "SET_CONFIG",
+    }
+)
 
 
 def _fetch_capped_redshift_rows(cursor: psycopg.Cursor) -> list:
@@ -54,9 +70,12 @@ def ensure_read_only_raw_redshift_statement(sql: str) -> str:
     (as with Snowflake): a raw statement must be a single ``SELECT``, and any DDL — or any DML
     keyword other than ``SELECT`` anywhere in the statement (e.g. a write smuggled into a
     subquery) — is rejected. ``INTO`` is rejected too: Redshift supports ``SELECT ... INTO``,
-    which creates and populates a table while still tokenizing as a plain SELECT. HogQL-authored
-    queries only ever emit SELECT. String values and quoted identifiers aren't tagged
-    DML/DDL/keyword, so a literal or alias like ``'DELETE'`` is unaffected.
+    which creates and populates a table while still tokenizing as a plain SELECT. Redshift's
+    system-administration functions (``PG_CANCEL_BACKEND`` etc.) are rejected by name, as in the
+    Snowflake adapter, since they're callable from a plain SELECT. HogQL-authored queries only
+    ever emit SELECT. String values and quoted identifiers aren't tagged DML/DDL/keyword/name,
+    so a literal or alias like ``'DELETE'`` or a quoted column ``"pg_cancel_backend"`` is
+    unaffected.
     """
     sql = ensure_single_direct_statement(sql)
     statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
@@ -69,6 +88,8 @@ def ensure_read_only_raw_redshift_statement(sql: str) -> str:
             raise ExposedHogQLError(RAW_REDSHIFT_READ_ONLY_ERROR)
         if token.ttype in sqlparse_tokens.Keyword and token.value.upper() == "INTO":
             raise ExposedHogQLError(RAW_REDSHIFT_READ_ONLY_ERROR)
+        if token.ttype in sqlparse_tokens.Name and token.value.upper() in _RAW_REDSHIFT_BLOCKED_FUNCTIONS:
+            raise ExposedHogQLError(RAW_REDSHIFT_BLOCKED_FUNCTION_ERROR)
     return sql
 
 

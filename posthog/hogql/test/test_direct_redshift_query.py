@@ -182,6 +182,8 @@ class TestEnsureReadOnlyRawRedshiftStatement(unittest.TestCase):
             ("cte_select", "WITH t AS (SELECT 1 AS v) SELECT v FROM t"),
             # A write keyword inside a string literal must not trip the token scan.
             ("write_word_in_string", "SELECT 'DELETE' FROM public.sales"),
+            # A quoted identifier matching a blocked function name is a column, not a call.
+            ("quoted_blocked_name_column", 'SELECT "pg_cancel_backend" FROM public.sales'),
         ]
     )
     def test_accepts_read_only_selects(self, _name: str, sql: str):
@@ -194,6 +196,10 @@ class TestEnsureReadOnlyRawRedshiftStatement(unittest.TestCase):
             ("select_into", "SELECT * INTO backup_sales FROM public.sales"),
             ("dml_in_cte", "WITH d AS (DELETE FROM public.sales RETURNING *) SELECT * FROM d"),
             ("update", "UPDATE public.sales SET qtysold = 0"),
+            # Redshift admin functions run from a plain SELECT and must be rejected by name.
+            ("cancel_backend", "SELECT PG_CANCEL_BACKEND(1234)"),
+            ("reboot_cluster_lowercase", "select reboot_cluster()"),
+            ("admin_fn_in_subquery", "SELECT * FROM public.sales WHERE 1 = (SELECT change_user_priority('u', 'low'))"),
         ]
     )
     def test_rejects_writes(self, _name: str, sql: str):
