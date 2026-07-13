@@ -394,7 +394,7 @@ class DeltaTableHelper:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
                 # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
-                unique_partitions = list(pc.unique(data[PARTITION_KEY]))  # type: ignore
+                unique_partitions = list(pc.unique(data[PARTITION_KEY]))
 
                 await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
 

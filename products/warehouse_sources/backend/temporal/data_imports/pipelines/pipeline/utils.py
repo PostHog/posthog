@@ -351,7 +351,7 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
             table = table.set_column(
                 table.schema.get_field_index(column_name),
                 temp_name,
-                table.column(column_name),  # type: ignore
+                table.column(column_name),
             )
             used_names.add(temp_name)
 
