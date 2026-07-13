@@ -11,7 +11,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 
 import { QueryBasedInsightModel } from '~/types'
 

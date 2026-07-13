@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 
 import { ActivityScope } from '~/types'
 
@@ -81,9 +81,10 @@ export const insightHistoryLogic = kea<insightHistoryLogicType>([
                                 page_size: ACTIVITY_PAGE_SIZE,
                             })
                             .get()
-                        const results = response.results ?? []
-                        items.push(...results)
-                        if (results.length < ACTIVITY_PAGE_SIZE) {
+                        items.push(...(response.results ?? []))
+                        // `next` is null on the last page — unlike a results-length check, this stays
+                        // correct when the total is an exact multiple of the page size
+                        if (!response.next) {
                             return { items, complete: true }
                         }
                     }
