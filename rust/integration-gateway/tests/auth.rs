@@ -18,7 +18,11 @@ struct TestClaims {
 }
 
 fn exp_in(secs: u64) -> usize {
-    (SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + secs) as usize
+    (SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + secs) as usize
 }
 
 fn mint(secret: &str, aud: &str) -> String {

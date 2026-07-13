@@ -33,6 +33,7 @@ Nothing else (proxy, OpenBao, per-integration definitions, usage-based claiming)
 they're scoped as later phases against the stable interface this establishes.
 
 ### Locked decisions
+
 1. **Name: `integration-gateway`.** New Rust crate `rust/integration-gateway/`, binary `integration-gateway`.
 2. **Language: Rust**, in the `rust/` workspace.
 3. **PR 1 = direct credential-fetch read API only.** No OAuth orchestration, no proxy, no writes, no refresh.
@@ -158,13 +159,14 @@ still valid. Push invalidation can be added later if the TTL proves too coarse.
 ## 4. Crypto module + cache
 
 **Crypto (highest-risk — byte-exact with Django).** `crypto/decryptor.rs` builds the ordered key list:
+
 1. **Primary:** each `k` in `ENCRYPTION_SALT_KEYS` (comma-split, non-empty) → Fernet key `URL_SAFE_b64(k.as_bytes())`.
 2. **Legacy (decrypt-only, appended last):** each `secret_key ∈ [SECRET_KEY, *SECRET_KEY_FALLBACKS]` × `salt_key ∈ SALT_KEY` → `URL_SAFE_b64(PBKDF2_HMAC_SHA256(password=secret_key, salt=salt_key, iters=100_000, dklen=32))`.
 3. Wrap in `fernet::MultiFernet`.
 
 `crypto/json_walk.rs::decrypt_sensitive_config(&Value) -> Value`: object → decrypt each value; array →
 each element; string → `MultiFernet.decrypt`, on `InvalidToken` return the original string unchanged
-(mirrors `ignore_decrypt_errors=True`); non-string/null → pass through. Reuse the *shape* of
+(mirrors `ignore_decrypt_errors=True`); non-string/null → pass through. Reuse the _shape_ of
 `flag_payload_decryptor.rs` (`MultiFernet`, `from_keys`, Django-ciphertext fixture tests), not its key
 derivation. Fail fast at boot if the primary key list is empty; log primary-vs-legacy key counts.
 
@@ -176,13 +178,13 @@ paths avoid re-decrypting. Do **not** use `common/cache::ReadThroughCache` (Redi
 
 ## 5. Config / secrets (`config.rs`, envconfig)
 
-| Env var | Purpose | Fail-closed |
-|---|---|---|
-| `DATABASE_URL` (read pool) | sqlx to `posthog_integration` | required |
-| `ENCRYPTION_SALT_KEYS` | primary Fernet keys (comma-sep) | **required; empty → refuse to start** |
-| `SECRET_KEY`, `SECRET_KEY_FALLBACKS`, `SALT_KEY` | legacy PBKDF2 decrypt fallbacks | optional (legacy rows) |
-| `INTEGRATION_GATEWAY_JWT_SECRET` (+ `_FALLBACKS`) | verify caller JWTs (§6) | **empty in prod → reject all requests** |
-| `BIND_HOST`/`BIND_PORT`, pool sizes, `CACHE_TTL_SECONDS` (default 30), cache capacity, max batch size | tuning | defaulted |
+| Env var                                                                                               | Purpose                         | Fail-closed                             |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------- | --------------------------------------- |
+| `DATABASE_URL` (read pool)                                                                            | sqlx to `posthog_integration`   | required                                |
+| `ENCRYPTION_SALT_KEYS`                                                                                | primary Fernet keys (comma-sep) | **required; empty → refuse to start**   |
+| `SECRET_KEY`, `SECRET_KEY_FALLBACKS`, `SALT_KEY`                                                      | legacy PBKDF2 decrypt fallbacks | optional (legacy rows)                  |
+| `INTEGRATION_GATEWAY_JWT_SECRET` (+ `_FALLBACKS`)                                                     | verify caller JWTs (§6)         | **empty in prod → reject all requests** |
+| `BIND_HOST`/`BIND_PORT`, pool sizes, `CACHE_TTL_SECONDS` (default 30), cache capacity, max batch size | tuning                          | defaulted                               |
 
 No `PLUGINS_RELOAD_REDIS_URL` / Redis in v1. Follows `.agents/security.md`: dedicated per-purpose
 secret, empty-in-prod fail-closed, comma-separated rotation (newest first), unique per environment.
@@ -196,7 +198,7 @@ Per `.agents/security.md` ("mint a scoped JWT; do NOT extend `INTERNAL_API_SECRE
   fail-closed; `_FALLBACKS` for rotation). Do not reuse `JWT_SIGNING_KEY`/`INTERNAL_API_SECRET`.
 - **Django mint** (new helper `posthog/integration_gateway_jwt.py`, don't overload `posthog/jwt.py`'s
   `_signing_key`): HS256-encode `{ "aud": "posthog:integration_gateway", "team_id": <int>,
-  "caller": "<cdp|batch_exports|warehouse>", "exp": now+short_ttl }`. Short-lived, minted per-team by
+"caller": "<cdp|batch_exports|warehouse>", "exp": now+short_ttl }`. Short-lived, minted per-team by
   the calling service.
 - **Rust verify** (`auth/mod.rs`): axum `FromRequestParts` extractor using `jsonwebtoken`
   (`decode::<Claims>`, `Validation::new(HS256)`, `set_audience(["posthog:integration_gateway"])`, try
@@ -239,7 +241,7 @@ CDP loads integrations (used by `hog-inputs.service.ts`, `email.service.ts`). Wh
 on, `fetchIntegrations(ids)` calls `POST /api/v1/credentials/fetch` (minting a scoped JWT for the
 `team_id`) instead of raw SQL + `decryptObject`; on any non-200/timeout it falls back to the existing
 SQL path and increments a counter (optionally compare-and-log before flipping fully). The existing
-`LazyLoader` cache stays; note CDP's own `reload-integrations` subscription still busts *its* cache
+`LazyLoader` cache stays; note CDP's own `reload-integrations` subscription still busts _its_ cache
 independently — unaffected by our dropping pub/sub inside the gateway.
 
 **Batch-exports / warehouse (later):** replace the `Integration.objects.aget(id=, team_id=)` calls in
@@ -258,10 +260,11 @@ Adds refresh to the gateway. A per-team/env feature flag controls behavior on th
   If expired/near-expiry, run the provider refresh flow, persist the new token, and return it.
 
 Implementation notes:
+
 - **JIT refresh must be single-flight**: reintroduce `common-redis` and use `set_nx_ex` as a per-
   integration lock (one refresher at a time).
 - **This makes the gateway a writer** → the **encryption-parity problem** returns: the Rust writer must
-  produce `sensitive_config` ciphertext Django can still read (per-leaf Fernet, primary key), *or*
+  produce `sensitive_config` ciphertext Django can still read (per-leaf Fernet, primary key), _or_
   Django must stop reading that row's `sensitive_config` directly. Sequence carefully; consider making
   the gateway the sole refresher for a given `kind` before flipping the flag broadly. This is why
   refresh is deliberately deferred to its own PR rather than bundled into v1.
@@ -305,6 +308,7 @@ Implementation notes:
 `posthog/settings/`.
 
 **Reference / reuse:**
+
 - Skeleton: `rust/property-defs-rs/src/main.rs`, `.../config.rs`; `rust/feature-flags/Cargo.toml`.
 - Crypto to match: `posthog/helpers/encrypted_fields.py`; Rust shape: `rust/feature-flags/src/flags/flag_payload_decryptor.rs`; node parity: `nodejs/src/cdp/utils/encryption-utils.ts`.
 - Model / refresh (PR 2): `posthog/models/integration.py` (`OauthIntegration.access_token_expired`, `refresh_access_token`, `ERROR_TOKEN_REFRESH_FAILED`); `posthog/tasks/integrations.py`.

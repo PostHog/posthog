@@ -5294,6 +5294,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-gateway"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "base64 0.22.1",
+ "common-alloc",
+ "common-metrics",
+ "envconfig",
+ "fernet",
+ "jsonwebtoken",
+ "lifecycle",
+ "moka",
+ "pbkdf2",
+ "serde",
+ "serde_json",
+ "serve-metrics",
+ "sha2",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "io-uring"
 version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"

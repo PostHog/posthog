@@ -112,6 +112,9 @@ fn every_deployable_binary_has_an_image_entry() {
         "run", // hogvm dev/diff CLI, not a service
         "hermes",
         "personhog-stateright", // model-checker explorer CLI, not a service
+        // Read-only credential service (PR 1). Not wired for deploy yet — move to
+        // .github/rust-images.yml once its Depot build project is provisioned.
+        "integration-gateway",
     ]
     .into();
 
