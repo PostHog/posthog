@@ -799,7 +799,7 @@ class TestPrinter(BaseTest):
     def test_hogql_properties_use_active_storage_schema(self):
         context = HogQLContext(team_id=self.team.pk)
         expected_browser_sql = (
-            "nullIf(nullIf(events.properties.`$browser`, ''), 'null')"
+            "events.properties.`$browser`"
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         )
@@ -937,7 +937,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("properties['$browser']"),
             (
-                "nullIf(nullIf(events.properties.`$browser`, ''), 'null')"
+                "events.properties.`$browser`"
                 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
                 else "nullIf(nullIf(events.`mat_$browser`, ''), 'null')"
             ),
@@ -3722,7 +3722,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         browser_expr = (
-            "nullIf(nullIf(events.properties.`$browser`, ''), 'null')"
+            "events.properties.`$browser`"
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "nullIf(nullIf(events.`mat_$browser`, ''), 'null')"
         )
@@ -3751,7 +3751,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         browser_expr = (
-            "nullIf(nullIf(events.properties.`$browser`, ''), 'null')"
+            "events.properties.`$browser`"
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "nullIf(nullIf(events.`mat_$browser`, ''), 'null')"
         )

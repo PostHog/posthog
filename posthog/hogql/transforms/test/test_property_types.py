@@ -1101,7 +1101,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
 _JSON_SCHEMA_PARITY_TEXT = st.text(alphabet=st.characters(blacklist_categories=["Cc", "Cs"]), max_size=20)
 
-_JSON_SCHEMA_PARITY_PROPERTIES = st.fixed_dictionaries(
+_JSON_SCHEMA_PARITY_PROPERTIES: st.SearchStrategy[dict[str, object]] = st.fixed_dictionaries(
     {
         "dynamic_value": st.one_of(
             st.booleans(),
