@@ -191,6 +191,10 @@ Headline health, both regions:
 for region in US EU; do
   base=$([ $region = US ] && echo https://us.posthog.com || echo https://eu.posthog.com)
   pat_var="POSTHOG_QUERY_PERF_PAT_$region"
+  if [ -z "${!pat_var}" ]; then
+    echo "$pat_var not set — source ~/.zshrc or export it (see Authentication)" >&2
+    continue
+  fi
   curl -sf -H "Authorization: Bearer ${!pat_var}" \
     "$base/api/debug_ch_queries/precompute_overview/?hours=24" |
     jq '{region: "'$region'", reads: {total: .reads.total, failed: .reads.failed},
