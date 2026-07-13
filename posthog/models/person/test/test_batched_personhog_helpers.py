@@ -109,7 +109,7 @@ class TestBatchedGetPersonsByUuids(SimpleTestCase):
             for i in range(9):
                 fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"d{i}"])
 
-            result = _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(9)], "test")
+            result = _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(9)], "test", concurrency=4)
 
             assert [p.uuid for p in result] == [f"uuid-{i}" for i in range(9)]
             fake.assert_called("get_persons_by_uuids", times=5)
@@ -134,7 +134,23 @@ class TestBatchedGetPersonsByUuids(SimpleTestCase):
                 patch.object(fake, "get_persons_by_uuids", side_effect=fail_second_batch),
                 self.assertRaises(RuntimeError),
             ):
-                _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(6)], "test")
+                _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(6)], "test", concurrency=4)
+
+    @patch("posthog.models.person.util.TEST", False)
+    @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
+    def test_default_concurrency_stays_sequential(self):
+        # The fan-out is opt-in: without an explicit concurrency, even a multi-batch call must
+        # not spawn threads — most callers are small or background lookups whose load on the
+        # personhog bulk pools must not silently multiply.
+        with fake_personhog_client() as fake:
+            for i in range(6):
+                fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"d{i}"])
+
+            with patch("posthog.models.person.util.ThreadPoolExecutor") as mock_executor:
+                result = _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(6)], "test")
+
+            assert [p.uuid for p in result] == [f"uuid-{i}" for i in range(6)]
+            mock_executor.assert_not_called()
 
 
 class TestBatchedGetPersonsByDistinctIds(SimpleTestCase):

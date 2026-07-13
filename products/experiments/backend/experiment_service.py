@@ -10,6 +10,7 @@ from typing import Any, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import BooleanField, Case, CharField, Count, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.expressions import RawSQL
@@ -2101,7 +2102,12 @@ class ExperimentService:
         unchanged from insert-time resolution (their distinct_id no longer resolves to a cohort
         member either way), and the cohort stays consistent with the count this guard approved.
         """
-        resolved_person_pairs = get_person_ids_and_uuids_by_uuids(self.team.id, person_uuids)
+        # Opt into the concurrent personhog batch fan-out: the exposed set is large (up to
+        # FREEZE_EXPOSURE_MAX_EXPOSED_USERS) and this resolve runs inline in the web request,
+        # so sequential per-batch round trips would dominate the freeze duration.
+        resolved_person_pairs = get_person_ids_and_uuids_by_uuids(
+            self.team.id, person_uuids, concurrency=settings.PERSONHOG_BATCH_CONCURRENCY
+        )
         unresolved_count = len(person_uuids) - len(resolved_person_pairs)
         if unresolved_count == 0:
             return resolved_person_pairs

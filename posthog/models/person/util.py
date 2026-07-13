@@ -44,7 +44,6 @@ from posthog.settings import TEST
 logger = structlog.get_logger(__name__)
 
 PERSONHOG_BATCH_SIZE: int = settings.PERSONHOG_BATCH_SIZE
-PERSONHOG_BATCH_CONCURRENCY: int = settings.PERSONHOG_BATCH_CONCURRENCY
 
 
 if TYPE_CHECKING:
@@ -82,10 +81,18 @@ def _batched_get_persons_by_uuids(
     uuids: list[str],
     operation: str,
     read_options: ReadOptions | None = None,
+    concurrency: int = 1,
 ) -> list[person_pb2.Person]:
+    """Fetch persons for the given UUIDs, one RPC per PERSONHOG_BATCH_SIZE batch.
+
+    Sequential by default. Callers with large, latency-sensitive lookups opt into a
+    concurrent fan-out by passing ``concurrency`` (typically
+    ``settings.PERSONHOG_BATCH_CONCURRENCY``) — opt-in so the many small/background
+    callers of this helper don't multiply their load on the personhog bulk pools.
+    """
     client = _get_client()
     batches = [uuids[i : i + PERSONHOG_BATCH_SIZE] for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE)]
-    max_workers = min(len(batches), PERSONHOG_BATCH_CONCURRENCY)
+    max_workers = min(len(batches), concurrency)
 
     if TEST or max_workers <= 1:
         batch_results = [
@@ -526,19 +533,24 @@ def validate_person_uuids_exist(team_id: int, uuids: list[str]) -> list[str]:
     )
 
 
-def get_person_ids_and_uuids_by_uuids(team_id: int, uuids: list[str]) -> list[tuple[int, str]]:
+def get_person_ids_and_uuids_by_uuids(team_id: int, uuids: list[str], *, concurrency: int = 1) -> list[tuple[int, str]]:
     """Return (person_id, person_uuid) pairs for the given person UUIDs; unknown UUIDs are omitted.
 
     Lightweight variant of ``get_persons_by_uuids`` — uses field masking to skip fetching
     properties and other heavy fields, and never fetches distinct IDs. For callers that only
-    need to resolve UUIDs to person IDs (e.g. cohort membership writes).
+    need to resolve UUIDs to person IDs (e.g. cohort membership writes). ``concurrency``
+    opts into the concurrent batch fan-out — see ``_batched_get_persons_by_uuids``.
     """
     if not uuids:
         return []
 
     def personhog_fn() -> list[tuple[int, str]]:
         persons = _batched_get_persons_by_uuids(
-            team_id, uuids, "get_person_ids_and_uuids_by_uuids", read_options=_UUID_ONLY_READ_OPTIONS
+            team_id,
+            uuids,
+            "get_person_ids_and_uuids_by_uuids",
+            read_options=_UUID_ONLY_READ_OPTIONS,
+            concurrency=concurrency,
         )
         return [(p.id, p.uuid) for p in persons]
 
