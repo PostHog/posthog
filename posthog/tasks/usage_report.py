@@ -128,6 +128,7 @@ USAGE_REPORT_PARENT_TASK_KWARGS = {
 @dataclasses.dataclass
 class UsageReportCounters:
     event_count_in_period: int
+    mcp_tool_calls_count_in_period: int
     enhanced_persons_event_count_in_period: int
     event_count_with_groups_in_period: int
     event_count_from_langfuse_in_period: int
@@ -611,6 +612,21 @@ def get_teams_with_billable_event_count_in_period(
 
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
         return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=12)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_mcp_tool_calls_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    query_template = """
+        SELECT team_id, count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+        FROM events
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event = '$mcp_tool_call'
+        GROUP BY team_id
+    """
+
+    with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
+        return _execute_split_query(begin, end, query_template, {}, num_splits=12)
 
 
 @timed_log()
@@ -2295,6 +2311,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
+        "teams_with_mcp_tool_calls_count_in_period": get_teams_with_mcp_tool_calls_count_in_period(
+            period_start, period_end
+        ),
         "teams_with_enhanced_persons_event_count_in_period": get_teams_with_billable_enhanced_persons_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
@@ -2577,6 +2596,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     )
     return UsageReportCounters(
         event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
+        mcp_tool_calls_count_in_period=all_data["teams_with_mcp_tool_calls_count_in_period"].get(team.id, 0),
         enhanced_persons_event_count_in_period=all_data["teams_with_enhanced_persons_event_count_in_period"].get(
             team.id, 0
         ),

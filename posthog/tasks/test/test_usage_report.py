@@ -641,6 +641,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_in_period": 44,
+                    "mcp_tool_calls_count_in_period": 0,
                     "enhanced_persons_event_count_in_period": 43,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
@@ -717,6 +718,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "teams": {
                         str(self.org_1_team_1.id): {
                             "event_count_in_period": 33,
+                            "mcp_tool_calls_count_in_period": 0,
                             "enhanced_persons_event_count_in_period": 32,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
@@ -787,6 +789,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
+                            "mcp_tool_calls_count_in_period": 0,
                             "enhanced_persons_event_count_in_period": 11,
                             "event_count_with_groups_in_period": 0,
                             "event_count_from_keywords_ai_in_period": 0,
@@ -880,6 +883,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_in_period": 10,
+                    "mcp_tool_calls_count_in_period": 0,
                     "enhanced_persons_event_count_in_period": 10,
                     "event_count_with_groups_in_period": 0,
                     "event_count_from_keywords_ai_in_period": 0,
@@ -956,6 +960,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "teams": {
                         str(self.org_2_team_3.id): {
                             "event_count_in_period": 10,
+                            "mcp_tool_calls_count_in_period": 0,
                             "enhanced_persons_event_count_in_period": 10,
                             "event_count_with_groups_in_period": 0,
                             "event_count_from_keywords_ai_in_period": 0,
@@ -5386,6 +5391,32 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(result_distinct[0][0], self.team.id)
         # Should still be 15 since we created 15 distinct billable events (excluding AI events)
         self.assertEqual(result_distinct[0][1], 15)
+
+    def test_mcp_tool_calls_are_reported_and_remain_billable_events(self) -> None:
+        from posthog.tasks.usage_report import (
+            get_teams_with_billable_event_count_in_period,
+            get_teams_with_mcp_tool_calls_count_in_period,
+        )
+
+        billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        baseline_count = billable_result_before[0][1]
+
+        for index in range(2):
+            _create_event(
+                event="$mcp_tool_call",
+                team=self.team,
+                distinct_id=f"mcp_user_{index}",
+                timestamp=self.begin + relativedelta(hours=index + 1),
+                properties={},
+            )
+
+        flush_persons_and_events()
+
+        billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        mcp_result = get_teams_with_mcp_tool_calls_count_in_period(self.begin, self.end)
+
+        self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 2)])
+        self.assertEqual(mcp_result, [(self.team.id, 2)])
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(
         self,
