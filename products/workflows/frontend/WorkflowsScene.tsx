@@ -5,6 +5,7 @@ import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icon
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -21,7 +22,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
@@ -202,30 +203,40 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 actions={
                     <>
                         {currentTab === 'workflows' && (
-                            <LemonButton
-                                data-attr="new-workflow"
-                                onClick={() => {
-                                    void addProductIntent({
-                                        product_type: ProductKey.WORKFLOWS,
-                                        intent_context: ProductIntentContext.WORKFLOW_CREATED,
-                                    })
-                                    showNewWorkflowModal()
-                                }}
-                                type="primary"
-                                size="small"
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Workflow}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                New workflow
-                            </LemonButton>
+                                <LemonButton
+                                    data-attr="new-workflow"
+                                    onClick={() => {
+                                        void addProductIntent({
+                                            product_type: ProductKey.WORKFLOWS,
+                                            intent_context: ProductIntentContext.WORKFLOW_CREATED,
+                                        })
+                                        showNewWorkflowModal()
+                                    }}
+                                    type="primary"
+                                    size="small"
+                                >
+                                    New workflow
+                                </LemonButton>
+                            </AccessControlAction>
                         )}
                         {currentTab === 'library' && (
-                            <LemonButton
-                                data-attr="new-message-button"
-                                to={urls.workflowsLibraryTemplateNew()}
-                                type="primary"
-                                size="small"
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Workflow}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                New template
-                            </LemonButton>
+                                <LemonButton
+                                    data-attr="new-message-button"
+                                    to={urls.workflowsLibraryTemplateNew()}
+                                    type="primary"
+                                    size="small"
+                                >
+                                    New template
+                                </LemonButton>
+                            </AccessControlAction>
                         )}
                         {currentTab === 'channels' && (
                             <LemonMenu items={newChannelMenuItems} matchWidth>

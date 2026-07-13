@@ -1502,7 +1502,7 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         help_text=(
             "Initial permission mode for the agent session. Claude runtimes accept "
             "'default', 'acceptEdits', 'plan', 'bypassPermissions', and 'auto'. "
-            "Codex runtimes accept 'auto', 'read-only', and 'full-access'."
+            "Codex runtimes accept 'plan', 'auto', 'read-only', and 'full-access'."
         ),
     )
     rtk_enabled = serializers.BooleanField(
@@ -1673,8 +1673,8 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         default=None,
         help_text=(
             "Initial permission mode for the agent session. Claude runtimes accept PostHog permission "
-            "presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and "
-            "'read-only'."
+            "presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', "
+            "and 'read-only'."
         ),
     )
     rtk_enabled = serializers.BooleanField(

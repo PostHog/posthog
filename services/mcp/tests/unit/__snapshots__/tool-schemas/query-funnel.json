@@ -81,8 +81,7 @@
             "description": "Date range for the query"
         },
         "filterTestAccounts": {
-            "default": false,
-            "description": "Exclude internal and test users by applying the respective filters",
+            "description": "Exclude internal and test users by applying the respective filters. When omitted, follows the project's \"Filter out internal and test users\" default setting.",
             "type": "boolean"
         },
         "funnelsFilter": {

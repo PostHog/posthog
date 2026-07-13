@@ -148,7 +148,12 @@ CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     *CODEX_REASONING_EFFORTS,
     ReasoningEffort.XHIGH,
 )
-CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
+CODEX_MAX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    *CODEX_XHIGH_REASONING_EFFORTS,
+    ReasoningEffort.MAX,
+)
+CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
+CODEX_MAX_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
 
 # Canonical list of Codex models. The runtime technically accepts any
 # `gpt-*` identifier passed through, but only models on this list are
@@ -198,7 +203,10 @@ def get_supported_reasoning_efforts(
     if adapter_value == RuntimeAdapter.CLAUDE.value:
         return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
     if adapter_value == RuntimeAdapter.CODEX.value:
-        if model.lower() in CODEX_XHIGH_REASONING_MODELS:
+        normalized_model = model.lower()
+        if normalized_model in CODEX_MAX_REASONING_MODELS:
+            return CODEX_MAX_REASONING_EFFORTS
+        if normalized_model in CODEX_XHIGH_REASONING_MODELS:
             return CODEX_XHIGH_REASONING_EFFORTS
         return CODEX_REASONING_EFFORTS
 

@@ -14,7 +14,7 @@ on:
     workflow_dispatch:
         inputs:
             playwright_retries:
-                description: 'Override Playwright retries (leave empty for default of 1 on CI — a cold-start net while Trunk quarantine matures). Set to 0 to surface true per-test failure rate.'
+                description: 'Override Playwright retries (leave empty for default of 0 on CI so raw per-test signal reaches Trunk). Set to 1+ to add a retry net for a one-off run.'
                 required: false
                 type: string
                 default: ''
@@ -619,11 +619,10 @@ jobs:
               continue-on-error: true
               shell: bash
               env:
-                  # Retries default to 1 as a cold-start net while Trunk's quarantine list
-                  # matures — a not-yet-classified flake gets one retry instead of reding the PR.
-                  # Drop back to 0 once quarantine reliably catches flakes so raw signal reaches
-                  # Trunk. The flake-audit workflow still forces 0; workflow_dispatch can override.
-                  PLAYWRIGHT_RETRIES: ${{ inputs.playwright_retries || '1' }}
+                  # Retries default to 0 so raw per-test signal reaches Trunk — retries mask
+                  # the flake signal quarantining relies on; the quarantine gate below is the
+                  # flake net instead. workflow_dispatch can override for a one-off run.
+                  PLAYWRIGHT_RETRIES: ${{ inputs.playwright_retries || '0' }}
               # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
               # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
@@ -729,24 +728,25 @@ jobs:
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
-            # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
-            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
-            # raw test outcome if Trunk is unreachable). Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no
-            # secret.
+            # Best-effort Trunk upload (continue-on-error); the "Fail on Playwright failure" step
+            # below is the verdict, so a Trunk outage can't red a passing job. Internal PRs only
+            # (needs the secret); cli-version pinned, not 'latest' (skips the release redirect).
             - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc
+                  cli-version: '0.13.7'
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # No Trunk secret on fork PRs and Dependabot; fall back to the raw playwright
-            # outcome so a genuine failure still goes red exactly as before.
-            - name: Fail on Playwright failure (no quarantine gate)
-              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot.
+            - name: Fail on Playwright failure
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
               shell: bash
               run: exit 1
 

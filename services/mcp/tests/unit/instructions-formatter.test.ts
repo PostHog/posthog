@@ -169,14 +169,14 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('Using the `posthog` tool')
         })
 
-        it('embeds env-context, tool-domain list, and query-tool catalog when stripEnvContext is false', () => {
+        it('embeds env-context and query-tool catalog when stripEnvContext is false', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).toContain('Defined group types: organization')
-            // Tool domains render in the compact pipe-separated form inside the
-            // command reference to conserve the exec tool entry's size budget.
-            expect(result).toContain('dashboard|execute-sql|feature-flag|query')
+            // Tool domains are temporarily omitted from the command reference while
+            // probing claude.ai's per-tool size cap; discovery rides on `search`.
+            expect(result).not.toContain('dashboard|execute-sql')
             expect(result).toContain('- `query-trends` — time series')
         })
 
@@ -190,16 +190,17 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('dashboard|execute-sql')
         })
 
-        it('keeps the full env-context even when stripEnvContext is set, when keepEnvContext is set', () => {
+        it('keeps the env-context even when stripEnvContext is set, when keepEnvContext is set', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx, {
                 stripEnvContext: true,
                 keepEnvContext: true,
             })
-            // The whole env-context (tool domains, project metadata, group types)
-            // survives for clients (Claude web/desktop) that ignore the `instructions`
-            // payload, so it still reaches the model via the command reference.
-            expect(result).toContain('dashboard|execute-sql|feature-flag|query')
+            // Project metadata and group types survive for clients (Claude
+            // web/desktop) that ignore the `instructions` payload, so they still
+            // reach the model via the command reference. Tool domains are
+            // temporarily omitted (size-cap probe).
+            expect(result).not.toContain('dashboard|execute-sql')
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).toContain('Defined group types: organization')
         })
@@ -270,7 +271,7 @@ describe('InstructionsFormatter', () => {
                 expect(instructions).toBe('')
                 expect(commandReference).toContain('- `query-trends` — time series')
                 expect(commandReference).toContain("The user's name is Jane Doe")
-                expect(commandReference).toContain('dashboard|execute-sql|feature-flag|query')
+                expect(commandReference).not.toContain('dashboard|execute-sql')
                 expect(commandReference).toContain('Defined group types: organization')
             }
         })

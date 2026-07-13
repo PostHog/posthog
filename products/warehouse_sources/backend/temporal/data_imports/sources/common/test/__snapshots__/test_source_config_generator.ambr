@@ -335,6 +335,7 @@
           ExternalDataSourceType.HELPSCOUT: HelpScoutSourceConfig,
           ExternalDataSourceType.HEROKU: HerokuSourceConfig,
           ExternalDataSourceType.HETZNER: HetznerSourceConfig,
+          ExternalDataSourceType.HEX: HexSourceConfig,
           ExternalDataSourceType.HEYGEN: HeyGenSourceConfig,
           ExternalDataSourceType.HIBOB: HiBobSourceConfig,
           ExternalDataSourceType.HIGHLEVEL: HighLevelSourceConfig,
