@@ -114,10 +114,30 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "your pipeline emits a different attribute."
         ),
     )
+    logs_session_id_attribute_keys = serializers.ListField(
+        child=serializers.CharField(max_length=200, allow_blank=False),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Ordered list of log attribute keys whose values hold the PostHog session ID. "
+            "Detection checks keys in order; the first key with a value wins. Defaults to "
+            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
+            "auto-attach. Add keys only if your pipeline emits the session ID under "
+            "different attributes."
+        ),
+    )
 
     class Meta:
         model = TeamLogsConfig
-        fields = ["logs_distinct_id_attribute_key"]
+        fields = ["logs_distinct_id_attribute_key", "logs_session_id_attribute_keys"]
+
+    def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        keys = [key.strip() for key in value]
+        if any(not key for key in keys):
+            raise serializers.ValidationError("Attribute keys cannot be blank.")
+        if len(set(keys)) != len(keys):
+            raise serializers.ValidationError("Attribute keys must be unique.")
+        return keys
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
