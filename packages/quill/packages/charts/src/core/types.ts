@@ -125,6 +125,10 @@ export interface Series<Meta = unknown> {
         excluded?: boolean
         /** Whether the series appears in the tooltip's seriesData. Defaults to true. */
         tooltip?: boolean
+        /** Whether the series' value counts toward the built-in tooltip's total row — its own row
+         *  still renders. Use for series whose values don't sum meaningfully with the rest (e.g. a
+         *  percentage column alongside counts). Defaults to true. */
+        total?: boolean
         /** Whether the ValueLabels overlay draws a label for this series. Defaults to true. */
         valueLabel?: boolean
     }

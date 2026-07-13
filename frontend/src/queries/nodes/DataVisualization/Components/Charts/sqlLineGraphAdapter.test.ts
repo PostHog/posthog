@@ -329,6 +329,15 @@ describe('sqlLineGraphAdapter', () => {
             expect(series.data).toEqual([1, NaN, 3])
         })
 
+        it('keeps percent-styled columns out of the tooltip total, leaving other columns summable', () => {
+            const [percent, plain] = buildSeries(
+                [ySeries('growth', [2.4], { formatting: { style: 'percent' } }), ySeries('count', [10])],
+                ChartDisplayType.ActionsLineGraph
+            )
+            expect(percent.visibility).toEqual({ total: false })
+            expect(plain.visibility).toBeUndefined()
+        })
+
         it('only pins an explicit color, leaving palette assignment to quill otherwise', () => {
             const [withColor, withoutColor] = buildSeries(
                 [ySeries('a', [1], { display: { color: '#abcdef' } }), ySeries('b', [2])],
@@ -553,6 +562,16 @@ describe('sqlLineGraphAdapter', () => {
             const config = buildSqlTooltipConfig({}, [ySeries('revenue', [1], { formatting: { prefix: '$' } })])
             const formatTotal = config.totalFormatter!
             expect(formatTotal(5000)).toBe('$5000')
+        })
+
+        it('formats the total with the first non-percent column, not a leading percent column', () => {
+            // A percent column is excluded from the total sum, so borrowing its style would render
+            // a sum of counts as e.g. "15,061.4%".
+            const config = buildSqlTooltipConfig({}, [
+                ySeries('growth', [2.4], { formatting: { style: 'percent' } }),
+                ySeries('revenue', [1], { formatting: { prefix: '$' } }),
+            ])
+            expect(config.totalFormatter!(15059)).toBe('$15059')
         })
     })
 

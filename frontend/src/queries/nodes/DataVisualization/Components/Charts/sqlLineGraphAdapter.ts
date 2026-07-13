@@ -234,6 +234,9 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             meta: { settings },
             // Per-series type; ignored by the single-type line/bar charts, read by ComboChart.
             type,
+            // A percent-styled column doesn't sum meaningfully with the other columns, so keep it
+            // out of the tooltip's total row (matches the legacy renderer).
+            ...(settings?.formatting?.style === 'percent' ? { visibility: { total: false } } : {}),
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
             ...(settings?.display?.yAxisPosition === 'right' ? { yAxisId: 'right' } : {}),
@@ -289,7 +292,11 @@ export function buildSqlTooltipConfig(
     chartSettings: ChartSettings,
     ySeriesData?: SqlLineYSeries[] | null
 ): TooltipConfig {
-    const totalSettings = ySeriesData?.[0]?.settings
+    // The total sums the non-percent columns (percent columns are excluded via
+    // `visibility.total` in buildSeries), so it must format with a column that's actually in the
+    // sum — a blind `[0]` borrows a percent column's style and renders a sum of counts as
+    // "15,061.4%". Matches the legacy renderer's first-summable-column choice.
+    const totalSettings = ySeriesData?.find((series) => series.settings?.formatting?.style !== 'percent')?.settings
     return {
         enabled: true,
         pinnable: true,
