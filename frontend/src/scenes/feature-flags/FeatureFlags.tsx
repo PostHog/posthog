@@ -395,8 +395,8 @@ export function OverviewTab({
 
     const { currentProjectId } = useValues(projectLogic)
     const { paramsFromFilters } = useValues(featureFlagsLogic({}))
-    const { bulkDeleteResponseLoading } = useValues(flagSelectionLogic)
-    const { bulkDeleteFlags } = useActions(flagSelectionLogic)
+    const { bulkDeleteResponseLoading, bulkUpdateStatusResponseLoading } = useValues(flagSelectionLogic)
+    const { bulkDeleteFlags, bulkUpdateFlagStatus } = useActions(flagSelectionLogic)
 
     const [matchingFlagIds, setMatchingFlagIds] = useState<readonly number[] | null>(null)
     const [matchingFlagIdsLoading, setMatchingFlagIdsLoading] = useState(false)
@@ -642,6 +642,31 @@ export function OverviewTab({
                             !isAllMatchingSelected &&
                             ctx.selectedCount >= FLAGS_PER_PAGE &&
                             totalMatchingCount > ctx.selectedCount
+                        const openBulkStatusDialog = (active: boolean): void => {
+                            LemonDialog.open({
+                                title: `${active ? 'Enable' : 'Disable'} ${ctx.selectedCount} feature flag${
+                                    ctx.selectedCount !== 1 ? 's' : ''
+                                }?`,
+                                description: active
+                                    ? 'The selected flags will be immediately rolled out to the users matching their release conditions.'
+                                    : 'The selected flags will be immediately rolled back from the users matching their release conditions.',
+                                primaryButton: {
+                                    children: active ? 'Enable' : 'Disable',
+                                    type: 'primary',
+                                    onClick: () => {
+                                        bulkUpdateFlagStatus({
+                                            ids: [...ctx.selectedKeys],
+                                            active,
+                                            allMatching: isAllMatchingSelected,
+                                        })
+                                        ctx.clearSelection()
+                                        setMatchingFlagIds(null)
+                                    },
+                                    size: 'small',
+                                },
+                                secondaryButton: { children: 'Cancel', type: 'tertiary', size: 'small' },
+                            })
+                        }
                         return (
                             <>
                                 {isAllMatchingSelected && (
@@ -679,6 +704,24 @@ export function OverviewTab({
                                         setMatchingFlagIds(null)
                                     }}
                                 />
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    loading={bulkUpdateStatusResponseLoading}
+                                    disabledReason={bulkUpdateStatusResponseLoading ? 'Updating…' : undefined}
+                                    onClick={() => openBulkStatusDialog(true)}
+                                >
+                                    Enable
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    loading={bulkUpdateStatusResponseLoading}
+                                    disabledReason={bulkUpdateStatusResponseLoading ? 'Updating…' : undefined}
+                                    onClick={() => openBulkStatusDialog(false)}
+                                >
+                                    Disable
+                                </LemonButton>
                                 <LemonButton
                                     type="primary"
                                     status="danger"

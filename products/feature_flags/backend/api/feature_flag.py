@@ -2681,6 +2681,50 @@ class BulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
+class BulkUpdateStatusRequestSerializer(serializers.Serializer):
+    active = serializers.BooleanField(
+        help_text=(
+            "Target enabled state to apply to every matched flag. `true` enables the flag "
+            "(rolls it out to users matching its release conditions); `false` disables it (rolls it back)."
+        ),
+    )
+    filters = BulkDeleteFiltersSerializer(
+        required=False,
+        help_text=(
+            "Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. "
+            "Use this to update every flag matching a search/active/tags/etc. filter instead of supplying explicit IDs."
+        ),
+    )
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        help_text="Explicit feature flag IDs to update. Mutually exclusive with `filters`.",
+    )
+
+
+class BulkUpdateStatusUpdatedItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the flag whose enabled state changed.")
+    key = serializers.CharField(help_text="The flag key.")
+    active = serializers.BooleanField(help_text="The flag's enabled state after the update.")
+
+
+class BulkUpdateStatusResponseSerializer(serializers.Serializer):
+    """
+    Schema-only — see ``BulkDeleteResponseSerializer`` for why the declared ``errors`` field must
+    never be validated against. The handler builds the response dict directly; this exists only so
+    drf-spectacular can render the response in the OpenAPI spec.
+    """
+
+    updated = BulkUpdateStatusUpdatedItemSerializer(
+        many=True, help_text="Flags whose enabled state was changed. Flags already in the target state are omitted."
+    )
+    # Explicit ListSerializer avoids the many=True descriptor magic that confuses type checkers.
+    errors: serializers.ListSerializer = serializers.ListSerializer(  # type: ignore[assignment]
+        child=BulkDeleteErrorItemSerializer(),
+        help_text="Flags that could not be updated (e.g. archived flags cannot be enabled), with reasons.",
+    )
+
+
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
 # all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
 # that already tag their queries. If you add a new ClickHouse query reachable from an
@@ -3525,6 +3569,219 @@ class FeatureFlagViewSet(
         return Response(
             {
                 "deleted": deleted,
+                "errors": errors,
+            }
+        )
+
+    @extend_schema(
+        request=BulkUpdateStatusRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=BulkUpdateStatusResponseSerializer),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Invalid input — e.g., `active` missing/not a boolean, both filters and ids supplied, neither supplied, or unknown filter keys.",
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:write"])
+    def bulk_update_status(self, request: request.Request, **kwargs):
+        """
+        Bulk enable or disable feature flags by filter criteria or explicit IDs.
+
+        Accepts either:
+        - {"active": bool, "ids": [...]} - explicit flag IDs, or
+        - {"active": bool, "filters": {...}} - same filter params as the list endpoint.
+
+        `ids` and `filters` are mutually exclusive. Enabling a flag rolls it out to the users matching
+        its release conditions immediately; disabling rolls it back. Archived flags cannot be enabled.
+        Flags already in the target state are skipped (not re-written, not logged).
+
+        Mirrors `bulk_delete`: database writes and cache invalidation are batched, and because
+        `queryset.update()` bypasses `ModelActivityMixin`, an "updated" activity log entry recording the
+        `active` change is written per flag via `bulk_log_activity` so the audit trail matches the
+        single-flag update path.
+        """
+        from django.utils import timezone
+
+        from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
+        from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        from products.feature_flags.backend.models.feature_flag import set_feature_flags_for_team_in_cache
+        from products.feature_flags.backend.tasks import update_team_flags_cache, update_team_service_flags_cache
+
+        active = request.data.get("active")
+        if not isinstance(active, bool):
+            return Response(
+                {"error": "`active` is required and must be a boolean"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filters = request.data.get("filters", {})
+        explicit_ids = request.data.get("ids", [])
+
+        if filters and explicit_ids:
+            return Response(
+                {"error": "Provide either filters or ids, not both"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not filters and not explicit_ids:
+            return Response(
+                {"error": "Must provide either filters or ids"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate filter keys against the same allowlist as bulk_delete to prevent accidental mass updates.
+        if filters:
+            valid_filter_keys = set(BulkDeleteFiltersSerializer().fields.keys())
+            unknown_keys = set(filters.keys()) - valid_filter_keys
+            if unknown_keys:
+                return Response(
+                    {"error": f"Unknown filter keys: {', '.join(sorted(unknown_keys))}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # Build base queryset (same scoping/exclusions as list, matching_ids, and bulk_delete).
+        queryset = self.queryset.filter(team__project_id=self.project_id, deleted=False)
+
+        # Exclude internal flags (same as list/matching_ids/bulk_delete endpoints)
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+        queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(Q(id__in=product_tour_internal_targeting_flags))
+
+        if filters:
+            queryset = exclude_archived_unless_requested(queryset, requested="archived" in filters)
+            queryset = self._apply_filters(filters, queryset)
+        else:
+            # Validate and convert IDs (same coercion as bulk_delete)
+            validated_ids = []
+            invalid_ids = []
+            for flag_id in explicit_ids:
+                if isinstance(flag_id, int):
+                    validated_ids.append(flag_id)
+                elif isinstance(flag_id, str) and flag_id.isdigit():
+                    validated_ids.append(int(flag_id))
+                else:
+                    invalid_ids.append(flag_id)
+
+            if not validated_ids and not invalid_ids:
+                return Response(
+                    {"error": "No flag IDs provided"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            queryset = queryset.filter(id__in=validated_ids)
+
+        # Apply access control - filter to only editable flags (same logic as bulk_delete)
+        if self.user_access_control:
+            flags_for_access_check = list(queryset.only("id"))
+            self.user_access_control.preload_object_access_controls(cast(list, flags_for_access_check))
+
+            editable_ids = []
+            for flag in flags_for_access_check:
+                user_access_level = self.user_access_control.get_user_access_level(flag)
+                if user_access_level and access_level_satisfied_for_resource(
+                    "feature_flag", user_access_level, "editor"
+                ):
+                    editable_ids.append(flag.id)
+
+            queryset = queryset.filter(id__in=editable_ids)
+
+        # select_related("team") so per-flag team.organization_id/team.project_id access below is not N+1.
+        flags_list = list(queryset.select_related("team"))
+
+        updated = []
+        errors = []
+
+        # Report invalid or missing IDs (only for ID-based updates), matching bulk_delete's semantics.
+        if explicit_ids:
+            found_ids = {flag.id for flag in flags_list}
+            for flag_id in explicit_ids:
+                if not isinstance(flag_id, int) and not (isinstance(flag_id, str) and flag_id.isdigit()):
+                    errors.append({"id": flag_id, "reason": "Invalid flag ID format"})
+                else:
+                    numeric_id = int(flag_id) if isinstance(flag_id, str) else flag_id
+                    if numeric_id not in found_ids:
+                        errors.append({"id": numeric_id, "reason": "Flag not found"})
+
+        current_user = request.user if request.user.is_authenticated else None
+        was_impersonated = is_impersonated(request)
+
+        flags_to_update: list[FeatureFlag] = []
+        activity_log_entries: list[LogActivityEntry] = []
+
+        for flag in flags_list:
+            # Enabling an archived flag is not allowed — mirrors the single-flag UI, which requires
+            # unarchiving first. (Disabling an archived flag is a harmless no-op, handled just below.)
+            if active and flag.archived:
+                errors.append({"id": flag.id, "key": flag.key, "reason": "Cannot enable an archived feature flag"})
+                continue
+
+            # Skip no-ops so we neither write rows nor log activity for flags already in the target state.
+            if flag.active == active:
+                continue
+
+            flags_to_update.append(flag)
+            activity_log_entries.append(
+                LogActivityEntry(
+                    organization_id=flag.team.organization_id,
+                    team_id=flag.team_id,
+                    user=current_user,
+                    was_impersonated=was_impersonated,
+                    item_id=flag.id,
+                    scope="FeatureFlag",
+                    activity="updated",
+                    detail=Detail(
+                        name=flag.key,
+                        changes=[
+                            Change(
+                                type="FeatureFlag",
+                                field="active",
+                                action="changed",
+                                before=flag.active,
+                                after=active,
+                            )
+                        ],
+                    ),
+                )
+            )
+            updated.append({"id": flag.id, "key": flag.key, "active": active})
+
+        # Perform bulk database update + manual cache invalidation.
+        # queryset.update() bypasses Django signals (and ModelActivityMixin), so cache invalidation and
+        # activity logging are done manually below — once for the whole batch instead of once per flag.
+        if flags_to_update:
+            sample_flag = flags_to_update[0]
+            team_id = sample_flag.team_id
+            project_id = sample_flag.team.project_id
+            now_timestamp = timezone.now()
+            update_ids = [flag.id for flag in flags_to_update]
+
+            with transaction.atomic():
+                FeatureFlag.objects.filter(id__in=update_ids, team_id=team_id).update(
+                    active=active,
+                    last_modified_by=current_user,
+                    updated_at=now_timestamp,
+                )
+
+                if activity_log_entries:
+                    bulk_log_activity(activity_log_entries)
+
+                # Cache invalidation - same work the signals would do, but once instead of N times
+                def invalidate_caches():
+                    set_feature_flags_for_team_in_cache(project_id)
+                    update_team_service_flags_cache.delay(team_id)
+                    update_team_flags_cache.delay(team_id)
+                    update_team_remote_config.delay(team_id)
+
+                transaction.on_commit(invalidate_caches)
+
+        return Response(
+            {
+                "updated": updated,
                 "errors": errors,
             }
         )

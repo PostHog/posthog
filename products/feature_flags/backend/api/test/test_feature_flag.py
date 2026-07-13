@@ -12435,6 +12435,149 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert flag_with_deleted_exp.key == f"flag_with_deleted_exp:deleted:{flag_with_deleted_exp.id}"
 
 
+class TestFeatureFlagBulkUpdateStatus(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        FeatureFlag.objects.filter(team=self.team).delete()
+
+    def _create_flag(self, key: str, active: bool = True, archived: bool = False) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=key,
+            active=active,
+            archived=archived,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+    @parameterized.expand([("enable", True), ("disable", False)])
+    def test_bulk_update_status_flips_active_and_skips_noops(self, _name, target):
+        already = self._create_flag("already_at_target", active=target)
+        to_change = self._create_flag("needs_change", active=not target)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_status/",
+            {"active": target, "ids": [already.id, to_change.id]},
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        # Only the flag that actually changed is reported; the flag already in the target state is skipped.
+        assert {u["id"] for u in data["updated"]} == {to_change.id}
+        assert all(u["active"] is target for u in data["updated"])
+        assert data["errors"] == []
+
+        already.refresh_from_db()
+        to_change.refresh_from_db()
+        assert already.active is target
+        assert to_change.active is target
+
+    def test_bulk_update_status_logs_active_change_per_updated_flag(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        flags = [self._create_flag(f"flag_{i}", active=False) for i in range(3)]
+        flag_ids = {f.id for f in flags}
+        ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag").delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_status/",
+            {"active": True, "ids": [f.id for f in flags]},
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()["updated"]) == 3
+
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", activity="updated")
+        assert logs.count() == 3
+        assert {int(log.item_id) for log in logs if log.item_id is not None} == flag_ids
+        for log in logs:
+            assert log.user == self.user
+            changes = log.detail.get("changes") or []
+            assert len(changes) == 1
+            assert changes[0]["field"] == "active"
+            assert changes[0]["before"] is False
+            assert changes[0]["after"] is True
+
+    def test_bulk_update_status_cross_project_isolation(self):
+        my_flag = self._create_flag("my_flag", active=False)
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_flag = FeatureFlag.objects.create(
+            team=other_team,
+            created_by=self.user,
+            key="other_team_flag",
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_status/",
+            {"active": True, "ids": [my_flag.id, other_flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert {u["id"] for u in data["updated"]} == {my_flag.id}
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["id"] == other_flag.id
+        assert data["errors"][0]["reason"] == "Flag not found"
+
+        my_flag.refresh_from_db()
+        other_flag.refresh_from_db()
+        assert my_flag.active is True
+        assert other_flag.active is False
+
+    def test_bulk_update_status_cannot_enable_archived_flag(self):
+        archived = self._create_flag("archived_flag", active=False, archived=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_status/",
+            {"active": True, "ids": [archived.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["updated"] == []
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["id"] == archived.id
+        assert data["errors"][0]["reason"] == "Cannot enable an archived feature flag"
+
+        archived.refresh_from_db()
+        assert archived.active is False
+
+    def test_bulk_update_status_by_filter_only_updates_matching_flags(self):
+        matching = self._create_flag("checkout_flow", active=False)
+        other = self._create_flag("unrelated", active=False)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_status/",
+            {"active": True, "filters": {"search": "checkout"}},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert {u["id"] for u in data["updated"]} == {matching.id}
+
+        matching.refresh_from_db()
+        other.refresh_from_db()
+        assert matching.active is True
+        assert other.active is False
+
+    @parameterized.expand(
+        [
+            ("missing_active", {"ids": [1]}),
+            ("non_boolean_active", {"active": "yes", "ids": [1]}),
+            ("neither_ids_nor_filters", {"active": True}),
+            ("both_ids_and_filters", {"active": True, "ids": [1], "filters": {"search": "x"}}),
+        ]
+    )
+    def test_bulk_update_status_invalid_request_returns_400(self, _name, payload):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_status/",
+            payload,
+        )
+        assert response.status_code == 400, response.json()
+
+
 class TestFeatureFlagLimits(APIBaseTest):
     """Tests for feature flag creation and update limits."""
 
