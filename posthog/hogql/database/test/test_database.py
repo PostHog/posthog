@@ -39,6 +39,7 @@ from posthog.hogql.database.database import (
 )
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
@@ -1199,6 +1200,38 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(virtual_table, DirectMySQLTable)
         assert virtual_table.mysql_schema == "shop"
         assert virtual_table.mysql_table_name == "orders"
+
+    def test_dual_mode_database_builds_redshift_virtual_tables(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="synced_redshift_source",
+            source_type=ExternalDataSourceType.REDSHIFT,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="rs",
+            job_inputs={"database": "dev", "schema": "public"},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="public.orders",
+            source=source,
+            should_sync=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "source_schema": "public",
+                    "source_table_name": "orders",
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        virtual_table = database.get_table("public.orders")
+        assert isinstance(virtual_table, DirectRedshiftTable)
+        assert virtual_table.postgres_schema == "public"
+        assert virtual_table.postgres_table_name == "orders"
+        assert virtual_table.postgres_catalog == "dev"
 
     def test_dual_mode_database_resolves_snowflake_case_insensitively(self):
         source = ExternalDataSource.objects.create(
