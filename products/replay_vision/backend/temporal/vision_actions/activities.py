@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 
 import structlog
 from temporalio import activity
@@ -13,6 +14,7 @@ from posthog.cdp.internal_events import InternalEventEvent, produce_internal_eve
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.vision_action import (
+    ActionMode,
     TriggerType,
     VisionAction,
     VisionActionRun,
@@ -59,12 +61,16 @@ def _evaluate_due(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionActio
                 scanner_id=inputs.scanner_id,
                 enabled=True,
                 trigger_type=TriggerType.SCHEDULE,
-                next_run_at__isnull=False,
-                next_run_at__lte=now,
             )
+            # Alerts check on every sweep, so their stored rrule cursor never gates them — a fresh
+            # match should notify within minutes, not wait for an hourly tick. Summaries fire only
+            # when their schedule cursor comes due.
+            .filter(Q(mode=ActionMode.ALERT) | Q(next_run_at__isnull=False, next_run_at__lte=now))
         )
         for action in actions:
-            scheduled_at = action.next_run_at
+            # A summary's tick is its schedule cursor; an alert's tick is simply this sweep. The
+            # tick anchors the evaluation windows, and an alert's cursor can sit in the future.
+            scheduled_at = now if action.mode == ActionMode.ALERT else action.next_run_at
             # Claim via a direct .update() rather than save(): VisionAction.save() re-derives
             # next_run_at when the schedule key changed, and we've already advanced it here — going
             # through .update() bypasses that override so the claim can't double-recompute the cursor.

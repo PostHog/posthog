@@ -11,7 +11,7 @@ from parameterized import parameterized
 
 from products.replay_vision.backend.models import ReplayScanner, VisionAction, VisionActionRun
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
-from products.replay_vision.backend.models.vision_action import TriggerType, VisionActionRunStatus
+from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionActionRunStatus
 from products.replay_vision.backend.temporal.vision_actions import activities as act
 from products.replay_vision.backend.temporal.vision_actions.alerts import evaluate_alert_activity
 from products.replay_vision.backend.temporal.vision_actions.synthesis import synthesize_group_summary_activity
@@ -87,6 +87,26 @@ class TestEvaluateDue(BaseTest):
         result = act._evaluate_due(self._inputs(scanner))
         self.assertEqual([d.vision_action_id for d in result], [due.id])
         self.assertEqual(result[0].team_id, self.team.id)
+
+    def test_alerts_are_due_on_every_sweep(self) -> None:
+        # Alerts ignore their rrule cursor: a fresh match should notify within minutes, not wait for
+        # an hourly tick — so an alert whose cursor sits in the future is still claimed, with this
+        # sweep's time (not the future cursor) as the window-anchoring tick. Disabled alerts stay out.
+        scanner = _scanner(self.team)
+        alert = _action(self.team, name="alert", scanner=scanner, mode=ActionMode.ALERT)
+        VisionAction.all_teams.filter(pk=alert.pk).update(next_run_at=timezone.now() + timedelta(hours=1))
+
+        disabled_alert = _action(self.team, name="off", scanner=scanner, mode=ActionMode.ALERT, enabled=False)
+        VisionAction.all_teams.filter(pk=disabled_alert.pk).update(next_run_at=timezone.now() + timedelta(hours=1))
+
+        result = act._evaluate_due(self._inputs(scanner))
+
+        self.assertEqual([d.vision_action_id for d in result], [alert.id])
+        assert result[0].scheduled_at is not None
+        self.assertLessEqual(result[0].scheduled_at, timezone.now())
+
+        # And the next sweep claims it again — no hourly gate between checks.
+        self.assertEqual([d.vision_action_id for d in act._evaluate_due(self._inputs(scanner))], [alert.id])
 
     def test_claims_by_advancing_next_run_at(self) -> None:
         scanner = _scanner(self.team)
