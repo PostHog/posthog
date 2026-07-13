@@ -230,7 +230,9 @@ describe('PersonHogGroupRepository', () => {
                 })
 
                 const repo = createRepo(rolloutPercentage)
-                const result = await repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY])
+                const result = await repo.fetchGroupsByKeys([
+                    { teamId: TEAM_ID, groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY },
+                ])
 
                 expect(result).toEqual(expectedResult)
                 if (expectGrpc) {
@@ -238,9 +240,7 @@ describe('PersonHogGroupRepository', () => {
                     expect(mockPostgres.fetchGroupsByKeys).not.toHaveBeenCalled()
                 } else {
                     expect(mockPostgres.fetchGroupsByKeys).toHaveBeenCalledWith(
-                        [TEAM_ID],
-                        [GROUP_TYPE_INDEX],
-                        [GROUP_KEY],
+                        [{ teamId: TEAM_ID, groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY }],
                         undefined
                     )
                     expect(handlers.getGroupsBatch).not.toHaveBeenCalled()
@@ -251,7 +251,7 @@ describe('PersonHogGroupRepository', () => {
                 mockPostgres.fetchGroupsByKeys.mockResolvedValue([])
 
                 const repo = createRepo(rolloutPercentage)
-                const result = await repo.fetchGroupsByKeys([], [], [])
+                const result = await repo.fetchGroupsByKeys([])
 
                 expect(result).toEqual([])
             })
@@ -370,7 +370,9 @@ describe('PersonHogGroupRepository', () => {
             })
 
             const repo = createRepo(0, new Set([TEAM_ID]))
-            const result = await repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY])
+            const result = await repo.fetchGroupsByKeys([
+                { teamId: TEAM_ID, groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY },
+            ])
 
             expect(result).toEqual(expectedResult)
             expect(handlers.getGroupsBatch).toHaveBeenCalled()
@@ -435,7 +437,9 @@ describe('PersonHogGroupRepository', () => {
                     pg.fetchGroupsByKeys.mockResolvedValue(expected)
                     return {
                         call: (repo: PersonHogGroupRepository) =>
-                            repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY]),
+                            repo.fetchGroupsByKeys([
+                                { teamId: TEAM_ID, groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY },
+                            ]),
                         expected,
                     }
                 },

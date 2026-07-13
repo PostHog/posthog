@@ -37,6 +37,13 @@ export interface GroupReadRepository {
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
 }
 
+/** Identity of a single group row: (team_id, group_type_index, group_key). */
+export interface GroupKey {
+    teamId: TeamId
+    groupTypeIndex: GroupTypeIndex
+    groupKey: string
+}
+
 /**
  * A batched, merge-semantics group update: `propertiesToSet` is applied on top
  * of the stored `group_properties` server-side (jsonb `||`), so concurrent
@@ -64,9 +71,7 @@ export interface GroupRepository {
     ): Promise<Group | undefined>
 
     fetchGroupsByKeys(
-        teamIds: TeamId[],
-        groupTypeIndexes: GroupTypeIndex[],
-        groupKeys: string[],
+        keys: GroupKey[],
         callerTag?: string
     ): Promise<
         {

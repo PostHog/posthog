@@ -16,7 +16,7 @@ import {
 } from '~/types'
 
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
-import { GroupPropertiesToSetUpdate, GroupRepository } from './group-repository.interface'
+import { GroupKey, GroupPropertiesToSetUpdate, GroupRepository } from './group-repository.interface'
 import { PostgresGroupRepositoryTransaction } from './postgres-group-repository-transaction'
 import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
 
@@ -62,9 +62,7 @@ export class PostgresGroupRepository
     }
 
     async fetchGroupsByKeys(
-        teamIds: TeamId[],
-        groupTypeIndexes: GroupTypeIndex[],
-        groupKeys: string[],
+        keys: GroupKey[],
         callerTag?: string,
         tx?: TransactionClient
     ): Promise<
@@ -77,14 +75,7 @@ export class PostgresGroupRepository
             version: number
         }[]
     > {
-        // All arrays must have the same length since they represent tuples
-        if (teamIds.length !== groupTypeIndexes.length || teamIds.length !== groupKeys.length) {
-            throw new Error(
-                `fetchGroupsByKeys: array lengths must match (teamIds: ${teamIds.length}, groupTypeIndexes: ${groupTypeIndexes.length}, groupKeys: ${groupKeys.length})`
-            )
-        }
-
-        if (teamIds.length === 0) {
+        if (keys.length === 0) {
             return []
         }
 
@@ -98,7 +89,11 @@ export class PostgresGroupRepository
                ON g.team_id = t.team_id
               AND g.group_type_index = t.group_type_index
               AND g.group_key = t.group_key`,
-            [teamIds, groupTypeIndexes, groupKeys],
+            [
+                keys.map(({ teamId }) => teamId),
+                keys.map(({ groupTypeIndex }) => groupTypeIndex),
+                keys.map(({ groupKey }) => groupKey),
+            ],
             queryTag('fetchGroupsByKeys', callerTag)
         )
 

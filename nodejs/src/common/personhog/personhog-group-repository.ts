@@ -1,7 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { GroupRepositoryTransaction } from '~/common/groups/repositories/group-repository-transaction.interface'
-import { GroupPropertiesToSetUpdate, GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import {
+    GroupKey,
+    GroupPropertiesToSetUpdate,
+    GroupRepository,
+} from '~/common/groups/repositories/group-repository.interface'
 import { logger } from '~/common/utils/logger'
 import { Properties } from '~/plugin-scaffold'
 import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
@@ -53,9 +57,7 @@ export class PersonHogGroupRepository implements GroupRepository {
     }
 
     async fetchGroupsByKeys(
-        teamIds: TeamId[],
-        groupTypeIndexes: GroupTypeIndex[],
-        groupKeys: string[],
+        keys: GroupKey[],
         callerTag?: string
     ): Promise<
         {
@@ -67,23 +69,29 @@ export class PersonHogGroupRepository implements GroupRepository {
             version: number
         }[]
     > {
+        const teamIds = keys.map(({ teamId }) => teamId)
         if (!shouldUseGrpcForTeams(this.rolloutTeamIds, teamIds, this.grpcPercentage)) {
             return timedPostgres(this.clientLabel, 'fetchGroupsByKeys', () =>
-                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
+                this.postgres.fetchGroupsByKeys(keys, callerTag)
             )
         }
 
         try {
             return await timedGrpc(this.clientLabel, 'fetchGroupsByKeys', () =>
-                this.grpcClient.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
+                this.grpcClient.groups.fetchGroupsByKeys(
+                    teamIds,
+                    keys.map(({ groupTypeIndex }) => groupTypeIndex),
+                    keys.map(({ groupKey }) => groupKey),
+                    callerTag
+                )
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroupsByKeys failed, falling back to Postgres', {
-                count: teamIds.length,
+                count: keys.length,
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchGroupsByKeys', () =>
-                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
+                this.postgres.fetchGroupsByKeys(keys, callerTag)
             )
         }
     }

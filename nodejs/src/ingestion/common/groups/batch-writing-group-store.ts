@@ -974,12 +974,7 @@ export class BatchWritingGroupStore implements GroupStore {
         this.incrementDatabaseOperation('prefetchGroups')
 
         const batchFetchPromise = this.groupRepository
-            .fetchGroupsByKeys(
-                uncachedEntries.map(({ teamId }) => teamId),
-                uncachedEntries.map(({ groupTypeIndex }) => groupTypeIndex),
-                uncachedEntries.map(({ groupKey }) => groupKey),
-                'ingestion/group-prefetch'
-            )
+            .fetchGroupsByKeys(uncachedEntries, 'ingestion/group-prefetch')
             .then((rows) => {
                 const groupsByKey = new Map<string, GroupUpdate>()
                 for (const row of rows) {
