@@ -16,15 +16,15 @@
  * Quill's own rules live in `@layer components`, so these unlayered overrides
  * win the cascade without specificity hacks.
  *
- * Covered: Button, Input, InputGroup, Textarea, Checkbox, Switch, RadioGroup,
- * Select, Badge (→ LemonTag), Chip (→ LemonSnack), Separator, Skeleton,
- * Label, Kbd, Item, MenuLabel, Empty, Tooltip,
- * Popover/DropdownMenu/ContextMenu surfaces, Tabs (line + pill variants),
- * Dialog (→ LemonModal), Progress, ToggleGroup (→ Lemon day chips) — plus a
- * core-token rebind that turns
- * bespoke Tailwind in quill-based features lemony wholesale. First real
- * consumer: the taxonomic filter rebuild
- * (lib/components/TaxonomicFilter/menu/).
+ * Covered: only what the first consumer (the quill date composer,
+ * InsightDateFilterComposer) renders — Button, Input, InputGroup, Switch,
+ * Badge (→ LemonTag), Separator, Label, Popover/select surfaces,
+ * ToggleGroup (→ Lemon day chips), the DateTimePicker footer, and the
+ * composer itself — plus a core-token rebind that turns bespoke Tailwind
+ * in quill-based features lemony wholesale. The full prototype covering
+ * every primitive family (Tabs, Dialog, menus, Chip, Kbd, …) lives on the
+ * archive branch posthog-code/date-5-archive-pre-restack; re-add sections
+ * from there as new surfaces adopt the skin.
  *
  * PORTAL CAVEAT: overlay content (tooltip, menus, select popup, dialog)
  * renders in portals at <body>, outside any scoped wrapper. Two ways to
@@ -351,61 +351,6 @@
     box-shadow: none;
 }
 
-/* ═══ Textarea → LemonTextArea ═════════════════════════════════════════ */
-
-[data-lemon-skin] .quill-textarea {
-    min-height: 2.5rem;
-    padding: 0.5rem;
-    font-family: var(--font-sans);
-    font-size: 0.875rem;
-    line-height: 1.4;
-    color: var(--text-3000);
-    background-color: var(--color-bg-fill-input);
-    border: 1px solid var(--lemon-skin-border);
-    border-radius: var(--lemon-skin-radius);
-}
-
-[data-lemon-skin] .quill-textarea:hover:not(:disabled),
-[data-lemon-skin] .quill-textarea:focus-visible {
-    border-color: var(--lemon-skin-border-hover);
-    box-shadow: none;
-}
-
-/* ═══ Checkbox → LemonCheckbox ═════════════════════════════════════════ */
-
-[data-lemon-skin] .quill-checkbox,
-[data-lemon-skin] .quill-checkbox-indicator {
-    /* Lemon has a single 1rem box size */
-    width: 1rem;
-    height: 1rem;
-    background-color: var(--lemon-skin-surface);
-    border: 1.5px solid var(--lemon-skin-border);
-    border-radius: 0.25rem;
-}
-
-[data-lemon-skin] .quill-checkbox:hover:not(:disabled) {
-    border-color: var(--lemon-skin-accent-hover);
-    box-shadow: none;
-}
-
-[data-lemon-skin] .quill-checkbox:focus-visible {
-    border-color: var(--lemon-skin-accent-hover);
-    outline: -webkit-focus-ring-color auto 1px;
-    box-shadow: none;
-}
-
-[data-lemon-skin] .quill-checkbox[data-checked],
-[data-lemon-skin] .quill-checkbox-indicator--checked {
-    color: var(--lemon-skin-surface);
-    background-color: var(--lemon-skin-accent);
-    border-color: var(--lemon-skin-accent);
-}
-
-[data-lemon-skin] .quill-checkbox[data-checked]:hover:not(:disabled) {
-    background-color: var(--lemon-skin-accent-hover);
-    border-color: var(--lemon-skin-accent-hover);
-}
-
 /* ═══ Switch → LemonSwitch ═════════════════════════════════════════════ */
 
 [data-lemon-skin] .quill-switch {
@@ -441,24 +386,6 @@
 [data-lemon-skin] .quill-switch[data-checked] .quill-switch__thumb {
     background-color: var(--lemon-skin-surface);
     transform: translateX(100%);
-}
-
-/* ═══ RadioGroup — Lemon uses native radios; accent-tint is the analog ═ */
-
-[data-lemon-skin] .quill-radio {
-    background-color: var(--lemon-skin-surface);
-    border-color: var(--lemon-skin-border);
-}
-
-[data-lemon-skin] .quill-radio:focus-visible {
-    border-color: var(--lemon-skin-accent-hover);
-    box-shadow: none;
-}
-
-[data-lemon-skin] .quill-radio[data-checked] {
-    color: var(--lemon-skin-surface);
-    background-color: var(--lemon-skin-accent);
-    border-color: var(--lemon-skin-accent);
 }
 
 /* ═══ Badge → LemonTag (small variant — badges live in dense list rows) ═ */
@@ -504,48 +431,10 @@
     border-color: var(--danger);
 }
 
-/* ═══ Chip → LemonSnack ════════════════════════════════════════════════ */
-
-/*
- * Chip composes Button (variant=outline), so this must out-order the button
- * outline rules above to strip the secondary-button chrome.
- */
-[data-lemon-skin] .quill-chip {
-    padding-block: 0.25rem;
-    padding-inline: 0.375rem;
-    font-size: 0.8125rem;
-    color: var(--text-3000);
-    background-color: var(--color-accent-highlight-secondary);
-    border: 1px solid transparent;
-    border-radius: 0.25rem;
-    box-shadow: none;
-}
-
-[data-lemon-skin] .quill-chip:not(:disabled, [aria-disabled='true']):hover {
-    background-color: var(--color-accent-highlight-secondary);
-    border-color: transparent;
-}
-
 /* ═══ Separator → LemonDivider ═════════════════════════════════════════ */
 
 [data-lemon-skin] .quill-separator {
     background-color: var(--lemon-skin-border);
-}
-
-/* ═══ Skeleton → LemonSkeleton (shimmer, not pulse) ════════════════════ */
-
-[data-lemon-skin] .quill-skeleton {
-    background: linear-gradient(
-        90deg,
-        var(--color-skeleton-light) 25%,
-        var(--color-skeleton-dark) 45%,
-        var(--color-skeleton-light) 65%
-    );
-    background-size: 400% 100%;
-    border-radius: var(--lemon-skin-radius);
-
-    /* Reuses the global keyframes from LemonSkeleton.scss */
-    animation: LemonSkeleton__shimmer 2s ease infinite;
 }
 
 /* ═══ Label → LemonLabel ═══════════════════════════════════════════════ */
@@ -555,97 +444,6 @@
     font-size: 0.875rem;
     font-weight: 600;
     line-height: 1.5rem;
-}
-
-/* ═══ Kbd → KeyboardShortcut keycap ════════════════════════════════════ */
-
-[data-lemon-skin] .quill-kbd {
-    min-width: 1.25rem;
-    height: 1.25rem;
-    padding: 0.125rem 0.25rem;
-    font-family: var(--font-title);
-    font-size: 0.75rem;
-    color: var(--text-3000);
-    background: var(--lemon-skin-surface);
-    border: 1px solid var(--secondary-3000-button-border-hover);
-
-    /* The thicker bottom edge gives Lemon's keycap bevel */
-    border-bottom-width: 2px;
-    border-radius: 0.25rem;
-}
-
-/* ═══ Item rows (ItemGroup, ItemMenuItem, combobox rows) ═══════════════ */
-
-[data-lemon-skin] .quill-item {
-    font-family: var(--font-sans);
-    font-size: 0.875rem;
-}
-
-[data-lemon-skin] .quill-item__title {
-    font-size: 0.875rem;
-}
-
-[data-lemon-skin] .quill-item__description {
-    font-size: 0.75rem;
-}
-
-/* ═══ MenuLabel → Lemon section title (no uppercase tracking) ══════════ */
-
-[data-lemon-skin] .quill-menu-label {
-    font-family: var(--font-sans);
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--lemon-skin-text-secondary);
-    text-transform: none;
-    letter-spacing: normal;
-}
-
-/* ═══ Empty state — Lemon centers muted text without the dashed frame ══ */
-
-[data-lemon-skin] .quill-empty {
-    border: none;
-}
-
-/* ═══ Lemon components inside skinned surfaces ═════════════════════════ */
-
-/* trigger field: small → medium metrics */
-[data-lemon-skin] .LemonInput.LemonInput--small {
-    --lemon-input-height: calc(2.125rem + 3px);
-
-    padding: 0.25rem 0.5rem;
-}
-
-/* embedded button (the trigger's filter icon): → xsmall metrics */
-[data-lemon-skin] .LemonInput .LemonButton {
-    --lemon-button-height: 1.625rem;
-    --lemon-button-font-size: 0.75rem;
-    --lemon-button-icon-size: 0.875rem;
-    --lemon-button-padding-horizontal: 0.375rem;
-    --lemon-button-padding-adjacent-icon: 0.25rem;
-    --lemon-button-gap: 0.25rem;
-}
-
-/*
- * Portal-mounted surfaces below (tooltip, popover, menus, select popup,
- * dialog): the skin attribute is passed to the *Content component and lands
- * ON the portaled element itself, so each surface rule needs a self variant
- * alongside the descendant one.
- */
-
-/* ═══ Tooltip → Lemon Tooltip ══════════════════════════════════════════ */
-
-[data-lemon-skin] .quill-tooltip__content,
-.quill-tooltip__content[data-lemon-skin] {
-    font-family: var(--font-sans);
-    color: var(--color-text-primary-inverse);
-    background-color: var(--color-bg-surface-tooltip);
-    border-radius: var(--lemon-skin-radius);
-    box-shadow: var(--modal-shadow-elevation);
-}
-
-[data-lemon-skin] .quill-tooltip__arrow {
-    background-color: var(--color-bg-surface-tooltip);
-    fill: var(--color-bg-surface-tooltip);
 }
 
 /* ═══ Popover / menu / select surfaces → Lemon Popover box ═════════════ */
@@ -738,121 +536,6 @@
     background-color: var(--color-bg-fill-button-tertiary-active);
 }
 
-/* ═══ Tabs (line variant) → LemonTabs ══════════════════════════════════ */
-
-[data-lemon-skin] .quill-tabs__trigger {
-    font-family: var(--font-sans);
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--color-text-tertiary);
-}
-
-[data-lemon-skin] .quill-tabs__trigger:hover {
-    color: var(--text-3000);
-    background-color: transparent;
-}
-
-[data-lemon-skin] .quill-tabs__list--variant-line {
-    gap: 1rem;
-    height: auto;
-}
-
-[data-lemon-skin] .quill-tabs__list--variant-line .quill-tabs__trigger {
-    flex: 0 0 auto;
-    padding-block: 0.5rem;
-    padding-inline: 0;
-}
-
-[data-lemon-skin] .quill-tabs__list--variant-line .quill-tabs__trigger[data-active] {
-    /*
-     * Quill paints the active tab `var(--background) !important`; a layered
-     * !important can't be out-cascaded from here, but rebinding the var it
-     * resolves can.
-     */
-    --background: transparent;
-
-    color: var(--lemon-skin-accent);
-}
-
-[data-lemon-skin] .quill-tabs__indicator--variant-line {
-    background-color: var(--lemon-skin-accent);
-}
-
-/* ═══ Tabs (pill variant) → Lemon segmented look ═══════════════════════ */
-
-[data-lemon-skin] .quill-tabs__list--variant-default {
-    /* here `bg-muted` resolves to --muted-3000, Lemon's muted TEXT color
-       (the quill/Lemon token collision quill-bridge.scss documents) */
-    --muted-3000: var(--lemon-skin-bg-page);
-
-    background-color: var(--lemon-skin-bg-page);
-    border-color: var(--lemon-skin-border);
-}
-
-[data-lemon-skin] .quill-tabs__list--variant-default .quill-tabs__trigger {
-    font-size: 0.8125rem;
-    color: var(--lemon-skin-text-secondary);
-}
-
-[data-lemon-skin] .quill-tabs__list--variant-default .quill-tabs__trigger:hover {
-    color: var(--text-3000);
-}
-
-[data-lemon-skin] .quill-tabs__list--variant-default .quill-tabs__trigger[data-active] {
-    --background: var(--lemon-skin-surface);
-
-    color: var(--text-3000);
-}
-
-[data-lemon-skin] .quill-tabs__indicator--variant-default {
-    background-color: var(--lemon-skin-surface);
-    border-color: var(--lemon-skin-border);
-    border-radius: var(--lemon-skin-radius);
-}
-
-/* ═══ Progress → LemonProgress ═════════════════════════════════════════ */
-
-[data-lemon-skin] .quill-progress__track {
-    height: 0.375rem;
-    background-color: var(--lemon-skin-bg-page);
-    border-radius: 9999px;
-}
-
-[data-lemon-skin] .quill-progress__indicator {
-    border-radius: 9999px;
-}
-
-[data-lemon-skin] .quill-progress__indicator--variant-default {
-    background-color: var(--brand-blue);
-}
-
-/* ═══ Dialog → LemonModal ══════════════════════════════════════════════ */
-
-[data-lemon-skin] .quill-dialog__content,
-.quill-dialog__content[data-lemon-skin] {
-    font-family: var(--font-sans);
-    font-size: 0.875rem;
-    background-color: var(--lemon-skin-surface);
-    border: 1px solid var(--border-bold);
-    border-radius: var(--lemon-skin-radius);
-    box-shadow: var(--modal-shadow-elevation);
-}
-
-[data-lemon-skin] .quill-dialog__title {
-    font-size: 1.125rem;
-    font-weight: 700;
-    line-height: 1.5rem;
-}
-
-[data-lemon-skin] .quill-dialog__header:has(~ [data-slot='dialog-body']) {
-    border-bottom-color: var(--lemon-skin-border);
-}
-
-[data-lemon-skin] .quill-dialog__footer {
-    background-color: transparent;
-    border-top-color: var(--lemon-skin-border);
-}
-
 /* ═══ ToggleGroup → Lemon day chips ════════════════════════════════════ */
 
 /* Items render as outline Buttons but carry quill's toggle classes, whose
@@ -883,17 +566,6 @@
     border-color: var(--lemon-skin-accent);
     box-shadow: none;
     translate: 0 0.1875rem;
-}
-
-/* ═══ DateTimePicker quick-range presets → Lemon menu rows ══════════════ */
-
-/* Quill hardcodes the rail's preset buttons to size=sm (0.75rem); bump them
-   toward a Lemon menu row so the list reads at a comfortable size. The
-   .quill-button class lifts specificity over the base size-sm rule. */
-
-[data-lemon-skin]
-    .quill-button:is([data-attr^='date-time-picker-quick-range-'], [data-attr='date-time-picker-custom-range']) {
-    font-size: 0.875rem;
 }
 
 /* ═══ DateTimePicker actions footer → small Lemon buttons ══════════════ */
