@@ -32,15 +32,13 @@ export interface SessionBatchManagerConfig {
 }
 
 /**
- * Coordinates the creation and flushing of session batches
+ * Creates and flushes session batches, and decides when a batch is due to flush.
  *
- * The manager ensures there is always one active batch for recording events.
- * It handles:
- * - Providing the current batch to the consumer
- * - Replacing flushed batches with new ones
- * - Providing hints for when to flush the current batch
+ * Holds no batch state of its own: the layer above the record pipeline owns the current accumulator
+ * and threads it back into {@link flush}, {@link shouldFlush}, and {@link discardPartitions}. This
+ * keeps the accumulator's lifetime with its owner, ready to move into the accumulating pipeline.
  *
- * Each flush creates a new session batch file:
+ * Each flush writes one session batch file; the owner mints the next batch with {@link createBatch}:
  * ```
  * Session Batch File 1 (flushed)
  * ├── Compressed Session Recording Block 1
@@ -57,7 +55,7 @@ export interface SessionBatchManagerConfig {
  * │       └── ...
  * └── ...
  *
- * Session Batch File 3 (current, returned to consumer)
+ * Session Batch File 3 (current, owned by the caller)
  * ├── Compressed Session Recording Block 1
  * │   └── JSONL Session Recording Block
  * │       ├── [windowId, event1]
@@ -66,7 +64,6 @@ export interface SessionBatchManagerConfig {
  * ```
  */
 export class SessionBatchManager {
-    private currentBatch: SessionBatchRecorder
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
     private readonly maxEventsPerSessionPerBatch: number
@@ -76,7 +73,6 @@ export class SessionBatchManager {
     private readonly metadataStore: SessionMetadataSink
     private readonly consoleLogStore: SessionConsoleLogStore
     private readonly featureStore: SessionFeatureStore
-    private lastFlushTime: number
     private readonly encryptor: RecordingEncryptor
 
     constructor(config: SessionBatchManagerConfig) {
@@ -90,8 +86,14 @@ export class SessionBatchManager {
         this.consoleLogStore = config.consoleLogStore
         this.featureStore = config.featureStore
         this.encryptor = config.encryptor
+    }
 
-        this.currentBatch = new SessionBatchRecorder(
+    /**
+     * Mints a fresh, empty batch. The caller owns the returned recorder for one accumulation cycle and
+     * flushes it via {@link flush}.
+     */
+    public createBatch(): SessionBatchRecorder {
+        return new SessionBatchRecorder(
             this.offsetManager,
             this.fileStorage,
             this.metadataStore,
@@ -101,14 +103,6 @@ export class SessionBatchManager {
             this.maxEventsPerSessionPerBatch,
             this.featuresRolloutPercentage
         )
-        this.lastFlushTime = Date.now()
-    }
-
-    /**
-     * Returns the current batch
-     */
-    public getCurrentBatch(): SessionBatchRecorder {
-        return this.currentBatch
     }
 
     /**
@@ -126,39 +120,30 @@ export class SessionBatchManager {
     }
 
     /**
-     * Flushes the current batch and replaces it with a new one
+     * Flushes the given batch to storage and commits its tracked offsets. The caller mints the next
+     * batch with {@link createBatch}.
      */
-    public async flush(): Promise<void> {
-        logger.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
-        await this.currentBatch.flush()
-        this.currentBatch = new SessionBatchRecorder(
-            this.offsetManager,
-            this.fileStorage,
-            this.metadataStore,
-            this.consoleLogStore,
-            this.featureStore,
-            this.encryptor,
-            this.maxEventsPerSessionPerBatch,
-            this.featuresRolloutPercentage
-        )
-        this.lastFlushTime = Date.now()
+    public async flush(batch: SessionBatchRecorder): Promise<void> {
+        logger.info('🔁', 'session_batch_manager_flushing', { batchSize: batch.size })
+        await batch.flush()
     }
 
     /**
-     * Checks if the current batch should be flushed based on:
+     * Whether the given batch is due to flush, by size (bytes accumulated) or age (since it was minted):
      * - Size of the batch exceeding maxBatchSizeBytes
      * - Age of the batch exceeding maxBatchAgeMs
+     *
+     * @param lastFlushTime - When the current accumulation cycle started (the last flush, or startup).
      */
-    public shouldFlush(): boolean {
-        const batchSize = this.currentBatch.size
-        const batchAge = Date.now() - this.lastFlushTime
-        return batchSize >= this.maxBatchSizeBytes || batchAge >= this.maxBatchAgeMs
+    public shouldFlush(batch: SessionBatchRecorder, lastFlushTime: number): boolean {
+        const batchAge = Date.now() - lastFlushTime
+        return batch.size >= this.maxBatchSizeBytes || batchAge >= this.maxBatchAgeMs
     }
 
-    public discardPartitions(partitions: number[]): void {
+    public discardPartitions(batch: SessionBatchRecorder, partitions: number[]): void {
         logger.info('🔁', 'session_batch_manager_discarding_partitions', { partitions })
         for (const partition of partitions) {
-            this.currentBatch.discardPartition(partition)
+            batch.discardPartition(partition)
         }
     }
 }

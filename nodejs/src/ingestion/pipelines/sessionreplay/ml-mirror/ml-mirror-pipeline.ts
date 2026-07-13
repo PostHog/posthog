@@ -15,10 +15,8 @@ import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionre
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
-import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
-import { createAttachSessionBatchStep } from '~/ingestion/pipelines/sessionreplay/session-batch-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
 import { createResolveKeyStep } from '~/ingestion/pipelines/sessionreplay/session-resolve-key-step'
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
@@ -37,7 +35,6 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
         keyStore,
         sessionKeyResolutionMaxConcurrency,
         topHog,
-        sessionBatchManager,
         isDebugLoggingEnabled,
     } = config
 
@@ -48,11 +45,14 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
         MessageContext,
-        SessionBatchContext,
+        Record<never, object>,
         MessageContext,
         OverflowOutput
     >(
-        (beforeBatch) => beforeBatch.pipe(createAttachSessionBatchStep(sessionBatchManager)),
+        (beforeBatch) =>
+            beforeBatch.pipe(function passThroughBeforeBatch(input) {
+                return Promise.resolve(ok(input))
+            }),
         (batch) =>
             batch
                 .messageAware((b) =>
