@@ -3,6 +3,7 @@ import { Gauge } from 'prom-client'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { producerStatsSchema } from './kafka-producer-stats-schema'
+import { recordProducerQueueStats } from './producer-otel-metrics'
 
 export const kafkaProducerQueueMessages = new Gauge({
     name: 'kafka_producer_queue_messages',
@@ -106,13 +107,20 @@ export class ProducerStatsTracker {
             kafkaProducerCallbackQueueDepth.set(labels, stats.replyq)
         }
 
+        let anyBrokersDown: boolean | undefined
         if (stats.brokers) {
             const brokers = Object.values(stats.brokers)
             if (brokers.length > 0) {
-                const anyDown = brokers.some((b) => b.state !== 'UP')
-                kafkaProducerAnyBrokersDown.set(labels, anyDown ? 1 : 0)
+                anyBrokersDown = brokers.some((b) => b.state !== 'UP')
+                kafkaProducerAnyBrokersDown.set(labels, anyBrokersDown ? 1 : 0)
             }
         }
+
+        recordProducerQueueStats(this.producerName, {
+            queueMessages: stats.msg_cnt,
+            queueBytes: stats.msg_size,
+            anyBrokersDown,
+        })
 
         if (stats.topics) {
             for (const [topic, topicStats] of Object.entries(stats.topics)) {

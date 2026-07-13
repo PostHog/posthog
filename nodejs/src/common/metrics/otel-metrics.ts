@@ -10,6 +10,7 @@ import { registerShutdownHandler } from '~/lifecycle'
 
 import { counterWithExemplars } from './exemplars'
 import { OtlpJsonMetricExporter } from './otlp-json-exporter'
+import { registerProcessOtelMetrics } from './process-otel-metrics'
 
 /**
  * OTLP metrics push — the same OTel-SDK path customers use, pointed at our own
@@ -57,6 +58,8 @@ export const initMetrics = (): void => {
         ],
     })
     metricsApi.setGlobalMeterProvider(provider)
+    // CPU / RSS / event-loop-utilization observables — only sampled when push is on.
+    registerProcessOtelMetrics()
 
     registerShutdownHandler(async () => {
         await provider?.shutdown()
