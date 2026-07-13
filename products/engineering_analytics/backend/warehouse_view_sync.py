@@ -71,8 +71,9 @@ def sync_engineering_analytics_views(schema: ExternalDataSchema, source: Externa
             source_id=str(source.id),
         )
     except (OperationalError, InterfaceError) as e:
-        # Transient pooler connection drop — the pipeline retries the post-load hook on a fresh
-        # connection, so log for visibility but don't spin up an error-tracking issue.
+        # Transient pooler connection drop — swallowed, so the view stays stale until the next
+        # runs/jobs load re-runs this hook on a fresh connection. Log for visibility but don't
+        # spin up an error-tracking issue for a momentary pooler blip.
         logger.warning(
             "sync_engineering_analytics_views_transient_db_error",
             team_id=schema.team_id,

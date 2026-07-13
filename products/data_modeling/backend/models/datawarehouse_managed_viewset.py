@@ -220,11 +220,11 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         views_deleted = 0
         for orphaned_view in orphaned_views_to_revert:
             try:
-                # revert_materialization tears down the materialized table + Temporal schedule; a
-                # never-materialized view (non-materialized kind) has neither, so skip it and just
-                # soft-delete — calling revert would try to delete a schedule that never existed.
-                if orphaned_view.is_materialized or orphaned_view.table_id is not None:
-                    orphaned_view.revert_materialization()
+                # Unconditional on purpose: revert_materialization is idempotent for a
+                # never-materialized view (no table to drop; schedule deletion swallows NOT_FOUND),
+                # and skipping it on a heuristic can strand the Temporal schedule of a view whose
+                # materialization failed midway (is_materialized already reset to False).
+                orphaned_view.revert_materialization()
                 orphaned_view.soft_delete()
                 views_deleted += 1
             except Exception as e:

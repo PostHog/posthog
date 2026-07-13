@@ -159,10 +159,12 @@ is reachable as data rather than through the named endpoints.
 - **Name:** `engineering_analytics_job_costs`, provisioned per-team as a `DataWarehouseSavedQuery`
   (the revenue-analytics managed-viewset mechanism, kind `engineering_analytics`).
 - **Grain:** one row per job attempt (a retry appears once per attempt — correct for cost). Every
-  job is kept, including non-billable ones: `provider` / `os` / `vcpu` / `multiplier` /
-  `billable_seconds` / `estimated_cost_usd` are NULL when the job isn't billable (github-hosted,
-  non-Linux, or unclassifiable) or unsettled (no elapsed yet). NULL cost is disambiguated by
-  `provider` (non-billable) vs `completed_at` (unsettled) — a queued job is never shown as `$0.00`.
+  job is kept, including non-billable ones: `provider` / `os` / `vcpu` / `multiplier` describe any
+  classifiable runner (github-hosted included) and are NULL only when the labels name no recognized
+  runner; `billable_seconds` / `estimated_cost_usd` are NULL when the job isn't billable
+  (github-hosted, non-Linux, or unclassifiable) or unsettled (no elapsed yet). NULL cost is
+  disambiguated by `provider` (non-billable) vs `completed_at` (unsettled) — a queued job is never
+  shown as `$0.00`.
   Jobs whose run row is missing (the LEFT JOIN to `workflow_runs`) keep NULL attribution
   (`repo_owner` / `repo_name` / `pr_number`) rather than being dropped.
 - **Non-materialized:** computed at query time, so a rate change in `cost.py` propagates immediately
