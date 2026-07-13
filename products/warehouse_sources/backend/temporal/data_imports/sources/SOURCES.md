@@ -132,6 +132,7 @@ the row lists both.
 | datadog                 | HTTP                        | requests                                                        | ✅                          |
 | decagon                 | HTTP                        | requests                                                        | ✅                          |
 | deel                    | HTTP                        | requests                                                        | ✅                          |
+| deepgram                | HTTP                        | requests                                                        | ✅                          |
 | delighted               | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                | HTTP                        | requests                                                        | ✅                          |
 | ding_connect            | HTTP                        | requests                                                        | ✅                          |
@@ -508,7 +509,6 @@ doesn't conflict with concurrent PRs.
 - datorama
 - db2
 - dbt
-- deepgram
 - deno_deploy
 - deputy
 - digitalocean
