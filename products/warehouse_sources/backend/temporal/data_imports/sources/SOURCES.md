@@ -400,6 +400,7 @@ the row lists both.
 | vercel                  | HTTP                        | requests                                                        | ✅                          |
 | vitally                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                 | HTTP                        | requests                                                        | ✅                          |
+| windmill                | HTTP                        | requests                                                        | ✅                          |
 | woocommerce             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wordpress               | HTTP                        | requests                                                        | ✅                          |
 | workable                | HTTP                        | requests                                                        | ✅                          |
@@ -846,7 +847,6 @@ doesn't conflict with concurrent PRs.
 - watchmode
 - when_i_work
 - wikipedia_pageviews
-- windmill
 - workday
 - workflowmax
 - workramp
