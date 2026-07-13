@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     DataCatalogMetricApi,
+    DataCatalogMetricRunApi,
+    DataCatalogMetricRunRequestApi,
     DataCatalogMetricsListParams,
     PaginatedDataCatalogMetricListApi,
     PatchedDataCatalogMetricApi,
@@ -193,5 +195,26 @@ export const dataCatalogMetricsRefreshFromInsightCreate = async (
     return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsRefreshFromInsightCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDataCatalogMetricsRunCreateUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${name}/run/`
+}
+
+/**
+ * Execute the metric's definition and return the normalized result envelope.
+ */
+export const dataCatalogMetricsRunCreate = async (
+    projectId: string,
+    name: string,
+    dataCatalogMetricRunRequestApi?: DataCatalogMetricRunRequestApi,
+    options?: RequestInit
+): Promise<DataCatalogMetricRunApi> => {
+    return apiMutator<DataCatalogMetricRunApi>(getDataCatalogMetricsRunCreateUrl(projectId, name), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricRunRequestApi),
     })
 }

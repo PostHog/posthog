@@ -254,6 +254,57 @@ export interface PatchedDataCatalogMetricApi {
     readonly updated_at?: string | null
 }
 
+/**
+ * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
+ */
+export interface DataCatalogMetricRunRequestApi {
+    /** Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL. */
+    date_from?: string
+    /** Override the end of the query window. */
+    date_to?: string
+    /** Override the bucket interval (e.g. 'day', 'week'). */
+    interval?: string
+    /** Client-supplied id to correlate or cancel the run. */
+    query_id?: string
+}
+
+/**
+ * Normalized envelope returned by the metric-run endpoint.
+ */
+export interface DataCatalogMetricRunApi {
+    /** Lifecycle state of the metric that produced these results. */
+    status: string
+    /**
+     * Unit of the result, e.g. usd, percent.
+     * @nullable
+     */
+    unit: string | null
+    /**
+     * Query kind that was executed.
+     * @nullable
+     */
+    kind: string | null
+    /** The query results, for an executable metric. Null for a markdown metric. */
+    results: unknown
+    /**
+     * The compiled HogQL, when available.
+     * @nullable
+     */
+    compiled_query: string | null
+    /** Async query status, when the run is not blocking. */
+    query_status: unknown
+    /**
+     * Deep link to open the query in the app (SQL editor or insight).
+     * @nullable
+     */
+    posthog_url: string | null
+    /**
+     * For a markdown (agent-calculated) metric, the steps to follow to compute it. Null for an executable metric.
+     * @nullable
+     */
+    instructions: string | null
+}
+
 export type DataCatalogMetricsListParams = {
     /**
      * Number of results to return per page.

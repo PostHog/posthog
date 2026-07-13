@@ -18,10 +18,11 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
+from posthog.utils import refresh_requested_by_client
 
 from ..facade import api
 from ..facade.models import Metric
-from .serializers import MetricSerializer
+from .serializers import MetricRunRequestSerializer, MetricRunResponseSerializer, MetricSerializer
 
 
 class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -123,3 +124,24 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Re-snapshot the linked insight's current query into the definition."""
         metric = api.refresh_metric_from_insight(self.get_object(), cast(User, request.user))
         return Response(self.get_serializer(metric).data)
+
+    @action(
+        detail=True,
+        methods=["POST"],
+        required_scopes=["data_catalog:read", "query:read"],
+        request=MetricRunRequestSerializer,
+        responses={200: MetricRunResponseSerializer},
+    )
+    def run(self, request: Request, **kwargs) -> Response:
+        """Execute the metric's definition and return the normalized result envelope."""
+        envelope = api.run_metric(
+            team=self.team,
+            metric=self.get_object(),
+            user=cast(User, request.user),
+            refresh=refresh_requested_by_client(request),
+            date_from=request.data.get("date_from"),
+            date_to=request.data.get("date_to"),
+            interval=request.data.get("interval"),
+            query_id=request.data.get("query_id"),
+        )
+        return Response(envelope)

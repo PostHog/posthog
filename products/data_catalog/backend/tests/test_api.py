@@ -232,3 +232,35 @@ class TestMetricLifecycleAPI(APIBaseTest):
             self.url, {"name": "mrr", "description": "d"}, format="json", **self._bearer(["data_catalog:write"])
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_run_without_definition_returns_400(self) -> None:
+        self.client.post(self.url, {"name": "mrr", "description": "stub only"}, format="json")
+        response = self.client.post(f"{self.url}mrr/run/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_run_rejects_date_params_on_hogql_metric(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        response = self.client.post(f"{self.url}mrr/run/", {"date_from": "-7d"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_run_requires_query_read_scope(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        self.client.logout()
+        # data_catalog:read alone is not enough — run also touches the query engine.
+        response = self.client.post(f"{self.url}mrr/run/", **self._bearer(["data_catalog:read"]))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_run_markdown_metric_returns_instructions(self) -> None:
+        upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="activation",
+            description="d",
+            definition={"kind": "MarkdownDefinition", "markdown": "1. User did A then B within 7 days."},
+        )
+        response = self.client.post(f"{self.url}activation/run/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["kind"] == "MarkdownDefinition"
+        assert body["results"] is None
+        assert "A then B" in body["instructions"]

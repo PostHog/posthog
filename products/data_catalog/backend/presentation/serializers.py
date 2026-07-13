@@ -21,6 +21,45 @@ class MetricDefinitionField(serializers.JSONField):
     """A machine-readable query (HogQLQuery, TrendsQuery, event node, ...). Typed as a free object."""
 
 
+@extend_schema_field(OpenApiTypes.ANY)
+class _FreeJSONField(serializers.JSONField):
+    """A free-form JSON value (query results / query status shapes)."""
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricRun")
+class MetricRunResponseSerializer(serializers.Serializer):
+    """Normalized envelope returned by the metric-run endpoint."""
+
+    status = serializers.CharField(help_text="Lifecycle state of the metric that produced these results.")
+    unit = serializers.CharField(allow_null=True, help_text="Unit of the result, e.g. usd, percent.")
+    kind = serializers.CharField(allow_null=True, help_text="Query kind that was executed.")
+    results = _FreeJSONField(
+        allow_null=True, help_text="The query results, for an executable metric. Null for a markdown metric."
+    )
+    compiled_query = serializers.CharField(allow_null=True, help_text="The compiled HogQL, when available.")
+    query_status = _FreeJSONField(allow_null=True, help_text="Async query status, when the run is not blocking.")
+    posthog_url = serializers.CharField(
+        allow_null=True, help_text="Deep link to open the query in the app (SQL editor or insight)."
+    )
+    instructions = serializers.CharField(
+        allow_null=True,
+        help_text="For a markdown (agent-calculated) metric, the steps to follow to compute it. Null for an executable metric.",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricRunRequest")
+class MetricRunRequestSerializer(serializers.Serializer):
+    """Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name."""
+
+    date_from = serializers.CharField(
+        required=False,
+        help_text="Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL.",
+    )
+    date_to = serializers.CharField(required=False, help_text="Override the end of the query window.")
+    interval = serializers.CharField(required=False, help_text="Override the bucket interval (e.g. 'day', 'week').")
+    query_id = serializers.CharField(required=False, help_text="Client-supplied id to correlate or cancel the run.")
+
+
 @extend_schema_serializer(component_name="DataCatalogMetric")
 class MetricSerializer(serializers.ModelSerializer):
     definition = MetricDefinitionField(
