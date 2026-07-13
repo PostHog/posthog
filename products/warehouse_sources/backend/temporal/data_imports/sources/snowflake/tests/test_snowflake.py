@@ -828,6 +828,14 @@ class TestSnowflakeSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Unparseable private-key error should be non-retryable: {error_msg}"
 
+    def test_wrong_key_passphrase_is_non_retryable(self, source):
+        # cryptography raises this from load_pem_private_key when the encrypted key's passphrase
+        # is missing or wrong — retrying can't help until the user fixes the passphrase.
+        error_msg = "Incorrect password, could not decrypt key"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Wrong key passphrase error should be non-retryable: {error_msg}"
+
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -861,6 +869,20 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "PEM private key" in message
+        mock_capture.assert_not_called()
+
+    def test_wrong_key_passphrase_returns_friendly_message_without_capture(self, source):
+        decrypt_error = ValueError("Incorrect password, could not decrypt key")
+        with (
+            patch.object(source, "get_schemas", side_effect=decrypt_error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "passphrase" in message
         mock_capture.assert_not_called()
 
     def test_mfa_enrollment_required_returns_friendly_message_without_capture(self, source):
