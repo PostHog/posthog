@@ -20,6 +20,7 @@ import {
     getMetricTag,
     isProportionMetric,
     isWinning,
+    shouldOfferAxisSync,
 } from './utils'
 
 describe('getMetricTag', () => {
@@ -153,6 +154,51 @@ describe('calculateAxisRange', () => {
         },
     ])('$name', ({ results, expected }) => {
         expect(calculateAxisRange(results)).toBeCloseTo(expected, 10)
+    })
+})
+
+describe('shouldOfferAxisSync', () => {
+    const buildVariant = (credible_interval?: [number, number]): ExperimentVariantResult => ({
+        key: 'test',
+        sum: 100,
+        number_of_samples: 100,
+        sum_squares: 100,
+        significant: !!credible_interval,
+        method: 'bayesian',
+        credible_interval,
+        chance_to_win: 0.75,
+    })
+    const section = (...variants: ExperimentVariantResult[]): NewExperimentQueryResponse =>
+        ({ variant_results: variants }) as NewExperimentQueryResponse
+
+    type ResultList = (NewExperimentQueryResponse | undefined | null)[]
+    test.each<{ name: string; a: ResultList; b: ResultList; expected: boolean }>([
+        {
+            name: 'hidden when a section has bars but no intervals (only "not enough data" rows)',
+            a: [section(buildVariant([-0.1, 0.1]))],
+            b: [section(buildVariant())],
+            expected: false,
+        },
+        {
+            name: 'hidden when the other section is cold (undefined/null results)',
+            a: [section(buildVariant([-0.1, 0.1]))],
+            b: [undefined, null],
+            expected: false,
+        },
+        {
+            name: 'hidden when both sections scale to the same range',
+            a: [section(buildVariant([-0.2, 0.2]))],
+            b: [section(buildVariant([-0.2, 0.2]))],
+            expected: false,
+        },
+        {
+            name: 'shown when the sections scale to different ranges',
+            a: [section(buildVariant([-0.05, 0.05]))],
+            b: [section(buildVariant([-0.4, 0.4]))],
+            expected: true,
+        },
+    ])('$name', ({ a, b, expected }) => {
+        expect(shouldOfferAxisSync(a, b)).toBe(expected)
     })
 })
 

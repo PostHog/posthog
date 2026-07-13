@@ -60,6 +60,32 @@ export function calculateAxisRange(results: (NewExperimentQueryResponse | undefi
     return hasBreakdowns ? maxAbsValue + axisMargin : Math.min(maxAbsValue + axisMargin, MAX_AXIS_RANGE)
 }
 
+/**
+ * Whether a section renders at least one delta bar — any variant or breakdown result with an interval.
+ * A section showing only "not enough data yet" rows has nothing to scale, so it can't be compared.
+ */
+function sectionHasChartableResult(results: (NewExperimentQueryResponse | undefined | null)[]): boolean {
+    return results.some((result) => {
+        const variants: ExperimentVariantResult[] = [
+            ...(result?.variant_results ?? []),
+            ...(result?.breakdown_results?.flatMap((breakdown) => breakdown?.variants ?? []) ?? []),
+        ]
+        return variants.some((variant) => getVariantInterval(variant) !== null)
+    })
+}
+
+// Only show the toggle when both sections show metrics and the scale actually differs (hide for no-op)
+export function shouldOfferAxisSync(
+    sectionResults: (NewExperimentQueryResponse | undefined | null)[],
+    otherSectionResults: (NewExperimentQueryResponse | undefined | null)[]
+): boolean {
+    if (!sectionHasChartableResult(sectionResults) || !sectionHasChartableResult(otherSectionResults)) {
+        return false
+    }
+    const syncedRange = calculateAxisRange([...sectionResults, ...otherSectionResults])
+    return syncedRange !== calculateAxisRange(sectionResults) || syncedRange !== calculateAxisRange(otherSectionResults)
+}
+
 export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string => {
     if (metric.kind === NodeKind.ExperimentMetric) {
         return metric.metric_type.charAt(0).toUpperCase() + metric.metric_type.slice(1).toLowerCase()

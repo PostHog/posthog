@@ -22,7 +22,7 @@ import {
 } from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
 
-import { calculateAxisRange } from '../shared/utils'
+import { calculateAxisRange, shouldOfferAxisSync } from '../shared/utils'
 import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
@@ -80,10 +80,7 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
 
     const otherSectionResults = otherSectionMetricsWithResults.map(({ result }) => result)
     const axisRange = calculateAxisRange(metricAxesSynced ? [...results, ...otherSectionResults] : results)
-    // Syncing only changes anything once both sections have chartable results
-    const sectionHasChartableResult = (sectionResults: MetricWithResult['result'][]): boolean =>
-        sectionResults.some((result) => !!result?.variant_results?.length)
-    const showAxisSyncToggle = sectionHasChartableResult(results) && sectionHasChartableResult(otherSectionResults)
+    const showAxisSyncToggle = shouldOfferAxisSync(results, otherSectionResults)
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
     const hasSomeResults =
@@ -124,15 +121,18 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                         {metrics.length > 0 && (
                             <div className="mb-2 mt-4 justify-end flex items-center gap-2">
                                 {showAxisSyncToggle && (
-                                    <LemonSwitch
-                                        checked={metricAxesSynced}
-                                        onChange={setMetricAxesSynced}
-                                        size="xsmall"
-                                        bordered
-                                        label="Sync axes"
-                                        tooltip="Use the same scale for primary and secondary metric charts. Turn off to scale each section to its own results."
-                                        data-attr="experiment-sync-metric-axes"
-                                    />
+                                    <Tooltip title="Keep primary and secondary metric charts on the same scale so their effect sizes are comparable.">
+                                        <div className="flex items-center">
+                                            <LemonSwitch
+                                                checked={metricAxesSynced}
+                                                onChange={setMetricAxesSynced}
+                                                size="xsmall"
+                                                bordered
+                                                label="Sync axes"
+                                                data-attr="experiment-sync-metric-axes"
+                                            />
+                                        </div>
+                                    </Tooltip>
                                 )}
                                 <AddMetricButton
                                     metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
