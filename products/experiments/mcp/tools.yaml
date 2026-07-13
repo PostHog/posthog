@@ -562,8 +562,6 @@ tools:
                 cast: string-int
         ui_app: experiment-list
         response:
-            # Keep list rows to summary fields. Project the feature flag down to identity plus variant
-            # split only; full filter groups (which can hold targeting/PII values) stay in experiment-get.
             include:
                 - id
                 - name
