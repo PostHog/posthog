@@ -9,11 +9,6 @@
             "description": "Whether stamphog actively reviews pull requests for this repo.",
             "type": "boolean"
         },
-        "installation_id": {
-            "description": "Provider app installation ID that authorizes API calls for this repo.",
-            "maxLength": 64,
-            "type": "string"
-        },
         "provider": {
             "default": "github",
             "description": "SCM provider this config talks to. Defaults to 'github'.",
@@ -26,6 +21,6 @@
             "type": "string"
         }
     },
-    "required": ["repository", "installation_id"],
+    "required": ["repository"],
     "type": "object"
 }

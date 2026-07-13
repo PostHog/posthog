@@ -13,11 +13,6 @@
             "description": "A UUID string identifying this stamphog repo config.",
             "type": "string"
         },
-        "installation_id": {
-            "description": "Provider app installation ID that authorizes API calls for this repo.",
-            "maxLength": 64,
-            "type": "string"
-        },
         "provider": {
             "description": "SCM provider this config talks to. Defaults to 'github'.",
             "maxLength": 32,
