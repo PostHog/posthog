@@ -505,7 +505,9 @@ describe('cohortEditLogic', () => {
                         id: cohortId,
                         name: 'Static Cohort',
                         is_static: true,
-                        filters: { properties: { type: 'AND', values: [] } },
+                        // Non-empty filter values so `inferStaticCohortMode` resolves to 'criteria' —
+                        // an empty `values` array is read as the 'people' (upload/manual) mode instead.
+                        filters: mockCohort.filters,
                         version: 1,
                         pending_version: 1,
                         is_calculating: false,
@@ -527,8 +529,8 @@ describe('cohortEditLogic', () => {
 
             // The locked controls are read-only text, not interactive select buttons (the dead click):
             // a LemonSelect would render the data-attr onto a <button>
-            expect(typeContainer.tagName).not.toBe('BUTTON')
-            expect(populateFromContainer.tagName).not.toBe('BUTTON')
+            expect(typeContainer?.tagName).not.toBe('BUTTON')
+            expect(populateFromContainer?.tagName).not.toBe('BUTTON')
         })
     })
 })
