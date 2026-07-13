@@ -53,12 +53,41 @@ DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 # Partitioned incremental merges run per CHUNK of partition values (a static
 # `IN (...)` list prunes exactly like the per-partition `= literal` it replaced,
 # verified via num_target_files_skipped_during_scan on deltalake 1.4.0), so a batch
-# spanning P partitions pays the planning/commit overhead ceil(P/chunk) times instead
-# of P times — benchmark: 200 partitions over a 1,000-file table went from 200
-# merges/37.7s (chunk=1, the old per-partition behavior) to 8 merges/0.9s (chunk=25).
-# Bounded, not unlimited, because each merge scans (and may rewrite) every file of
-# every partition in its chunk — peak memory grows with chunk size.
-MERGE_PARTITION_CHUNK_SIZE = 25
+# spanning P partitions pays the planning/commit overhead once per chunk instead of
+# P times — benchmark: 200 partitions over a 1,000-file table went from 200
+# merges/37.7s (the old per-partition behavior) to 0.9s at 8 merges.
+#
+# Chunks are packed by the partitions' on-disk size, not just count: a merge's peak
+# memory tracks the decompressed rewrite working set of the partitions in its chunk
+# (measured ~6x parquet size for one ~200 MB partition, and co-resident when two big
+# partitions share a chunk), so the byte cap is the memory bound. A partition bigger
+# than the cap gets a chunk of its own — exactly the old per-partition behavior. The
+# count cap only bounds predicate size and planner/writer fan-out; it carries no
+# memory safety.
+MERGE_PARTITION_CHUNK_SIZE = 100
+MERGE_CHUNK_MAX_TARGET_BYTES = 512 * 1024 * 1024
+
+
+def _pack_partition_chunks(partition_values: list[Any], sizes_on_disk: dict[str, int]) -> list[list[Any]]:
+    """Greedily pack partition values into merge chunks, capped by cumulative on-disk
+    bytes and by count. Unknown partitions (no files yet, e.g. brand-new values that
+    only insert) count as 0 bytes."""
+    chunks: list[list[Any]] = []
+    current: list[Any] = []
+    current_bytes = 0
+    for value in partition_values:
+        size = sizes_on_disk.get(str(value), 0)
+        if current and (
+            len(current) >= MERGE_PARTITION_CHUNK_SIZE or current_bytes + size > MERGE_CHUNK_MAX_TARGET_BYTES
+        ):
+            chunks.append(current)
+            current = []
+            current_bytes = 0
+        current.append(value)
+        current_bytes += size
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 async def _purge_s3_prefix(s3: Any, uri: str) -> None:
@@ -340,6 +369,30 @@ class DeltaTableHelper:
 
         return await asyncio.to_thread(delta_table.file_uris)
 
+    async def _partition_sizes_on_disk(self, delta_table: deltalake.DeltaTable) -> dict[str, int]:
+        """Sum of parquet bytes per partition value, from the delta log's add actions.
+        Fail-open to {} — packing then degrades to the count cap, never blocks the merge."""
+
+        def _sizes() -> dict[str, int]:
+            adds = pa.table(delta_table.get_add_actions(flatten=True))
+            partition_column = f"partition.{PARTITION_KEY}"
+            if partition_column not in adds.column_names:
+                return {}
+            grouped = adds.group_by(partition_column).aggregate([("size_bytes", "sum")])
+            return {
+                str(value): size
+                for value, size in zip(grouped[partition_column].to_pylist(), grouped["size_bytes_sum"].to_pylist())
+                if value is not None and size is not None
+            }
+
+        try:
+            return await asyncio.to_thread(_sizes)
+        except Exception:
+            await self._logger.awarning(
+                "write_to_deltalake: failed to read per-partition sizes; chunking by count only"
+            )
+            return {}
+
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
     ) -> pa.Table:
@@ -433,21 +486,19 @@ class DeltaTableHelper:
                 # values with streamed_exec=True for optimised merging. The static IN list
                 # prunes like the single-partition literal did, at 1/chunk the merge count.
                 unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
-                chunk_starts = range(0, len(unique_partitions), MERGE_PARTITION_CHUNK_SIZE)
+                partition_sizes = await self._partition_sizes_on_disk(existing_delta_table)
+                partition_chunks = _pack_partition_chunks(unique_partitions.to_pylist(), partition_sizes)
 
                 await self._logger.adebug(
-                    f"Running {len(chunk_starts)} optimised merges over {len(unique_partitions)} partitions"
+                    f"Running {len(partition_chunks)} optimised merges over {len(unique_partitions)} partitions"
                 )
 
                 # Only tag the FINAL chunk merge with `commit_properties`. Intermediate
                 # merges must remain untagged so a crash mid-loop doesn't leave behind a
                 # tagged commit that would cause `has_batch_been_committed` to skip the
                 # remaining chunks on Kafka redelivery (which would lose data).
-                last_chunk_index = len(chunk_starts) - 1
-                for i, start in enumerate(chunk_starts):
-                    partition_chunk = unique_partitions.slice(start, MERGE_PARTITION_CHUNK_SIZE)
-                    partition_values = partition_chunk.to_pylist()
-
+                last_chunk_index = len(partition_chunks) - 1
+                for i, partition_values in enumerate(partition_chunks):
                     chunk_predicate_ops = predicate_ops.copy()
                     if len(partition_values) == 1:
                         # Not just style: e2e pins assert this exact legacy `=` shape, and it
@@ -458,10 +509,15 @@ class DeltaTableHelper:
                         chunk_predicate_ops.append(f"target.{PARTITION_KEY} IN ({in_list})")
                     predicate = " AND ".join(chunk_predicate_ops)
 
-                    filtered_table = data.filter(pc.is_in(data[PARTITION_KEY], value_set=partition_chunk))
+                    filtered_table = data.filter(
+                        pc.is_in(
+                            data[PARTITION_KEY],
+                            value_set=pa.array(partition_values, type=unique_partitions.type),
+                        )
+                    )
 
                     await self._logger.adebug(
-                        f"Merging partition chunk {i + 1}/{len(chunk_starts)} "
+                        f"Merging partition chunk {i + 1}/{len(partition_chunks)} "
                         f"({len(partition_values)} partitions) with predicate={predicate}"
                     )
 

@@ -908,6 +908,38 @@ def _seed_partitioned_table(delta_path: str, partitions: list[str]) -> deltalake
     return deltalake.DeltaTable(delta_path)
 
 
+class TestPackPartitionChunks:
+    @pytest.mark.parametrize(
+        ("sizes", "values", "expected"),
+        [
+            # no size info -> count cap only
+            ({}, ["a", "b", "c", "d"], [["a", "b", "c"], ["d"]]),
+            # byte cap keeps two big partitions out of one chunk; small tail packs on
+            ({"a": 400, "b": 400}, ["a", "b", "c"], [["a"], ["b", "c"]]),
+            # a partition bigger than the cap merges alone: exactly the old behavior
+            ({"a": 900, "b": 900}, ["a", "b"], [["a"], ["b"]]),
+            # unknown (new, fileless) partitions cost 0 and pack together
+            ({"a": 500}, ["a", "new1", "new2"], [["a", "new1", "new2"]]),
+        ],
+        ids=["count_cap", "byte_cap_splits", "oversized_solo", "new_partitions_free"],
+    )
+    def test_packing(
+        self,
+        sizes: dict[str, int],
+        values: list[str],
+        expected: list[list[str]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline import (
+            delta_table_helper as dth_module,
+        )
+
+        monkeypatch.setattr(dth_module, "MERGE_PARTITION_CHUNK_SIZE", 3)
+        monkeypatch.setattr(dth_module, "MERGE_CHUNK_MAX_TARGET_BYTES", 500)
+
+        assert dth_module._pack_partition_chunks(values, sizes) == expected
+
+
 class TestChunkedPartitionMerges:
     @pytest.mark.parametrize(
         "partition_count",
@@ -1010,3 +1042,38 @@ class TestChunkedPartitionMerges:
         # has_batch_been_committed skip the remaining chunks on redelivery.
         tagged = [c for c in result.history(limit=10) if c.get("run_uuid") == "run-1"]
         assert len(tagged) == 1
+
+    @pytest.mark.asyncio
+    async def test_byte_cap_isolates_partitions_end_to_end(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline import (
+            delta_table_helper as dth_module,
+        )
+
+        delta_path = str(tmp_path / "table")
+        partitions = ["a", "b", "c"]
+        version_before = _seed_partitioned_table(delta_path, partitions).version()
+
+        # Every seeded partition has files, so a 1-byte cap forces one merge per
+        # partition. Canary for the size-reading wiring: if get_add_actions parsing
+        # silently breaks (e.g. a deltalake upgrade renames the partition column),
+        # sizes come back empty, everything packs into one chunk, and this fails.
+        monkeypatch.setattr(dth_module, "MERGE_CHUNK_MAX_TARGET_BYTES", 1)
+
+        batch = pa.table(
+            {
+                "id": pa.array([0, 1, 2], type=pa.int64()),
+                "value": pa.array(["new"] * 3),
+                PARTITION_KEY: pa.array(partitions),
+            }
+        )
+
+        helper = _make_local_helper(delta_path)
+        result = await helper.write_to_deltalake(
+            data=batch, write_type="incremental", should_overwrite_table=False, primary_keys=["id"]
+        )
+
+        assert result.version() - version_before == len(partitions)
+        final = result.to_pyarrow_table()
+        assert final["value"].to_pylist() == ["new"] * 3
