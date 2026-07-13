@@ -48,13 +48,13 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
                             key: 'fix',
                             label: 'Fix prompt',
                             icon: <IconWrench />,
-                            buildPrompt: () => buildFixPrompt(stacktraceText, issue.id),
+                            buildPrompt: () => buildFixPrompt(stacktraceText, issue.fingerprint ?? issue.id),
                         },
                         {
                             key: 'explain',
                             label: 'Explain prompt',
                             icon: <IconInfo />,
-                            buildPrompt: () => buildExplainPrompt(stacktraceText, issue.id),
+                            buildPrompt: () => buildExplainPrompt(stacktraceText, issue.fingerprint ?? issue.id),
                         },
                         {
                             key: 'stacktrace',

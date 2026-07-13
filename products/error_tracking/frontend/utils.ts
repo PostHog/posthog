@@ -7,12 +7,19 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringDateRegex } from 'lib/utils/dateFilters'
 import { Params } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 export const ERROR_TRACKING_LISTING_RESOLUTION = 20
 export const ERROR_TRACKING_DETAILS_RESOLUTION = 50
+
+// Canonical, shareable absolute URL for an issue. Pass a fingerprint when available so the
+// link matches the fingerprint-based routing; falls back to the issue id.
+export function issueAbsoluteUrl(identifier: string): string {
+    return urls.absolute(urls.currentProject(urls.errorTrackingIssue(identifier)))
+}
 
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 

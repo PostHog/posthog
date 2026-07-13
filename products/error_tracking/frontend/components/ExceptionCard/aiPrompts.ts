@@ -1,10 +1,6 @@
-import { urls } from 'scenes/urls'
+import { issueAbsoluteUrl } from 'products/error_tracking/frontend/utils'
 
-function issueUrl(issueId: string): string {
-    return window.location.origin + urls.errorTrackingIssue(issueId)
-}
-
-export function buildFixPrompt(stacktraceText: string, issueId: string): string {
+export function buildFixPrompt(stacktraceText: string, issueIdentifier: string): string {
     return `Please help me fix the root cause of this error. Here's the stack trace:
 
 \`\`\`
@@ -24,11 +20,11 @@ The final output of your efforts should be:
 - An implemented fix for the issue applied directly to the code
 - A brief explanation of what was changed and why
 
-PostHog issue: ${issueUrl(issueId)}
+PostHog issue: ${issueAbsoluteUrl(issueIdentifier)}
 `
 }
 
-export function buildExplainPrompt(stacktraceText: string, issueId: string): string {
+export function buildExplainPrompt(stacktraceText: string, issueIdentifier: string): string {
     return `Please help me understand this error in depth. Here's the stack trace:
 
 \`\`\`
@@ -49,6 +45,6 @@ The final output should be:
 - A walkthrough of the relevant code paths
 - A detailed summary of exactly how the issue occurs
 
-PostHog issue: ${issueUrl(issueId)}
+PostHog issue: ${issueAbsoluteUrl(issueIdentifier)}
 `
 }

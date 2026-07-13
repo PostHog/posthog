@@ -109,9 +109,8 @@ tools:
                `Issue reopened: {event.properties.name}`.
 
                For `$error_tracking_issue_spiking` (Slack), use the same shape but swap the header to
-               `📈 Issue spiking`, use
-               `encodeURLComponent(event.properties.fingerprint ? event.properties.fingerprint : event.distinct_id)`
-               as the path identifier, omit the `timestamp` parameter because spiking events do not carry an exception
+               `📈 Issue spiking`, use `encodeURLComponent(event.properties.fingerprint)` as the path
+               identifier, omit the `timestamp` parameter because spiking events do not carry an exception
                timestamp, and add a context line referencing `{event.properties.current_bucket_value}` and
                `{event.properties.computed_baseline}`. The exact block layout is in the
                `authoring-error-tracking-alerts` skill references.
