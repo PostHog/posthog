@@ -249,9 +249,10 @@ def validate_credentials(
 
     url = f"{connection.base_url}/api/v1/stable/tenants/{connection.tenant_id}/events/keys"
     try:
-        # Redact the token from captured samples/logs, and never follow a redirect off the
-        # validated host (both defense-in-depth alongside the host check above).
-        response = make_tracked_session(redact_values=(api_token,), allow_redirects=False).get(
+        # Redact the token, never follow a redirect off the validated host, and keep the response
+        # out of HTTP sample capture — Hatchet payloads can carry opaque secrets the name-based
+        # scrubber won't recognise (all defense-in-depth alongside the host check above).
+        response = make_tracked_session(redact_values=(api_token,), allow_redirects=False, capture=False).get(
             url, headers=_get_headers(api_token), timeout=10
         )
     except requests.exceptions.RequestException as e:
@@ -307,8 +308,10 @@ def get_rows(
         raise HatchetHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
 
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # Redact the token from captured samples/logs and never follow a redirect off the validated host.
-    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
+    # Redact the token and never follow a redirect off the validated host. Keep response bodies out
+    # of HTTP sample capture — workflow inputs/outputs and event payloads are opaque and can carry
+    # secrets the name-based scrubber won't recognise.
+    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False, capture=False)
 
     params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
     path = config.path.format(tenant=connection.tenant_id)

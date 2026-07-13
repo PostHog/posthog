@@ -293,7 +293,8 @@ class TestGetRows:
 
     def test_session_disables_redirects_and_redacts_token(self):
         # The bearer token is sent to a user-controlled host, so the session must never follow a
-        # redirect off it and must redact the token from captured samples/logs.
+        # redirect off it and must redact the token from captured samples/logs. Response bodies
+        # carry opaque workflow payloads, so they must also be excluded from HTTP sample capture.
         manager = FakeManager()
         page = {"rows": [_row("a")], "pagination": {"current_page": 1, "num_pages": 1}}
 
@@ -310,6 +311,7 @@ class TestGetRows:
 
         assert session.call_args.kwargs["allow_redirects"] is False
         assert session.call_args.kwargs["redact_values"] == ("tok",)
+        assert session.call_args.kwargs["capture"] is False
 
 
 class TestValidateCredentials:
