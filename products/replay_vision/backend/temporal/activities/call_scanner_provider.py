@@ -13,6 +13,8 @@ import functools
 from typing import Any, TypeVar
 from uuid import UUID
 
+from django.db import close_old_connections
+
 import structlog
 from asgiref.sync import sync_to_async
 from google.genai import (
@@ -147,6 +149,9 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
+    # Long-lived Temporal workers never hit Django's request cycle, so a connection Postgres already
+    # closed (idle reap, failover) lingers in the pool until the next query fails. Drop it first.
+    close_old_connections()
     raw = (
         ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
         .values_list("scanner_snapshot", flat=True)
@@ -160,6 +165,7 @@ def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
 
 
 def _load_team_name(team_id: int) -> str:
+    close_old_connections()  # evict a stale pooled connection before querying (see _load_snapshot)
     try:
         return Team.objects.values_list("name", flat=True).get(pk=team_id)
     except Team.DoesNotExist:
