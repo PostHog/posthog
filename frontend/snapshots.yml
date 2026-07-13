@@ -636,6 +636,10 @@ snapshots:
         hash: v1.k794b7964.2c24142bf0dcb6fa211ecf90a0376170006861061546ffc5fd66b7fe796dce4c.HBgbgdLit0-gs8WaX4skHdbK16P-EL0XVxF75QJLEmc
     components-hogcharts-combochart--bar-and-line--light:
         hash: v1.k794b7964.36ffba656428dfb67a84646e127df5c8af170c42655614b65c030c795464227c.dT9RoIihAlR2IYyBkbkyF9hW7-O3w72AftC8QTPfLNs
+    components-hogcharts-combochart--diverging-stacked-bars-and-line--dark:
+        hash: v1.k794b7964.c0dc1d567070aa2ead68125067b406f4ad704aecf64a18a54f2e5a90d37e1b82.xZcSWaw-21hRuL_yN4t3MYYM0E7wViaBje1ne2KjN7g
+    components-hogcharts-combochart--diverging-stacked-bars-and-line--light:
+        hash: v1.k794b7964.f19bec8c6396cf02562cd1b1f407b44d64bb96522cee356334762d2a30488bba.VanTOpQNNWWPSsljjEaUf_Leu1--iifOrZjHc1H8DBw
     components-hogcharts-combochart--dual-y-axis-bar-and-line--dark:
         hash: v1.k794b7964.56a5e9cb9c602bc7340d990d2bb50ecedb0d2e12c261f911cad8d9434265fa38.twmudtXz0pbGRtgJS9NNL8PSURZCaHwumhcH_SToYFc
     components-hogcharts-combochart--dual-y-axis-bar-and-line--light:

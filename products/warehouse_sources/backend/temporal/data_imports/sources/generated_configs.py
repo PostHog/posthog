@@ -224,7 +224,7 @@ class AlgoliaSourceConfig(config.Config):
 
 @config.config
 class AlgunaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -487,7 +487,7 @@ class BitlySourceConfig(config.Config):
 
 @config.config
 class BlandAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1187,7 +1187,7 @@ class ElasticsearchSourceConfig(config.Config):
 
 @config.config
 class ElevenLabsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1668,7 +1668,8 @@ class HarnessSourceConfig(config.Config):
 
 @config.config
 class HarveySourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "au"] = config.value(default="us")
 
 
 @config.config
@@ -2237,7 +2238,9 @@ class MatomoSourceConfig(config.Config):
 
 @config.config
 class MaxioSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -3433,6 +3436,11 @@ class SimplesatSourceConfig(config.Config):
 
 
 @config.config
+class SingularSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class SkyvernSourceConfig(config.Config):
     pass
 
@@ -3612,6 +3620,11 @@ class SurvicateSourceConfig(config.Config):
 @config.config
 class SvixSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class SwonkieSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -4029,7 +4042,9 @@ class WrikeSourceConfig(config.Config):
 
 @config.config
 class WritesonicSourceConfig(config.Config):
-    pass
+    api_key: str
+    site_url: str
+    project_id: str | None = None
 
 
 @config.config
@@ -4827,6 +4842,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SIMFIN: SimFinSourceConfig,
         ExternalDataSourceType.SIMPLECAST: SimpleCastSourceConfig,
         ExternalDataSourceType.SIMPLESAT: SimplesatSourceConfig,
+        ExternalDataSourceType.SINGULAR: SingularSourceConfig,
         ExternalDataSourceType.SKYVERN: SkyvernSourceConfig,
         ExternalDataSourceType.SLACK: SlackSourceConfig,
         ExternalDataSourceType.SLASH: SlashSourceConfig,
@@ -4859,6 +4875,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SURVEYSPARROW: SurveySparrowSourceConfig,
         ExternalDataSourceType.SURVICATE: SurvicateSourceConfig,
         ExternalDataSourceType.SVIX: SvixSourceConfig,
+        ExternalDataSourceType.SWONKIE: SwonkieSourceConfig,
         ExternalDataSourceType.SYNTHESIA: SynthesiaSourceConfig,
         ExternalDataSourceType.SYSTEME: SystemeSourceConfig,
         ExternalDataSourceType.TMDB: TMDbSourceConfig,

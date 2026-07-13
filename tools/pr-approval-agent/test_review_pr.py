@@ -62,7 +62,27 @@ def test_summarize_assurance_counts_threads_not_flattened_replies() -> None:
     assert pipeline._summarize_assurance()["unresolved_threads"] == 1
 
 
+def test_summarize_assurance_excludes_author_self_review() -> None:
+    # An author replying within their own PR records a COMMENTED review at head.
+    # That self-review must not read as a vouch — otherwise the review body and
+    # the trusted assurance block both claim "<author> reviewed the current head."
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")  # _fake_pr author is "alice"
+    pr.reviews = [
+        {"user": "alice", "state": "COMMENTED", "is_current_head": True, "commit_id": "abc123"},
+        {"user": "bob", "state": "COMMENTED", "is_current_head": True, "commit_id": "abc123"},
+    ]
+    pipeline.pr = pr
+
+    assurance = pipeline._summarize_assurance()
+    assert assurance["head_commented_users"] == ["bob"]
+
+
 def test_to_dict_includes_reviewed_base_and_head_shas() -> None:
+    """The post-review workflow step reads base_sha/head_sha from the JSON output
+    to lock the resulting GitHub review to the sha the LLM actually saw and to
+    skip the approval if the PR's base or head changed after review — see
+    `.github/workflows/pr-approval-agent.yml`'s "Post review" step."""
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="07dfeff14d95be1247e4c8c1065fd958a367389e")
     pipeline.pr.base_sha = "b5412a26ec97b9d97367c7356cfe9d9b836ae3cb"
