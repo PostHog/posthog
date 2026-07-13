@@ -27,7 +27,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
-from products.engineering_analytics.backend.logic.views import pull_requests, workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views import job_costs, pull_requests, workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
@@ -77,6 +77,25 @@ class CuratedGitHubSource:
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
+
+    def job_cost_source(self) -> str | None:
+        """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``
+        exposes, but with the endpoint-only run pass-through columns (``run_started_at`` /
+        ``run_head_branch``). None when the jobs table isn't synced, exactly like ``jobs_source``.
+
+        This is the single cost-computation path: ``provider`` / ``os`` / ``vcpu`` / ``billable_seconds``
+        / ``estimated_cost_usd`` are rendered from ``logic.cost`` in ClickHouse, so every endpoint cost
+        query aggregates the same per-job figures the exposed view (and the parity test) do — there is
+        no separate Python cost rollup to drift.
+        """
+        if not self._tables.workflow_jobs:
+            return None
+        query = job_costs.build_query(
+            jobs_table=self._tables.workflow_jobs,
+            runs_table=self._tables.workflow_runs,
+            include_run_columns=True,
+        )
+        return f"({query})"
 
     def runs_cte(self) -> str:
         """CTE materializing the curated workflow-runs source once.

@@ -87,6 +87,7 @@
         "@posthog/products-conversations": "workspace:*",
         "@posthog/products-customer-analytics": "workspace:*",
         "@posthog/products-dashboards": "workspace:*",
+        "@posthog/products-data-catalog": "workspace:*",
         "@posthog/products-data-modeling": "workspace:*",
         "@posthog/products-data-tools": "workspace:*",
         "@posthog/products-data-warehouse": "workspace:*",

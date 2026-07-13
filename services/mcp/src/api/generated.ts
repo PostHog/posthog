@@ -14675,17 +14675,15 @@ export namespace Schemas {
     }
 
     /**
-     * * `web` - web
-     * * `api` - api
-     * * `mcp` - mcp
+     * * `user` - user
+     * * `ai_generated` - ai_generated
      */
-    export type CreatedViaEnum = typeof CreatedViaEnum[keyof typeof CreatedViaEnum];
+    export type CreatedSourceEnum = typeof CreatedSourceEnum[keyof typeof CreatedSourceEnum];
 
 
-    export const CreatedViaEnum = {
-      Web: 'web',
-      Api: 'api',
-      Mcp: 'mcp',
+    export const CreatedSourceEnum = {
+      User: 'user',
+      AiGenerated: 'ai_generated',
     } as const;
 
     /**
@@ -15516,6 +15514,92 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+    }
+
+    /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    export type DataCatalogMetricDefinition = { [key: string]: unknown } | null;
+
+    export interface DataCatalogMetric {
+      readonly id: string;
+      /**
+         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name: string;
+      /**
+         * Human-friendly label. Mutable, unlike name.
+         * @maxLength 255
+         */
+      display_name?: string;
+      /** What the metric means and how to interpret it. */
+      description: string;
+      /**
+         * Unit of the result, e.g. usd, percent, cents.
+         * @maxLength 64
+         */
+      unit?: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+         * @nullable
+         */
+      definition?: DataCatalogMetricDefinition;
+      /**
+         * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+         * @nullable
+         */
+      readonly definition_kind: string | null;
+      /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+      readonly referenced_table_names: unknown;
+      /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+      readonly status: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+      readonly is_drifted: boolean;
+      /** @nullable */
+      readonly approved_at: string | null;
+      /** User who approved this metric as canonical, or null. */
+      readonly approved_by: UserBasic | null;
+      /**
+         * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+         * @maxLength 12
+         * @nullable
+         */
+      source_insight_short_id?: string | null;
+      /**
+         * When the metric was last run (30-minute throttle).
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the metric, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the proposal, 0-1.
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this metric. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
     }
 
     export interface DataColorTheme {
@@ -16976,6 +17060,8 @@ export namespace Schemas {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -17735,6 +17821,8 @@ export namespace Schemas {
       TerraApi: 'TerraApi',
       TriggerDev: 'TriggerDev',
       Turso: 'Turso',
+      Singular: 'Singular',
+      Swonkie: 'Swonkie',
       TwelveLabs: 'TwelveLabs',
       Twenty: 'Twenty',
       Unstructured: 'Unstructured',
@@ -18508,6 +18596,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -20296,6 +20386,7 @@ export namespace Schemas {
      * * `postgres` - postgres
      * * `mysql` - mysql
      * * `snowflake` - snowflake
+     * * `redshift` - redshift
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -20305,6 +20396,7 @@ export namespace Schemas {
       Postgres: 'postgres',
       Mysql: 'mysql',
       Snowflake: 'snowflake',
+      Redshift: 'redshift',
     } as const;
 
     /**
@@ -21852,7 +21944,7 @@ export namespace Schemas {
       /** @maxLength 100 */
       model: string;
       /**
-         * Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.
+         * Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.
          * @nullable
          */
       provider_key_id?: string | null;
@@ -21902,6 +21994,7 @@ export namespace Schemas {
       target?: EvaluationTargetEnum;
       /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
       target_config?: EvaluationTargetConfig;
+      /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
@@ -24205,7 +24298,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine: EngineEnum | null;
     }
 
@@ -24213,6 +24307,20 @@ export namespace Schemas {
      * Connection credentials and a 'schemas' array. Keys depend on source_type.
      */
     export type ExternalDataSourceCreatePayload = { [key: string]: unknown };
+
+    /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     */
+    export type ExternalDataSourceCreateCreatedViaEnum = typeof ExternalDataSourceCreateCreatedViaEnum[keyof typeof ExternalDataSourceCreateCreatedViaEnum];
+
+
+    export const ExternalDataSourceCreateCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+    } as const;
 
     export interface ExternalDataSourceCreate {
       /** The source type (e.g. 'Postgres', 'Stripe').
@@ -24962,6 +25070,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -24991,12 +25101,12 @@ export namespace Schemas {
        * * `warehouse` - warehouse
        * * `direct` - direct */
       access_method?: AccessMethodEnum;
-      /** Where the request came from
+      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: ExternalDataSourceCreateCreatedViaEnum;
       /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
     }
@@ -25036,6 +25146,22 @@ export namespace Schemas {
     export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
     /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     */
+    export type ExternalDataSourceSerializersCreatedViaEnum = typeof ExternalDataSourceSerializersCreatedViaEnum[keyof typeof ExternalDataSourceSerializersCreatedViaEnum];
+
+
+    export const ExternalDataSourceSerializersCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+      Wizard: 'wizard',
+    } as const;
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface ExternalDataSourceSerializers {
@@ -25043,12 +25169,13 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
-       * * `mcp` - mcp */
-      created_via?: CreatedViaEnum | null;
+       * * `mcp` - mcp
+       * * `wizard` - wizard */
+      created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -25073,7 +25200,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -30047,6 +30175,17 @@ export namespace Schemas {
       identifier: string;
     }
 
+    export interface JiraIssueSignalExtra {
+      key: string;
+      url: string | null;
+      status: string | null;
+      priority: string | null;
+      assignee: string | null;
+      labels: string[];
+      created: string | null;
+      updated: string | null;
+    }
+
     export interface JiraProject {
       /** Jira project ID. */
       id: string;
@@ -32678,6 +32817,8 @@ export namespace Schemas {
       read: boolean;
       /** @nullable */
       read_at: string | null;
+      /** Whether this notification opted in to being archived (dismissed) by the recipient. When false, the notification only supports read/unread. */
+      archivable: boolean;
       target_type: string;
       target_id: string;
       /** @nullable */
@@ -33189,50 +33330,12 @@ export namespace Schemas {
       sso_enforcement?: string;
       /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
       readonly has_saml: boolean;
-      /**
-         * SAML IdP entity ID (issuer).
-         * @maxLength 512
-         * @nullable
-         */
-      saml_entity_id?: string | null;
-      /**
-         * SAML single sign-on (ACS) URL.
-         * @maxLength 512
-         * @nullable
-         */
-      saml_acs_url?: string | null;
-      /**
-         * SAML IdP X.509 signing certificate (PEM).
-         * @nullable
-         */
-      saml_x509_cert?: string | null;
       /** Returns whether SCIM is configured and enabled for this domain. */
       readonly has_scim: boolean;
-      /** Whether SCIM provisioning is enabled for this domain. */
-      scim_enabled?: boolean;
       /** @nullable */
       readonly scim_base_url: string | null;
-      /** @nullable */
-      readonly scim_bearer_token: string | null;
       /** Returns whether ID-JAG (XAA) is configured for this domain. */
       readonly has_id_jag: boolean;
-      /**
-         * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-         * @maxLength 512
-         * @nullable
-         */
-      id_jag_issuer_url?: string | null;
-      /**
-         * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-         * @maxLength 512
-         * @nullable
-         */
-      id_jag_jwks_url?: string | null;
-      /**
-         * Allowed ID-JAG client IDs. Empty list allows any client_id.
-         * @items.maxLength 256
-         */
-      id_jag_allowed_clients?: string[];
       /**
          * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
          * @nullable
@@ -33952,6 +34055,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DashboardTemplate[];
+    }
+
+    export interface PaginatedDataCatalogMetricList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataCatalogMetric[];
     }
 
     export interface PaginatedDataColorThemeList {
@@ -36086,6 +36198,7 @@ export namespace Schemas {
      * * `llm_analytics` - LLM analytics
      * * `github` - GitHub
      * * `linear` - Linear
+     * * `jira` - Jira
      * * `zendesk` - Zendesk
      * * `conversations` - Conversations
      * * `error_tracking` - Error tracking
@@ -36104,6 +36217,7 @@ export namespace Schemas {
       LlmAnalytics: 'llm_analytics',
       Github: 'github',
       Linear: 'linear',
+      Jira: 'jira',
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
@@ -39365,6 +39479,92 @@ export namespace Schemas {
       readonly non_portable_references?: NonPortableReferences;
     }
 
+    /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    export type PatchedDataCatalogMetricDefinition = { [key: string]: unknown } | null;
+
+    export interface PatchedDataCatalogMetric {
+      readonly id?: string;
+      /**
+         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name?: string;
+      /**
+         * Human-friendly label. Mutable, unlike name.
+         * @maxLength 255
+         */
+      display_name?: string;
+      /** What the metric means and how to interpret it. */
+      description?: string;
+      /**
+         * Unit of the result, e.g. usd, percent, cents.
+         * @maxLength 64
+         */
+      unit?: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner?: string | null;
+      /**
+         * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+         * @nullable
+         */
+      definition?: PatchedDataCatalogMetricDefinition;
+      /**
+         * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+         * @nullable
+         */
+      readonly definition_kind?: string | null;
+      /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+      readonly referenced_table_names?: unknown;
+      /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+      readonly status?: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+      readonly is_drifted?: boolean;
+      /** @nullable */
+      readonly approved_at?: string | null;
+      /** User who approved this metric as canonical, or null. */
+      readonly approved_by?: UserBasic | null;
+      /**
+         * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+         * @maxLength 12
+         * @nullable
+         */
+      source_insight_short_id?: string | null;
+      /**
+         * When the metric was last run (30-minute throttle).
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the metric, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the proposal, 0-1.
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this metric. */
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     export interface PatchedDataColorTheme {
       readonly id?: number;
       /** @maxLength 100 */
@@ -40142,6 +40342,7 @@ export namespace Schemas {
       target?: EvaluationTargetEnum;
       /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
       target_config?: PatchedEvaluationTargetConfig;
+      /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -40525,12 +40726,13 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
-       * * `mcp` - mcp */
-      created_via?: CreatedViaEnum | null;
+       * * `mcp` - mcp
+       * * `wizard` - wizard */
+      created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
@@ -40555,7 +40757,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -41891,50 +42094,12 @@ export namespace Schemas {
       sso_enforcement?: string;
       /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
       readonly has_saml?: boolean;
-      /**
-         * SAML IdP entity ID (issuer).
-         * @maxLength 512
-         * @nullable
-         */
-      saml_entity_id?: string | null;
-      /**
-         * SAML single sign-on (ACS) URL.
-         * @maxLength 512
-         * @nullable
-         */
-      saml_acs_url?: string | null;
-      /**
-         * SAML IdP X.509 signing certificate (PEM).
-         * @nullable
-         */
-      saml_x509_cert?: string | null;
       /** Returns whether SCIM is configured and enabled for this domain. */
       readonly has_scim?: boolean;
-      /** Whether SCIM provisioning is enabled for this domain. */
-      scim_enabled?: boolean;
       /** @nullable */
       readonly scim_base_url?: string | null;
-      /** @nullable */
-      readonly scim_bearer_token?: string | null;
       /** Returns whether ID-JAG (XAA) is configured for this domain. */
       readonly has_id_jag?: boolean;
-      /**
-         * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-         * @maxLength 512
-         * @nullable
-         */
-      id_jag_issuer_url?: string | null;
-      /**
-         * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-         * @maxLength 512
-         * @nullable
-         */
-      id_jag_jwks_url?: string | null;
-      /**
-         * Allowed ID-JAG client IDs. Empty list allows any client_id.
-         * @items.maxLength 256
-         */
-      id_jag_allowed_clients?: string[];
       /**
          * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
          * @nullable
@@ -50462,6 +50627,7 @@ export namespace Schemas {
      * * `llm_analytics` - llm_analytics
      * * `github` - github
      * * `linear` - linear
+     * * `jira` - jira
      * * `zendesk` - zendesk
      * * `conversations` - conversations
      * * `error_tracking` - error_tracking
@@ -50480,6 +50646,7 @@ export namespace Schemas {
       LlmAnalytics: 'llm_analytics',
       Github: 'github',
       Linear: 'linear',
+      Jira: 'jira',
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
@@ -50589,7 +50756,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -50604,6 +50771,7 @@ export namespace Schemas {
        * * `llm_analytics` - llm_analytics
        * * `github` - github
        * * `linear` - linear
+       * * `jira` - jira
        * * `zendesk` - zendesk
        * * `conversations` - conversations
        * * `error_tracking` - error_tracking
@@ -53171,6 +53339,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -53970,6 +54140,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -54761,6 +54933,8 @@ export namespace Schemas {
        * * `TerraApi` - TerraApi
        * * `TriggerDev` - TriggerDev
        * * `Turso` - Turso
+       * * `Singular` - Singular
+       * * `Swonkie` - Swonkie
        * * `TwelveLabs` - TwelveLabs
        * * `Twenty` - Twenty
        * * `Unstructured` - Unstructured
@@ -63542,6 +63716,10 @@ export namespace Schemas {
 
     export type EnvironmentsNotificationsListParams = {
     /**
+     * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
+     */
+    archived?: boolean;
+    /**
      * ISO 8601 timestamp; only events at or after this time
      */
     created_after?: string;
@@ -65381,6 +65559,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
      * * `UserGroup` - UserGroup
@@ -65417,6 +65596,7 @@ export namespace Schemas {
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
+     * * `Metric` - Metric
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -65465,6 +65645,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
       UserGroup: 'UserGroup',
@@ -65501,6 +65682,7 @@ export namespace Schemas {
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
       StreamlitApp: 'StreamlitApp',
+      Metric: 'Metric',
     } as const;
 
     /**
@@ -65535,6 +65717,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
      * * `UserGroup` - UserGroup
@@ -65571,6 +65754,7 @@ export namespace Schemas {
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
+     * * `Metric` - Metric
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -65607,6 +65791,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
       UserGroup: 'UserGroup',
@@ -65643,6 +65828,7 @@ export namespace Schemas {
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
       StreamlitApp: 'StreamlitApp',
+      Metric: 'Metric',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -66890,6 +67076,17 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type DataCatalogMetricsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type DataColorThemesListParams = {
     /**
@@ -70986,6 +71183,10 @@ export namespace Schemas {
     };
 
     export type NotificationsListParams = {
+    /**
+     * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
+     */
+    archived?: boolean;
     /**
      * ISO 8601 timestamp; only events at or after this time
      */
