@@ -179,6 +179,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         props = {
             "alert_id": str(alert.id),
             "alert_name": alert.name,
+            "project_name": alert.team.name,
             "insight_name": alert.insight.name,
             "insight_id": alert.insight.short_id,
             "state": alert.state,
@@ -218,7 +219,7 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
     """
     email_targets = alert.get_subscribed_users_emails()
     if email_targets:
-        subject = f"PostHog alert {alert.name} is firing"
+        subject = f"PostHog alert {alert.name} is firing for {alert.team.name}"
         campaign_key = f"alert-firing-notification-{idempotency_key}"
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
@@ -232,6 +233,7 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
                 "insight_name": alert.insight.name,
                 "alert_url": alert_url,
                 "alert_name": alert.name,
+                "project_name": alert.team.name,
             },
         )
 
@@ -414,7 +416,7 @@ def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
 def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> None:
     logger.info("Sending alert disabled notification", alert_id=alert.id, reason=reason)
 
-    subject = f"PostHog alert {alert.name} has been disabled"
+    subject = f"PostHog alert {alert.name} for {alert.team.name} has been disabled"
     campaign_key = f"alert-disabled-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
@@ -428,6 +430,7 @@ def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targ
             "insight_url": insight_url,
             "insight_name": alert.insight.name,
             "alert_error": reason,
+            "project_name": alert.team.name,
         },
     )
     for target in targets:

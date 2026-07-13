@@ -123,6 +123,17 @@ describe('PostHogToolbarController', () => {
     })
 
     describe('authenticate()', () => {
+        // toolbarConfigLogic's authenticate flow narrates progress via toolbarLogger by design
+        let consoleInfoSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation()
+        })
+
+        afterEach(() => {
+            consoleInfoSpy.mockRestore()
+        })
+
         it('calls authenticate action on toolbarConfigLogic when loaded and not authenticated', () => {
             const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
             logic.mount()

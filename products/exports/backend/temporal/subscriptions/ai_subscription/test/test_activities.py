@@ -24,6 +24,8 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.models.insight import Insight
 
+_WINDOW_END_UTC = "2026-06-25T12:00:00+00:00"
+
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 
@@ -59,6 +61,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
         delivery.id,
         AiReportResult(
             markdown="# Weekly report",
+            window_end_utc=_WINDOW_END_UTC,
             diagnostics=(
                 QueryStepDiagnostic(description="adoption", hogql="SELECT count()", ok=True, error_type=None),
                 QueryStepDiagnostic(
@@ -99,7 +102,7 @@ async def test_persist_ai_report_omits_blank_prompt(team, user, prompt) -> None:
 
     await _persist_ai_report(
         delivery.id,
-        AiReportResult(markdown="# report", diagnostics=()),
+        AiReportResult(markdown="# report", diagnostics=(), window_end_utc=_WINDOW_END_UTC),
         prompt=prompt,
     )
 
@@ -121,6 +124,7 @@ class TestReportDiagnosticCounts:
     ):
         result = AiReportResult(
             markdown="report",
+            window_end_utc=_WINDOW_END_UTC,
             diagnostics=tuple(
                 QueryStepDiagnostic(
                     description=f"step {i}",
@@ -136,6 +140,7 @@ class TestReportDiagnosticCounts:
     def test_distinct_error_types_are_sorted_and_deduped(self):
         result = AiReportResult(
             markdown="report",
+            window_end_utc=_WINDOW_END_UTC,
             diagnostics=(
                 QueryStepDiagnostic(description="a", hogql="x", ok=False, error_type="ResolutionError"),
                 QueryStepDiagnostic(description="b", hogql="y", ok=False, error_type="ExposedHogQLError"),
@@ -153,6 +158,7 @@ async def test_snapshot_diagnostic_counts_reads_persisted_failure_shape(team, us
         delivery.id,
         AiReportResult(
             markdown="report",
+            window_end_utc=_WINDOW_END_UTC,
             diagnostics=(
                 QueryStepDiagnostic(description="ok step", hogql="SELECT 1", ok=True, error_type=None),
                 QueryStepDiagnostic(description="bad step", hogql="SELECT bad", ok=False, error_type="ResolutionError"),

@@ -283,6 +283,8 @@ describe('heatmapToolbarMenuLogic', () => {
     describe('clickmap loading', () => {
         let logic: ReturnType<typeof heatmapToolbarMenuLogic.build>
 
+        afterEach(resumeKeaLoadersErrors)
+
         beforeEach(() => {
             global.IntersectionObserver = class {
                 observe(): void {}
@@ -350,6 +352,8 @@ describe('heatmapToolbarMenuLogic', () => {
         })
 
         it('keeps heatmapEnabled true after a stats fetch failure so the menu stays open', async () => {
+            // Deliberate loader failure — kea-loaders would log it
+            silenceKeaLoadersErrors()
             jest.spyOn(toolbarApi.elementStats, 'list').mockRejectedValue(new Error('network error'))
             await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
                 'getElementStats',
@@ -390,6 +394,8 @@ describe('heatmapToolbarMenuLogic', () => {
         })
 
         it('retries the initial load via load more after a stats fetch failure', async () => {
+            // Deliberate loader failure — kea-loaders would log it
+            silenceKeaLoadersErrors()
             jest.spyOn(toolbarApi.elementStats, 'list').mockRejectedValueOnce(new Error('network error'))
             await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions(['getElementStatsFailure'])
             await expectLogic(logic, () => logic.actions.loadMoreElementStats()).toDispatchActions([

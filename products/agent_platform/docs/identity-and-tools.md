@@ -198,6 +198,14 @@ flowchart LR
     q -.-> decide
 ```
 
+Open (queued) requests are capped per session by
+`spec.limits.max_open_approvals` (default 10).
+Args-hash dedupe collapses identical re-asks onto their existing row without consuming budget,
+but a model looping on a gated tool with distinct args would otherwise flood approvers —
+one Slack post per queued row.
+At the cap, further gated calls return a synthetic `approval_budget_exhausted` error to the model instead of queueing;
+decisions and TTL expiry free budget.
+
 ## The two MCP directions
 
 MCP shows up on **both** sides of an agent — don't conflate them:

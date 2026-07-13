@@ -1,6 +1,7 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
 
 import {
+    compareQuery,
     filterVariablesReferencedInQuery,
     hasInvalidRegexFilter,
     isBoxPlotMissingProperty,
@@ -214,5 +215,22 @@ describe('isBoxPlotMissingProperty', () => {
                 { kind: NodeKind.EventsNode, event: '$signup', math_property: 'revenue' },
             ])
         ).toBe(false)
+    })
+})
+
+describe('compareQuery', () => {
+    const makeTrendsQuery = (trendsFilter: TrendsFilter = {}): TrendsQuery => ({
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+        trendsFilter,
+    })
+
+    it('treats chartStyle changes as visualization-only', () => {
+        const plain = makeTrendsQuery()
+        const styled = makeTrendsQuery({ chartStyle: { curve: 'linear' } })
+
+        // Style changes must not count as a query change — otherwise every style tweak refetches
+        expect(compareQuery(plain, styled, { ignoreVisualizationOnlyChanges: true })).toBe(true)
+        expect(compareQuery(plain, styled)).toBe(false)
     })
 })

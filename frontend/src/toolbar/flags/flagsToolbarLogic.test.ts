@@ -30,7 +30,14 @@ const featureFlagsWithExtraInfo = [
 
 describe('toolbar featureFlagsLogic', () => {
     let logic: ReturnType<typeof flagsToolbarLogic.build>
+    let consoleErrorSpy: jest.SpyInstance
+    let consoleWarnSpy: jest.SpyInstance
+
     beforeEach(() => {
+        // The token-expiry test exercises auth failure paths that toolbarLogger
+        // reports to the console by design
+        consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
         global.fetch = jest.fn(() =>
             Promise.resolve({
                 ok: true,
@@ -53,6 +60,11 @@ describe('toolbar featureFlagsLogic', () => {
         logic = flagsToolbarLogic()
         logic.mount()
         logic.actions.getUserFlags()
+    })
+
+    afterEach(() => {
+        consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
     })
 
     it('has expected defaults', () => {

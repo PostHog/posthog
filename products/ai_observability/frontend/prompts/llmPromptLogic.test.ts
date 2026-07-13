@@ -7,7 +7,7 @@ import api from '~/lib/api'
 import { ApiError } from '~/lib/api-error'
 import { EventsQuery, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { LLMPromptResolveResponse, PropertyFilterType, PropertyOperator } from '~/types'
+import { LLMPrompt, LLMPromptResolveResponse, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PromptAnalyticsScope, PromptMode, llmPromptLogic } from './llmPromptLogic'
 
@@ -342,6 +342,52 @@ describe('llmPromptLogic', () => {
 
         logic.actions.setMode(PromptMode.View)
         expect(router.values.searchParams.edit).toBeUndefined()
+
+        logic.unmount()
+    })
+
+    it('routes publish through the review step for existing prompts', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+            prompt: promptFields,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponse)
+        const updateSpy = jest.spyOn(api.llmPrompts, 'update').mockResolvedValue({
+            ...promptFields,
+            id: 'prompt-version-3',
+            version: 3,
+            latest_version: 3,
+        } as unknown as LLMPrompt)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+        logic.actions.setMode(PromptMode.Edit)
+
+        // Empty content skips the review and goes to submit, surfacing validation errors
+        logic.actions.setPromptFormValues({ prompt: '   ' })
+        logic.actions.requestPublish()
+        expect(logic.values.isPublishReviewOpen).toBe(false)
+        expect(updateSpy).not.toHaveBeenCalled()
+
+        // Real edits open the review without hitting the API
+        logic.actions.setPromptFormValues({ prompt: 'My edited prompt.' })
+        logic.actions.requestPublish()
+        expect(logic.values.isPublishReviewOpen).toBe(true)
+        expect(updateSpy).not.toHaveBeenCalled()
+
+        // Confirming from the review publishes with the typed description and closes it
+        logic.actions.setVersionDescription('Tightened the refusal criteria')
+        logic.actions.submitPromptForm()
+        await expectLogic(logic).toDispatchActions(['submitPromptFormSuccess'])
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(updateSpy).toHaveBeenCalledWith('my-test-prompt', {
+            prompt: 'My edited prompt.',
+            base_version: 2,
+            version_description: 'Tightened the refusal criteria',
+        })
+        expect(logic.values.isPublishReviewOpen).toBe(false)
 
         logic.unmount()
     })

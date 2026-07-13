@@ -8,6 +8,8 @@ module.exports = {
         ],
     },
     testEnvironment: 'node',
+    // Emit JUnit XML for Trunk flaky-test detection only when JEST_JUNIT_OUTPUT_DIR is set.
+    reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
     clearMocks: true,
     coverageProvider: 'v8',
     setupFiles: ['./jest.setup-env.ts'],

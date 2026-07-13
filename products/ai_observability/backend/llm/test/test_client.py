@@ -45,6 +45,7 @@ class TestProviderRouting(SimpleTestCase):
             ("openrouter",),
             ("fireworks",),
             ("minimax",),
+            ("zeabur",),
         ]
     )
     def test_get_provider_returns_correct_adapter(self, provider_name):
@@ -125,6 +126,7 @@ class TestProviderMismatchValidation(SimpleTestCase):
         client._validate_provider("openrouter")
         client._validate_provider("fireworks")
         client._validate_provider("minimax")
+        client._validate_provider("zeabur")
 
 
 class TestApiKeyExtraction(SimpleTestCase):

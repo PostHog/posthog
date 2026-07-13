@@ -9,13 +9,8 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, Experiment, ProjectTreeRef } from '~/types'
 
-import {
-    type ExperimentLogicProps,
-    FORM_MODES,
-    type FormModes,
-    NEW_EXPERIMENT,
-    experimentLogic,
-} from './experimentLogic'
+import { NEW_EXPERIMENT } from './constants'
+import { type ExperimentLogicProps, FORM_MODES, type FormModes, experimentLogic } from './experimentLogic'
 import type { experimentLogicType } from './experimentLogicType'
 import type { experimentSceneLogicType } from './experimentSceneLogicType'
 import { stepStorageKey } from './ExperimentWizard/experimentWizardLogic'

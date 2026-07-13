@@ -153,6 +153,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         text_content=result.report.summary,
         created_by_id=user.id,
         last_modified_by_id=user.id,
+        creation_source=notebooks.NotebookCreationSource.TEMPORAL_AGENT,
     )
 
     summary_for_list = _truncate_summary(result.report.summary)

@@ -26,7 +26,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     }),
     reducers({
         selectedTab: [
-            DataWarehouseTab.SETTINGS as DataWarehouseTab,
+            DataWarehouseTab.MODELING as DataWarehouseTab,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
@@ -37,11 +37,11 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): DataWarehouseTab[] => {
                 const tabs: DataWarehouseTab[] = []
-                if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
-                    tabs.push(DataWarehouseTab.SETTINGS)
-                }
                 if (featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]) {
                     tabs.push(DataWarehouseTab.MODELING)
+                }
+                if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
+                    tabs.push(DataWarehouseTab.SETTINGS)
                 }
                 return tabs
             },

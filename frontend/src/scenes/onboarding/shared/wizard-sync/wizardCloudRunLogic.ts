@@ -9,6 +9,9 @@ import { urls } from 'scenes/urls'
 
 import { IntegrationType, OnboardingStepKey } from '~/types'
 
+// Deliberate shared → legacy imports: onboardingLogic is the onboarding state machine both variants
+// run on (step key for the GitHub-connect return URL), and sdksLogic carries the user's manual SDK
+// pick (the cloud wizard's skill hint). Both no-op gracefully in flows that don't set them.
 import { onboardingLogic } from '../../legacy/onboardingLogic'
 import { sdksLogic } from '../../legacy/sdks/sdksLogic'
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
@@ -35,7 +38,7 @@ export const WIZARD_CLOUD_RUN_WORKFLOW_ID = 'posthog-integration'
  *
  * Live progress and the "your PR is ready" payoff are not owned here — the cloud
  * run posts wizard sessions under WIZARD_CLOUD_RUN_WORKFLOW_ID, so the existing
- * session-sync surfaces (wizardProgressTrackerLogic + the global FAB) render them
+ * session-sync surfaces (the Installation layer + the global FAB) render them
  * automatically. This logic only has to get the run started without blocking the
  * user from continuing onboarding.
  */

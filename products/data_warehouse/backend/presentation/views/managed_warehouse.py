@@ -288,7 +288,7 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     the row can be reconciled later from the warehouse status.
     """
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
-    from posthog.ducklake.common import upsert_duckgres_server_for_org  # noqa: PLC0415
+    from posthog.ducklake.common import default_bucket_region, upsert_duckgres_server_for_org  # noqa: PLC0415
 
     # The control plane is the single owner of the bucket name — it provisions
     # the bucket, pins the name on the Duckling CR's spec.dataStore.bucketName,
@@ -298,9 +298,10 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     # old to return it) leaves the column unset — upsert treats None as "leave
     # unset" — and status_for()'s self-heal fills it in on the next status read.
     bucket: str | None = body.get("bucket")
-    # Region from the response too when present, so a future CP outside us-east-1
-    # isn't silently mis-recorded; None when there's no bucket to region.
-    bucket_region: str | None = (body.get("bucket_region") or "us-east-1") if bucket else None
+    # Region from the response too when present, so a CP outside this deployment's
+    # home region isn't silently mis-recorded; the fallback is the deployment's own
+    # managed-warehouse region. None when there's no bucket to region.
+    bucket_region: str | None = (body.get("bucket_region") or default_bucket_region()) if bucket else None
 
     try:
         connection = _present_connection({"database": database_name, "username": body.get("username", "root")})
@@ -438,7 +439,10 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
         # External data stores / not-yet-backfilled ducklings report no bucket —
         # nothing authoritative to copy.
         return
-    bucket_region = body.get("bucket_region") or "us-east-1"
+    # Keep ducklake.common (and its duckdb dependency) off the API import path.
+    from posthog.ducklake.common import default_bucket_region  # noqa: PLC0415
+
+    bucket_region = body.get("bucket_region") or default_bucket_region()
     try:
         from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 

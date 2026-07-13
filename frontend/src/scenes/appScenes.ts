@@ -1,7 +1,7 @@
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
-import { productScenes } from '~/products'
+import { productScenes } from '~/productScenes'
 
 export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
@@ -65,7 +65,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Coupons]: () => import('./coupons/Coupons'),
     [Scene.LiveEvents]: () => import('./activity/live/LiveEventsTable'),
     [Scene.Login2FA]: () => import('./authentication/login-2fa/Login2FA'),
-    [Scene.EmailMFAVerify]: () => import('./authentication/email-mfa-verify/EmailMFAVerify'),
     [Scene.Login]: () => import('./authentication/login/Login'),
     [Scene.MarketingAnalytics]: () => import('./marketing-analytics/MarketingAnalyticsScene'),
     [Scene.Max]: () => import('./max/Max'),
@@ -110,8 +109,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
     [Scene.SdkHealth]: () => import('./onboarding/shared/sdkHealth/SdkHealthScene'),
     [Scene.Exports]: () => import('./exports/ExportsScene'),
-    [Scene.Subscriptions]: () => import('./subscriptions/SubscriptionsScene'),
-    [Scene.Subscription]: () => import('./subscriptions/SubscriptionScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),

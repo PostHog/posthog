@@ -140,7 +140,11 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             try {
                 // 204 (no run) returns an empty body, which the api client resolves to null.
                 const session: WizardSessionDTOApi | null =
-                    (await wizardSessionsLatestRetrieve(String(projectId), { workflow_id: WORKFLOW_ID })) || null
+                    (await wizardSessionsLatestRetrieve(
+                        String(projectId),
+                        { workflow_id: WORKFLOW_ID },
+                        { headers: { 'X-Wizard-Poll-Source': 'detector' } }
+                    )) || null
                 if (seq !== cache.pollSeq) {
                     return
                 }

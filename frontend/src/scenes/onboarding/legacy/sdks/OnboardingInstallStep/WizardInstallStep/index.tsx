@@ -8,15 +8,18 @@ import { OnboardingStepKey, type SDK } from '~/types'
 
 import { onboardingEventUsageLogic } from '../../../../onboardingEventUsageLogic'
 import { activeCloudRunLogic } from '../../../../shared/wizard-sync/activeCloudRunLogic'
+import {
+    InstallationProgressView,
+    useLocalWizardRunActive,
+} from '../../../../shared/wizard-sync/InstallationProgressView'
+import { WizardCommandBlock } from '../../../../shared/wizard-sync/WizardCommandBlock'
 import { WizardInstallOptions } from '../../../../shared/wizard-sync/WizardInstallOptions'
 import { OnboardingStep } from '../../../OnboardingStep'
 import { AdblockWarning, RealtimeCheckIndicator } from '../../RealtimeCheckIndicator'
 import { SDKGrid } from '../SDKGrid'
 import { SDKInstructionsModal } from '../SDKInstructionsModal'
 import { VariantProps } from '../types'
-import { WizardCommandBlock } from '../WizardCommandBlock'
 import { wizardInstallStepLogic } from '../wizardInstallStepLogic'
-import { WizardProgressTracker, useWizardTakeoverActive } from '../WizardProgressTracker'
 import { WizardInstallIntro } from './WizardInstallIntro'
 
 // The shared cloud/local switcher wrapped with legacy's own command block and instrumentation. An
@@ -74,28 +77,30 @@ function WizardInstallStepStatic(props: VariantProps): JSX.Element {
 }
 
 function WizardInstallStepWithSync(props: VariantProps): JSX.Element {
-    const isTakeoverActive = useWizardTakeoverActive()
+    const isLocalRunActive = useLocalWizardRunActive()
     // See WizardInstallStepStatic: an existing handle renders regardless of the experiment arm.
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     // Once the wizard is in flight (cloud or local), trust it — installation events aren't required
     // to unblock Continue.
     const continueDisabledReason =
-        isTakeoverActive || activeCloudRun || props.installationComplete ? undefined : 'Installation is not complete'
+        isLocalRunActive || activeCloudRun || props.installationComplete ? undefined : 'Installation is not complete'
     return (
         <WizardInstallShell
             continueDisabledReason={continueDisabledReason}
-            showSkip={!props.installationComplete && !isTakeoverActive && !activeCloudRun}
+            showSkip={!props.installationComplete && !isLocalRunActive && !activeCloudRun}
             props={props}
         >
-            {/* A cloud run wins over the local tracker: the cloud wizard posts to the same session
-                stream, so rendering both would show the same run twice. The run's progress renders
-                inside LegacyInstallOptions (WizardCloudRunBlock pins to it). */}
+            {/* A cloud run wins over the local run view: the cloud wizard posts to the same session
+                stream, so rendering both would show the same run twice. The cloud run's progress
+                renders inside LegacyInstallOptions (WizardCloudRunBlock pins to it). */}
             {activeCloudRun ? (
                 <div className="max-w-xl mx-auto">
                     <LegacyInstallOptions />
                 </div>
-            ) : isTakeoverActive ? (
-                <WizardProgressTracker />
+            ) : isLocalRunActive ? (
+                <div className="max-w-xl mx-auto">
+                    <InstallationProgressView mode="local" />
+                </div>
             ) : (
                 <>
                     <WizardInstallIntro />

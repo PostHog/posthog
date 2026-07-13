@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
+
 from products.slack_app.backend.slack_thread import SlackThreadHandler
 
 _post_slack_update_module = importlib.import_module(
@@ -191,7 +193,10 @@ class TestPostSlackUpdate(TestCase):
             state={},
         )
         mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
-        # Reply target now resolves from the live mapping, not the workflow context.
+        # This milestone ping tags the task starter, not whoever last touched the
+        # thread: latest_actor is a casual joiner here, and this update can fire long
+        # after the PR opened (once the CI follow-up loop settles), so tagging them
+        # would spam the wrong person.
         mock_mapping = MagicMock()
         mock_mapping.latest_actor_slack_user_id = "U123"
         mock_mapping.mentioning_slack_user_id = "U_ORIG"
@@ -210,25 +215,38 @@ class TestPostSlackUpdate(TestCase):
         mock_post_pr_opened.assert_called_once_with(
             "https://github.com/org/repo/pull/1",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
-            reply_target_slack_user_id="U123",
+            reply_target_slack_user_id="U_ORIG",
         )
         mock_update_reaction.assert_called_once_with("eyes")
         mock_post_progress.assert_not_called()
         mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/1")
         mock_run.save.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ({"state": {"timed_out_inactivity": True}, "error_message": None},),
+            # Runs finalized before the state marker existed carry the signal in error_message.
+            ({"error_message": "Run timed out due to inactivity"},),
+        ]
+    )
     @patch.object(SlackThreadHandler, "post_completion")
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_timed_out_run_silently_deletes_progress(
-        self, mock_task_run_class, mock_handler_init, mock_update_reaction, mock_delete_progress, mock_post_completion
+        self,
+        run_kwargs,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_update_reaction,
+        mock_delete_progress,
+        mock_post_completion,
     ):
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.COMPLETED,
-            error_message="Run timed out due to inactivity",
             output={},
+            **run_kwargs,
         )
         mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
 

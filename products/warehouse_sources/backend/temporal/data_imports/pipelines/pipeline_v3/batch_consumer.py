@@ -7,6 +7,7 @@ import asyncio
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -52,6 +53,13 @@ BATCHES_PER_GROUP_FETCH_FACTOR = 3
 
 class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
+
+
+class PermanentBatchApplyError(Exception):
+    """Raise from process_batch for errors retries cannot fix (unsupported batch
+    kind, missing primary keys, malformed batch metadata). The consumer skips
+    the waiting_retry cycle and fails the run on the first attempt — retrying a
+    permanent error only delays the terminal state and burns sink throughput."""
 
 
 @dataclass
@@ -155,6 +163,7 @@ class BatchConsumerAdapter(Protocol):
         job_state: str,
         attempt: int,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
     ) -> None: ...
 
     async def fail_run(
@@ -260,21 +269,29 @@ class BatchConsumer:
     def _lease_ttl_seconds(self) -> int:
         return self._config.lease_ttl_seconds or self._config.recovery_grace_seconds or RECOVERY_GRACE_SECONDS
 
-    def _statement_timeout_options(self, client_timeout_seconds: float | None) -> str | None:
-        """libpq options for the server-side statement_timeout backstop; None when
-        the client ceiling is disabled (same "0 disables" contract)."""
+    def _statement_timeout_ms(self, client_timeout_seconds: float | None) -> int | None:
+        """Server-side statement_timeout backstop in milliseconds; None when the
+        client ceiling is disabled (same "0 disables" contract)."""
         if not client_timeout_seconds:
             return None
-        timeout_ms = int((client_timeout_seconds + self._config.statement_timeout_margin_seconds) * 1000)
-        return f"-c statement_timeout={timeout_ms}"
+        return int((client_timeout_seconds + self._config.statement_timeout_margin_seconds) * 1000)
 
-    async def _connect(self, *, statement_timeout_options: str | None = None) -> psycopg.AsyncConnection[Any]:
-        return await psycopg.AsyncConnection.connect(
+    async def _connect(self, *, statement_timeout_seconds: float | None = None) -> psycopg.AsyncConnection[Any]:
+        conn = await psycopg.AsyncConnection.connect(
             self._config.database_url,
             autocommit=True,
             connect_timeout=self._config.connect_timeout_seconds,
-            options=statement_timeout_options,
         )
+        # Session-scoped SET, not a libpq startup option: PgBouncer rejects
+        # statement_timeout inside the `options` startup parameter.
+        timeout_ms = self._statement_timeout_ms(statement_timeout_seconds)
+        if timeout_ms is not None:
+            try:
+                await conn.execute(f"SET statement_timeout = {timeout_ms}")
+            except psycopg.Error:
+                await conn.close()
+                raise
+        return conn
 
     async def _drop_conn(self, attr: str) -> None:
         """Close and forget a connection after a timed-out operation.
@@ -298,9 +315,7 @@ class BatchConsumer:
         async with self._poll_conn_lock:
             if self._poll_conn is None or self._poll_conn.closed or self._poll_conn.broken:
                 logger.warning(self._event("queue_db_poll_connection_reconnecting"))
-                self._poll_conn = await self._connect(
-                    statement_timeout_options=self._statement_timeout_options(self._config.poll_timeout_seconds)
-                )
+                self._poll_conn = await self._connect(statement_timeout_seconds=self._config.poll_timeout_seconds)
             return self._poll_conn
 
     async def _ensure_recovery_conn(self) -> psycopg.AsyncConnection[Any]:
@@ -310,9 +325,7 @@ class BatchConsumer:
         async with self._recovery_conn_lock:
             if self._recovery_conn is None or self._recovery_conn.closed or self._recovery_conn.broken:
                 logger.warning(self._event("queue_db_recovery_connection_reconnecting"))
-                self._recovery_conn = await self._connect(
-                    statement_timeout_options=self._statement_timeout_options(self._config.sweep_timeout_seconds)
-                )
+                self._recovery_conn = await self._connect(statement_timeout_seconds=self._config.sweep_timeout_seconds)
             return self._recovery_conn
 
     async def _wait_or_shutdown(self, timeout: float) -> None:
@@ -324,12 +337,8 @@ class BatchConsumer:
     async def run(self) -> None:
         self._install_signal_handlers()
 
-        self._poll_conn = await self._connect(
-            statement_timeout_options=self._statement_timeout_options(self._config.poll_timeout_seconds)
-        )
-        self._recovery_conn = await self._connect(
-            statement_timeout_options=self._statement_timeout_options(self._config.sweep_timeout_seconds)
-        )
+        self._poll_conn = await self._connect(statement_timeout_seconds=self._config.poll_timeout_seconds)
+        self._recovery_conn = await self._connect(statement_timeout_seconds=self._config.sweep_timeout_seconds)
 
         logger.info(
             self._event("batch_consumer_started"),
@@ -636,6 +645,7 @@ class BatchConsumer:
                     batch_id=batch.id,
                     job_state=self._adapter.executing_state,
                     attempt=attempt,
+                    batch_created_at=batch.created_at,
                 )
             except Exception:
                 return
@@ -735,6 +745,7 @@ class BatchConsumer:
                 batch_id=batch.id,
                 job_state=self._adapter.executing_state,
                 attempt=attempt,
+                batch_created_at=batch.created_at,
             )
 
             if should_process:
@@ -766,6 +777,7 @@ class BatchConsumer:
                 batch_id=batch.id,
                 job_state=self._adapter.succeeded_state,
                 attempt=attempt,
+                batch_created_at=batch.created_at,
             )
             self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
             logger.info(
@@ -804,8 +816,8 @@ class BatchConsumer:
     ) -> None:
         """Write the retry/terminal state after a processing error."""
         if not self._adapter.is_retryable_error(err):
-            # Deterministic failure: retrying repeats the same outcome. The raw
-            # message is the customer-visible latest_error, so keep it unwrapped.
+            # Deterministic failures do not benefit from retrying. Preserve their
+            # messages, except for explicitly classified permanent apply errors.
             logger.exception(
                 self._event("batch_failed_non_retryable"),
                 batch_id=batch.id,
@@ -813,8 +825,10 @@ class BatchConsumer:
                 attempt=attempt,
             )
             capture_exception(err)
-            await self._fail_run(batch, reason=str(err), conn=lock_conn)
+            reason = f"permanent apply error: {err}" if isinstance(err, PermanentBatchApplyError) else str(err)
+            await self._fail_run(batch, reason=reason, conn=lock_conn)
         elif attempt >= self._config.max_attempts:
+            reason = f"max retries exceeded: {err}"
             logger.exception(
                 self._event("batch_failed_no_retries_left"),
                 batch_id=batch.id,
@@ -822,7 +836,7 @@ class BatchConsumer:
                 attempt=attempt,
             )
             capture_exception(err)
-            await self._fail_run(batch, reason=f"max retries exceeded: {err}", conn=lock_conn)
+            await self._fail_run(batch, reason=reason, conn=lock_conn)
         else:
             logger.warning(
                 self._event("batch_failed_will_retry"),
@@ -836,6 +850,7 @@ class BatchConsumer:
                 job_state=self._adapter.waiting_retry_state,
                 attempt=attempt,
                 error_response={"error": str(err)[:1000]},
+                batch_created_at=batch.created_at,
             )
 
     async def _fail_run(
@@ -1034,6 +1049,7 @@ class BatchConsumer:
                             job_state=self._adapter.waiting_retry_state,
                             attempt=batch.latest_attempt,
                             error_response={"error": "executing timed out - pod restart or OOM"},
+                            batch_created_at=batch.created_at,
                         )
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
