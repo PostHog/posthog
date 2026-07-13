@@ -4,6 +4,7 @@ import datetime as dt
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db.models import Case, Count, DateTimeField, Exists, Max, Min, OuterRef, Q, QuerySet, UUIDField, When
 from django.db.models.functions import Cast, Coalesce
 
@@ -169,6 +170,7 @@ def _fetch_slack_channel_aggregate_rows(org_ids: list[str]) -> list[dict[str, ob
         .values("organization_id", "slack_team_id", "slack_channel_id")
         .annotate(
             representative_team_id=Min("team_id"),
+            team_ids=ArrayAgg("team_id", distinct=True),
             slack_issue_count=Count("id"),
             last_slack_activity=Max("activity_at"),
         )
@@ -180,14 +182,23 @@ def _fetch_trusted_slack_channel_activity_rows(
 ) -> list[dict[str, object]]:
     channel_filters = Q()
     for row in channel_rows:
-        team_id = row.get("representative_team_id")
+        team_ids = row.get("team_ids")
         slack_channel_id = row.get("slack_channel_id")
-        if not isinstance(team_id, int) or not isinstance(slack_channel_id, str) or not slack_channel_id:
+        if (
+            not isinstance(team_ids, list)
+            or not team_ids
+            or not isinstance(slack_channel_id, str)
+            or not slack_channel_id
+        ):
             continue
 
-        # Match slack_team_id by raw value (None compiles to IS NULL) so the filter
-        # stays aligned with the lookup keys built from these same rows.
-        channel_filters |= Q(team_id=team_id, slack_channel_id=slack_channel_id, slack_team_id=row.get("slack_team_id"))
+        # Filter by the group's full team set (a channel group can span teams, and the
+        # team-led indexes anchor the query), and match slack_team_id by raw value
+        # (None compiles to IS NULL) so the filter stays aligned with the lookup keys
+        # built from these same rows.
+        channel_filters |= Q(
+            team_id__in=team_ids, slack_channel_id=slack_channel_id, slack_team_id=row.get("slack_team_id")
+        )
 
     if not channel_filters:
         return []
@@ -195,12 +206,12 @@ def _fetch_trusted_slack_channel_activity_rows(
     return list(
         Ticket.objects.filter(channel_filters, channel_source=Channel.SLACK, identity_verified=True)
         .annotate(activity_at=_activity_at())
-        .values("team_id", "slack_team_id", "slack_channel_id")
+        .values("slack_team_id", "slack_channel_id")
         .annotate(last_slack_activity=Max("activity_at"))
     )
 
 
-def _trusted_channel_sort_key(row: dict[str, object]) -> tuple[str, float, int, str, str]:
+def _trusted_channel_sort_key(row: dict[str, object]) -> tuple[str, float, int, str, bool, str]:
     last_slack_activity = row.get("last_slack_activity")
     activity_timestamp = last_slack_activity.timestamp() if isinstance(last_slack_activity, dt.datetime) else 0
     slack_issue_count = row.get("slack_issue_count")
@@ -210,6 +221,8 @@ def _trusted_channel_sort_key(row: dict[str, object]) -> tuple[str, float, int, 
         -activity_timestamp,
         -(slack_issue_count if isinstance(slack_issue_count, int) else 0),
         str(row.get("slack_channel_id") or ""),
+        # Rows with a known workspace win ties over workspace-less rows.
+        row.get("slack_team_id") is None,
         str(row.get("slack_team_id") or ""),
     )
 
@@ -253,16 +266,17 @@ def aggregate_conversations_slack_signals_for_orgs(
     latest_ticket_rows = _fetch_latest_support_ticket_rows(org_ids)
 
     channel_activity_by_key = {
-        (row.get("team_id"), row.get("slack_team_id"), row.get("slack_channel_id")): row.get("last_slack_activity")
+        (row.get("slack_team_id"), row.get("slack_channel_id")): row.get("last_slack_activity")
         for row in channel_activity_rows
     }
 
     for row in rows:
-        channel_key = (row.get("representative_team_id"), row.get("slack_team_id"), row.get("slack_channel_id"))
+        channel_key = (row.get("slack_team_id"), row.get("slack_channel_id"))
         trusted_channel_activity = channel_activity_by_key.get(channel_key)
         org_channel_activity = row.get("last_slack_activity")
-        # The trusted lookup covers only the representative team, while the aggregate
-        # max spans every team in the group, so only ever move activity forward.
+        # The trusted set should cover every ticket behind the row's own max, so this
+        # guard is insurance against the two queries drifting: never move activity
+        # backwards.
         if isinstance(trusted_channel_activity, dt.datetime) and (
             not isinstance(org_channel_activity, dt.datetime) or trusted_channel_activity > org_channel_activity
         ):

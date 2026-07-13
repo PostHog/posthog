@@ -10,7 +10,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models import Organization, User
+from posthog.models import Organization, Team, User
 
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel
@@ -153,9 +153,10 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         slack_team_id: str | None = "T123",
         distinct_id: str | None = None,
         identity_verified: bool | None = True,
+        team: Team | None = None,
     ) -> Ticket:
         return Ticket.objects.create_with_number(
-            team=self.team,
+            team=team or self.team,
             widget_session_id=f"session-{uuid.uuid4()}",
             distinct_id=self.user.distinct_id if distinct_id is None else distinct_id,
             channel_source=Channel.SLACK,
@@ -315,6 +316,26 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
             signals.most_recent_support_ticket_url
             == f"https://us.posthog.com/project/{self.team.id}/support/tickets/{most_recent_customer_ticket.ticket_number}"
         )
+
+    def test_trusted_activity_covers_all_teams_in_a_channel_group(self):
+        second_team = Team.objects.create(organization=self.organization, name="second")
+        newest_customer_activity = dt.datetime(2026, 6, 29, 10, 0, tzinfo=dt.UTC)
+        employee_activity = dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC)
+        self._create_slack_ticket(channel_id="C_MULTI", activity_at=dt.datetime(2026, 6, 28, 10, 0, tzinfo=dt.UTC))
+        self._create_slack_ticket(channel_id="C_MULTI", activity_at=newest_customer_activity, team=second_team)
+
+        employee_org, employee = self._create_member_of_other_org(f"employee-{uuid.uuid4()}@posthog.com")
+        self._create_slack_ticket(
+            org_id=str(employee_org.id),
+            channel_id="C_MULTI",
+            activity_at=employee_activity,
+            distinct_id=employee.distinct_id,
+            team=second_team,
+        )
+
+        result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
+
+        assert result[self.org_id].last_slack_activity == employee_activity
 
     def test_email_channel_ticket_verified_by_email_from(self):
         ticket = Ticket.objects.create_with_number(
