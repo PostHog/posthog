@@ -227,7 +227,7 @@ describe('InstructionsFormatter', () => {
     })
 
     describe('Claude web/desktop exec guidance', () => {
-        it('keeps routine guidance inline and advertises optional topics', () => {
+        it('keeps routine guidance inline and advertises learn guides and skill syntax', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildClaudeExecCommandReference(fullCtx)
 
@@ -247,6 +247,7 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('- analytics:')
             expect(result).toContain('- visualizations:')
             expect(result).toContain('- feedback:')
+            expect(result).toContain('learn <skill> [path]')
             expect(result).toContain('SCHEMA DRILL-DOWN RULE')
             expect(result).toContain('**Data discovery:**')
             expect(result).toContain('**CORRECT usage pattern:**')
@@ -263,19 +264,17 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('### Rendering visualizations')
             expect(result).not.toContain('### Sharing feedback on PostHog')
             expect(result).not.toContain('- `query-trends` — time series')
-            expect(result).not.toMatch(/\{help_topics\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/)
+            expect(result).not.toMatch(
+                /\{learn_guides\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/
+            )
         })
 
         it('combines analytics guidance and examples in one learning topic', () => {
             const formatter = new InstructionsFormatter()
-            const entries = formatter.buildClaudeExecHelpEntries(fullCtx)
+            const entries = formatter.buildClaudeExecLearnGuides(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
 
-            expect(entries.map(({ id, kind }) => ({ id, kind }))).toEqual([
-                { id: 'analytics', kind: 'guide' },
-                { id: 'visualizations', kind: 'guide' },
-                { id: 'feedback', kind: 'guide' },
-            ])
+            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'visualizations', 'feedback'])
             expect(analytics?.content).toContain('### Retrieving data')
             expect(analytics?.content).toContain('### Examples')
             expect(analytics?.content).toContain('- `query-trends` — time series')
@@ -294,7 +293,7 @@ describe('InstructionsFormatter', () => {
                 renderUiEnabled: false,
             }
 
-            expect(formatter.buildClaudeExecHelpEntries(ctx).map((entry) => entry.id)).toEqual([
+            expect(formatter.buildClaudeExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
                 'feedback',
             ])

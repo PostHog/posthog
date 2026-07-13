@@ -17,6 +17,7 @@ import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
+import { SkillCatalog } from '@/skills/skill-catalog'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
@@ -279,6 +280,65 @@ describe('ToolExecutor', () => {
             expect(result.content[0]!.text).toContain('### Examples')
             expect(result.content[0]!.text).toContain('## Visualizations')
             expect(result.content[0]!.text).toContain('### Rendering visualizations')
+        })
+
+        it('serves the runtime product skill catalog to non-plugin consumers', async () => {
+            const skills = new SkillCatalog([
+                {
+                    name: 'sample-skill',
+                    description: 'A sample skill.',
+                    files: [
+                        {
+                            path: 'SKILL.md',
+                            content: '# Sample skill',
+                            lineCount: 1,
+                            charCount: 14,
+                            kind: 'markdown',
+                        },
+                    ],
+                },
+            ])
+            const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
+                getCatalog: () => skills,
+            } as any)
+            const state = makeState([], { useSingleExec: true })
+
+            const result = (await skillExecutor.handleToolCall(
+                { name: 'exec', arguments: { command: 'learn skills' } },
+                state
+            )) as { content: { text: string }[] }
+
+            expect(result.content[0]!.text).toContain('sample-skill')
+        })
+
+        it('does not advertise or serve learn for the effective plugin consumer', async () => {
+            const state = makeState(
+                catalog
+                    .getPreBuiltEntries()
+                    .slice(0, 5)
+                    .map(({ name }) => ({ name })),
+                {
+                    useSingleExec: true,
+                    sessionContext: {
+                        mcpClientName: 'claude-ai',
+                        mcpClientVersion: '1.0',
+                        mcpProtocolVersion: '2025-03-26',
+                        mcpConsumer: 'plugin',
+                        mcpVendorClient: undefined,
+                    },
+                }
+            )
+
+            const listed = await executor.handleToolsList(state)
+            const commandDescription = (listed.tools[0]!.inputSchema.properties as any).command.description as string
+            expect(commandDescription).not.toContain('learn <')
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'learn' } },
+                state
+            )) as { content: { text: string }[]; isError?: boolean }
+            expect(result.isError).toBe(true)
+            expect(result.content[0]!.text).toContain('learn command is not available')
         })
 
         it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {
