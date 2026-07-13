@@ -634,15 +634,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         ],
         observationTagFilterOptions: [
             (s) => [s.availableTags],
-            (availableTags: string[]): { key: string; label: string; value: string }[] =>
-                availableTags.map((tag) => ({ key: tag, label: tag, value: tag })),
+            (availableTags: string[]): { label: string; value: string }[] =>
+                availableTags.map((tag) => ({ label: tag, value: tag })),
         ],
         showObservationTagFilter: [
             (s) => [s.scanner, s.observationTagFilterOptions],
-            (
-                scanner: ReplayScanner | null,
-                observationTagFilterOptions: { key: string; label: string; value: string }[]
-            ): boolean => scanner?.scanner_type === 'classifier' && observationTagFilterOptions.length > 0,
+            (scanner: ReplayScanner | null, observationTagFilterOptions: { label: string; value: string }[]): boolean =>
+                scanner?.scanner_type === 'classifier' && observationTagFilterOptions.length > 0,
         ],
         observationStats: [
             (s) => [s.observationStatsApi],

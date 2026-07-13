@@ -206,11 +206,12 @@ export const TagMenuOpen: Story = {
     play: async ({ canvasElement }) => {
         await within(canvasElement).findByText('Observation history')
         await within(canvasElement).findByText('actively-read')
-        const tagFilter = canvasElement.querySelector<HTMLInputElement>('[data-attr="vision-observations-tag-filter"]')
+        const tagFilter = canvasElement.querySelector<HTMLButtonElement>('[data-attr="vision-observations-tag-filter"]')
         if (!tagFilter) {
-            throw new Error('Tag filter input not found')
+            throw new Error('Tag filter button not found')
         }
         tagFilter.click()
-        await screen.findByRole('button', { name: 'Clear all' })
+        await screen.findByPlaceholderText('Search')
+        await screen.findByRole('button', { name: /sdk_docs_review/ })
     },
 }

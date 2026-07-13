@@ -1,16 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonInputSelect,
-    LemonTable,
-    LemonTag,
-    LemonTagType,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -281,17 +272,12 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     />
                                 )}
                                 {showObservationTagFilter && (
-                                    <LemonInputSelect
-                                        mode="multiple"
-                                        size="small"
-                                        placeholder="Tag"
+                                    <FilterPill<string>
+                                        label="Tag"
                                         options={observationTagFilterOptions}
                                         value={observationTagFilter}
                                         onChange={setObservationTagFilter}
-                                        displayMode="count"
-                                        bulkActions="clear-all"
-                                        className="w-40"
-                                        popoverClassName="max-h-80 overflow-y-auto"
+                                        searchable
                                         data-attr="vision-observations-tag-filter"
                                     />
                                 )}

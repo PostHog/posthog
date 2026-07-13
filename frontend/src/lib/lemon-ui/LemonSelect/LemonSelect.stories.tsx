@@ -112,6 +112,7 @@ export const Clearable: Story = {
     args: { allowClear: true, value: 'poodle' },
 }
 
+/** With more than 15 selectable options, the dropdown automatically gets a search input (opt out with `searchable={false}`). */
 export const LongOptions: Story = {
     args: {
         allowClear: true,
