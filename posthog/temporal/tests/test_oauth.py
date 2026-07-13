@@ -4,7 +4,6 @@ from parameterized import parameterized
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.temporal.oauth import (
-    INTERNAL_RUN_SCOPES,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
@@ -170,20 +169,20 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         with self.assertRaisesRegex(RuntimeError, "PostHog AI app not found"):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
 
-    @parameterized.expand([("internal_run", True), ("user_facing_run", False)])
+    @parameterized.expand([("with_extra_scopes", ["llm_gateway_internal:read"]), ("without_extra_scopes", None)])
     @override_settings(CLOUD_DEPLOYMENT="DEV")
-    def test_internal_run_marker_minted_only_for_internal_runs(self, _name: str, internal_run: bool) -> None:
-        # The marker gates internal LLM gateway products. Minting it into user-facing
-        # run tokens would re-open the product bypass (tokens are exfiltratable from
-        # the sandbox env); dropping it from internal runs breaks them at the gateway.
+    def test_extra_scopes_minted_only_when_passed(self, _name: str, extra_scopes: list[str] | None) -> None:
+        # Callers layer targeted grants (e.g. the LLM gateway's internal-products
+        # marker) onto a preset via extra_scopes; a token minted without them must
+        # not carry them — leaking such a grant onto every task token would re-open
+        # the product bypass the marker exists to close.
         self._create_oauth_app(POSTHOG_AI_APP_CLIENT_ID_DEV, "PostHog AI Dev App")
         user, team = self._create_user_and_team()
 
-        token = create_oauth_access_token_for_user(user, team.id, application="posthog_ai", internal_run=internal_run)
+        token = create_oauth_access_token_for_user(user, team.id, application="posthog_ai", extra_scopes=extra_scopes)
 
         minted_scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
-        for scope in INTERNAL_RUN_SCOPES:
-            assert (scope in minted_scopes) is internal_run
+        assert ("llm_gateway_internal:read" in minted_scopes) is (extra_scopes is not None)
 
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):

@@ -3,7 +3,11 @@ from unittest.mock import MagicMock, patch
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_oauth_access_token_for_run
+from products.tasks.backend.temporal.oauth import (
+    LLM_GATEWAY_INTERNAL_PRODUCTS_SCOPE,
+    create_oauth_access_token,
+    create_oauth_access_token_for_run,
+)
 
 
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
@@ -23,7 +27,7 @@ def test_posthog_ai_task_uses_posthog_ai_oauth_application(mock_create: MagicMoc
         123,
         scopes="read_only",
         application="posthog_ai",
-        internal_run=False,
+        extra_scopes=None,
     )
 
 
@@ -44,14 +48,14 @@ def test_default_task_uses_array_oauth_application(mock_create: MagicMock) -> No
         123,
         scopes="read_only",
         application="array",
-        internal_run=False,
+        extra_scopes=None,
     )
 
 
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_internal_task_mints_internal_run_token(mock_create: MagicMock) -> None:
-    # Task.internal drives the internal-run marker the LLM gateway requires for
-    # internal products (background_agents, signals, conversations).
+def test_internal_task_mints_gateway_internal_products_scope(mock_create: MagicMock) -> None:
+    # Task.internal drives the marker the LLM gateway requires for internal
+    # products (background_agents, signals, conversations).
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
@@ -67,7 +71,7 @@ def test_internal_task_mints_internal_run_token(mock_create: MagicMock) -> None:
         123,
         scopes="read_only",
         application="array",
-        internal_run=True,
+        extra_scopes=[LLM_GATEWAY_INTERNAL_PRODUCTS_SCOPE],
     )
 
 
