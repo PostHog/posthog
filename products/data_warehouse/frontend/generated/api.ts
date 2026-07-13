@@ -25,6 +25,7 @@ import type {
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
+    ManagedWarehouseDataStatusResponseApi,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryColumnAnnotationListApi,
@@ -326,6 +327,26 @@ export const dataWarehouseJobStatsRetrieve = async (projectId: string, options?:
         ...options,
         method: 'GET',
     })
+}
+
+export const getDataWarehouseManagedWarehouseDataStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-data-status/`
+}
+
+/**
+ * Get events, persons, and imported source readiness for the managed warehouse.
+ */
+export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ManagedWarehouseDataStatusResponseApi> => {
+    return apiMutator<ManagedWarehouseDataStatusResponseApi>(
+        getDataWarehouseManagedWarehouseDataStatusRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getDataWarehousePropertyValuesRetrieveUrl = (projectId: string) => {

@@ -13,6 +13,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataModelingTab } from './scene/DataModelingTab'
+import { OverviewTab } from './scene/OverviewTab'
 import { SettingsTab } from './scene/SettingsTab'
 
 export const scene: SceneExport = {
@@ -22,12 +23,15 @@ export const scene: SceneExport = {
 }
 
 const TAB_LABELS: Record<DataWarehouseTab, string> = {
+    [DataWarehouseTab.OVERVIEW]: 'Overview',
     [DataWarehouseTab.SETTINGS]: 'Settings',
     [DataWarehouseTab.MODELING]: 'Modeling',
 }
 
 function tabContent(tab: DataWarehouseTab): JSX.Element {
     switch (tab) {
+        case DataWarehouseTab.OVERVIEW:
+            return <OverviewTab />
         case DataWarehouseTab.SETTINGS:
             return <SettingsTab />
         case DataWarehouseTab.MODELING:

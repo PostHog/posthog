@@ -24,13 +24,14 @@ describe('dataWarehouseSceneLogic', () => {
         flagsLogic.unmount()
     })
 
-    it('uses data-warehouse-scene to expose the managed warehouse settings tab', async () => {
+    it('uses data-warehouse-scene to expose overview as the default managed warehouse tab', async () => {
         await expectLogic(flagsLogic, () => {
             flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_WAREHOUSE_SCENE], {
                 [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true,
             })
         })
 
-        expect(logic.values.availableTabs).toEqual([DataWarehouseTab.SETTINGS])
+        expect(logic.values.availableTabs).toEqual([DataWarehouseTab.OVERVIEW, DataWarehouseTab.SETTINGS])
+        expect(logic.values.activeTab).toBe(DataWarehouseTab.OVERVIEW)
     })
 })

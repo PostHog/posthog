@@ -572,6 +572,15 @@ SPECTACULAR_SETTINGS = {
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
         "BulkUpdateTagsActionEnum": ["add", "remove", "set"],
+        "ManagedWarehouseReadinessStateEnum": [
+            "not_configured",
+            "waiting",
+            "backfilling",
+            "catching_up",
+            "up_to_date",
+            "needs_attention",
+            "unknown",
+        ],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
