@@ -172,6 +172,14 @@ class TestValidateCredentials:
         assert ok is False
         assert "boom" in (err or "")
 
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_disables_sample_capture(self, mock_session):
+        # The checks response carries uuid/ping_url (ping credentials); the session must keep it
+        # out of the HTTP sample store.
+        mock_session.return_value.get.return_value = _response({"checks": []})
+        validate_credentials(None, "key")
+        assert mock_session.call_args.kwargs["capture"] is False
+
 
 class TestGetRowsTopLevel:
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -203,6 +211,14 @@ class TestGetRowsTopLevel:
     def test_empty_yields_nothing(self, mock_session):
         mock_session.return_value = _routing_session({"/channels/": _response({"channels": []})})
         assert list(get_rows(None, "key", "channels", mock.MagicMock(), _make_manager())) == []
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_disables_sample_capture(self, mock_session):
+        # The checks response carries uuid/ping_url (ping credentials); the session must keep it
+        # out of the HTTP sample store.
+        mock_session.return_value = _routing_session({"/checks/": _response({"checks": []})})
+        list(get_rows(None, "key", "checks", mock.MagicMock(), _make_manager()))
+        assert mock_session.call_args.kwargs["capture"] is False
 
 
 class TestGetRowsFanOut:
@@ -272,6 +288,24 @@ class TestGetRowsFanOut:
         )
         rows = list(get_rows(None, "key", "pings", mock.MagicMock(), _make_manager()))
         assert rows == [[{"check_id": "u-1", "n": 5, "type": "success"}]]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_fan_out_redacts_check_keys_and_disables_capture(self, mock_session):
+        # Each fan-out URL puts a check key in its path, and a check key doubles as a ping
+        # credential, so the fan-out session must redact the keys from request telemetry (and
+        # keep response bodies out of the sample store).
+        mock_session.return_value = _routing_session(
+            {
+                "/checks/": _response({"checks": [{"uuid": "u-1"}, {"uuid": "u-2"}]}),
+                "/checks/u-1/flips/": _response([]),
+                "/checks/u-2/flips/": _response([]),
+            }
+        )
+        list(get_rows(None, "key", "flips", mock.MagicMock(), _make_manager()))
+        assert all(c.kwargs["capture"] is False for c in mock_session.call_args_list)
+        # The fan-out session is built last, once the per-check keys are known.
+        fan_out_call = mock_session.call_args_list[-1]
+        assert set(fan_out_call.kwargs["redact_values"]) == {"key", "u-1", "u-2"}
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_fan_out_resumes_from_bookmark(self, mock_session):

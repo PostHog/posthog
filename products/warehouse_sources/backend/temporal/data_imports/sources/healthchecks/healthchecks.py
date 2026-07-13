@@ -125,14 +125,16 @@ def _fetch(
 ) -> requests.Response:
     response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
-    # Healthchecks rate-limits at ~100 requests/minute (429 beyond that); 5xx are transient.
+    # Only ever log the status here. The URL carries the check key (a ping credential — the
+    # ping URL is derived from it) in its path, and error bodies from `/checks/` carry `uuid`
+    # and `ping_url`, so neither belongs in a log line. The tracked transport already logs
+    # every request with those values redacted.
     if response.status_code == 429 or response.status_code >= 500:
-        raise HealthchecksRetryableError(
-            f"Healthchecks API error (retryable): status={response.status_code}, url={url}"
-        )
+        # Healthchecks rate-limits at ~100 requests/minute (429 beyond that); 5xx are transient.
+        raise HealthchecksRetryableError(f"Healthchecks API returned retryable status {response.status_code}")
 
     if not response.ok:
-        logger.error(f"Healthchecks API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+        logger.warning(f"Healthchecks API error: status={response.status_code}")
         response.raise_for_status()
 
     return response
@@ -142,7 +144,9 @@ def validate_credentials(base_url: str | None, api_key: str) -> tuple[bool, str 
     """Probe the checks list endpoint. Works with both full and read-only keys."""
     url = f"{_api_base(base_url)}/checks/"
     try:
-        response = make_tracked_session(allow_redirects=False).get(
+        # capture=False: the checks response carries `uuid`/`ping_url` (ping credentials) that
+        # the name-based scrubbers can't recognise, so keep it out of the HTTP sample store.
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False).get(
             url, headers=_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS
         )
     except requests.exceptions.RequestException as e:
@@ -180,7 +184,6 @@ def _fan_out_url(
 
 
 def _get_fan_out_rows(
-    session: requests.Session,
     base_url: str | None,
     api_key: str,
     config: HealthchecksEndpointConfig,
@@ -190,15 +193,25 @@ def _get_fan_out_rows(
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     headers = _headers(api_key)
-    checks = _iter_checks(session, base_url, api_key, logger)
+    # The listing request carries no check key in its URL, so the API key is the only secret to
+    # redact here; capture is off so the response body (which holds `uuid`/`ping_url`) is never
+    # persisted to the HTTP sample store.
+    listing_session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
+    checks = _iter_checks(listing_session, base_url, api_key, logger)
     # A stable order so the resume bookmark resolves deterministically across runs.
     check_keys = [key for key in (_check_key(c) for c in checks) if key]
+
+    # Each fan-out request puts a check key in the URL path, and a check key doubles as a ping
+    # credential (the ping URL is derived from it). Redact every key from request telemetry
+    # alongside the API key so it can't be recovered from logged URLs or captured samples.
+    session = make_tracked_session(redact_values=(api_key, *check_keys), allow_redirects=False, capture=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     remaining = check_keys
     if resume is not None and resume.check_key is not None and resume.check_key in check_keys:
         remaining = check_keys[check_keys.index(resume.check_key) :]
-        logger.debug(f"Healthchecks: resuming {config.name} fan-out from check_key={resume.check_key}")
+        # The bookmarked key is a ping credential, so log that we resumed without naming it.
+        logger.debug(f"Healthchecks: resuming {config.name} fan-out from bookmarked check")
 
     params: dict[str, Any] = {}
     if config.supports_incremental and should_use_incremental_field:
@@ -217,7 +230,8 @@ def _get_fan_out_rows(
             # only) 404 here — skip that check rather than failing the whole sync. A check
             # deleted mid-sync also 404s; same benign skip.
             if status == 404:
-                logger.warning(f"Healthchecks: {config.name} not available for check {check_key} (404), skipping")
+                # `index` is a positional counter, not the check key (a ping credential).
+                logger.warning(f"Healthchecks: {config.name} not available for check #{index} (404), skipping")
                 continue
             raise
 
@@ -250,13 +264,11 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = HEALTHCHECKS_ENDPOINTS[endpoint]
-    # `base_url` is user-supplied (self-hosted), so pin redirects off: validation and the
-    # outbound request must stay on the same target (SSRF defense-in-depth).
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
     if config.fan_out_over_checks:
+        # The fan-out builds its own sessions once the per-check keys are known, so they can be
+        # redacted from request telemetry (see `_get_fan_out_rows`).
         yield from _get_fan_out_rows(
-            session,
             base_url,
             api_key,
             config,
@@ -268,6 +280,11 @@ def get_rows(
         return
 
     # Top-level endpoints (checks, channels): a single unpaginated request.
+    # `base_url` is user-supplied (self-hosted), so pin redirects off: validation and the
+    # outbound request must stay on the same target (SSRF defense-in-depth). capture=False keeps
+    # the response body — which holds `uuid`/`ping_url` (ping credentials) — out of the HTTP
+    # sample store.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
     response = _fetch(session, f"{_api_base(base_url)}{config.path}", _headers(api_key), logger)
     body = response.json()
     items = body.get(config.data_key, []) if (config.data_key and isinstance(body, dict)) else []
