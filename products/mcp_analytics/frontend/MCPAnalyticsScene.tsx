@@ -95,7 +95,7 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             <SceneTitleSection
                 name="MCP analytics"
                 description={onboardingState === 'onboarded' ? TAB_DESCRIPTIONS[activeTab] : null}
-                resourceType={{ type: 'llm_analytics' }}
+                resourceType={{ type: 'mcp_analytics' }}
                 actions={
                     <>
                         {onboardingState === 'onboarded' && (
