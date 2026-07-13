@@ -176,9 +176,10 @@ class DockerProviderStrategy(SandboxProviderStrategy):
     name: ClassVar[SandboxProvider] = "docker"
     default_max_sandboxes: ClassVar[int | None] = 4
 
-    def __init__(self, *, keep_containers: bool = False) -> None:
+    def __init__(self, *, keep_containers: bool = False, rebuild_image: bool = False) -> None:
         super().__init__()
         self.keep_containers = keep_containers
+        self.rebuild_image = rebuild_image
 
     def preflight(self) -> None:
         if shutil.which("docker") is None:
@@ -189,6 +190,16 @@ class DockerProviderStrategy(SandboxProviderStrategy):
             raise PreflightError(f"Could not reach the Docker daemon: {e}") from e
         if result.returncode != 0:
             raise PreflightError("The Docker daemon is not reachable. Start Docker and retry.")
+
+    def start(self, stack: ExitStack) -> None:
+        # Verify posthog-sandbox-base is fresh (rebuilding when @posthog/agent published a
+        # newer version or the Dockerfile changed) before any case grabs a sandbox, so a
+        # stale image can't break the whole run. Imported here because it pulls in Django.
+        from products.tasks.backend.logic.services.docker_sandbox import (  # noqa: PLC0415 — Django import, kept off the harness import path
+            ensure_fresh_base_image,
+        )
+
+        ensure_fresh_base_image(force=self.rebuild_image)
 
     def settings_overrides(self) -> dict[str, Any]:
         # Docker containers reach the host via host.docker.internal.
@@ -308,7 +319,9 @@ class ModalProviderStrategy(SandboxProviderStrategy):
             cleanup_modal_eval_sandboxes(self._sandbox_app_name, self._task_ids)
 
 
-def build_provider(provider: SandboxProvider, *, keep_containers: bool) -> SandboxProviderStrategy:
+def build_provider(
+    provider: SandboxProvider, *, keep_containers: bool, rebuild_image: bool = False
+) -> SandboxProviderStrategy:
     if provider == "docker":
-        return DockerProviderStrategy(keep_containers=keep_containers)
+        return DockerProviderStrategy(keep_containers=keep_containers, rebuild_image=rebuild_image)
     return ModalProviderStrategy()

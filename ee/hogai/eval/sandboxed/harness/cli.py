@@ -30,6 +30,7 @@ class HarnessOptions:
     agent_model: str
     max_sandboxes: int
     keep_sandbox_containers: bool
+    rebuild_sandbox_image: bool
     create_db: bool
     list_only: bool
     per_case_timeout_seconds: int
@@ -80,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the end-of-run Docker container sweep, for debugging a leftover container.",
     )
     parser.add_argument(
+        "--rebuild-sandbox-image",
+        action="store_true",
+        help="Force a rebuild of the posthog-sandbox-base image before the run (docker only).",
+    )
+    parser.add_argument(
         "--create-db", action="store_true", help="Rebuild the eval test database instead of reusing it."
     )
     parser.add_argument(
@@ -114,6 +120,8 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         parser.error("--max-sandboxes must be at least 1")
     if args.keep_sandbox_containers and args.provider != "docker":
         parser.error("--keep-sandbox-containers only applies to --provider docker")
+    if args.rebuild_sandbox_image and args.provider != "docker":
+        parser.error("--rebuild-sandbox-image only applies to --provider docker")
     if args.trials < 1:
         parser.error("--trials must be at least 1")
     if args.fail_under is not None and not (0 < args.fail_under <= 1):
@@ -133,6 +141,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         agent_model=args.agent_model,
         max_sandboxes=max_sandboxes,
         keep_sandbox_containers=args.keep_sandbox_containers,
+        rebuild_sandbox_image=args.rebuild_sandbox_image,
         create_db=args.create_db,
         list_only=args.list_only,
         per_case_timeout_seconds=args.case_timeout or _default_case_timeout(),

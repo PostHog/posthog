@@ -49,7 +49,11 @@ class SandboxedEvalHarness:
 
     def __init__(self, options: HarnessOptions) -> None:
         self.options = options
-        self.provider = build_provider(options.provider, keep_containers=options.keep_sandbox_containers)
+        self.provider = build_provider(
+            options.provider,
+            keep_containers=options.keep_sandbox_containers,
+            rebuild_image=options.rebuild_sandbox_image,
+        )
         self._stack = ExitStack()
         self._database: EvalDatabase | None = None
         self._live_server: EvalLiveServer | None = None
