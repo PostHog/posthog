@@ -8934,7 +8934,10 @@ export namespace Schemas {
     export interface Threshold {
       readonly id: string;
       readonly created_at: string;
-      /** Optional name for the threshold. */
+      /**
+         * Optional name for the threshold.
+         * @maxLength 255
+         */
       name?: string;
       /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
       configuration: InsightThreshold;
@@ -9322,7 +9325,10 @@ export namespace Schemas {
       readonly created_at: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight: number;
-      /** Human-readable name for the alert. */
+      /**
+         * Human-readable name for the alert.
+         * @maxLength 255
+         */
       name?: string;
       /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
       subscribed_users: number[];
@@ -14669,6 +14675,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `user` - user
+     * * `ai_generated` - ai_generated
+     */
+    export type CreatedSourceEnum = typeof CreatedSourceEnum[keyof typeof CreatedSourceEnum];
+
+
+    export const CreatedSourceEnum = {
+      User: 'user',
+      AiGenerated: 'ai_generated',
+    } as const;
+
+    /**
      * * `web` - web
      * * `api` - api
      * * `mcp` - mcp
@@ -15510,6 +15528,87 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+    }
+
+    /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    export type DataCatalogMetricDefinition = { [key: string]: unknown } | null;
+
+    export interface DataCatalogMetric {
+      readonly id: string;
+      /**
+         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name: string;
+      /**
+         * Human-friendly label. Mutable, unlike name.
+         * @maxLength 255
+         */
+      display_name?: string;
+      /** What the metric means and how to interpret it. */
+      description: string;
+      /**
+         * Unit of the result, e.g. usd, percent, cents.
+         * @maxLength 64
+         */
+      unit?: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+         * @nullable
+         */
+      definition?: DataCatalogMetricDefinition;
+      /**
+         * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+         * @nullable
+         */
+      readonly definition_kind: string | null;
+      /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+      readonly referenced_table_names: unknown;
+      /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+      readonly status: string;
+      /** @nullable */
+      readonly approved_at: string | null;
+      /**
+         * Short ID of the insight this metric was created from, for drift detection.
+         * @nullable
+         */
+      readonly source_insight_short_id: string | null;
+      /**
+         * When the metric was last run (30-minute throttle).
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the metric, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the proposal, 0-1.
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this metric. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
     }
 
     export interface DataColorTheme {
@@ -23669,6 +23768,49 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    /**
+     * One experiment whose feature flag a session recording saw.
+     */
+    export interface ExperimentSessionContextItem {
+      /** ID of the experiment whose feature flag the session saw. */
+      experiment_id: number;
+      /** Name of the experiment. */
+      experiment_name: string;
+      /** Key of the experiment's feature flag. */
+      flag_key: string;
+      /** Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one exists, otherwise from the $feature/<key> property stamped on the session's events. */
+      variant: string;
+      /** All distinct variant values observed for this flag during the session, sorted alphabetically. Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. More than one value means the session saw multiple variants — a signal of multi-exposure bias. */
+      variants_seen: string[];
+      /** True when the session saw more than one variant of this flag. */
+      multiple_variants: boolean;
+      /**
+         * Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> properties (e.g. the assignment carried over from an earlier session). For experiments with custom exposure criteria this is not the experiment's exposure moment.
+         * @nullable
+         */
+      first_flag_evaluation_timestamp: string | null;
+      /**
+         * When the experiment was launched.
+         * @nullable
+         */
+      experiment_start_date: string | null;
+      /**
+         * When the experiment ended. Null while the experiment is still running.
+         * @nullable
+         */
+      experiment_end_date: string | null;
+    }
+
+    /**
+     * Experiment/variant context for a session recording.
+     */
+    export interface ExperimentSessionContextResponse {
+      /** ID of the session recording the context was resolved for. */
+      session_id: string;
+      /** Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched experiment's run window overlaps the recording or no flag data was observed in the session. */
+      results: ExperimentSessionContextItem[];
     }
 
     /**
@@ -33905,6 +34047,15 @@ export namespace Schemas {
       results: DashboardTemplate[];
     }
 
+    export interface PaginatedDataCatalogMetricList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataCatalogMetric[];
+    }
+
     export interface PaginatedDataColorThemeList {
       count: number;
       /** @nullable */
@@ -37319,7 +37470,10 @@ export namespace Schemas {
     export interface ThresholdWithAlert {
       readonly id: string;
       readonly created_at: string;
-      /** Optional name for the threshold. */
+      /**
+         * Optional name for the threshold.
+         * @maxLength 255
+         */
       name?: string;
       /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
       configuration: InsightThreshold;
@@ -38717,7 +38871,10 @@ export namespace Schemas {
       readonly created_at?: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight?: number;
-      /** Human-readable name for the alert. */
+      /**
+         * Human-readable name for the alert.
+         * @maxLength 255
+         */
       name?: string;
       /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
       subscribed_users?: number[];
@@ -39308,6 +39465,87 @@ export namespace Schemas {
       is_featured?: boolean;
       /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
       readonly non_portable_references?: NonPortableReferences;
+    }
+
+    /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    export type PatchedDataCatalogMetricDefinition = { [key: string]: unknown } | null;
+
+    export interface PatchedDataCatalogMetric {
+      readonly id?: string;
+      /**
+         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name?: string;
+      /**
+         * Human-friendly label. Mutable, unlike name.
+         * @maxLength 255
+         */
+      display_name?: string;
+      /** What the metric means and how to interpret it. */
+      description?: string;
+      /**
+         * Unit of the result, e.g. usd, percent, cents.
+         * @maxLength 64
+         */
+      unit?: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner?: string | null;
+      /**
+         * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+         * @nullable
+         */
+      definition?: PatchedDataCatalogMetricDefinition;
+      /**
+         * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+         * @nullable
+         */
+      readonly definition_kind?: string | null;
+      /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+      readonly referenced_table_names?: unknown;
+      /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+      readonly status?: string;
+      /** @nullable */
+      readonly approved_at?: string | null;
+      /**
+         * Short ID of the insight this metric was created from, for drift detection.
+         * @nullable
+         */
+      readonly source_insight_short_id?: string | null;
+      /**
+         * When the metric was last run (30-minute throttle).
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the metric, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the proposal, 0-1.
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this metric. */
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedDataColorTheme {
@@ -59570,6 +59808,29 @@ export namespace Schemas {
       query: _TracingAttributeBreakdownQueryBody;
     }
 
+    export interface _TracingAttributeBreakdownRow {
+      /** The attribute's value for this group. Spans without the attribute group under ''. */
+      value: string;
+      /** Number of matching spans with this value. */
+      count: number;
+      /** Number of matching error spans (status_code = 2). */
+      error_count: number;
+      /** Median span duration in nanoseconds. */
+      p50_duration_nano: number;
+      /** 95th percentile span duration in nanoseconds. */
+      p95_duration_nano: number;
+    }
+
+    export interface _TracingAttributeBreakdownResponse {
+      /** One row per distinct attribute value, ordered by the requested column descending. */
+      results: _TracingAttributeBreakdownRow[];
+      /**
+         * Rows for the comparison window when compareFilter.compare is true, else null.
+         * @nullable
+         */
+      compare: _TracingAttributeBreakdownRow[] | null;
+    }
+
     export interface _TracingAttributeEntry {
       /** Attribute key name. */
       name: string;
@@ -65339,6 +65600,7 @@ export namespace Schemas {
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
+     * * `Metric` - Metric
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -65423,6 +65685,7 @@ export namespace Schemas {
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
       StreamlitApp: 'StreamlitApp',
+      Metric: 'Metric',
     } as const;
 
     /**
@@ -65493,6 +65756,7 @@ export namespace Schemas {
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
+     * * `Metric` - Metric
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -65565,6 +65829,7 @@ export namespace Schemas {
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
       StreamlitApp: 'StreamlitApp',
+      Metric: 'Metric',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -66813,6 +67078,17 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DataCatalogMetricsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DataColorThemesListParams = {
     /**
      * Number of results to return per page.
@@ -67984,6 +68260,13 @@ export namespace Schemas {
       key: string;
       label: string;
       description: string;
+    };
+
+    export type ExperimentsSessionContextRetrieveParams = {
+    /**
+     * ID of the session recording to resolve experiment context for.
+     */
+    session_id: string;
     };
 
     export type ExportsListParams = {
