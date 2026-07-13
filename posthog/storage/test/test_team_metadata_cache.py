@@ -368,7 +368,8 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         mock_get_client.return_value = mock_redis
         mock_redis.zrangebyscore.return_value = [self.team.api_token.encode()]
 
-        teams = get_teams_with_expiring_caches(ttl_threshold_hours=24)
+        with self.assertNumQueries(1):
+            teams = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
         self.assertEqual(len(teams), 1)
         deferred = teams[0].get_deferred_fields()

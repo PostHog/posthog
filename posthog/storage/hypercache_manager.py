@@ -330,6 +330,9 @@ def warm_caches(
         else:
             teams_queryset = config.get_teams_queryset().select_related("organization", "project")
 
+        if config.refresh_only_fields is not None:
+            teams_queryset = teams_queryset.only(*config.refresh_only_fields)
+
         total_teams = teams_queryset.count()
 
         logger.info(
