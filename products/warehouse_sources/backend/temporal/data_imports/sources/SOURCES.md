@@ -169,6 +169,7 @@ the row lists both.
 | financial_modelling     | HTTP                        | requests                                                        | ✅                          |
 | finnhub                 | HTTP                        | requests                                                        | ✅                          |
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
+| firecrawl               | HTTP                        | requests                                                        | ✅                          |
 | fleetio                 | HTTP                        | requests                                                        | ✅                          |
 | firehydrant             | HTTP                        | requests                                                        | ✅                          |
 | flexmail                | HTTP                        | requests                                                        | ✅                          |
@@ -238,6 +239,7 @@ the row lists both.
 | lingo_dev               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | linkedin_ads            | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | linkrunner              | HTTP                        | requests                                                        | ✅                          |
+| linode                  | HTTP                        | requests                                                        | ✅                          |
 | lob                     | HTTP                        | requests                                                        | ✅                          |
 | luma                    | HTTP                        | requests                                                        | ✅                          |
 | mailchimp               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -254,6 +256,7 @@ the row lists both.
 | meta_ads                | HTTP                        | requests                                                        | ✅                          |
 | metabase                | HTTP                        | requests                                                        | ✅                          |
 | metorial                | HTTP                        | requests                                                        | ✅                          |
+| mistral_ai              | HTTP                        | requests                                                        | ✅                          |
 | mixmax                  | HTTP                        | requests                                                        | ✅                          |
 | mixpanel                | HTTP                        | requests                                                        | ✅                          |
 | mollie                  | HTTP                        | requests                                                        | ✅                          |
@@ -264,6 +267,7 @@ the row lists both.
 | my_hours                | HTTP                        | requests                                                        | ✅                          |
 | mysql                   | DB protocol                 | pymysql                                                         | ➖                          |
 | n8n                     | HTTP                        | requests                                                        | ✅                          |
+| netlify                 | HTTP                        | requests                                                        | ✅                          |
 | new_york_times          | HTTP                        | requests                                                        | ✅                          |
 | news_api                | HTTP                        | requests                                                        | ✅                          |
 | newsdata                | HTTP                        | requests                                                        | ✅                          |
@@ -389,6 +393,7 @@ the row lists both.
 | together_ai             | HTTP                        | requests                                                        | ✅                          |
 | trello                  | HTTP                        | requests                                                        | ✅                          |
 | tremendous              | HTTP                        | requests                                                        | ✅                          |
+| trigger_dev             | HTTP                        | requests                                                        | ✅                          |
 | twilio                  | HTTP                        | requests                                                        | ✅                          |
 | typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                 | HTTP                        | requests                                                        | ✅                          |
@@ -396,6 +401,7 @@ the row lists both.
 | vercel                  | HTTP                        | requests                                                        | ✅                          |
 | vitally                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                 | HTTP                        | requests                                                        | ✅                          |
+| windmill                | HTTP                        | requests                                                        | ✅                          |
 | woocommerce             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wordpress               | HTTP                        | requests                                                        | ✅                          |
 | workable                | HTTP                        | requests                                                        | ✅                          |
@@ -541,7 +547,6 @@ doesn't conflict with concurrent PRs.
 - fintoc
 - firebase
 - firebolt
-- firecrawl
 - fireworks_ai
 - flexmail
 - flexport
@@ -633,7 +638,6 @@ doesn't conflict with concurrent PRs.
 - lingo_dev
 - linkedin_pages
 - linnworks
-- linode
 - llama_cloud
 - lokalise
 - looker
@@ -657,14 +661,12 @@ doesn't conflict with concurrent PRs.
 - mintlify
 - miro
 - missive
-- mistral_ai
 - mode
 - mono
 - nasa
 - navan
 - nebius_ai
 - neon
-- netlify
 - netsuite
 - new_relic
 - news_api
@@ -816,7 +818,6 @@ doesn't conflict with concurrent PRs.
 - toggl
 - track_pms
 - tremendous
-- trigger_dev
 - trustpilot
 - turso
 - tvmaze
@@ -846,7 +847,6 @@ doesn't conflict with concurrent PRs.
 - watchmode
 - when_i_work
 - wikipedia_pageviews
-- windmill
 - workday
 - workflowmax
 - workramp

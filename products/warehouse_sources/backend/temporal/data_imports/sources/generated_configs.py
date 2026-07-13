@@ -1329,7 +1329,7 @@ class FireboltSourceConfig(config.Config):
 
 @config.config
 class FirecrawlSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2137,7 +2137,7 @@ class LinnworksSourceConfig(config.Config):
 
 @config.config
 class LinodeSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2354,7 +2354,7 @@ class MissiveSourceConfig(config.Config):
 
 @config.config
 class MistralAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2452,7 +2452,7 @@ class NetSuiteSourceConfig(config.Config):
 
 @config.config
 class NetlifySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -3828,7 +3828,8 @@ class TremendousSourceConfig(config.Config):
 
 @config.config
 class TriggerDevSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -4014,7 +4015,9 @@ class WikipediaPageviewsSourceConfig(config.Config):
 
 @config.config
 class WindmillSourceConfig(config.Config):
-    pass
+    host: str
+    workspace: str
+    api_token: str
 
 
 @config.config
