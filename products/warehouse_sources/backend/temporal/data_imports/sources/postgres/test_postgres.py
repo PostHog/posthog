@@ -2767,6 +2767,24 @@ class TestValidateCredentialsErrorMapping:
                 "[Errno -5] No address associated with hostname",
                 "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
             ),
+            # A resolved-but-unroutable host (IPv6-only, or a firewall dropping our IPs) surfaces as
+            # ENETUNREACH/EHOSTUNREACH, which the generic fallback couldn't explain.
+            (
+                'connection failed: connection to server at "2600:1f18::1", port 5432 failed: Network is unreachable',
+                "PostHog reached the network but couldn't open a connection to the database host. This usually "
+                "means the host only accepts IPv6 connections (PostHog connects over IPv4), or a firewall is "
+                "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
+                "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
+                "firewall allowlist, then try again.",
+            ),
+            (
+                'connection failed: connection to server at "203.0.113.7", port 5432 failed: No route to host',
+                "PostHog reached the network but couldn't open a connection to the database host. This usually "
+                "means the host only accepts IPv6 connections (PostHog connects over IPv4), or a firewall is "
+                "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
+                "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
+                "firewall allowlist, then try again.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",
