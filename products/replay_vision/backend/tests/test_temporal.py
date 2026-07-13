@@ -18,6 +18,9 @@ from structlog.testing import capture_logs
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
+    CancelledError,
+    ChildWorkflowError,
+    TerminatedError,
     TimeoutError as TemporalTimeoutError,
     TimeoutType,
 )
@@ -1416,9 +1419,11 @@ class _WorkflowMocks:
         *,
         activity_results: dict[Any, Any] | None = None,
         activity_errors: dict[Any, Exception] | None = None,
+        child_error: Exception | None = None,
     ) -> None:
         self.activity_results = activity_results or {}
         self.activity_errors = activity_errors or {}
+        self.child_error = child_error
         self.activity_calls: list[tuple[Any, Any]] = []
         self.child_calls: list[tuple[tuple, dict]] = []
 
@@ -1430,6 +1435,8 @@ class _WorkflowMocks:
 
     async def execute_child_workflow(self, *args: Any, **kwargs: Any) -> Any:
         self.child_calls.append((args, kwargs))
+        if self.child_error is not None:
+            raise self.child_error
         return None
 
 
@@ -1517,6 +1524,68 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     failed_input = mocks.activity_calls[-1][1]
     assert failed_input.observation_id == new_observation_id
     assert "no events" in failed_input.error_reason.lower()
+
+
+def _child_workflow_error(cause: BaseException) -> ChildWorkflowError:
+    error = ChildWorkflowError(
+        "Child Workflow execution terminated",
+        namespace="default",
+        workflow_id="replay-vision-rasterize-1-sess-1",
+        run_id="run-1",
+        workflow_type="rasterize-recording",
+        initiated_event_id=1,
+        started_event_id=2,
+        retry_state=None,
+    )
+    error.__cause__ = cause
+    return error
+
+
+def _rasterize_child_mocks(child_error: Exception) -> _WorkflowMocks:
+    return _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=child_error,
+    )
+
+
+@pytest.mark.asyncio
+@parameterized.expand(
+    [("terminated", TerminatedError("Child Workflow execution terminated")), ("cancelled", CancelledError())]
+)
+async def test_apply_scanner_workflow_marks_orphaned_when_rasterize_child_interrupted(
+    _name: str, cause: BaseException
+) -> None:
+    # A terminated/cancelled rasterize child is operational (worker drain, deploy, terminate), not a
+    # rasterization defect: it must land as ORPHANED — not RASTERIZATION_FAILED — and propagate unwrapped
+    # so the error-tracking interceptor recognizes it and skips capturing a spurious issue.
+    child_error = _child_workflow_error(cause)
+    mocks = _rasterize_child_mocks(child_error)
+
+    with pytest.raises(ChildWorkflowError):
+        await _run_workflow(_build_inputs(session_id="sess-1"), mocks)
+
+    assert len(mocks.child_calls) == 1
+    failed_input = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_failed_activity)
+    assert failed_input.error_reason.startswith(f"{FailureKind.ORPHANED.value}:")
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_marks_rasterization_failed_when_rasterize_child_fails() -> None:
+    # A genuine child failure (empty asset, chromium missing) still surfaces as a reported RASTERIZATION_FAILED.
+    child_error = _child_workflow_error(ApplicationError("chromium missing", non_retryable=True))
+    mocks = _rasterize_child_mocks(child_error)
+
+    with pytest.raises(ScannerFailureError) as exc_info:
+        await _run_workflow(_build_inputs(session_id="sess-1"), mocks)
+    assert exc_info.value.kind is FailureKind.RASTERIZATION_FAILED
+
+    failed_input = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_failed_activity)
+    assert failed_input.error_reason.startswith(f"{FailureKind.RASTERIZATION_FAILED.value}:")
 
 
 @pytest.mark.asyncio

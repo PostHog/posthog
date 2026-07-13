@@ -8,6 +8,9 @@ from temporalio import common
 from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 from temporalio.exceptions import (
     ActivityError,
+    CancelledError,
+    ChildWorkflowError,
+    TerminatedError,
     TimeoutError as TemporalTimeoutError,
 )
 
@@ -154,6 +157,13 @@ def _extract_kind_for_type(e: BaseException, expected_type: str) -> str | None:
     return details[0] if details else None
 
 
+def _is_child_interruption(e: BaseException) -> bool:
+    """The rasterize child was cancelled or terminated (worker drain, deploy, manual terminate) while the
+    parent stayed alive — an operational event, not a rasterization defect. Kept distinct from a genuine
+    child failure so it isn't mislabeled RASTERIZATION_FAILED or reported to error tracking as a spurious issue."""
+    return isinstance(e, ChildWorkflowError) and isinstance(e.cause, CancelledError | TerminatedError)
+
+
 def _root_cause_message(e: BaseException) -> str:
     """Bare message from the root cause — no `TypeName:` prefix; the kind label takes that role."""
     cause = unwrap_temporal_cause(e) or e
@@ -296,6 +306,14 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 wf.logger.exception("Event emission failed for succeeded observation %s", observation_id)
             await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
         except Exception as e:
+            if _is_child_interruption(e):
+                # A terminated/cancelled rasterize child is operational, not a defect: record it as ORPHANED
+                # (the benign "stopped without an outcome" kind the reaper uses) instead of a rasterization
+                # failure, and let the error-tracking interceptor skip it rather than raising a spurious issue.
+                await self._mark_failed(
+                    observation_id, scanner_type, FailureKind.ORPHANED.value, _root_cause_message(e)
+                )
+                raise
             ineligible_kind = _extract_kind_for_type(e, INELIGIBLE_SESSION_ERROR_TYPE)
             if ineligible_kind is not None:
                 await self._mark_ineligible(observation_id, scanner_type, ineligible_kind, _root_cause_message(e))
@@ -360,6 +378,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 ),
             )
         except Exception as e:
+            if _is_child_interruption(e):
+                raise  # Operational (drain/deploy/terminate) — propagate unwrapped so run() and the interceptor recognize it.
             # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
             raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
 

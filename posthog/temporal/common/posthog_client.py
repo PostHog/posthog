@@ -21,6 +21,17 @@ from posthog.temporal.common.logger import get_write_only_logger
 logger = get_write_only_logger()
 
 
+def _is_terminated_exception(e: BaseException) -> bool:
+    """Whether `e` is (or wraps) a Temporal termination — a workflow killed by an operator, a deploy, or
+    worker eviction, or a terminated child workflow surfacing as a `ChildWorkflowError`/`ActivityError`
+    with a `TerminatedError` cause. Mirror of temporalio's `is_cancelled_exception`: a terminate is an
+    external operational action, not a code defect, so it must not be reported to error tracking."""
+    return isinstance(e, temporalio.exceptions.TerminatedError) or (
+        isinstance(e, temporalio.exceptions.ActivityError | temporalio.exceptions.ChildWorkflowError)
+        and isinstance(e.cause, temporalio.exceptions.TerminatedError)
+    )
+
+
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
     enabled on the worker) with team_id read from the activity/workflow input.
@@ -104,8 +115,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
-            if temporalio.exceptions.is_cancelled_exception(e):
-                raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if temporalio.exceptions.is_cancelled_exception(e) or _is_terminated_exception(e):
+                raise  # Expected cancellation or operator termination (worker drain, timeout, cancel, terminate), not a defect
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
