@@ -76,22 +76,6 @@ giving it richer context about PostHog's data model.
 
 Primarily oriented toward coding agents (PostHog Code, PostHog AI, Claude Code).
 
-## Claude web and desktop exec schema budget
-
-Claude web and desktop drop a tool when its complete serialized JSON entry exceeds 18,000 characters.
-This includes analytics fields injected after the base MCP tool entry is built.
-The final `exec` entry has a 17,500-character test budget to leave headroom below that limit.
-
-Keep guidance needed for routine tool calls inline.
-This includes the compact tool-domain index, which must remain in the `command` schema for tool discovery.
-Put optional or task-specific global guidance in the Claude exec learning catalog, available through `learn` and `learn <topic...>`.
-Multiple topic IDs can be loaded in one whitespace-separated command, such as `learn analytics visualizations`.
-The built-in topics are listed in the `command` description so the model can load the relevant topic before starting a task.
-
-Do not remove information from endpoint serializers or generated tool schemas to meet this budget.
-Those descriptions remain the source of truth for `info` and `schema` discovery.
-When adding global prompt guidance, keep it inline only when it is useful on nearly every call; otherwise add it to an existing learning topic or create a globally unique topic ID.
-
 ## SQL-first MCP: HogQL system tables
 
 Every list/get endpoint exposed as an MCP tool must have a corresponding HogQL system table.

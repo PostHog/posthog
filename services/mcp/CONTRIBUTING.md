@@ -304,7 +304,7 @@ pnpm run build               # builds all apps
 
 For apps that need fully custom logic (like `debug.tsx` or `query-results.tsx`):
 
-1. **Add a `type: custom` entry** in the YAML to register the URI and app name. If the app has a reusable view component, add `render_ui` so the umbrella tool can render it too:
+1. **Add a `type: custom` entry** in the YAML to register the URI and app name:
 
    ```yaml
    ui_apps:
@@ -312,10 +312,6 @@ For apps that need fully custom logic (like `debug.tsx` or `query-results.tsx`):
        type: custom
        app_name: My Custom App
        description: Custom visualization for X
-       render_ui:
-         component_import: ../components/MyCustomView
-         view_component: MyCustomView
-         view_prop: data
    ```
 
 2. **Create the entry point** manually at `src/ui-apps/apps/my-custom-app.tsx`.

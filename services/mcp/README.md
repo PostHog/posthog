@@ -290,19 +290,6 @@ x-posthog-mcp-mode: tools
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
-Claude web and desktop impose an 18,000-character limit on each complete serialized tool entry.
-In cli mode, the `posthog` tool keeps the guidance needed for routine calls in its schema.
-The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
-Optional, task-specific guidance is served through the same tool:
-
-- `learn` lists the available topics.
-- `learn analytics` loads detailed analytics guidance and examples.
-- `learn analytics visualizations` loads multiple topics in one command.
-- `learn visualizations` loads rendering guidance when visualizations are available.
-- `learn feedback` loads feedback guidance when feedback is available.
-
-Other clients keep the full inline command reference.
-
 ### Consumer attribution
 
 Wrapping apps and AI-tool plugins that install or proxy the PostHog MCP can self-identify so usage can be attributed to the install path (e.g. plugin-installed vs. manually-pasted URL). The wrapped MCP client (Claude Code, Cursor, …) is already captured separately via the MCP `clientInfo` handshake — this signal is only for the wrapping context.
