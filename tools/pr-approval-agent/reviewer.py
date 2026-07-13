@@ -378,6 +378,15 @@ class Reviewer:
             if isinstance(message, ResultMessage):
                 if message.subtype == "error_max_structured_output_retries":
                     raise RuntimeError("Agent could not produce valid structured output after retries")
+                if message.is_error:
+                    # An API-level failure (auth, rate limit, overload, quota) surfaces
+                    # here with subtype "success" and the real HTTP status in
+                    # api_error_status. Raise with that detail now — otherwise the CLI
+                    # process exits right after this message and the SDK's read loop
+                    # replaces it with the generic, status-less "Claude Code returned
+                    # an error result: success" once the exception reaches us anyway.
+                    status = f" (HTTP {message.api_error_status})" if message.api_error_status else ""
+                    raise RuntimeError(f"Anthropic API error{status}: {message.result or message.subtype}")
                 if message.structured_output:
                     structured_output = message.structured_output
                     # Stamp the LLM verdict onto the trace properties
