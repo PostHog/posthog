@@ -194,7 +194,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         return SourceConfig(
             name=SchemaExternalDataSourceType.POSTGRES,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["postgresql"],
+            keywords=["postgresql", "sql"],
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
             iconPath="/static/services/postgres.png",
             docsUrl="https://posthog.com/docs/cdp/sources/postgres",
