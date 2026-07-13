@@ -4,6 +4,8 @@ import structlog
 import posthoganalytics
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AnonymousUser
+
     from posthog.models import Team, User
 
 logger = structlog.get_logger(__name__)
@@ -11,7 +13,7 @@ logger = structlog.get_logger(__name__)
 LOGS_ARCHIVE_FEATURE_FLAG = "logs-archive-search"
 
 
-def archive_enabled(user: "User | None", team: "Team") -> bool:
+def archive_enabled(user: "User | AnonymousUser | None", team: "Team") -> bool:
     distinct_id = getattr(user, "distinct_id", None)
     if not distinct_id:
         return False
@@ -36,7 +38,7 @@ def archive_enabled(user: "User | None", team: "Team") -> bool:
         return False
 
 
-def use_archive_requested(user: "User | None", team: "Team", requested: bool) -> bool:
+def use_archive_requested(user: "User | AnonymousUser | None", team: "Team", requested: bool) -> bool:
     """Route to the archive only when the client explicitly asks for it and the flag is on.
 
     The Archive tab in the logs viewer sends `useArchive: true`; the regular viewer never does.

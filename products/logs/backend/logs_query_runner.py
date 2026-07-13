@@ -652,6 +652,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
 
         query = self.paginator.paginate(
+            # nosemgrep: hogql-fstring-audit (only interpolates LOGS_TABLE, an internal class constant table name, not user input; the {{...}} are HogQL placeholders)
             parse_select(
                 f"""
             SELECT
