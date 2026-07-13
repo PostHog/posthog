@@ -1652,6 +1652,8 @@ def test_single_shard_op_reexecution_completes_failed_request(cluster: Clickhous
 
     # UI-style re-execution: load is NOT re-run — rebuild its cached output from the persisted
     # request and drive only the shard op, then the downstream fan-in ops, directly.
+    assert request.start_time is not None
+    assert request.end_time is not None
     ctx = DeletionRequestContext(
         request_id=str(request.pk),
         team_id=request.team_id,
