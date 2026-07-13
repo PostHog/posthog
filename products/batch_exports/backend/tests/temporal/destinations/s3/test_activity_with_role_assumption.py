@@ -1,5 +1,4 @@
 import uuid
-import typing
 import collections.abc
 
 import pytest
@@ -24,9 +23,6 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
     assert_clickhouse_records_in_s3,
     run_activity,
 )
-
-if typing.TYPE_CHECKING:
-    pass
 
 
 @pytest.fixture(scope="module")
