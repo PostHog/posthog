@@ -1,18 +1,20 @@
 from django.db import models
 
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from ..facade.enums import CertificationStatus
 
 
-class TableCertification(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """A human-vouched trust mark on a warehouse table or view.
 
     Exactly one target (table XOR saved_query). Revocation is a hard delete (activity-logged in the
     logic layer), so there is no soft-delete here; when the target itself soft-deletes, the loader and
     API reads exclude the row rather than cascading.
     """
+
+    objects = TeamScopedManager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(

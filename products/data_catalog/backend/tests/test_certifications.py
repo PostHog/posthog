@@ -187,6 +187,42 @@ class TestCertificationLogic(BaseTest):
         assert {certification["target_type"] for certification in serialized} == {"table", "view"}
         assert any(certification["certified_by"] is None for certification in serialized)
 
+    def test_proposal_stays_in_the_requested_environment(self) -> None:
+        child_team = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            parent_team=self.team,
+            name="Child environment",
+        )
+        table = _table(child_team)
+
+        certification = propose_certification(team=child_team, user=self.user, table_id=str(table.id))
+
+        assert certification.team_id == child_team.id
+        assert certifications_for_team(child_team).get() == certification
+        assert not certifications_for_team(self.team).exists()
+
+    def test_certifications_are_isolated_between_project_environments(self) -> None:
+        child_team = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            parent_team=self.team,
+            name="Child environment",
+        )
+        parent_certification = propose_certification(
+            team=self.team,
+            user=self.user,
+            table_id=str(_table(self.team, name="parent_table").id),
+        )
+        child_certification = propose_certification(
+            team=child_team,
+            user=self.user,
+            table_id=str(_table(child_team, name="child_table").id),
+        )
+
+        assert list(certifications_for_team(self.team)) == [parent_certification]
+        assert list(certifications_for_team(child_team)) == [child_certification]
+
 
 class TestCertificationAPI(APIBaseTest):
     def setUp(self) -> None:
