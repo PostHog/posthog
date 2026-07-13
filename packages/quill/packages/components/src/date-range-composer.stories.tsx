@@ -63,6 +63,7 @@ export const ComposerInPopover: Story = {
             days: [],
             incomplete: false,
         })
+        const [exactTime, setExactTime] = React.useState(false)
         const [open, setOpen] = React.useState(false)
         const summary = composerExclusionsSummary(exclusions)
         return (
@@ -70,7 +71,11 @@ export const ComposerInPopover: Story = {
                 <Popover open={open} onOpenChange={setOpen}>
                     <PopoverTrigger render={<Button variant="outline" />}>
                         {composerSelectionLabel(selection)}
-                        {summary && <span className="size-1.5 rounded-full bg-primary" aria-label={summary} />}
+                        {summary && (
+                            <span className="text-muted-foreground font-normal">
+                                · {summary.replace('Excluding', 'excl.')}
+                            </span>
+                        )}
                     </PopoverTrigger>
                     <PopoverContent
                         align="start"
@@ -87,6 +92,8 @@ export const ComposerInPopover: Story = {
                             }}
                             exclusions={exclusions}
                             onExclusionsChange={setExclusions}
+                            exactTime={exactTime}
+                            onExactTimeChange={setExactTime}
                         />
                     </PopoverContent>
                 </Popover>
@@ -104,8 +111,8 @@ export const StandaloneInput: Story = {
         })
         return (
             <div className="flex items-center gap-2">
-                <Text size="sm" weight="semibold" render={<span />}>
-                    Last
+                <Text size="sm" render={<span />}>
+                    In the last
                 </Text>
                 <RelativeRangeInput value={value} onChange={setValue} />
             </div>
