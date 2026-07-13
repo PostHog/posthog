@@ -300,6 +300,26 @@ def test_fmt_leaves_glob_files_untouched(tmp_path: Path) -> None:
     assert plan.is_canonical
 
 
+def test_fmt_pins_files_with_rule_level_metadata(tmp_path: Path) -> None:
+    # Relocation only preserves match+owners, so a rule carrying status/inherit
+    # must pin its file exactly like a glob does — otherwise folding this child
+    # into the parent would silently drop the generated status.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "a/owners.yaml": "version: 1\nowners: [team-a]\ncontact:\n  slack: '#a'\n",
+            "a/f.py": "x",
+            "a/b/owners.yaml": (
+                "version: 1\nowners: [team-b]\nrules:\n  - match: '/gen/'\n    owners: [team-b]\n    status: generated\n"
+            ),
+            "a/b/gen/g.py": "x",
+            "r1.py": "x",
+            "r2.py": "x",
+        },
+    )
+    assert plan.is_canonical
+
+
 def test_fmt_is_idempotent_on_canonical_layout(tmp_path: Path) -> None:
     # A layout already in canonical form (child folded into the pinned parent) yields
     # no proposed moves.

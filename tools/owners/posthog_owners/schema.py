@@ -224,7 +224,9 @@ def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bo
     """Whether a file is "simple" — mechanically relocatable, nothing but ownership.
 
     Both callers agree that contact/status/``inherit: false`` (and being a
-    ``product.yaml`` alias) disqualify a file. They differ on rules:
+    ``product.yaml`` alias) disqualify a file. So does any rule carrying more
+    than match+owners: relocation only preserves owners, so rule-level
+    ``status``/``inherit`` must pin the file. They differ on rules:
 
     - lint's consolidation suggestions (``allow_anchored_rules=False``) only fold
       files whose entire content is one non-empty ``owners:`` list;
@@ -234,6 +236,8 @@ def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bo
     if parsed is None or parsed.is_alias:
         return False
     if parsed.inherit is False or parsed.status is not UNSET or parsed.slack is not UNSET:
+        return False
+    if any(r.status is not UNSET or r.inherit is not UNSET for r in parsed.rules):
         return False
     if allow_anchored_rules:
         return not any(match_is_glob(r.match) for r in parsed.rules)
