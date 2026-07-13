@@ -353,6 +353,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
 
+    // Workflows
+    [Scene.Workflow]: AccessControlResourceType.Workflow,
+    [Scene.Workflows]: AccessControlResourceType.Workflow,
+
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,
     [Scene.ProductTours]: AccessControlResourceType.ProductTour,

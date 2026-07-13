@@ -687,7 +687,8 @@ class ChargifySourceConfig(config.Config):
 
 @config.config
 class ChartHopSourceConfig(config.Config):
-    pass
+    api_key: str
+    org_id: str | None = None
 
 
 @config.config
@@ -952,7 +953,7 @@ class CultureAmpSourceConfig(config.Config):
 
 @config.config
 class CursorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1018,7 +1019,7 @@ class DbtSourceConfig(config.Config):
 
 @config.config
 class DecagonSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1717,6 +1718,11 @@ class HetznerSourceConfig(config.Config):
 
 
 @config.config
+class HexSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class HeyGenSourceConfig(config.Config):
     pass
 
@@ -2093,7 +2099,7 @@ class LinearSourceConfig(config.Config):
 
 @config.config
 class LingoDevSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2279,7 +2285,7 @@ class MetabaseSourceConfig(config.Config):
 
 @config.config
 class MetorialSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2716,7 +2722,7 @@ class PartnerizeSourceConfig(config.Config):
 
 @config.config
 class PayFitSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3360,7 +3366,7 @@ class ShipStationSourceConfig(config.Config):
 
 @config.config
 class ShippoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3759,7 +3765,7 @@ class TodoistSourceConfig(config.Config):
 
 @config.config
 class TogetherAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4501,6 +4507,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.HELPSCOUT: HelpScoutSourceConfig,
         ExternalDataSourceType.HEROKU: HerokuSourceConfig,
         ExternalDataSourceType.HETZNER: HetznerSourceConfig,
+        ExternalDataSourceType.HEX: HexSourceConfig,
         ExternalDataSourceType.HEYGEN: HeyGenSourceConfig,
         ExternalDataSourceType.HIBOB: HiBobSourceConfig,
         ExternalDataSourceType.HIGHLEVEL: HighLevelSourceConfig,
