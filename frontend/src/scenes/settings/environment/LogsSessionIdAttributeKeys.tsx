@@ -23,7 +23,7 @@ export function LogsSessionIdAttributeKeys(): JSX.Element {
 
     useEffect(() => {
         if (logsConfig) {
-            setValue(logsConfig.logs_session_id_attribute_keys)
+            setValue(logsConfig.logs_session_id_attribute_keys ?? DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS)
         }
     }, [logsConfig])
 
