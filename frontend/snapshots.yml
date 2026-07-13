@@ -1720,6 +1720,18 @@ snapshots:
         hash: v1.k794b7964.cb1d1d3239f78521823c1278cadb102e136422579a910c3a691c2b6b17ebb962.aj9xFX3wR7NQKuqnk4Tgypbsd2Ase4rHeCGuKjORB3w
     components-sparkline--bar-chart--light:
         hash: v1.k794b7964.31239811ce1a1008b0f7ce278672dea78cc73785762735c6dc75437b165e6546.6_LSwYHJwrSsIBtnEhFwPCl3X6531Z_0iJaYpOj5sIU
+    components-sparkline--bar-chart-quill--dark:
+        hash: v1.k794b7964.65da75bd15e9d0d9f2e575e4eb04e0aaafdb39e02dbc19ba5006cf3651cb792d.4h71v2aMuCoUCk73AbsUPFhaiOPh4OZNrsDfJF_hB8g
+    components-sparkline--bar-chart-quill--light:
+        hash: v1.k794b7964.6eb3adde804dad4d1679afdac8ba0885d492ce67b8b9e6165a8c249f44ecdd15.ch68xtIx6_gqRUW9iJtAYsQgLI9yWafMHdNiABRmSOM
+    components-sparkline--line-chart-quill--dark:
+        hash: v1.k794b7964.3f80f2e2ad5ecb11b49b40e0c8293cbbbb1b8ff2309dac2352e61106a558ad31.FIhBn_k2DHJBVrbBtjcsJ98lzMyE3WX314pjRXPaL3o
+    components-sparkline--line-chart-quill--light:
+        hash: v1.k794b7964.8a485c8268bf80fc31f15248a14e8313792aab3dcbd19cec7f9b2d949f77cd40.pK48prQY4E_mKVhX9AieWtWjecgVHYLG7_JlTdBx_Gg
+    components-sparkline--stacked-bar-chart-quill--dark:
+        hash: v1.k794b7964.8b8cfdf1368aca38505c7d33c1325cfabe1182bd63ee2c24f26c2c81d2169d6e.jqQyZDit67S6ex-m780qpZoPElLpC3ta6xDR8H6iCfA
+    components-sparkline--stacked-bar-chart-quill--light:
+        hash: v1.k794b7964.2acecce6124d42c05297ea6becbc68fe4c2e5683d963123df0be9c159746e838.MvDZ47SSb1LeD59U3glRLe8gM_bDBfLCPzaxRdnaI40
     components-sparkline--timeseries-chart--dark:
         hash: v1.k794b7964.69943832ea0d231f0a5600318dea944b617e1109f8075b233905915790d08b8d.qzAP9q8SkcIOogn967c1ONIEcKJxILqd1oDgYk9jYCE
     components-sparkline--timeseries-chart--light:
