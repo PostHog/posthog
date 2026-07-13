@@ -41,6 +41,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
@@ -1414,16 +1415,24 @@ class TaskRun(models.Model):
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
 
-    def mark_completed(self):
-        """Mark the progress as completed."""
+    def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
+        """Mark the progress as completed.
+
+        ``notify=False`` skips the push notification — for janitor-style finalization of a run
+        the user is no longer watching, where a "finished" ping long after the fact is noise.
+        ``analytics_properties`` are merged into the ``task_run_completed`` capture so swept
+        completions stay distinguishable from organic ones.
+        """
         self.status = self.Status.COMPLETED
         self.completed_at = django_timezone.now()
         self.save(update_fields=["status", "completed_at"])
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
-            {"duration_seconds": self._duration_seconds()},
+            {"duration_seconds": self._duration_seconds(), **(analytics_properties or {})},
         )
+        if not notify:
+            return
         from products.tasks.backend.push_dispatcher import notify_task_run_completed
 
         notify_task_run_completed(self)
@@ -1442,7 +1451,7 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def mark_failed(self, error: str):
+    def mark_failed(self, error: str, error_type: str | None = None) -> None:
         """Mark the progress as failed with an error message."""
         self.status = self.Status.FAILED
         self.error_message = error
@@ -1452,7 +1461,8 @@ class TaskRun(models.Model):
         self.capture_event(
             "task_run_failed",
             {
-                "error_message": error[:500],
+                "error_message": truncate_error_message(error),
+                "error_type": error_type or "unspecified",
                 "duration_seconds": self._duration_seconds(),
             },
         )

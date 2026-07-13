@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { keyForSource } from '@posthog/replay-shared'
-import { SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
+import { SnapshotSourceType, SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
 import api, { RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
@@ -18,7 +18,6 @@ import {
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
-    SnapshotSourceType,
 } from '~/types'
 
 import { SeekTarget, planNextBatch } from './snapshot-store/planNextBatch'

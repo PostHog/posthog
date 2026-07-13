@@ -4,27 +4,27 @@ PostHog: dashboards, insights, funnels, SQL, experiments, surveys, replay, error
 
 Pass CLI-style commands in the `command` parameter for all PostHog interactions.
 
-**MANDATORY — HARD REQUIREMENTS**
+**Requirements**
 
-1. Discover tools first with `search` or `tools`.
-2. Run `info <tool_name>` BEFORE every `call <tool_name> <json>`.
+1. Find unknown tools with `search` or `tools`.
+2. Run `info <tool_name>` once if its schema is not in context. Reuse it unless the tool changes or a schema error occurs.
 
-BLOCKING, like reading a file before editing it. Tool names and schemas are NOT predictable — never assume.
+Never guess a schema or run `info` before every call.
 
 **Commands (in order):**
 
 ```text
-# 1. Discover (preferred: focused regex over name/title/description)
+# 1. Find unknown tools
 posthog:exec({ "command": "search <regex>" })
 posthog:exec({ "command": "tools" })            # fallback: list all
 
-# 2. Check description + top-level schema (REQUIRED before call)
+# 2. Inspect once if the schema is missing
 posthog:exec({ "command": "info <tool_name>" })
 
 # 3. Drill into complex fields — REQUIRED for any field with a `hint`
 posthog:exec({ "command": "schema <tool_name> <field_path>" })
 
-# 4. Call the tool
+# 4. Call; reuse the schema
 posthog:exec({ "command": "call <tool_name> <json_input>" })
 posthog:exec({ "command": "call --json <tool_name> <json_input>" })
 ```

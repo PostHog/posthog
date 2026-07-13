@@ -11,6 +11,7 @@ import {
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
+import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
@@ -125,6 +126,8 @@ export const MetricsViewer = (): JSX.Element => {
         queryResultsLoading,
         queryError,
         savedInsightLoading,
+        savedInsight,
+        isAddToDashboardModalOpen,
         hasMetricName,
     } = useValues(logic)
     const {
@@ -143,6 +146,8 @@ export const MetricsViewer = (): JSX.Element => {
         fetchAnomaly,
         clearAnomaly,
         saveAsInsight,
+        addToDashboard,
+        closeAddToDashboardModal,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
 
@@ -297,7 +302,26 @@ export const MetricsViewer = (): JSX.Element => {
                 >
                     Save as insight
                 </LemonButton>
+                <LemonButton
+                    size="small"
+                    type="primary"
+                    onClick={() => addToDashboard()}
+                    loading={savedInsightLoading}
+                    disabledReason={!hasMetricName ? 'Pick a metric first' : undefined}
+                    data-attr="metrics-viewer-add-to-dashboard"
+                >
+                    Add to dashboard
+                </LemonButton>
             </div>
+            {savedInsight && (
+                <AddToDashboardModal
+                    isOpen={isAddToDashboardModalOpen}
+                    closeModal={closeAddToDashboardModal}
+                    insightProps={{ dashboardItemId: savedInsight.short_id, cachedInsight: savedInsight }}
+                    canEditInsight
+                    data-attr="metrics-viewer-add-to-dashboard-modal"
+                />
+            )}
             <div className="flex flex-col xl:flex-row gap-3 items-stretch">
                 <div className="flex-1 min-w-0">
                     <div className="relative h-[360px] border rounded p-3">

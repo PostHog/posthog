@@ -82,3 +82,19 @@ def run_revenue_view_sync(schema: "ExternalDataSchema", source: "ExternalDataSou
     if _revenue_view_sync is None:
         return
     _revenue_view_sync(schema, source)
+
+
+# --- Engineering-analytics view sync --------------------------------------------------
+EngineeringAnalyticsViewSync = Callable[["ExternalDataSchema", "ExternalDataSource"], None]
+_engineering_analytics_view_sync: Optional[EngineeringAnalyticsViewSync] = None
+
+
+def register_engineering_analytics_view_sync(fn: EngineeringAnalyticsViewSync) -> None:
+    global _engineering_analytics_view_sync
+    _engineering_analytics_view_sync = fn
+
+
+def run_engineering_analytics_view_sync(schema: "ExternalDataSchema", source: "ExternalDataSource") -> None:
+    if _engineering_analytics_view_sync is None:
+        return
+    _engineering_analytics_view_sync(schema, source)

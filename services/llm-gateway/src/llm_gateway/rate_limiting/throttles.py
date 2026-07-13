@@ -31,6 +31,14 @@ def get_rate_limit_multiplier(user: AuthenticatedUser) -> int:
     return max(get_team_multiplier(user.team_id), get_staff_multiplier(user))
 
 
+def is_usage_unlimited(user: AuthenticatedUser) -> bool:
+    """PostHog staff have no per-user cost cap — the burst/sustained throttles
+    neither deny their requests nor report them as rate limited. Spend is still
+    recorded for observability; only enforcement is skipped. Gated by a setting
+    so it can be switched off without a redeploy. Non-staff users are unaffected."""
+    return user.is_staff and get_settings().staff_unlimited_usage
+
+
 @dataclass
 class ThrottleContext:
     user: AuthenticatedUser
