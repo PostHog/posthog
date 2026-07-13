@@ -13,7 +13,7 @@ own ``WITH`` is left alone. Broken definitions that nothing references are never
 so an unrelated malformed node can't fail a run.
 """
 
-import hashlib
+from dataclasses import dataclass
 from typing import Any
 
 from posthog.hogql import ast
@@ -131,30 +131,41 @@ def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
     return print_prepared_ast(root, context=HogQLContext(team_id=None), dialect="hogql")
 
 
-def resolve_python_node_inputs(code: str, refs: dict[str, str | None]) -> list[dict[str, Any]]:
+@dataclass(frozen=True)
+class PythonNodeRef:
+    """The latest completed run of an upstream node a Python frame can materialize from."""
+
+    node_id: str
+    run_id: str
+    query: str
+
+
+def resolve_python_node_inputs(code: str, refs: dict[str, PythonNodeRef | None]) -> list[dict[str, Any]]:
     """Return the materialization specs for the upstream frames a Python node reads.
 
-    `refs` maps each named upstream node's dataframe name to its **last-run** HogQL (or None
-    if it has never completed a run). A Python node references frames as plain variables, so
-    we materialize only the names its code actually reads — each becomes a HogQL input the
-    executor fetches to a local Arrow file, keyed by `query_hash` so an unchanged upstream
-    query reuses its frame.
+    `refs` maps each named upstream node's dataframe name to its **latest completed run**
+    (or None if it has never completed a run). A Python node references frames as plain
+    variables, so we materialize only the names its code actually reads — each becomes a
+    HogQL input the executor fetches to a local Arrow file, keyed by the upstream `run_id`
+    so a re-run of that node yields a fresh frame (not stale data) and the executor can
+    evict the node's superseded frames.
 
     Raises SQLV2ReferenceError if the code reads a known node that has not been run yet.
     """
     used = set(analyze_python_globals(code).used)
     inputs: list[dict[str, Any]] = []
-    for name, last_run_code in refs.items():
+    for name, ref in refs.items():
         if not name or name not in used:
             continue
-        if last_run_code is None or not last_run_code.strip():
+        if ref is None or not ref.query.strip():
             raise SQLV2ReferenceError(f"Referenced node '{name}' has not been run yet — run it first.")
         inputs.append(
             {
                 "name": name,
                 "kind": "hogql",
-                "query": last_run_code,
-                "query_hash": hashlib.sha256(last_run_code.encode()).hexdigest(),
+                "node_id": ref.node_id,
+                "run_id": ref.run_id,
+                "query": ref.query,
             }
         )
     return inputs

@@ -50,9 +50,11 @@ the row lists both.
 | aircall                 | HTTP                        | requests                                                        | ✅                          |
 | airtable                | HTTP                        | requests                                                        | ✅                          |
 | algolia                 | HTTP                        | requests                                                        | ✅                          |
+| alguna                  | HTTP                        | requests                                                        | ✅                          |
 | alpha_vantage           | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads              | HTTP                        | requests                                                        | ✅                          |
 | amplitude               | HTTP                        | requests                                                        | ✅                          |
+| anthropic               | HTTP                        | requests                                                        | ✅                          |
 | apify_dataset           | HTTP                        | requests                                                        | ✅                          |
 | apollo                  | HTTP                        | requests                                                        | ✅                          |
 | appfigures              | HTTP                        | requests                                                        | ✅                          |
@@ -71,6 +73,7 @@ the row lists both.
 | bigmailer               | HTTP                        | requests                                                        | ✅                          |
 | bigquery                | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads                | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| bland_ai                | HTTP                        | requests                                                        | ✅                          |
 | blogger                 | HTTP                        | requests                                                        | ✅                          |
 | bluetally               | HTTP                        | requests                                                        | ✅                          |
 | boldsign                | HTTP                        | requests                                                        | ✅                          |
@@ -144,6 +147,7 @@ the row lists both.
 | e_conomic               | HTTP                        | requests                                                        | ✅                          |
 | easypost                | HTTP                        | requests                                                        | ✅                          |
 | easypromos              | HTTP                        | requests                                                        | ✅                          |
+| elevenlabs              | HTTP                        | requests                                                        | ✅                          |
 | freshcaller             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk               | HTTP                        | requests                                                        | ✅                          |
 | freshsales              | HTTP                        | requests                                                        | ✅                          |
@@ -191,6 +195,7 @@ the row lists both.
 | gridly                  | HTTP                        | requests                                                        | ✅                          |
 | guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
+| harvey                  | HTTP                        | requests                                                        | ✅                          |
 | height                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
@@ -242,6 +247,7 @@ the row lists both.
 | mailtrap                | HTTP                        | requests                                                        | ✅                          |
 | marketstack             | HTTP                        | requests                                                        | ✅                          |
 | matomo                  | HTTP                        | requests                                                        | ✅                          |
+| maxio                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mention                 | HTTP                        | requests                                                        | ✅                          |
 | meta_ads                | HTTP                        | requests                                                        | ✅                          |
 | metabase                | HTTP                        | requests                                                        | ✅                          |
@@ -391,6 +397,7 @@ the row lists both.
 | workable                | HTTP                        | requests                                                        | ✅                          |
 | workos                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wrike                   | HTTP                        | requests                                                        | ✅                          |
+| writesonic              | HTTP                        | requests                                                        | ✅                          |
 | wufoo                   | HTTP                        | requests                                                        | ✅                          |
 | zendesk                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell            | HTTP                        | requests                                                        | ✅                          |
@@ -444,7 +451,6 @@ doesn't conflict with concurrent PRs.
 - airops
 - aiven
 - akeneo
-- alguna
 - alpaca_broker_api
 - amazon_ads
 - amazon_cloudwatch
@@ -454,7 +460,6 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
-- anthropic
 - appcues
 - apple_search_ads
 - appstack
@@ -471,7 +476,6 @@ doesn't conflict with concurrent PRs.
 - baseten
 - bigcommerce
 - bitly
-- bland_ai
 - box
 - braintrust
 - branch
@@ -523,7 +527,6 @@ doesn't conflict with concurrent PRs.
 - dynamodb
 - e2b
 - ebay
-- elevenlabs
 - eloqua
 - employment_hero
 - encharge
@@ -587,7 +590,6 @@ doesn't conflict with concurrent PRs.
 - hightouch
 - hoorayhr
 - hubplanner
-- hugging_face
 - humanitix
 - hyperspell
 - ikas
@@ -636,7 +638,6 @@ doesn't conflict with concurrent PRs.
 - mailtrap
 - mantle
 - marketo
-- maxio
 - mem0
 - mendeley
 - mercado_ads
@@ -695,7 +696,6 @@ doesn't conflict with concurrent PRs.
 - pennylane
 - perigon
 - perk
-- persona
 - pexels
 - phyllo
 - pinecone
@@ -774,6 +774,7 @@ doesn't conflict with concurrent PRs.
 - simfin
 - simplecast
 - simplesat
+- singular
 - skyvern
 - slash
 - smaily
@@ -792,6 +793,7 @@ doesn't conflict with concurrent PRs.
 - surveymonkey
 - survicate
 - svix
+- swonkie
 - synthesia
 - systeme
 - tawk_to
@@ -799,7 +801,6 @@ doesn't conflict with concurrent PRs.
 - telli
 - tempo
 - terra_api
-- testrail
 - thinkific_courses
 - thrive_learning
 - ticketmaster
@@ -844,7 +845,6 @@ doesn't conflict with concurrent PRs.
 - workday
 - workflowmax
 - workramp
-- writesonic
 - wufoo
 - xero
 - xsolla

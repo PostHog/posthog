@@ -23250,7 +23250,9 @@
                 "Vultr",
                 "Windmill",
                 "Zep",
-                "Hex"
+                "Hex",
+                "Singular",
+                "Swonkie"
             ],
             "type": "string"
         },
@@ -23545,6 +23547,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
+                "mcp_analytics",
                 "exports"
             ],
             "type": "string"
