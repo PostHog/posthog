@@ -63,7 +63,9 @@ def test_breakdown_presence_helpers(
         ("Chrome", "Chrome"),
         # a normal label containing " - " must pass through untouched (no fragile splitting)
         ("Signed up - paid", "Signed up - paid"),
+        # a labelless series (no name, custom_name, or breakdown_value) must not crash
+        (None, ""),
     ],
 )
-def test_humanize_breakdown_label(label: str, expected: str) -> None:
+def test_humanize_breakdown_label(label: str | None, expected: str) -> None:
     assert humanize_breakdown_label(label) == expected
