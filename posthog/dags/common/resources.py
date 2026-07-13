@@ -50,6 +50,10 @@ def _is_retryable_clickhouse_exception(e: Exception) -> bool:
                 ErrorCodes.NO_REPLICA_HAS_PART,  # 234
                 ErrorCodes.NO_ACTIVE_REPLICAS,  # 254
                 439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
+                # Tables can reject new mutations via number_of_mutations_to_throw while others are in
+                # flight. MutationRunner waits for capacity before enqueueing, but a mutation can still
+                # land in the gap between that check and our ALTER, so retry instead of failing the run.
+                692,  # TOO_MANY_MUTATIONS
             )
         )
         # queries that exceed memory limits can be retried if they were killed due to total server
@@ -73,6 +77,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
 
     host: str = settings.CLICKHOUSE_HOST
     cluster: str | None = None
+    retry_max_attempts: int = 8
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         return get_cluster(
@@ -81,8 +86,8 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
             cluster=self.cluster,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
-                max_attempts=8,
-                delay=ExponentialBackoff(20),
+                max_attempts=self.retry_max_attempts,
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
@@ -113,7 +118,7 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
             },
             retry_policy=RetryPolicy(
                 max_attempts=2,
-                delay=ExponentialBackoff(20),
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
@@ -156,7 +161,7 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20),
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
             connection_overrides={"user": user, "password": password},
@@ -193,7 +198,7 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20),
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
             connection_overrides={"user": user, "password": password},

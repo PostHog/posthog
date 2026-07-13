@@ -763,6 +763,8 @@ class MutationRunner(abc.ABC):
         if not commands_to_enqueue:
             return MutationWaiter(self.table, set(mutations_running.values()))
 
+        self.wait_for_mutation_capacity(client)
+
         client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
 
         # mutations are not always immediately visible, so give anything new a bit of time to show up
@@ -776,6 +778,31 @@ class MutationRunner(abc.ABC):
         raise Exception(
             f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"
         )
+
+    def wait_for_mutation_capacity(self, client: Client, poll_interval: float = 60.0) -> None:
+        """
+        Block until the target table has no unfinished mutations before enqueueing a new one, since tables can be
+        configured with ``number_of_mutations_to_throw`` to reject new mutations while others (e.g. a long-running
+        backfill) are still in flight.
+        """
+        while True:
+            [[count]] = client.execute(
+                """
+                SELECT count()
+                FROM system.mutations
+                WHERE database = %(database)s AND table = %(table)s AND NOT is_done AND NOT is_killed
+                """,
+                {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
+            )
+            if count == 0:
+                return
+            logger.info(
+                "Waiting for %s unfinished mutation(s) on %s before enqueueing new mutation (checking again in %ss)...",
+                count,
+                self.table,
+                poll_interval,
+            )
+            time.sleep(poll_interval)
 
     def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str]:
         """
