@@ -418,9 +418,6 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         triggerThresholdError: [
             (s) => [s.configDraft],
             (draft): string | null => {
-                // Only the every_n mode sends trigger_threshold to the backend, which
-                // rejects anything outside [MIN, MAX]. Catch it here so the save shows a
-                // clear message instead of failing silently on the API response.
                 if (draft.frequency !== 'every_n') {
                     return null
                 }

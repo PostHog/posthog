@@ -692,10 +692,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
                 const isNew = props.evaluationId === 'new'
 
-                // Validate the (optional) scheduled-report draft before saving anything —
-                // an out-of-range trigger threshold would otherwise be rejected by the
-                // backend after the eval had already saved, so the report change appeared
-                // to fail silently.
                 const reportLogicKey = isNew ? 'new' : props.evaluationId
                 const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
                 if (
