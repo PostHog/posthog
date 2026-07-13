@@ -128,6 +128,7 @@ the row lists both.
 | culture_amp             | HTTP                        | requests                                                        | ✅                          |
 | customer_io             | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog                 | HTTP                        | requests                                                        | ✅                          |
+| decagon                 | HTTP                        | requests                                                        | ✅                          |
 | deel                    | HTTP                        | requests                                                        | ✅                          |
 | delighted               | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                | HTTP                        | requests                                                        | ✅                          |
@@ -505,7 +506,6 @@ doesn't conflict with concurrent PRs.
 - datorama
 - db2
 - dbt
-- decagon
 - deepgram
 - deno_deploy
 - deputy
