@@ -17,6 +17,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
@@ -345,7 +346,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> Union[SavedQuery, HogQLDataWarehouseTable, DirectPostgresTable, DirectMySQLTable, DirectSnowflakeTable]:
+    ) -> Union[
+        SavedQuery,
+        HogQLDataWarehouseTable,
+        DirectPostgresTable,
+        DirectMySQLTable,
+        DirectSnowflakeTable,
+        DirectRedshiftTable,
+    ]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
 

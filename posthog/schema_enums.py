@@ -1937,6 +1937,8 @@ class ExternalDataSourceType(StrEnum):
     WINDMILL = "Windmill"
     ZEP = "Zep"
     HEX = "Hex"
+    SINGULAR = "Singular"
+    SWONKIE = "Swonkie"
 
 
 class ExternalQueryErrorCode(StrEnum):
