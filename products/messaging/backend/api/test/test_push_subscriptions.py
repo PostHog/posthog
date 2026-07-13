@@ -89,6 +89,25 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert "$device_push_subscription_com.example.app" in call_kwargs["properties"]["$set"]
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_ios_device_registers_a_firebase_token(self, mock_capture: MagicMock):
+        # An iOS app delivering via Firebase registers with the Firebase project_id even though its
+        # platform is "ios": the provider is resolved from the app_id, not the device platform.
+        mock_capture.return_value = MagicMock(status_code=200)
+
+        response = self._post(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-token-from-ios",
+                "platform": "ios",
+                "app_id": "my-firebase-project",
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        call_kwargs = mock_capture.call_args.kwargs
+        assert "$device_push_subscription_my-firebase-project" in call_kwargs["properties"]["$set"]
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_token_is_encrypted(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
 

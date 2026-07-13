@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -21,38 +22,19 @@ from posthog.utils_cors import cors_response
 
 VALID_PLATFORMS = ("android", "ios")
 
-PLATFORM_TO_INTEGRATION_KIND: dict[str, str] = {
-    "android": "firebase",
-    "ios": "apns",
-}
-
-APP_ID_CONFIG_KEY: dict[str, str] = {
-    "firebase": "project_id",
-    "apns": "bundle_id",
-}
-
 # Shared instance: deriving the encryption keys runs PBKDF2 (100k iterations per key) and is
 # cached on the instance, so a module-level singleton avoids re-deriving on every request.
 _encrypted_fields = EncryptedFieldMixin()
 
 
-# We lookup integrations based on the app_id provided by the client, which corresponds to
-# the `project_id` for Firebase and `bundle_id` for APNS. This allows us to support multiple
-# push integrations per project, and also provides a more intuitive way for the SDKs to set up
-# push subscriptions without needing to reference internal integration IDs.
-def _find_integration(team_id: int, platform: str, app_id: str) -> Integration | None:
-    kind = PLATFORM_TO_INTEGRATION_KIND.get(platform)
-    if not kind:
-        return None
-
-    config_key = APP_ID_CONFIG_KEY[kind]
-
+# Resolve the integration from the app_id alone, not the device platform. An app_id is either a
+# Firebase project_id or an APNs bundle_id, so a device can register with either provider regardless
+# of its OS — e.g. an iOS device delivering through Firebase registers with the Firebase project_id.
+# (The client still sends its platform, but it's metadata, not what selects the provider.)
+def _find_integration(team_id: int, app_id: str) -> Integration | None:
     return (
-        Integration.objects.filter(
-            team_id=team_id,
-            kind=kind,
-            **{f"config__{config_key}": app_id},
-        )
+        Integration.objects.filter(team_id=team_id)
+        .filter(Q(kind="firebase", config__project_id=app_id) | Q(kind="apns", config__bundle_id=app_id))
         .only("id")
         .first()
     )
@@ -171,13 +153,13 @@ def push_subscriptions(request: Request):
             ),
         )
 
-    integration = _find_integration(team.id, platform, app_id)
+    integration = _find_integration(team.id, app_id)
     if not integration:
         return cors_response(
             request,
             generate_exception_response(
                 "push_subscriptions",
-                f"No push integration found for app_id '{app_id}' on platform '{platform}'. "
+                f"No push integration found for app_id '{app_id}'. "
                 "Please configure the integration in your PostHog project settings.",
                 type="validation_error",
                 code="integration_not_found",
