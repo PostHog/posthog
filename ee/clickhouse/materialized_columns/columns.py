@@ -156,6 +156,9 @@ class MaterializedColumn:
                 """,
                 {"database": CLICKHOUSE_DATABASE, "table": table, "data_table": data_table},
                 ch_user=ClickHouseUser.HOGQL,
+                # This introspection read is idempotent and cached, so a dropped connection is safe
+                # to retry rather than failing the whole HogQL query that triggered it.
+                retry_on_transient_error=True,
             )
 
         if table in MATERIALIZATION_VALID_TABLES and MATERIALIZED_COLUMNS_USE_CACHE:

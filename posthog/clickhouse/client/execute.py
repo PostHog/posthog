@@ -37,7 +37,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tags,
     is_api_key_access_method,
 )
-from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.errors import clickhouse_error_type, is_transient_clickhouse_error, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -270,6 +270,7 @@ def sync_execute(
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     external_tables: Optional[list[ClickHouseExternalTable]] = None,
+    retry_on_transient_error: bool = False,
 ):
     """
     Executes a synchronous query on the ClickHouse database based on predefined workloads and tags.
@@ -307,6 +308,9 @@ def sync_execute(
         ClickHouseUser.DEFAULT.
     external_tables (Optional[list[ClickHouseExternalTable]]): Query-scoped external data tables
         sent alongside the query instead of inlined.
+    retry_on_transient_error (bool): If True, retry once on a transient connection-level failure
+        (dropped socket / EOFError / NetworkError). Only enable for idempotent reads — the query
+        may have partially executed on the server before the connection dropped.
 
     Returns:
     Union[List[Tuple], int, None]: The result of the query. For select queries, it returns a list of
@@ -455,37 +459,51 @@ def sync_execute(
             settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
 
+    # A single retry is enough to ride out a dropped socket; the driver disconnects on error, so
+    # each attempt re-establishes a fresh connection from the pool.
+    max_attempts = 2 if retry_on_transient_error else 1
+
     try:
-        QUERY_STARTED_COUNTER.labels(
-            team_id=str(team_id or ""),
-            access_method=tags.access_method or "other",
-            chargeable=str(tags.chargeable or "0"),
-        ).inc()
-        with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
-            result = client.execute(
-                prepared_sql,
-                params=prepared_args,
-                settings=settings,
-                with_column_types=with_column_types,
-                query_id=query_id,
-                external_tables=external_tables,
-            )
-            if (
-                "INSERT INTO" in prepared_sql
-                and hasattr(client, "last_query")
-                and client.last_query.progress.written_rows > 0
-            ):
-                result = client.last_query.progress.written_rows
-    except Exception as e:
-        exception_type = clickhouse_error_type(e)
-        QUERY_ERROR_COUNTER.labels(
-            exception_type=exception_type,
-            query_type=query_type,
-            workload=workload.value if workload else "None",
-            chargeable=str(tags.chargeable or "0"),
-        ).inc()
-        err = wrap_clickhouse_query_error(e)
-        raise err from e
+        for attempt in range(1, max_attempts + 1):
+            try:
+                QUERY_STARTED_COUNTER.labels(
+                    team_id=str(team_id or ""),
+                    access_method=tags.access_method or "other",
+                    chargeable=str(tags.chargeable or "0"),
+                ).inc()
+                with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
+                    result = client.execute(
+                        prepared_sql,
+                        params=prepared_args,
+                        settings=settings,
+                        with_column_types=with_column_types,
+                        query_id=query_id,
+                        external_tables=external_tables,
+                    )
+                    if (
+                        "INSERT INTO" in prepared_sql
+                        and hasattr(client, "last_query")
+                        and client.last_query.progress.written_rows > 0
+                    ):
+                        result = client.last_query.progress.written_rows
+                break
+            except Exception as e:
+                exception_type = clickhouse_error_type(e)
+                QUERY_ERROR_COUNTER.labels(
+                    exception_type=exception_type,
+                    query_type=query_type,
+                    workload=workload.value if workload else "None",
+                    chargeable=str(tags.chargeable or "0"),
+                ).inc()
+                if attempt < max_attempts and is_transient_clickhouse_error(e):
+                    logger.warning(
+                        "Retrying ClickHouse query after transient connection error",
+                        exception_type=exception_type,
+                        attempt=attempt,
+                    )
+                    continue
+                err = wrap_clickhouse_query_error(e)
+                raise err from e
     finally:
         execution_time = perf_counter() - start_time
 

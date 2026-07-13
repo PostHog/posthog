@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -80,6 +80,19 @@ def clickhouse_error_type(e: Exception) -> str:
     if not isinstance(e, ServerException):
         return type(e).__name__
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
+
+
+def is_transient_clickhouse_error(err: Exception) -> bool:
+    """Return True for connection-level failures that are safe to retry for idempotent reads.
+
+    When ClickHouse drops a TCP socket mid-response, clickhouse_driver's buffered reader raises a
+    bare ``EOFError`` ("Unexpected EOF while reading bytes"); a reset connection surfaces as
+    ``NetworkError`` or a Python ``ConnectionError``. None of these relate to the query itself, and
+    the driver tears the connection down on error so a retry runs on a fresh one. Deliberately
+    excludes ``SocketTimeoutError`` (a read timeout usually means the query is genuinely slow, so
+    retrying just adds load).
+    """
+    return isinstance(err, EOFError | ConnectionError | NetworkError)
 
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
