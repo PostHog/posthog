@@ -143,11 +143,24 @@ class TestSafeDateLoader:
             (b"-0044-03-15", date.min),
             (b"0000-01-01", date.min),
             (b"0044-03-15 BC", date.min),
+            # duckdb/duckgres render `date` in text mode with a trailing time component; the
+            # date portion must survive rather than falling through to a fabricated 9999-12-31.
+            (b"2022-04-01 00:00:00", date(2022, 4, 1)),
+            (b"2022-04-01T00:00:00", date(2022, 4, 1)),
+            (b"2022-04-01 00:00:00+00", date(2022, 4, 1)),
+            (b"  2024-01-15  ", date(2024, 1, 15)),
             (None, None),
         ],
     )
     def test_load_dates(self, loader, input_data, expected):
         assert loader.load(input_data) == expected
+
+    @pytest.mark.parametrize("input_data", [b"04/01/2022", b"not-a-date", b"20220401"])
+    def test_unparseable_dates_raise_instead_of_clamping(self, loader, input_data):
+        # A silent clamp to date.max corrupts the whole column with a real-looking date;
+        # an unparseable value must surface as a loud sync failure instead.
+        with pytest.raises(ValueError):
+            loader.load(input_data)
 
 
 class TestSafeTimestampLoader:

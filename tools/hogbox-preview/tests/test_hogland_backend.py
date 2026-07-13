@@ -11,6 +11,7 @@ the SDK import so the monorepo's Django pytest collection can't hard-fail here
 from __future__ import annotations
 
 import unittest
+import unittest.mock
 
 try:
     import hogland  # noqa: F401
@@ -41,12 +42,14 @@ class _FakeClient:
     """Minimal stand-in for the SDK client. Each method's behaviour is set by the
     test; every call is recorded so we can assert teardown reached delete_pen."""
 
-    def __init__(self, *, get=None, get_pen=None, boxes=None, create=None):
+    def __init__(self, *, get=None, get_pen=None, boxes=None, create=None, update_pen=None):
         self._get = get
         self._get_pen = get_pen
         self._boxes = boxes or []
         self._create = create
+        self._update_pen = update_pen
         self.deleted_pens: list[str] = []
+        self.update_pen_calls: list[dict] = []
 
     def get(self, box_id):
         if callable(self._get):
@@ -68,6 +71,12 @@ class _FakeClient:
         if callable(self._create):
             return self._create(**kwargs)
         return self._create
+
+    def update_pen(self, name, **kwargs):
+        self.update_pen_calls.append({"name": name, **kwargs})
+        if callable(self._update_pen):
+            return self._update_pen(name, **kwargs)
+        return self._update_pen
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
@@ -155,6 +164,131 @@ class RestoreFreshHandlesStaleConflictTest(unittest.TestCase):
         result = backend._restore_fresh()
 
         self.assertIs(result, created)
+
+    def test_clears_pen_pointer_after_stale_delete(self):
+        # After reaping the stale box, the pen pointer must be cleared right away
+        # so the run dying before provision() repoints it doesn't leave the pen
+        # dangling at a deleted box.
+        from hogland import ConflictError
+
+        stale_box = _FakeBox()
+        created = object()
+        attempts = {"n": 0}
+
+        def create(**_kwargs):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise ConflictError("name taken", status_code=409)
+            return created
+
+        client = _FakeClient(create=create)
+        backend = self._backend(client)
+        backend._box = stale_box
+
+        result = backend._restore_fresh()
+
+        self.assertIs(result, created)
+        self.assertTrue(stale_box.deleted)
+        self.assertEqual(client.update_pen_calls, [{"name": "preview-pr-999", "current_box_id": ""}])
+
+    def test_clear_pen_pointer_failure_does_not_abort_run(self):
+        # Clearing the pointer is best-effort: the server reconciler sweep is the
+        # real backstop, so a failure to clear must not fail the run.
+        from hogland import ConflictError, NotFoundError
+
+        stale_box = _FakeBox()
+        created = object()
+        attempts = {"n": 0}
+
+        def create(**_kwargs):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise ConflictError("name taken", status_code=409)
+            return created
+
+        def update_pen(_name, **_kwargs):
+            raise NotFoundError("no pen yet", status_code=404)
+
+        client = _FakeClient(create=create, update_pen=update_pen)
+        backend = self._backend(client)
+        backend._box = stale_box
+
+        result = backend._restore_fresh()
+
+        self.assertIs(result, created)
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class CreateRetriesTransient5xxTest(unittest.TestCase):
+    """A transient placement 5xx (a node dying mid-restore) must be retried onto
+    a healthy node, but a 4xx is a real client error and must surface at once."""
+
+    def _backend(self, client):
+        from hogbox_preview.hogland_backend import HoglandBackend
+
+        backend = HoglandBackend(host="https://example.invalid", name="preview-pr-999", token="test-token")
+        backend._client = client
+        return backend
+
+    def test_first_create_500s_second_succeeds(self):
+        from hogbox_preview import hogland_backend
+        from hogland import ServerError
+
+        created = object()
+        attempts = {"n": 0}
+
+        def create(**_kwargs):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise ServerError("placement failed: place: EOF", status_code=500)
+            return created
+
+        client = _FakeClient(create=create)
+        backend = self._backend(client)
+
+        # Don't actually sleep the backoff in the test.
+        with unittest.mock.patch.object(hogland_backend.time, "sleep"):
+            result = backend._restore_fresh()
+
+        self.assertIs(result, created)
+        self.assertEqual(attempts["n"], 2)
+
+    def test_persistent_500_exhausts_and_raises(self):
+        from hogbox_preview import hogland_backend
+        from hogland import ServerError
+
+        attempts = {"n": 0}
+
+        def create(**_kwargs):
+            attempts["n"] += 1
+            raise ServerError("placement failed", status_code=500)
+
+        client = _FakeClient(create=create)
+        backend = self._backend(client)
+
+        with unittest.mock.patch.object(hogland_backend.time, "sleep"):
+            with self.assertRaises(ServerError):
+                backend._restore_fresh()
+
+        # Bounded: exactly _CREATE_5XX_ATTEMPTS, not multiplied by the conflict loop.
+        self.assertEqual(attempts["n"], hogland_backend._CREATE_5XX_ATTEMPTS)
+
+    def test_4xx_not_retried(self):
+        from hogland import ValidationError
+
+        attempts = {"n": 0}
+
+        def create(**_kwargs):
+            attempts["n"] += 1
+            raise ValidationError("bad spec", status_code=422)
+
+        client = _FakeClient(create=create)
+        backend = self._backend(client)
+
+        with self.assertRaises(ValidationError):
+            backend._restore_fresh()
+
+        self.assertEqual(attempts["n"], 1)
 
 
 if __name__ == "__main__":

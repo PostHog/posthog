@@ -1,9 +1,10 @@
-//! Rust HogVM exposed to Node via napi-rs, for shadow execution of ingestion transformations.
+//! Rust HogVM exposed to Node via napi-rs, for executing ingestion transformations.
 //!
-//! The Node VM stays authoritative; this binding runs the same (bytecode, globals) pairs on the
-//! Rust VM so the caller can compare latency and correctness. `executeBatch` crosses the FFI
-//! boundary once per batch, runs off the JS event loop (libuv worker via `AsyncTask`), and can fan
-//! out over a rayon thread pool.
+//! Two entry points: `executeSync` runs one (bytecode, globals) pair on the calling thread — the
+//! primary-execution path, equivalent to the Node VM's synchronous exec. `executeBatch` crosses
+//! the FFI boundary once per batch, runs off the JS event loop (libuv worker via `AsyncTask`), and
+//! can fan out over a rayon thread pool — the shadow-comparison path, where the Node VM stays
+//! authoritative and results are only compared.
 //!
 //! Transformation host functions (`geoipLookup`, `cleanNullValues`, `isKnownBotUserAgent`,
 //! `isKnownBotIp`) mirror `nodejs/src/cdp/hog-transformations/transformation-functions.ts`; call
@@ -14,6 +15,7 @@
 mod exec;
 mod ext_fns;
 mod geoip;
+mod logs;
 
 #[cfg(not(feature = "noop"))]
 use napi::bindgen_prelude::AsyncTask;
@@ -21,7 +23,6 @@ use napi::Result as NapiResult;
 #[cfg(not(feature = "noop"))]
 use napi::{Env, Task};
 use napi_derive::napi;
-#[cfg(not(feature = "noop"))]
 use serde_json::Value;
 
 pub use exec::{run_batch, HogExecResult};
@@ -101,4 +102,30 @@ pub fn execute_batch(
         parallel: options.parallel.unwrap_or(false),
         max_steps: options.max_steps.map(|m| m as usize),
     })
+}
+
+#[napi(object)]
+pub struct ExecuteSyncOptions {
+    /// Step budget for the execution (the Rust VM has no wall-clock timeout).
+    pub max_steps: Option<u32>,
+}
+
+/// Run one Hog program against one event-globals synchronously on the calling thread. This is the
+/// primary-execution path for ingestion transformations: it matches the Node VM's synchronous
+/// exec, with no threadpool round-trip.
+#[napi]
+pub fn execute_sync(
+    program: Value,
+    globals: Value,
+    options: Option<ExecuteSyncOptions>,
+) -> HogExecResult {
+    let tokens = match program {
+        Value::Array(tokens) => tokens,
+        _ => Vec::new(),
+    };
+    let max_steps = options.and_then(|o| o.max_steps).map(|m| m as usize);
+    run_batch(&tokens, std::slice::from_ref(&globals), false, max_steps)
+        .into_iter()
+        .next()
+        .expect("run_batch returns one result per event")
 }

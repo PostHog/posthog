@@ -329,18 +329,12 @@
                                     "!scenes/product-tours/editor/generateStepHtml",
                                     "!scenes/experiments/experimentStatus",
                                     "!scenes/experiments/utils",
-                                    "!~/scenes/experiments/utils",
-                                    "!scenes/session-recordings/components/PanelSettings"
+                                    "!~/scenes/experiments/utils"
                                 ],
                                 "message": "The toolbar ships to customer pages and must not depend on app scenes. Import from lib/, or fetch via toolbarFetch. Existing exceptions are being removed per .agents/toolbar-migration.md; the full transitive boundary is enforced by frontend/bin/check-toolbar-graph.mjs."
                             },
                             {
-                                "group": [
-                                    "~/products",
-                                    "products/**",
-                                    "~/products/**",
-                                    "!products/actions/frontend/utils/hints"
-                                ],
+                                "group": ["~/products", "products/**", "~/products/**"],
                                 "message": "The toolbar must not import product manifests or product frontends — that pulls the whole product graph into the customer-facing bundle. See .agents/toolbar-migration.md."
                             },
                             {

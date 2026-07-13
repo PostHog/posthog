@@ -30,6 +30,7 @@ import { EncryptedFields } from '../utils/encryption-utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation } from '../utils/invocation-utils'
 import { mirrorCall } from '../utils/mirror-call'
+import { RustVmExecutor } from './rust-vm-executor'
 import { RustVmShadow } from './rust-vm-shadow'
 import { getTransformationFunctions } from './transformation-functions'
 
@@ -37,6 +38,7 @@ export interface HogTransformerConfig {
     siteUrl: string
     hogWatcherSampleRate: number
     hogRustVmShadowSampleRate: number
+    hogRustVmExecutionEnabled: boolean
     mmdbFileLocation: string
 }
 
@@ -89,6 +91,7 @@ export class HogTransformerService implements HogTransformer {
     private cachedGeoIp?: GeoIp
     private cachedTransformationFunctions?: ReturnType<typeof getTransformationFunctions>
     private rustVmShadow: RustVmShadow
+    private rustVmExecutor: RustVmExecutor | null
 
     constructor(
         private hogFunctionManager: HogFunctionManagerService,
@@ -105,6 +108,9 @@ export class HogTransformerService implements HogTransformer {
             sampleRate: config.hogRustVmShadowSampleRate,
             mmdbPath: config.mmdbFileLocation,
         })
+        this.rustVmExecutor = config.hogRustVmExecutionEnabled
+            ? new RustVmExecutor({ mmdbPath: config.mmdbFileLocation })
+            : null
     }
 
     public async start(): Promise<void> {}
@@ -415,6 +421,16 @@ export class HogTransformerService implements HogTransformer {
             return await this.pluginExecutor.execute(invocation)
         }
 
+        if (this.rustVmExecutor) {
+            const sensitiveValues = this.hogExecutor.getSensitiveValues(hogFunction, globalsWithInputs.inputs)
+            const rustResult = await this.rustVmExecutor.execute(invocation, sensitiveValues)
+            // Null means the Rust VM can't run this program (addon not built, unsupported host
+            // function): fall through to the Node VM.
+            if (rustResult) {
+                return rustResult
+            }
+        }
+
         // Snapshot before execution: later transformations in the chain mutate these globals.
         const shadowGlobalsJson = this.rustVmShadow.shouldCapture() ? JSON.stringify(globalsWithInputs) : null
 
@@ -489,7 +505,13 @@ export class HogTransformerService implements HogTransformer {
  * plus the ingestion-specific sample rates from CommonConfig.
  */
 export type HogTransformerServiceConfig = CdpCoreServicesConfig &
-    Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE' | 'CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE' | 'MMDB_FILE_LOCATION'>
+    Pick<
+        CommonConfig,
+        | 'CDP_HOG_WATCHER_SAMPLE_RATE'
+        | 'CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE'
+        | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED'
+        | 'MMDB_FILE_LOCATION'
+    >
 
 export interface HogTransformerServiceDeps {
     geoipService: GeoIPService
@@ -593,6 +615,7 @@ export function createHogTransformerService(
             siteUrl: config.SITE_URL,
             hogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
             hogRustVmShadowSampleRate: config.CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE,
+            hogRustVmExecutionEnabled: config.CDP_HOG_RUST_VM_EXECUTION_ENABLED,
             mmdbFileLocation: config.MMDB_FILE_LOCATION,
         }
     )
