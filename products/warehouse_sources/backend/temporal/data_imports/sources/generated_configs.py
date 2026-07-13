@@ -224,7 +224,7 @@ class AlgoliaSourceConfig(config.Config):
 
 @config.config
 class AlgunaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
