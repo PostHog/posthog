@@ -1029,7 +1029,7 @@ class DeelSourceConfig(config.Config):
 
 @config.config
 class DeepgramSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
