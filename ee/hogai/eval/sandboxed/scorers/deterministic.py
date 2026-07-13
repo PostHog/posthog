@@ -67,7 +67,7 @@ class NoToolCall(Scorer):
         if not raw_log:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        parser = LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
         successful_calls: list[str] = [
             call.name for call in parser.get_tool_calls() if not call.is_error and call.name in self.forbidden
         ]
@@ -121,7 +121,7 @@ class LastToolCallNot(Scorer):
         if not raw_log:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        parser = LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
         successful = [call for call in parser.get_tool_calls() if not call.is_error]
         if not successful:
             return Score(name=self._name(), score=None, metadata={"reason": "No successful tool calls"})
@@ -171,7 +171,7 @@ class RequiredToolCall(Scorer):
         if not raw_log:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        parser = LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
         seen: list[str] = [
             call.name for call in parser.get_tool_calls() if not call.is_error and call.name in self.required
         ]

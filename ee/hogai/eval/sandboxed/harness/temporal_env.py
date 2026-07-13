@@ -131,3 +131,9 @@ class TemporalWorkerThread:
         self._loop.call_soon_threadsafe(self._stop_event.set)
         if self._thread is not None:
             self._thread.join(timeout=10)
+            if self._thread.is_alive():
+                # The loop is still running the worker; closing it now would raise.
+                # Leak it rather than risk a RuntimeError masking the real teardown.
+                logger.warning("Eval temporal worker thread did not join in 10s; leaving its loop open")
+                return
+        self._loop.close()

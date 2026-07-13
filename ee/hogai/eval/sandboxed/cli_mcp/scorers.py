@@ -108,7 +108,7 @@ def _build_parser(output: dict | None) -> LogParser | None:
     raw_log = output.get("raw_log")
     if not raw_log:
         return None
-    return LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+    return LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
 
 
 class CalledTargetTool(Scorer):
@@ -137,7 +137,7 @@ class CalledTargetTool(Scorer):
         if not raw_log:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        parser = LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
         for call in parser.get_tool_calls(target):
             if not call.is_error:
                 return Score(name=self._name(), score=1.0, metadata={"tool": target, "call_id": call.call_id})

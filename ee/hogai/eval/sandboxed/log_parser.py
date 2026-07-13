@@ -13,6 +13,7 @@ test config.
 from __future__ import annotations
 
 import json
+import functools
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -113,6 +114,17 @@ class LogParser:
         self._initial_prompt = initial_prompt
         self._tool_results = _index_tool_results(self._messages)
         self._tool_use_positions = _index_tool_use_positions(self._messages)
+
+    @classmethod
+    def cached(cls, raw_log: str, initial_prompt: str = "") -> LogParser:
+        """Return a shared parser for ``(raw_log, initial_prompt)``, parsed once.
+
+        Every deterministic scorer runs against the same per-case log, so
+        without memoization one case gets parsed ~10 times. The public getters
+        are read-only, so scorers can safely share a single instance. The
+        cache key hashes the raw log once, which is far cheaper than reparsing.
+        """
+        return _cached_parser(raw_log, initial_prompt)
 
     def was_skill_called(self, name: str) -> bool:
         return any(call.name == name for call in self._iter_skill_calls())
@@ -257,6 +269,11 @@ class LogParser:
         content = result.get("content")
         output = content if isinstance(content, str) else (json.dumps(content) if content is not None else "")
         return (output, bool(result.get("is_error", False)))
+
+
+@functools.lru_cache(maxsize=32)
+def _cached_parser(raw_log: str, initial_prompt: str) -> LogParser:
+    return LogParser(raw_log, initial_prompt=initial_prompt)
 
 
 def _index_tool_results(messages: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

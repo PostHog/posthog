@@ -55,6 +55,8 @@ Three layers tear a case's sandbox down, outermost last:
 - `provider.cleanup_case(task_id)` runs after every case as a per-case safety net for teardown the workflow may have lagged on — Docker reclaims the case's container by name, Modal is a no-op (the workflow signal already covers it).
 
 `provider.cleanup()` (via `atexit`) is the end-of-run safety net, sweeping anything the above missed — leftover Docker containers by name, and leftover Modal sandboxes under the eval app (so they don't idle to their TTL).
+Both sweeps are scoped to this run's own tasks: the runner registers each task id via `provider.register_task`, and cleanup filters on that set — by container name on Docker, by the `task_id` sandbox tag on Modal.
+So a dev-stack task sandbox or a second concurrent eval run sharing the provider is never reaped, and a run that started nothing sweeps nothing.
 
 ## Providers
 

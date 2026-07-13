@@ -71,7 +71,7 @@ class SkillLoaded(Scorer):
         if not raw_log:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        parser = LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
 
         for skill_call in parser.get_skill_calls(self.skill_name):
             if not skill_call.is_error:
@@ -324,7 +324,7 @@ class InformationSchemaBeforeSql(Scorer):
         if not raw_log:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        parser = LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
         calls = sorted(parser.get_tool_calls(), key=lambda c: c.position)
 
         seen_discovery = False
@@ -402,7 +402,7 @@ class InfoCalledBeforeTool(Scorer):
         if not raw_log:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        parser = LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
         calls = sorted(parser.get_tool_calls(), key=lambda c: c.position)
 
         if not any(call.is_exec_unwrapped for call in calls):
