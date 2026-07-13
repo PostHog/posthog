@@ -592,8 +592,8 @@
     box-shadow: var(--shadow-elevation-3000);
 }
 
-/* Chips → LemonTag metrics: flat neutral border, tag-scale type — not Lemon's
-   raised secondary button (16 of those read as noise; see the composer review). */
+/* Chips → LemonTag metrics: flat neutral border, tag-scale type — 16 of Lemon's
+   raised secondary buttons in one grid read as noise. */
 [data-lemon-skin] .quill-button:is([data-attr^='date-composer-short-'], [data-attr^='date-composer-fixed-']) {
     height: auto;
     padding: 0.125rem 0.25rem;

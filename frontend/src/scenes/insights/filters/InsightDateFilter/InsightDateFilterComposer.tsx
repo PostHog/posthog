@@ -70,7 +70,6 @@ function formatCustomDate(date: Date): string {
     return dayjs(date).format(hasTime ? 'YYYY-MM-DDTHH:mm:ss' : 'YYYY-MM-DD')
 }
 
-/** Composer selection → the PostHog date range strings to persist. */
 export function dateRangeForSelection(selection: DateRangeComposerSelection): Pick<DateRange, 'date_from' | 'date_to'> {
     if (selection.kind === 'rolling') {
         return { date_from: `-${selection.count}${LETTER_BY_UNIT[selection.unit]}`, date_to: null }

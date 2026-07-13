@@ -33,11 +33,8 @@ import { DateTimePicker, type DateTimeValue } from './date-time-picker'
 import { CUSTOM_RANGE } from './date-time-ranges'
 import { RelativeRangeInput, type RelativeRangeUnit, type RelativeRangeValue } from './relative-range-input'
 
-/** CONCEPT — date filter redesign exploration ("the composer"), not a stable API.
- * Two aligned chip grids (shortened relative ranges, then calendar-anchored names) with the
- * `RelativeRangeInput` generalization between them, a custom-range calendar behind a footer
- * link, and exclusions collapsed behind a footer control that opens a portaled panel.
- * Chip vocabulary is overridable via props; hosts map selections to their own range model. */
+/** CONCEPT — date filter redesign exploration, not a stable API.
+ * The composer never interprets selections; hosts map them to their own range model. */
 
 export type DateRangeComposerSelection =
     | { kind: 'rolling'; count: number; unit: RelativeRangeUnit }
@@ -56,8 +53,6 @@ export interface DateRangeComposerExclusions {
     incomplete: boolean
 }
 
-// Rolling-range shortcuts, laid out as a 5-column grid: 1h 24h 7d 14d 30d / 90d 180d 1w 1m 1y.
-// Every chip is a rolling window, so clicking one just sets the "In the last" input.
 const DEFAULT_SHORT_CHIPS: DateRangeComposerChip[] = [
     { label: '1h', selection: { kind: 'rolling', count: 1, unit: 'hours' } },
     { label: '24h', selection: { kind: 'rolling', count: 24, unit: 'hours' } },
@@ -321,8 +316,6 @@ export function DateRangeComposer({
             data-attr="date-range-composer"
         >
             {calendarOpen ? (
-                // The calendar replaces the whole surface (like the in-app filter's view swap);
-                // Cancel returns to the preset view.
                 <div className="flex flex-col">
                     <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
                         <Label htmlFor="composer-include-time">Include time</Label>

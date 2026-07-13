@@ -59,11 +59,7 @@ export function daysOfWeekLabel(days: IsoDayOfWeek[]): string {
     return days.map((day) => DAY_LABELS[day]).join(', ')
 }
 
-/**
- * Returns the TrendsQuery patch for a days-of-week selection.
- * Normalises 0 or 7 selected days to null (meaning "all days").
- * Also clears the legacy hideWeekends flag when daysOfWeek takes over.
- */
+/** 0 or 7 selected days normalise to null ("all days"); clears legacy hideWeekends on takeover. */
 export function computeDaysOfWeekUpdate(
     days: IsoDayOfWeek[],
     querySource: TrendsQuery | Record<string, any> | null | undefined,

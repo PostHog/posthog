@@ -35,7 +35,6 @@ function ConceptColumn({ title, children }: { title: string; children: ReactNode
     )
 }
 
-// The trigger caps the exclusion list at one item with a +N overflow.
 function shortExclusionsLabel(summary: string): string {
     const parts = summary.replace('Excluding ', '').split(', ')
     return parts.length > 1 ? `excl. ${parts[0]} +${parts.length - 1}` : `excl. ${parts[0]}`
