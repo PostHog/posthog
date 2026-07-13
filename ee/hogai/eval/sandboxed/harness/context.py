@@ -52,5 +52,9 @@ class EvalContext:
     """Budget for a single case, counted from sandbox-slot acquisition — never
     from enqueue, so queueing behind the semaphore can't consume it."""
 
+    trials: int
+    """Times each case runs. Agents are stochastic, so N runs per case measure
+    the variance a single run can't reveal."""
+
     log_dirs: set[Path] = field(default_factory=set)
     """Local raw-agent-log directories, one per suite, surfaced in the final summary."""

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import importlib
 from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .context import EvalContext
+
+logger = logging.getLogger(__name__)
 
 SANDBOXED_PACKAGE = "ee.hogai.eval.sandboxed"
 SANDBOXED_ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +58,21 @@ def discover_suites(selectors: Sequence[str] = ()) -> list[EvalSuite]:
         try:
             module = importlib.import_module(dotted)
         except Exception as e:
+            # A selected run only cares about the modules its selectors target.
+            # A broken *unrelated* module shouldn't take the whole run down — but a
+            # no-selector run (full run or --list) is the repo's import smoke check,
+            # so there it stays fatal.
+            #
+            # We match selectors against ``<domain>/<module>`` (not the full
+            # ``<domain>/<module>::<fn>`` suite id): a module that failed to import
+            # has no function names to build ids from. A ``::fn``-style selector
+            # therefore can't match here and the module is treated as unrelated —
+            # acceptable, since such a selector still fails the run loudly via the
+            # "No eval suites matched" check below.
+            module_target = f"{domain}/{module_name}"
+            if selectors and not any(selector in module_target for selector in selectors):
+                logger.warning("Skipping unselected eval module %s that failed to import: %s", dotted, e)
+                continue
             raise SuiteDiscoveryError(f"Failed to import eval module {dotted}: {e}") from e
         for fn_name, fn in vars(module).items():
             if not fn_name.startswith("eval_") or not inspect.iscoroutinefunction(fn):

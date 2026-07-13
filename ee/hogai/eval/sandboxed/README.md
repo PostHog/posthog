@@ -48,6 +48,8 @@ python -m ee.hogai.eval.sandboxed.harness --list
 | `--keep-sandbox-containers` | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only. |
 | `--create-db`               | Rebuild the eval test database instead of reusing it.                           |
 | `--case-timeout <seconds>`  | Per-case budget, counted from sandbox acquisition.                              |
+| `--trials N`                | Run every case N times (Braintrust trials), for variance on stochastic agents.  |
+| `--fail-under <fraction>`   | Exit nonzero when the mean score across all experiments falls below this (0-1). |
 | `--list`                    | Print the discovered suite ids and exit.                                        |
 
 `EXPORT_EVAL_RESULTS=1` appends one JSON summary per experiment to `eval_results.jsonl`.

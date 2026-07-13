@@ -159,6 +159,19 @@ class SandboxedEvalHarness:
             ctx.reporter.print_final_summary(results, ctx.log_dirs)
             exit_code = 0 if all(result.status == "passed" for result in results) else 1
 
+            if self.options.fail_under is not None:
+                mean = ctx.reporter.mean_score()
+                if mean is None:
+                    ctx.reporter.print_line(
+                        f"\nFAIL   no scores to check against --fail-under {self.options.fail_under:.2f}"
+                    )
+                    exit_code = 1
+                elif mean < self.options.fail_under:
+                    ctx.reporter.print_line(
+                        f"\nFAIL   mean score {mean * 100:.1f}% is below --fail-under {self.options.fail_under * 100:.1f}%"
+                    )
+                    exit_code = 1
+
         return exit_code
 
     def _build_context(self, suite_count: int) -> EvalContext:
@@ -175,6 +188,7 @@ class SandboxedEvalHarness:
             demo_slots=asyncio.Semaphore(DEFAULT_DEMO_COPY_CONCURRENCY),
             reporter=ProgressReporter(total_suites=suite_count),
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
+            trials=self.options.trials,
         )
 
     async def _run_suite(self, suite: EvalSuite, ctx: EvalContext) -> SuiteRunResult:

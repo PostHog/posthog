@@ -30,6 +30,8 @@ class HarnessOptions:
     create_db: bool
     list_only: bool
     per_case_timeout_seconds: int
+    trials: int
+    fail_under: float | None
 
 
 def _default_case_timeout() -> int:
@@ -86,6 +88,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=f"Per-case budget in seconds, counted from sandbox acquisition (default: {_default_case_timeout()}).",
     )
+    parser.add_argument(
+        "--trials",
+        type=int,
+        default=1,
+        help="Run every case this many times (Braintrust trials), to measure variance on stochastic agents.",
+    )
+    parser.add_argument(
+        "--fail-under",
+        type=float,
+        default=None,
+        help="Exit nonzero when the mean score across all experiments falls below this fraction (0-1).",
+    )
     return parser
 
 
@@ -96,6 +110,10 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         build_parser().error("--max-sandboxes must be at least 1")
     if args.keep_sandbox_containers and args.provider != "docker":
         build_parser().error("--keep-sandbox-containers only applies to --provider docker")
+    if args.trials < 1:
+        build_parser().error("--trials must be at least 1")
+    if args.fail_under is not None and not (0 < args.fail_under <= 1):
+        build_parser().error("--fail-under must be greater than 0 and at most 1")
 
     default_slots = (
         DockerProviderStrategy.default_max_sandboxes
@@ -114,4 +132,6 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         create_db=args.create_db,
         list_only=args.list_only,
         per_case_timeout_seconds=args.case_timeout or _default_case_timeout(),
+        trials=args.trials,
+        fail_under=args.fail_under,
     )
