@@ -35,8 +35,8 @@ export interface SessionBatchManagerConfig {
  * Creates and flushes session batches, and decides when a batch is due to flush.
  *
  * Holds no batch state of its own: the layer above the record pipeline owns the current accumulator
- * and threads it back into {@link flush}, {@link shouldFlush}, and {@link discardPartitions}. This
- * keeps the accumulator's lifetime with its owner, ready to move into the accumulating pipeline.
+ * and threads it back into {@link flush} and {@link shouldFlush}. This keeps the accumulator's
+ * lifetime with its owner, ready to move into the accumulating pipeline.
  *
  * Each flush writes one session batch file; the owner mints the next batch with {@link createBatch}:
  * ```
@@ -138,12 +138,5 @@ export class SessionBatchManager {
     public shouldFlush(batch: SessionBatchRecorder, lastFlushTime: number): boolean {
         const batchAge = Date.now() - lastFlushTime
         return batch.size >= this.maxBatchSizeBytes || batchAge >= this.maxBatchAgeMs
-    }
-
-    public discardPartitions(batch: SessionBatchRecorder, partitions: number[]): void {
-        logger.info('🔁', 'session_batch_manager_discarding_partitions', { partitions })
-        for (const partition of partitions) {
-            batch.discardPartition(partition)
-        }
     }
 }

@@ -29,7 +29,6 @@ describe('SessionBatchManager', () => {
             get size() {
                 return 0
             },
-            discardPartition: jest.fn(),
         }) as unknown as jest.Mocked<SessionBatchRecorder>
 
     const config = (overrides: Partial<SessionBatchManagerConfig> = {}): SessionBatchManagerConfig => ({
@@ -51,7 +50,6 @@ describe('SessionBatchManager', () => {
         mockOffsetManager = {
             commit: jest.fn().mockResolvedValue(undefined),
             trackOffset: jest.fn(),
-            discardPartition: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
         mockWriter = {
@@ -170,23 +168,6 @@ describe('SessionBatchManager', () => {
                 jest.advanceTimersByTime(1500)
                 expect(manager.shouldFlush(batch, lastFlushTime)).toBe(true)
             })
-        })
-    })
-
-    describe('discardPartitions', () => {
-        it('discards each partition on the given batch', () => {
-            const batch = manager.createBatch()
-            manager.discardPartitions(batch, [1, 2])
-
-            expect(batch.discardPartition).toHaveBeenCalledWith(1)
-            expect(batch.discardPartition).toHaveBeenCalledWith(2)
-            expect(batch.discardPartition).toHaveBeenCalledTimes(2)
-        })
-
-        it('handles an empty partition array', () => {
-            const batch = manager.createBatch()
-            manager.discardPartitions(batch, [])
-            expect(batch.discardPartition).not.toHaveBeenCalled()
         })
     })
 })
