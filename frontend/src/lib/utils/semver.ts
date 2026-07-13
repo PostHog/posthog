@@ -27,11 +27,14 @@ export function parseVersion(version: string): SemanticVersion {
     return { major: majorInt, minor: minorInt, patch: patchInt, extra }
 }
 
-// Validates a version string the way the backend's `parse_semver` does (feature flag
-// `_validate_filters`), so a non-semver value (an email, a hex string) is caught inline before a
-// save 400s. Kept separate from `parseVersion` because that one accepts a leading `v`, which the
-// backend's `int()` coercion rejects. `allowWildcard` handles patterns like `1.2.*` by dropping the
-// trailing `.`/`*`, matching the backend's `rstrip('.*')` for the wildcard operator.
+// Validates a version string against the same shape the backend's `parse_semver` enforces
+// (feature flag `_validate_filters`), so a non-semver value (an email, a hex string) is caught
+// inline before a save 400s. Intentionally stricter than the backend on component format: the
+// backend coerces each component with Python's `int()`, which tolerates things like a leading
+// `+` or `_` digit separators, while this only accepts plain digits. Kept separate from
+// `parseVersion` because that one accepts a leading `v`, which the backend's `int()` rejects.
+// `allowWildcard` handles patterns like `1.2.*` by dropping the trailing `.`/`*`, matching the
+// backend's `rstrip('.*')` for the wildcard operator.
 export function isValidSemverValue(value: string, options?: { allowWildcard?: boolean }): boolean {
     let candidate = value.trim()
     if (options?.allowWildcard) {
