@@ -3459,7 +3459,9 @@ class TestOauthIntegrationRevokeOnDisconnect:
         rejected = self._create_salesforce_integration()
         mock_post.side_effect = None
         rejecting_response = MagicMock(status_code=400)
-        rejecting_response.raise_for_status.side_effect = requests.HTTPError("400 Client Error")
+        rejecting_response.raise_for_status.side_effect = requests.HTTPError(
+            "400 Client Error", response=rejecting_response
+        )
         mock_post.return_value = rejecting_response
         response = client.delete(f"/api/environments/{self.team.pk}/integrations/{rejected.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
