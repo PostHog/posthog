@@ -37,6 +37,7 @@ import {
 } from './maxTypes'
 import {
     actionToMaxContextPayload,
+    activeSceneLogicHasMaxContext,
     dashboardToMaxContext,
     errorTrackingIssueToMaxContextPayload,
     evaluationToMaxContextPayload,
@@ -525,16 +526,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 (state): MaxContextInput[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, {})
 
-                    // During a scene transition, sceneLogic can still resolve the outgoing scene's
-                    // (keyed) logic reference after kea has already unmounted it. Reading its
-                    // maxContext then walks into a store path that no longer exists and throws
-                    // "Can not find path". Skip the read while unmounted — the next recompute after
-                    // the new scene mounts returns fresh context.
-                    if (
-                        activeSceneLogic &&
-                        activeSceneLogic.isMounted() &&
-                        'maxContext' in activeSceneLogic.selectors
-                    ) {
+                    if (activeSceneLogicHasMaxContext(activeSceneLogic)) {
                         try {
                             const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, {})
                             return activeSceneLogic.selectors.maxContext(
