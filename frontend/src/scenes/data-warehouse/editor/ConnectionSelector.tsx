@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { IconGear } from '@posthog/icons'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
@@ -33,7 +34,12 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
     const { sourceQuery, selectedConnectionId } = useValues(logic)
     const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
         useValues(connectionSelectorLogic())
+    const { maybeLoadConnectionOptions } = useActions(connectionSelectorLogic())
     const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
+
+    useOnMountEffect(() => {
+        maybeLoadConnectionOptions()
+    })
     const connectionSelectorValue = getConnectionSelectorValue(
         connectionOptions,
         connectionOptionsLoading,
@@ -90,14 +96,14 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                     return
                 }
 
-                // Raw-only connections cannot compile HogQL — start them in raw SQL mode.
-                const nextOption = (connectionOptions ?? []).find((option) => option.id === nextValue)
+                // sqlEditorLogic's selectedConnectionId subscription re-enables raw SQL mode
+                // for raw-only (supports_hogql=false) connections.
                 setSourceQuery({
                     ...sourceQueryWithoutLegacyConnectionId,
                     source: {
                         ...sourceQuery.source,
                         connectionId: nextValue,
-                        sendRawQuery: nextOption?.supports_hogql === false ? true : undefined,
+                        sendRawQuery: undefined,
                     },
                 } as typeof sourceQuery)
                 syncUrlWithQuery()

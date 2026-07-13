@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -96,6 +96,9 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
     connect(() => ({
         actions: [sourcesDataLogic, ['loadSourcesSuccess']],
     })),
+    actions({
+        maybeLoadConnectionOptions: true,
+    }),
     loaders(() => ({
         connectionOptions: [
             null as ExternalDataSourceConnectionOptionApi[] | null,
@@ -178,14 +181,20 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
             },
         ],
     }),
-    afterMount(({ actions, values }) => {
-        if (values.connectionOptions === null && !values.connectionOptionsLoading) {
-            actions.loadConnectionOptions()
-        }
-    }),
-    listeners(({ actions }) => ({
+    // No afterMount auto-load: sqlEditorLogic connects this logic, so it mounts with every
+    // embedded SQL editor (notebooks, logs, endpoints). Only surfaces that render the
+    // connection selector should pay for the fetch — they call maybeLoadConnectionOptions.
+    listeners(({ actions, values }) => ({
+        maybeLoadConnectionOptions: () => {
+            if (values.connectionOptions === null && !values.connectionOptionsLoading) {
+                actions.loadConnectionOptions()
+            }
+        },
         loadSourcesSuccess: () => {
-            actions.loadConnectionOptions()
+            // Refresh only where the options were fetched in the first place.
+            if (values.connectionOptions !== null) {
+                actions.loadConnectionOptions()
+            }
         },
     })),
 ])

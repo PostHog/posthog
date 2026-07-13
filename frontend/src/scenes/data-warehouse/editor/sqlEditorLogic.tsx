@@ -634,6 +634,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         runSubquery: true,
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
+        enforceConnectionRawQueryMode: true,
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
         openMaterializationModal: (view?: DataWarehouseSavedQuery) => ({
             view,
@@ -1139,9 +1140,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
                 actions.syncUrlWithQuery()
             },
-            loadConnectionOptionsSuccess: () => {
-                // Options can load after a connection was restored from the URL — force raw
-                // SQL mode once we learn the selected connection cannot compile HogQL.
+            enforceConnectionRawQueryMode: () => {
+                // Raw-only connections cannot compile HogQL — force raw SQL mode.
                 if (
                     values.selectedConnectionId &&
                     !values.selectedConnectionSupportsHogQL &&
@@ -1149,6 +1149,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 ) {
                     actions.setSendRawQuery(true)
                 }
+            },
+            // Options can load after a connection was restored from the URL.
+            loadConnectionOptionsSuccess: () => {
+                actions.enforceConnectionRawQueryMode()
             },
             runSubquery: async () => {
                 if (!props.editor) {
@@ -2127,15 +2131,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             cache.lastSelectedConnectionId = selectedConnectionId
             actions.setConnection(selectedConnectionId ?? null)
             actions.loadDatabase()
-
-            // Raw-only connections cannot compile HogQL — force raw SQL mode.
-            if (
-                selectedConnectionId &&
-                !values.selectedConnectionSupportsHogQL &&
-                !values.sourceQuery.source.sendRawQuery
-            ) {
-                actions.setSendRawQuery(true)
-            }
+            actions.enforceConnectionRawQueryMode()
         },
     })),
     selectors({

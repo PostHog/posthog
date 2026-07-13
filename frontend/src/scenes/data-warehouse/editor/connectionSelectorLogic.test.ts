@@ -42,9 +42,19 @@ describe('connectionSelectorLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('loads connection options on mount', async () => {
+    it('does not fetch on mount — embedded editors mount this logic without the selector', async () => {
         logic = connectionSelectorLogic()
         logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(api.externalDataSources.connections).not.toHaveBeenCalled()
+    })
+
+    it('loads connection options when the selector requests them', async () => {
+        logic = connectionSelectorLogic()
+        logic.mount()
+        logic.actions.maybeLoadConnectionOptions()
 
         await expectLogic(logic).toFinishAllListeners()
 

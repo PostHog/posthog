@@ -22,6 +22,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
@@ -1419,6 +1420,8 @@ describe('sqlEditorLogic', () => {
             logic.mount()
 
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'raw-conn-1' })
+            // The selector component triggers the fetch in the real scene.
+            connectionSelectorLogic.actions.maybeLoadConnectionOptions()
 
             await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
             await expectLogic(logic).toDispatchActions(['setSendRawQuery'])

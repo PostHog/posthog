@@ -580,7 +580,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         prefix: source.prefix ?? state.prefix,
                         description: source.description ?? state.description,
                         access_method: source.access_method ?? state.access_method,
-                        direct_query_enabled: source.direct_query_enabled ?? state.direct_query_enabled,
+                        direct_query_enabled:
+                            'direct_query_enabled' in source ? source.direct_query_enabled : state.direct_query_enabled,
                         payload: {
                             ...state.payload,
                             ...source.payload,
