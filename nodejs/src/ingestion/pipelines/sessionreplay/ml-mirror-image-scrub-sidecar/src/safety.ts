@@ -1,9 +1,8 @@
 /**
- * NSFW/gore gate via onnxruntime-node, replacing nsfwjs-on-tfjs. Model: image-safety-classifier-xs
- * (SwiftFormer, 3.5M params, MIT), 224x224 input, softmax over [NSFL, NSFW, SFW] baked into the
- * graph — the output IS probabilities. Running the gate on ORT like the other detectors removes the
- * whole tfjs runtime (libtensorflow + the Node 23 polyfill + the silent 10x-slower wasm fallback),
- * and unlike nsfwjs's MobileNetV2 it actually covers gore (NSFL).
+ * NSFW/gore gate via onnxruntime-node. Model: image-safety-classifier-xs (SwiftFormer, 3.5M params,
+ * MIT), 224x224 input, softmax over [NSFL, NSFW, SFW] baked into the graph — the output IS
+ * probabilities. The gate runs on ORT like the other detectors so the whole scrub shares one ML
+ * runtime, and the NSFL class is what makes the gate cover gore, not just nudity.
  */
 import * as ort from 'onnxruntime-node'
 

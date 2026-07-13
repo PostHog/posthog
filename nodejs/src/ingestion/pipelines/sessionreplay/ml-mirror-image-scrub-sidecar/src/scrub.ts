@@ -1,13 +1,14 @@
 /**
  * The image-scrub pipelines. Two entry points over the same input so throughput stays comparable:
- *  - blurOnly:  the Stage-1 baseline (downsample + gaussian blur), kept in sync with
- *               rust/replay-anonymizer-node/src/blur.rs so the comparison is apples-to-apples.
+ *  - blurOnly:  the cheap baseline (downsample + gaussian blur), kept in sync with the inline
+ *               anonymizer's rust/replay-anonymizer-node/src/blur.rs so comparisons are apples-to-apples.
  *  - advancedScrub: NSFW/gore gate -> faces, text regions, and QR/barcodes solid-filled.
  *
  * All three models (safety gate, YuNet faces, DBNet text) run on native onnxruntime-node —
- * deliberately one runtime, so there is no tfjs dependency, no Node-version polyfill, and no
- * silent slow-backend fallback. QR/barcode detection runs on zxing-wasm. The source is decoded
- * once to raw RGB (area-capped at SCRUB_MAX_PIXELS) and shared across stages.
+ * deliberately ONE ML runtime, so there is a single native-binary compatibility surface and no
+ * second runtime with its own failure modes or slow fallback backend. QR/barcode detection runs on
+ * zxing-wasm. The source is decoded once to raw RGB (area-capped at SCRUB_MAX_PIXELS) and shared
+ * across stages.
  */
 import sharp from 'sharp'
 
@@ -22,8 +23,8 @@ import { type YunetModel, detectFacesYunet, loadYunet } from './yunet.ts'
 
 export type TextMode = 'heuristic' | 'dbnet'
 
-// blurOnly/BLANK_PNG live in the ML-dep-free blur.ts (what the Stage-1 image ships); re-exported here
-// so the eval harness and benchmarks can compare the baseline against advancedScrub from one module.
+// blurOnly/BLANK_PNG live in the ML-dep-free blur.ts; re-exported here so the eval harness and
+// benchmarks can compare the baseline against advancedScrub from one module.
 export { BLANK_PNG, blurOnly }
 
 // --- models -------------------------------------------------------------------------------------

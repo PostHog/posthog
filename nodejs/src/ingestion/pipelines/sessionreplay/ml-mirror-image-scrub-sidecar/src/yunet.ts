@@ -1,7 +1,7 @@
 /**
- * YuNet face detection via onnxruntime-node (native, async). Single multi-scale pass (strides
- * 8/16/32) detects small and large faces at once — no tiling — and runs on ORT's background thread.
- * Replaces blazeface + grid tiling.
+ * YuNet face detection via onnxruntime-node (native, async). One multi-scale pass (strides 8/16/32)
+ * detects small and large faces at once, so normal-aspect frames need a single inference; only
+ * extreme-aspect frames are tiled (see detectionWindows).
  *
  * Decode follows OpenCV's FaceDetectorYN: score = sqrt(cls*obj), grid-anchor bbox, then greedy NMS.
  */

@@ -48,7 +48,7 @@ The TypeScript is orchestration plus lightweight output decoding (over small dow
 
 We do not train anything and run no neural nets in JS.
 The only hand-written JS is model-output decoding (DBNet threshold + dilation + connected components, YuNet anchor decode + NMS, tensor packing, mask fill), which runs over the small detection maps and is not the bottleneck.
-Everything model-shaped runs on ONE runtime (onnxruntime-node) on purpose: a second ML runtime means a second native-binary compatibility surface and a second failure mode (the previous tfjs-node gate needed a Node 23 polyfill and could silently fall back to a ~10x-slower wasm backend).
+Everything model-shaped runs on ONE runtime (onnxruntime-node) on purpose: a second ML runtime would mean a second native-binary compatibility surface and a second set of failure modes (Node-version coupling, slow fallback backends).
 
 ## Layout
 
@@ -60,7 +60,7 @@ src/  (production — ships)
   main.ts         entrypoint: load models -> start servers
   server.ts       the /scrub + /metrics listeners; scrub implementation injected
   config.ts       env-driven runtime config
-  blur.ts         Stage-1 blur (kept in sync with rust/replay-anonymizer-node/src/blur.rs)
+  blur.ts         baseline blur (kept in sync with rust/replay-anonymizer-node/src/blur.rs)
   scrub.ts        the ML scrub pipeline: decode-once, NSFW gate, solid-fill of faces/text/codes
   yunet.ts        YuNet face detector (ONNX)
   dbnet.ts        DBNet text-region detector (ONNX)
