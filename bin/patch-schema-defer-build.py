@@ -35,7 +35,8 @@ building (pydantic 2.12). Instances of an unbuilt class arise three ways, each g
   from the freshly built core schema — together, the full set of classes a validator
   can instantiate.
 
-Web, celery, and temporal processes additionally build everything eagerly at boot — see
+Web, celery (workers and beat), temporal, and dagster processes additionally build
+everything eagerly at boot — see
 posthog/schema_build.py.
 """
 

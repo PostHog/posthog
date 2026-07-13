@@ -7,6 +7,7 @@ from django.dispatch import receiver
 import structlog
 from celery import Celery
 from celery.signals import (
+    beat_init,
     celeryd_init,
     setup_logging,
     task_failure,
@@ -182,22 +183,17 @@ def _celery_team_id_prerun_receiver(task_id=None, task=None, args=None, kwargs=N
     _tag_celery_span_with_team_id(kwargs)
 
 
-@worker_init.connect
-def build_schema_models_pre_fork(**kwargs) -> None:
+def _build_schema_models_or_exit(process_kind: str) -> None:
     # The generated schema models defer core-schema building to first use (see
-    # bin/patch-schema-defer-build.py). Build them all here, in the worker parent before
-    # the prefork pool forks, so children share the built schemas copy-on-write and most
-    # tasks never pay a build at runtime — task/product modules imported after this signal
-    # fires can still define schema-model subclasses that stay deferred until first use.
-    # This module is imported by every Django process (via posthog/__init__.py), so the
-    # build must hang off this worker-only signal — an import-time build would re-eagerize
-    # everything, and importing posthog.schema at module level would put it back on the
-    # bare django.setup() path.
+    # bin/patch-schema-defer-build.py). This module is imported by every Django process
+    # (via posthog/__init__.py), so the build must hang off worker/beat-only signals — an
+    # import-time build would re-eagerize everything, and importing posthog.schema at
+    # module level would put it back on the bare django.setup() path.
     #
     # Celery's Signal.send catches and logs receiver exceptions instead of propagating them,
-    # so a failure here would otherwise leave the worker boot looking successful. Eager
-    # schema builds are required (see module docstring in posthog/schema_build.py), so treat
-    # a build failure as a fatal boot error rather than letting it degrade silently.
+    # so a failure here would otherwise leave the boot looking successful. Eager schema
+    # builds are required (see module docstring in posthog/schema_build.py), so treat a
+    # build failure as a fatal boot error rather than letting it degrade silently.
     from posthog.schema_build import (
         build_all_schema_models,  # noqa: PLC0415 — keep posthog.schema off the celery import path; only workers build
     )
@@ -205,8 +201,24 @@ def build_schema_models_pre_fork(**kwargs) -> None:
     try:
         build_all_schema_models()
     except Exception as e:
-        logger.exception("celery worker failed to eagerly build schema models; refusing to boot")
-        raise SystemExit(f"celery worker failed to eagerly build schema models: {e}")
+        logger.exception(f"celery {process_kind} failed to eagerly build schema models; refusing to boot")
+        raise SystemExit(f"celery {process_kind} failed to eagerly build schema models: {e}")
+
+
+@worker_init.connect
+def build_schema_models_pre_fork(**kwargs) -> None:
+    # Build in the worker parent before the prefork pool forks, so children share the
+    # built schemas copy-on-write and most tasks never pay a build at runtime —
+    # task/product modules imported after this signal fires can still define schema-model
+    # subclasses that stay deferred until first use.
+    _build_schema_models_or_exit("worker")
+
+
+@beat_init.connect
+def build_schema_models_on_beat_start(**kwargs) -> None:
+    # Beat is a long-lived production process too; keep it eager like workers so no
+    # production process ever relies on the lazy build path.
+    _build_schema_models_or_exit("beat")
 
 
 @worker_process_init.connect

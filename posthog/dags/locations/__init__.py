@@ -15,6 +15,7 @@ from posthog.dags.common.resources import (
     RedisResource,
     kafka_producer_resource,
 )
+from posthog.schema_build import build_all_schema_models
 
 # Default loggers for every code location's jobs. Overrides Dagster's
 # colored_console_logger so `context.log` emits structlog JSON to stdout (like
@@ -104,3 +105,11 @@ resources_by_env = {
 # Get resources for current environment, fallback to local if env not found
 env = "local" if settings.DEBUG else "prod"
 resources = resources_by_env.get(env, resources_by_env["local"])
+
+
+# The generated schema models defer core-schema building to first use (see
+# bin/patch-schema-defer-build.py). Every dagster code location imports this package
+# (for `loggers`/`resources`), and dagster's per-run workers re-import the location
+# module too — so building here keeps dagster eager like web/celery/temporal, and no
+# op ever pays a first-use build (or relies on the lazy path) at runtime.
+build_all_schema_models()

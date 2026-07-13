@@ -46,9 +46,11 @@ def build_all_schema_models() -> None:
     The generated models defer core-schema building to first use (see
     bin/patch-schema-defer-build.py), which keeps imports cheap for processes that only
     ever touch a few models (short-lived CLI invocations, pytest). Long-lived production
-    processes — web, celery, temporal — call this eagerly at boot instead, so no worker
-    handles its first live request or task against unbuilt models: wsgi.py and asgi.py
-    call it from their module-load warm block, and posthog/celery.py from worker_init.
+    processes — web, celery workers and beat, temporal, dagster — call this eagerly at
+    boot instead, so no worker handles its first live request or task against unbuilt
+    models: wsgi.py and asgi.py call it from their module-load warm block,
+    posthog/celery.py from worker_init and beat_init, start_temporal_worker at boot, and
+    posthog/dags/locations/__init__.py at code-location load.
     """
     for obj in _deferred_model_classes():
         try:
