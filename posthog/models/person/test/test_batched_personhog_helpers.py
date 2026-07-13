@@ -102,6 +102,40 @@ class TestBatchedGetPersonsByUuids(SimpleTestCase):
             assert len(result) == 1
             assert result[0].uuid == "uuid-1"
 
+    @patch("posthog.models.person.util.TEST", False)
+    @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
+    def test_parallel_fan_out_returns_all_batches_in_order(self):
+        with fake_personhog_client() as fake:
+            for i in range(9):
+                fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"d{i}"])
+
+            result = _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(9)], "test")
+
+            assert [p.uuid for p in result] == [f"uuid-{i}" for i in range(9)]
+            fake.assert_called("get_persons_by_uuids", times=5)
+
+    @patch("posthog.models.person.util.TEST", False)
+    @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
+    def test_parallel_fan_out_propagates_batch_failure(self):
+        # A failing batch must fail the whole call — collecting only the successful futures
+        # would hand callers (e.g. the freeze-exposure guard) a silently partial result.
+        with fake_personhog_client() as fake:
+            for i in range(6):
+                fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"d{i}"])
+
+            original_get = fake.get_persons_by_uuids
+
+            def fail_second_batch(request):
+                if "uuid-2" in request.uuids:
+                    raise RuntimeError("batch failed")
+                return original_get(request)
+
+            with (
+                patch.object(fake, "get_persons_by_uuids", side_effect=fail_second_batch),
+                self.assertRaises(RuntimeError),
+            ):
+                _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(6)], "test")
+
 
 class TestBatchedGetPersonsByDistinctIds(SimpleTestCase):
     @parameterized.expand(

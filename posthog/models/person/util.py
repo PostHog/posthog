@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import datetime
+import contextvars
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Optional, Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -42,6 +44,7 @@ from posthog.settings import TEST
 logger = structlog.get_logger(__name__)
 
 PERSONHOG_BATCH_SIZE: int = settings.PERSONHOG_BATCH_SIZE
+PERSONHOG_BATCH_CONCURRENCY: int = settings.PERSONHOG_BATCH_CONCURRENCY
 
 
 if TYPE_CHECKING:
@@ -52,6 +55,28 @@ if TYPE_CHECKING:
 _get_client = require_personhog_client
 
 
+def _get_persons_for_uuid_batch(
+    client: PersonHogClient,
+    team_id: int,
+    batch: list[str],
+    operation: str,
+    read_options: ReadOptions | None,
+) -> list[person_pb2.Person]:
+    resp = client.get_persons_by_uuids(
+        GetPersonsByUuidsRequest(team_id=team_id, uuids=batch, read_options=read_options)
+    )
+
+    present_persons = [p for p in resp.persons if p.id]
+    batch_valid = [p for p in present_persons if p.team_id == team_id]
+
+    mismatched = len(present_persons) - len(batch_valid)
+    if mismatched:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation=operation, client_name=get_client_name()).inc(mismatched)
+        logger.warning("personhog_team_mismatch", operation=operation, team_id=team_id, dropped=mismatched)
+
+    return batch_valid
+
+
 def _batched_get_persons_by_uuids(
     team_id: int,
     uuids: list[str],
@@ -59,24 +84,35 @@ def _batched_get_persons_by_uuids(
     read_options: ReadOptions | None = None,
 ) -> list[person_pb2.Person]:
     client = _get_client()
-    valid_persons: list[person_pb2.Person] = []
-    for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE):
-        batch = uuids[i : i + PERSONHOG_BATCH_SIZE]
-        resp = client.get_persons_by_uuids(
-            GetPersonsByUuidsRequest(team_id=team_id, uuids=batch, read_options=read_options)
-        )
+    batches = [uuids[i : i + PERSONHOG_BATCH_SIZE] for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE)]
+    max_workers = min(len(batches), PERSONHOG_BATCH_CONCURRENCY)
 
-        present_persons = [p for p in resp.persons if p.id]
-        batch_valid = [p for p in present_persons if p.team_id == team_id]
+    if TEST or max_workers <= 1:
+        batch_results = [
+            _get_persons_for_uuid_batch(client, team_id, batch, operation, read_options) for batch in batches
+        ]
+    else:
+        # Fan the batch RPCs out over the shared (HTTP/2-multiplexed) channel. ThreadPoolExecutor
+        # doesn't inherit contextvars, so copy the current context per task to keep the personhog
+        # caller tag and log/query context on each RPC. Results are collected in batch order, and
+        # any batch failure propagates: callers (e.g. the freeze-exposure guard) rely on the result
+        # covering every requested batch, never a silently partial set.
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="personhog-uuid-batch") as executor:
+            futures = [
+                executor.submit(
+                    contextvars.copy_context().run,
+                    _get_persons_for_uuid_batch,
+                    client,
+                    team_id,
+                    batch,
+                    operation,
+                    read_options,
+                )
+                for batch in batches
+            ]
+            batch_results = [future.result() for future in futures]
 
-        mismatched = len(present_persons) - len(batch_valid)
-        if mismatched:
-            PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation=operation, client_name=get_client_name()).inc(mismatched)
-            logger.warning("personhog_team_mismatch", operation=operation, team_id=team_id, dropped=mismatched)
-
-        valid_persons.extend(batch_valid)
-
-    return valid_persons
+    return [person for batch_valid in batch_results for person in batch_valid]
 
 
 def _batched_get_persons_by_distinct_ids(

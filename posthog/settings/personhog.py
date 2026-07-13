@@ -23,3 +23,9 @@ _PERSONHOG_MAX_BATCH_SIZE = 250
 PERSONHOG_BATCH_SIZE: int = max(
     1, min(get_from_env("PERSONHOG_BATCH_SIZE", _PERSONHOG_MAX_BATCH_SIZE, type_cast=int), _PERSONHOG_MAX_BATCH_SIZE)
 )
+
+# Concurrent in-flight batch lookups per call in the batched read helpers. The shared HTTP/2
+# channel multiplexes streams, so this opens no extra connections — but each in-flight RPC can
+# occupy up to bulk_max_concurrent_chunks of a replica's small bulk Postgres pool, so keep this
+# modest. 1 disables the fan-out (fully sequential).
+PERSONHOG_BATCH_CONCURRENCY: int = max(1, get_from_env("PERSONHOG_BATCH_CONCURRENCY", 4, type_cast=int))
