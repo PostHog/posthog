@@ -96,6 +96,25 @@ def pending_batch_predicate(status_alias: str) -> str:
     return f"({status_alias}.batch_id IS NULL OR {status_alias}.job_state IN ('waiting', 'waiting_retry', 'executing'))"
 
 
+def _no_failed_batch_in_run_sql(outer_alias: str, failed_alias: str) -> str:
+    """NOT EXISTS guard: ``outer_alias``'s run contains no 'failed' batch.
+
+    Scoped by run_uuid + team_id + schema_id (guards against cross-group
+    run_uuid collisions and keeps the probe on the run-gate partial index).
+    Shared by the claim gate's cross-run blocker and the CDC producer's
+    backpressure probe, which must agree on which runs count as dead.
+    """
+    return f"""NOT EXISTS (
+        SELECT 1
+        FROM {BATCH_TABLE} {failed_alias}
+        WHERE {failed_alias}.run_uuid = {outer_alias}.run_uuid
+            AND {failed_alias}.team_id = {outer_alias}.team_id
+            AND {failed_alias}.schema_id = {outer_alias}.schema_id
+            AND {failed_alias}.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND {failed_alias}.latest_state = 'failed'
+    )"""
+
+
 def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
     """Single-statement status INSERT + denormalized-state UPDATE (atomic under autocommit).
 
@@ -184,17 +203,19 @@ def _state_claim_candidates_sql() -> str:
     deliberately not claimable.
 
     Cross-run schema ordering (the last gate): a batch is claimable only when
-    no batch of a *different* run of the same (team_id, schema_id) with a
-    strictly earlier ``created_at`` is still non-terminal. ``created_at`` is a
-    valid cross-run apply order because it is assigned server-side by the
-    single queue DB clock at enqueue, source ticks are serialized by the
+    no batch of a *different* run of the same (team_id, schema_id) with an
+    earlier ``(created_at, run_uuid)`` is still non-terminal. ``created_at``
+    is a valid cross-run apply order because it is assigned server-side by
+    the single queue DB clock at enqueue, source ticks are serialized by the
     Temporal schedule's SKIP overlap policy, and retry attempts re-read the
     same WAL window (older-attempt batches are a prefix). Blockers whose run
     contains a 'failed' batch are ignored — their remaining batches can never
     be claimed (failed-run gate above), so counting them would deadlock the
-    schema forever. No id tiebreak: batch ids are ``gen_random_uuid()`` (not
-    time-ordered), so equal-timestamp batches in different runs simply don't
-    block each other — the schema-busy gate still serializes execution.
+    schema forever. Equal timestamps (theoretically possible across producer
+    connections — ``created_at`` is per-statement ``now()`` at microsecond
+    resolution) break by ``run_uuid`` so the ordering stays total; batch ids
+    are ``gen_random_uuid()`` and useless as a tiebreak. Mirrors the duckgres
+    sink's ``(started_at, run_uuid)`` cross-run ordering.
     """
     return f"""
         SELECT
@@ -254,18 +275,13 @@ def _state_claim_candidates_sql() -> str:
                 WHERE b_older.team_id = b.team_id
                     AND b_older.schema_id = b.schema_id
                     AND b_older.run_uuid != b.run_uuid
-                    AND b_older.created_at < b.created_at
+                    AND (
+                        b_older.created_at < b.created_at
+                        OR (b_older.created_at = b.created_at AND b_older.run_uuid < b.run_uuid)
+                    )
                     AND b_older.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                     AND b_older.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
-                    AND NOT EXISTS (
-                        SELECT 1
-                        FROM {BATCH_TABLE} b_older_failed
-                        WHERE b_older_failed.run_uuid = b_older.run_uuid
-                            AND b_older_failed.team_id = b_older.team_id
-                            AND b_older_failed.schema_id = b_older.schema_id
-                            AND b_older_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                            AND b_older_failed.latest_state = 'failed'
-                    )
+                    AND {_no_failed_batch_in_run_sql("b_older", "b_older_failed")}
             )
     """
 
@@ -939,15 +955,7 @@ class BatchQueue:
                   AND b.team_id = %(team_id)s
                   AND b.schema_id = ANY(%(schema_ids)s)
                   AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM {BATCH_TABLE} b_failed
-                      WHERE b_failed.run_uuid = b.run_uuid
-                          AND b_failed.team_id = b.team_id
-                          AND b_failed.schema_id = b.schema_id
-                          AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                          AND b_failed.latest_state = 'failed'
-                  )
+                  AND {_no_failed_batch_in_run_sql("b", "b_failed")}
                 """,
                 {"team_id": team_id, "schema_ids": schema_ids},
             )

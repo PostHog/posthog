@@ -38,6 +38,7 @@ def _create_index(apps, schema_editor):
 def _drop_index(apps, schema_editor):
     if not _sourcebatch_exists(schema_editor):
         return
+    schema_editor.execute("SET LOCAL lock_timeout = '5s'")
     schema_editor.execute(f"DROP INDEX IF EXISTS {_INDEX_NAME}")
 
 

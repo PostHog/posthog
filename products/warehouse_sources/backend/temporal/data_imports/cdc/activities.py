@@ -722,6 +722,7 @@ class CDCExtractActivity:
             self.reader.connect()
 
             self._load_pk_columns()
+            self._flush_pending_deferred_runs()
             self._read_wal_loop()
 
             self.log.info("wal_changes_read", event_count=self.event_count, tables=list(self.all_table_names))
@@ -733,7 +734,6 @@ class CDCExtractActivity:
                 self._handle_no_changes(truncated_tables)
                 return
 
-            self._flush_pending_deferred_runs()
             final_flushed = self._final_flush()
             self._finalize_trackers(final_flushed)
             self._advance_slot_after_run()
@@ -1226,7 +1226,13 @@ class CDCExtractActivity:
     # Flush + finalization
     # ------------------------------------------------------------------
     def _flush_pending_deferred_runs(self) -> None:
-        """Flush deferred runs for schemas that transitioned to streaming."""
+        """Flush deferred runs for schemas that transitioned to streaming.
+
+        Must run before the read loop can enqueue any of this tick's
+        micro-batches: deferred runs carry strictly older WAL windows, and the
+        loader applies a schema's runs in enqueue (created_at) order — flushing
+        them after this run's batches would apply the older data last.
+        """
         assert self.source is not None
         for schema in self.cdc_schemas:
             if schema.cdc_mode == "streaming" and schema.sync_type_config.get("cdc_deferred_runs"):

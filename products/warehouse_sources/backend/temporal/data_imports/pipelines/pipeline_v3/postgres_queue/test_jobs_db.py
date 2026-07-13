@@ -389,6 +389,23 @@ class TestBatchQueueCrossRunOrdering:
         await _release(conn, batches=batches)
 
     @pytest.mark.asyncio
+    async def test_equal_created_at_ties_break_by_run_uuid(self, conn):
+        # created_at can theoretically tie across producer connections; the run_uuid
+        # tiebreak keeps the ordering total, so tied runs still apply one at a time
+        # instead of both claiming into the same window in arbitrary order.
+        first = await _insert_batch(conn, run_uuid="run-a", batch_index=0)
+        tied = await _insert_batch(conn, run_uuid="run-b", batch_index=0)
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = (SELECT created_at FROM {BATCH_TABLE} WHERE id = %s) WHERE id = %s",
+            (first, tied),
+        )
+
+        batches = await _claim(conn)
+
+        assert [str(b.id) for b in batches] == [first]
+        await _release(conn, batches=batches)
+
+    @pytest.mark.asyncio
     async def test_backoff_pending_retry_still_blocks_newer_runs(self, conn):
         # The gate must hold even while the older run's retry sits inside its backoff
         # window: claiming the newer run there is exactly the out-of-order apply the
