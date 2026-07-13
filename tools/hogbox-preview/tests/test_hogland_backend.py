@@ -211,6 +211,19 @@ class ProvisionReapsLeftoversTest(unittest.TestCase):
         # Must not raise even though the per-box delete path blows up.
         backend._reap_leftovers()
 
+    def test_list_failure_does_not_raise(self):
+        # The list call itself failing (transient 5xx while enumerating boxes)
+        # must be swallowed too — provision() reaps after the preview is already
+        # working, so a reap hiccup must not fail the run.
+        class _ListBoom(_FakeClient):
+            def iter_boxes(self):
+                raise RuntimeError("hogland API error (HTTP 502)")
+
+        new_box = _FakeBox(box_id="box-new")
+        backend = self._backend_ready_to_reap(_ListBoom(), new_box)
+
+        backend._reap_leftovers()
+
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
 class DestroyReleasesPenTest(unittest.TestCase):
@@ -254,6 +267,23 @@ class DestroyReleasesPenTest(unittest.TestCase):
 
         self.assertTrue(box.deleted)
         self.assertEqual(client.deleted_pens, ["preview-pr-999"])
+
+    def test_pen_released_when_leftover_listing_fails(self):
+        # A transient 5xx while listing boxes for the leftover sweep must not
+        # abort teardown before delete_pen — that would leak the pen forever
+        # (teardown only runs on PR close).
+        class _ListBoom(_FakeClient):
+            def iter_boxes(self):
+                raise RuntimeError("hogland API error (HTTP 502)")
+
+        box = _FakeBox()
+        backend = _make_backend(_ListBoom())
+        backend._box = box  # _resolve_box short-circuits, only the reap lists
+
+        backend.destroy()
+
+        self.assertTrue(box.deleted)
+        self.assertEqual(backend._client.deleted_pens, ["preview-pr-999"])
 
     def test_deletes_all_name_matched_boxes(self):
         # No live handle / pen pointer: destroy() should still sweep every box

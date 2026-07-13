@@ -483,18 +483,25 @@ class HoglandBackend(PreviewBackend):
         """Best-effort delete every OTHER box owned by this preview — corpses from
         failed attempts of this run (each restore attempt uses a fresh unique
         name) and from failed runs of the old deterministic-name code. Never
-        touches the just-created box (self._box_id). Per-box errors are swallowed:
-        the box's own 24h idle TTL is the backstop, a reap hiccup must not fail a
-        working preview."""
-        for v in self._client.iter_boxes():
-            if v.id == self._box_id:
-                continue  # the box we just stood up — keep it
-            if not self._name_matches(getattr(v.spec, "name", None)):
-                continue
+        touches the just-created box (self._box_id). ALL errors are swallowed —
+        including the list call itself failing — because a reap hiccup must not
+        fail a working preview (provision calls this after the pen is repointed)
+        nor block pen deletion (destroy calls this before delete_pen). The box's
+        own 24h idle TTL is the backstop."""
+        try:
+            leftovers = [
+                v.id
+                for v in self._client.iter_boxes()
+                if v.id != self._box_id and self._name_matches(getattr(v.spec, "name", None))
+            ]
+        except Exception as e:  # noqa: BLE001 — TTL reaper is the backstop
+            timing.stage(f"warn: couldn't list boxes to reap leftovers: {e}")
+            return
+        for box_id in leftovers:
             try:
-                self._client.get(v.id).delete()
+                self._client.get(box_id).delete()
             except Exception as e:  # noqa: BLE001 — TTL reaper is the backstop
-                timing.stage(f"warn: couldn't reap leftover box {v.id}: {e}")
+                timing.stage(f"warn: couldn't reap leftover box {box_id}: {e}")
 
     def _resolve_box(self):
         """Find the box to act on: the live handle, an explicit id, the pen's
