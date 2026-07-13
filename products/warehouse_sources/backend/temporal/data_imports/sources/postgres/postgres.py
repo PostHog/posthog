@@ -1065,6 +1065,25 @@ def _is_unsupported_function_error(error: Exception, function_name: str) -> bool
     return any(marker in message for marker in ("does not exist", "unknown function", "not found", "no function"))
 
 
+def _is_unsupported_statement_timeout_error(error: Exception) -> bool:
+    """True when the engine rejects a `SET [LOCAL] statement_timeout`.
+
+    Real Postgres always accepts it, but Postgres-wire-compatible engines (AWS Aurora DSQL,
+    DuckDB/Flight-SQL-backed proxies, some poolers) accept the connection yet don't implement the
+    parameter, raising `FeatureNotSupported` (SQLSTATE 0A000): `setting configuration parameter
+    "statement_timeout" not supported`. The `SET` is only a best-effort guard on best-effort
+    metadata lookups (and a nice-to-have ceiling on the streaming connection), so match this
+    expected shape and let callers degrade to the engine's default timeout quietly instead of
+    alerting on it.
+    """
+    message = str(error).lower()
+    if "statement_timeout" in message and ("not supported" in message or "unsupported" in message):
+        return True
+    # Some engines surface it as a bare FeatureNotSupported with the parameter name only in the
+    # server detail; the SQLSTATE 0A000 class itself means "this engine lacks the feature".
+    return isinstance(error, psycopg.errors.FeatureNotSupported)
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1133,12 +1152,15 @@ def _rls_active_from_conn(
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
-        # than flooding error tracking. Still capture genuinely unexpected failures.
+        # than flooding error tracking. The same engines (AWS Aurora DSQL, some poolers) reject the
+        # best-effort `SET LOCAL statement_timeout` above with `FeatureNotSupported`, which is
+        # equally expected. Still capture genuinely unexpected failures.
         if (
             not connection.closed
             and not connection.broken
             and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
             and not _is_unsupported_function_error(e, "row_security_active")
+            and not _is_unsupported_statement_timeout_error(e)
         ):
             capture_exception(e)
         return {}
@@ -1194,8 +1216,14 @@ def _xmin_capable_tables_from_conn(
     except Exception as e:
         # Best-effort like the PK/RLS/index lookups it runs alongside: losing the `supports_xmin`
         # hint just hides the option for this listing. A non-Postgres engine may lack `relkind`
-        # semantics entirely, so degrade quietly.
-        if not connection.closed and not connection.broken and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
+        # semantics entirely, or reject the best-effort `SET LOCAL statement_timeout` above with
+        # `FeatureNotSupported` (AWS Aurora DSQL, some poolers), so degrade quietly.
+        if (
+            not connection.closed
+            and not connection.broken
+            and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
+            and not _is_unsupported_statement_timeout_error(e)
+        ):
             structlog.get_logger().warning("Failed to detect xmin-capable tables for Postgres schemas", exc_info=e)
         return set()
 
@@ -2839,11 +2867,22 @@ def postgres_source(
                         )
 
                         # Session, not LOCAL: under autocommit a LOCAL timeout has no transaction to bind to.
-                        cursor.execute(
-                            sql.SQL("SET statement_timeout = {timeout}").format(
-                                timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                        # Best-effort: Postgres-wire-compatible engines (AWS Aurora DSQL, some poolers) accept
+                        # the connection but reject this SET with `FeatureNotSupported`. The 10-min ceiling is
+                        # a safety net, not a correctness requirement, so fall back to the engine's default
+                        # rather than failing the whole sync and flooding error tracking. Under autocommit the
+                        # rejected statement can't poison later commands. Genuine failures (connection drops)
+                        # still propagate so the activity's retry path can reconnect.
+                        try:
+                            cursor.execute(
+                                sql.SQL("SET statement_timeout = {timeout}").format(
+                                    timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                                )
                             )
-                        )
+                        except psycopg.Error as e:
+                            if not _is_unsupported_statement_timeout_error(e):
+                                raise
+                            logger.debug(f"Engine rejected SET statement_timeout, using its default: {e}")
 
                         # Capture the xmin ceiling on this row-serving connection before streaming.
                         if is_xmin:
