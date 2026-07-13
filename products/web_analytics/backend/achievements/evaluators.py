@@ -99,12 +99,22 @@ def _test_account_filter_expr(team: Team) -> ast.Expr:
     return test_account_filter_expr(test_account_filters=filters, team=team)
 
 
+# Counting `$pageview`/`$screen` across all events ever is a full-table scan that saturates the
+# offline cluster when the sweep fans out across every team. A rolling window prunes partitions and
+# bounds the scan; progress is monotonic (see `_apply_progress`), so an earned stage is never lost
+# even if older events fall out of the window.
+PAGEVIEWS_LOOKBACK_DAYS = 365
+
+
 def evaluate_cumulative_pageviews(ctx: EvalContext) -> int:
     total = 0
     for team in _project_environment_teams(ctx.team):
         query = parse_select(
-            "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {test})",
-            placeholders={"test": _test_account_filter_expr(team)},
+            "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), timestamp >= now() - toIntervalDay({days}), {test})",
+            placeholders={
+                "days": ast.Constant(value=PAGEVIEWS_LOOKBACK_DAYS),
+                "test": _test_account_filter_expr(team),
+            },
         )
         response = execute_hogql_query(query=query, team=team, query_type="web_achievements_pageviews")
         if response.results:
