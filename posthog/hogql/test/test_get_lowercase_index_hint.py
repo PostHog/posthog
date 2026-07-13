@@ -164,6 +164,32 @@ class TestGetLowercaseIndexHint(BaseTest):
         needles = cast(ast.Array, search_call.args[1])
         assert [cast(ast.Constant, e).value for e in needles.exprs] == ["foo", "bar", "baz"]
 
+    def test_icontains_over_255_values_chunks_multiSearchAny(self):
+        """>255 needles split into multiple multiSearchAny calls OR'd together, each within ClickHouse's 255-arg cap."""
+        values = [f"v{i}" for i in range(313)]
+        prop = LogPropertyFilter(
+            key="message",
+            operator=PropertyOperator.ICONTAINS,
+            value=values,
+            type=LogPropertyFilterType.LOG,
+        )
+        result = self._hint(prop)
+
+        inner = result.args[0]
+        assert isinstance(inner, ast.Or)
+        assert len(inner.exprs) == 2
+
+        total_needles = 0
+        for comparison in inner.exprs:
+            assert isinstance(comparison, ast.CompareOperation)
+            assert isinstance(comparison.left, ast.Call)
+            assert comparison.left.name == "multiSearchAny"
+            needles = cast(ast.Array, comparison.left.args[1])
+            assert len(needles.exprs) <= 255
+            total_needles += len(needles.exprs)
+
+        assert total_needles == len(values)
+
     def test_icontains_multi_operator_single_value(self):
         """ICONTAINS_MULTI with a single string value uses multiSearch path."""
         prop = LogPropertyFilter(
