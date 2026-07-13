@@ -1117,10 +1117,10 @@ impl FeatureFlagMatcher {
     ) -> HashMap<GroupTypeIndex, HashMap<String, Value>> {
         let mut referenced_indexes: HashSet<GroupTypeIndex> = HashSet::new();
         for group in &flag.filters.groups {
-            let condition_aggregation = group
-                .aggregation_group_type_index
-                .flatten()
-                .or(flag.filters.aggregation_group_type_index);
+            // Mirrors the aggregation the real matching path uses (line ~1371 below), so
+            // an explicit person aggregation (`Some(None)`) does not fall back to the
+            // flag-level group index here.
+            let condition_aggregation = group.effective_aggregation(flag.get_group_type_index());
             if let Some(properties) = &group.properties {
                 for property in properties {
                     if property.prop_type == PropertyType::Group {
@@ -1135,9 +1135,11 @@ impl FeatureFlagMatcher {
         let mut merged = HashMap::new();
         for gti in referenced_indexes {
             let overrides = self.resolve_group_overrides(gti, group_property_overrides.as_ref());
-            if let Ok(props) = self.get_group_properties(gti, overrides) {
-                merged.insert(gti, props);
-            }
+            merged.insert(
+                gti,
+                self.get_group_properties(gti, overrides)
+                    .unwrap_or_default(),
+            );
         }
         merged
     }
