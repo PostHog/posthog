@@ -4,9 +4,9 @@ This file is the committed source of truth for the toolbar bundle modernization 
 
 ## Status
 
-- **Current step**: Step 2 (loader + ESM splitting) is implemented and in review on `rafa/toolbar-migration-4-loader-esm-splitting` — see its section for the remaining parity gates before ready-for-review. Next after that: Step 4 (`~/types` hygiene) and the remaining Step 5/6 edges.
+- **Current step**: Steps 1–4 and 7 implemented and in review as a Graphite stack (drafts), plus a seventh PR batching the simple Step 5/6 moves (PanelSettings, UrlMatchingHints, KeyboardShortcut, LemonMarkdown mermaid barrel — baseline 31 → 25) an eighth cutting the preflight + web-analytics-achievements edges (baseline 25 → 18), a ninth moving themeLogic/dataThemeLogic to `lib/logic/` (baseline 18 → 12), and a tenth inverting Link→DraggableToNotebook with the `useLinkDrag` DI seam (baseline 12 → 11). A lint-guard PR (#69133) sits at the bottom of the stack (oxlint exhaustive-deps suppressions where `--fix-dangerously` corrupted files). Next: the Step 7 eager-logic audit, then Step 8 (riskiest, last). The remaining survey-labels/taxonomy/experiments/product-tours edges are candidates for documented intentional seams rather than cuts.
 - **Last updated**: 2026-07-07
-- **PRs**: Step 1 — `rafa/toolbar-migration-1-graph-guard` (#69045); Step 3 — `rafa/toolbar-migration-2-products-urls-split` (#69071, stacked on Step 1); chain cuts + shim-leak fix — `rafa/toolbar-migration-3-shim-leak-and-chain-cuts` (#69088, stacked on #69071); Step 2 — `rafa/toolbar-migration-4-loader-esm-splitting` (stacked on #69088)
+- **PRs**: Step 1 — `rafa/toolbar-migration-1-graph-guard` (#69045); Step 3 — `rafa/toolbar-migration-2-products-urls-split` (#69071); chain cuts + shim-leak fix — `rafa/toolbar-migration-3-shim-leak-and-chain-cuts` (#69088); Step 2 — `rafa/toolbar-migration-4-loader-esm-splitting` (#69093); Step 4 — `rafa/toolbar-migration-5-types-replay-shared-cut` (#69106); Step 7 — `rafa/toolbar-migration-6-lazy-menus` (#69113); Step 5/6 batch — `rafa/toolbar-migration-7-simple-edge-cuts` (#69122) (each stacked on the previous)
 - **Reorder note (resolved)**: a trial Step 2 build emitted **487 dead chunks** — with `products.tsx` reachable, every product scene's dynamic import becomes a real chunk in `dist/toolbar/`. The gate was: flip the format only once `products.tsx` leaves the graph. That's now done via two moves in the third PR. First, the remaining chains all funneled through one root cause: the kea shims only matched exact alias strings (`scenes/teamLogic`), so relative imports (`dataThemeLogic` → `./teamLogic`) and `~/`-prefixed imports pulled the REAL logics and their whole app graph — fixed with relative + `~/` matching in `createToolbarModulePlugin`, disconnecting `products.tsx`, `scenes.ts`, `teamLogic`, `PersonDisplay`, and `experimentsLogic` in one move. Second, `scenes/urls` itself (imported by lib components shared with the app) is shimmed to the toolbar's parity-tested `~/toolbar/urls` duplicate from Step 3, taking the last products-manifest path out. Bundle graph 8448 → ~1000 files (99 → ~13.5 MiB source), shipped `dist/toolbar.js` 9.95 MB → ~4 MB (was just under the 10 MB CloudFront cliff). Graph budget ratcheted 110 MB → 18 MB.
 - **posthog-js prerequisite**: DONE — release pipeline is layout-agnostic and verified as a no-op against today's build. Nothing blocks any step. See Step 0 for the constraints it imposes on the build here.
 
@@ -72,7 +72,7 @@ Landed layout: `dist/toolbar.js` (1.2KB classic loader) + `dist/toolbar/` (ESM e
 - [x] Playwright smoke test (throwaway, not committed): static server over dist/ + strict CSP (`script-src 'self'`, no unsafe-eval) + classic-script injection exactly like posthog-js + `ph_load_toolbar` call → entry + 6 eager chunks fetched relative to the loader origin, shadow root mounts, controller stub delegates (`isLoaded` flips true), zero page errors
 - [x] Real-SDK smoke test (throwaway): published posthog-js (1.398.2 from node_modules, untouched) drives the whole flow — parses `#__posthog` authorize state, injects `/static/toolbar.js?v=&t=`, loader import()s the split app, shadow root mounts, controller live, zero page errors
 - [x] Local-stack click-through (Playwright driving `hogli up` at localhost:8010, throwaway script): real workspace via `/api/setup_test/`, authorized URL added, `redirect_to_site` → host page → toolbar mounts unauthenticated → full OAuth authorize flow (Authenticate → confirm modal → OAuth grant → redirect back) → `isAuthenticated: true` → all six feature menus open with real seeded data (heatmaps, actions, flags, event debugger, web vitals, experiments) → clicking Hedgehog mode fetches 10 pixi/hedgehog chunks on demand → styled bar renders from shadow-root CSS. Note: `redirect_to_site` no longer issues a `temporaryToken` — toolbar auth is OAuth now, so the unauthenticated first mount is expected behavior, not a regression
-- [ ] `Toolbar.stories.tsx` green in CI (runs on the PR)
+- [x] `Toolbar.stories.tsx` verified locally against the full stack: all five Toolbar stories mount (shadow root + bar, no page errors) in `storybook dev`, plus feature-flags scene and exporter-funnel stories as products-split smoke. The CI visual-regression failure on #69088 was a job cancelled at its 60-minute timeout (infra), not a rendering break — re-run it when marking ready for review
 
 Result: 1.06MB (26%) of app JS deferred with zero source changes; every file far under the 10MB cliff (largest 1.77MB). Known-unsupported: exact-path CSP allowlists (`script-src .../toolbar.js`) — chunks need the directory allowed.
 
@@ -86,34 +86,41 @@ Approach (revised on review): rather than restructuring the generated products m
 - [x] The 3 lib files shipped in the toolbar (`TZLabel`, `HeatmapEventsPanel`, `Link`) still import `scenes/urls` — they're shared with the app and can't be repointed; the third PR's `scenes/urls` shim resolves them to the toolbar duplicate at build time, removing their edges and taking `scenes/urls` + the products manifest out of the toolbar graph entirely
 - [ ] Verify the app/exporter eager-graph improvements with the `check-eager-graph` owners
 
-### Step 4 — `~/types` hygiene
+### Step 4 — `~/types` hygiene (in review: `rafa/toolbar-migration-5-types-replay-shared-cut`)
 
-- [ ] Convert type-only imports in `frontend/src/types.ts` to `import type`; make `lib/Chart` type-only
-- [ ] Drop the runtime `export { SnapshotSourceType } from '@posthog/replay-shared'` re-export (kills the `hls.js` deny); import it from a leaf module where used
-- [ ] Move genuine leaf enums (`SessionRecordingPlayerMode`, `WEB_SAFE_FONTS`, ...) to leaf modules; update importers
-- [ ] Optional: oxlint `typescript/consistent-type-imports` on types.ts
-- [ ] Shrink allowlist + drop retired deny entries (`hls.js`, half of `chart.js`)
+**Finding that shrank this step**: esbuild already erases imports whose specifiers are all type-position-only (they show as `external: true` in the metafile with no resolved edge), so the planned `import type` conversion and leaf-enum extraction were unnecessary for the bundle graph — `src/types.ts` had exactly ONE surviving runtime import: the `SnapshotSourceType` value re-export.
+
+- [x] `export { SnapshotSourceType }` → `export type { ... }` in `types.ts`; the three value-users (snapshotDataLogic + two player tests) import the enum from `@posthog/replay-shared` directly. Removes all 27 replay-shared files from the toolbar graph
+- [x] Retired the `hls.js` deny in `toolbar-config.mjs` (its only path in was replay-shared); reintroduction still fails via FORBIDDEN_PACKAGES in `check-toolbar-graph.mjs`
+- [x] Ratchets: graph budget 18 MB → 15.5 MB (measured 13.40 MiB, 1010 files), eager budget 3.3 MB → 3.05 MB (measured 2,764,847 — the cut freed 203 KB of eager JS and one eager chunk)
+- [-] `import type` conversion / `lib/Chart` type-only / leaf-enum moves: NOT NEEDED for the bundle (see finding); only worth doing as general hygiene if oxlint `consistent-type-imports` lands repo-wide
+- [ ] `chart.js` deny retirement: still blocked — `lib/Chart` stays denied because Sparkline/LineGraph value-import it outside types.ts (Step 6 territory)
 
 ### Step 5 — toolbar-owned direct edges
 
 - [x] `toolbar/experiments/experimentsTabLogic.tsx`: stopped importing `scenes/experiments/experimentsLogic` — the pure status helpers (`getExperimentStatus`/`isLaunched`/`isExperimentPaused`/`hasEnded`) moved to leaf module `scenes/experiments/experimentStatus.ts` (re-exported from experimentsLogic for app importers); data fetching already went via `toolbarApi`
-- [ ] `toolbar/debug/EventDebugMenu.tsx`: move `PanelSettings` from `scenes/session-recordings/components/` to `lib/components/`
-- [ ] `toolbar/debug/eventDebugMenuLogic.ts`: drop/trim the 339KB `core-filter-definitions-by-group.json` taxonomy import
-- [ ] `toolbar/actions/StepField.tsx`: move `products/actions/frontend/utils/hints` to `lib/` (or allowlist — it's ~0KB)
+- [x] `toolbar/debug/EventDebugMenu.tsx`: `PanelSettings` moved from `scenes/session-recordings/components/` to `lib/components/PanelSettings/` (its deps were already all-lib)
+- [ ] `toolbar/debug/eventDebugMenuLogic.ts`: drop/trim the 339KB `core-filter-definitions-by-group.json` taxonomy import — deprioritized: Step 7 made the debugger menu (and this JSON) lazy, so it's deferred-bytes only
+- [x] `toolbar/actions/StepField.tsx`: `products/actions/frontend/utils/hints` moved to `lib/components/UrlMatchingHints.tsx` (shared by the actions product's ActionStep and the toolbar)
 
 ### Step 6 — shared lib → scenes back-edges (each also helps the main app)
 
-- [ ] `lib/lemon-ui/Link/Link.tsx` → `DraggableToNotebook` (drags notebooks → tiptap): invert with a registry/context seam (the flagship shim→DI replacement)
-- [ ] `lib/lemon-ui/LemonColor/*` → `scenes/dataThemeLogic` (its `./teamLogic` import is now shimmed, so this edge is boundary-only, not a leak): theme via props/context
-- [ ] `lib/lemon-ui/LemonMarkdown/index.ts`: stop re-exporting `LemonMarkdownWithMermaid` from the barrel (retires the `mermaid` deny for both bundles)
+- [x] `lib/lemon-ui/Link/Link.tsx` → `DraggableToNotebook`: inverted with the flagship DI seam — `lib/lemon-ui/Link/useLinkDrag.ts` holds a swappable hook (inert default), `registerNotebookLinkDrag()` (called from `bootApp()`, before first render — swapping later would break hook order) installs the notebook implementation. Toolbar and exporter keep the inert default and stop bundling notebooks drag; a jest test covers the registered wiring end to end (drag start → uri-list payload)
+- [x] `lib/lemon-ui/LemonColor/*` → `dataThemeLogic` and HedgehogMode/JSONViewer/LemonColorGlyph → `themeLogic`: both logics (plus `themes.ts`) moved to `lib/logic/` — they're global UI state whose app-zone deps (sceneLogic, userLogic, teamLogic) already resolve to toolbar shims, so the move is placement-only. Old paths re-export for the ~60 app importers; all `src/lib` importers repointed. Cuts 6 baseline edges (props/context seam not needed)
+- [x] `lib/lemon-ui/LemonMarkdown/index.ts`: the barrel no longer re-exports `LemonMarkdownWithMermaid` (the one product user imports the module directly); the `mermaid` deny in `toolbar-config.mjs` is retired, reintroduction caught by FORBIDDEN_PACKAGES
 - [x] `HeatmapEventsPanel` → `PersonDisplay`: replaced with a plain span (PersonDisplay renders exactly that for a distinct_id-only person with `noPopover`); `TZLabel` → teamLogic edge now shimmed at resolve time (`~/scenes/teamLogic` matching)
-- [ ] `TZLabel` → urls; `eventUsageLogic` → preflight/web-analytics edges; move `KeyboardShortcut` out of `layout/navigation-3000` into `lib/`
+- [x] `KeyboardShortcut` moved out of `layout/navigation-3000/components/` into `lib/components/KeyboardShortcut/` (25 importers repointed; cuts the 4 lemon-ui → layout edges)
+- [x] `preflightLogic` moved from `scenes/PreflightCheck/` to `lib/logic/preflightLogic` (it's global app state, not scene state; its `scenes/urls` import resolves through the toolbar shim). All `src/lib/**` importers repointed; a `scenes/PreflightCheck/preflightLogic.tsx` re-export keeps the other ~100 app importers working, so a follow-up repoint is optional cleanup. Cuts 5 baseline edges (incidentStatusLogic, MCPInstallCommand, payGateMiniLogic, superpowersLogic, eventUsageLogic)
+- [x] `eventUsageLogic` → web-analytics achievements: inverted — `webAnalyticsAchievementsLogic` now owns interaction recording (a `recordInteraction` action absorbing `recordInteraction.ts`, deleted) and listens to the five `reportWebAnalytics*` action types itself. Cuts 2 edges and drops the achievements + generated web_analytics API modules (~62 KB, 8 files) from the toolbar graph. Behavior note: recording now requires the achievements logic mounted, which the web analytics scene menu bar guarantees wherever those reports fire
+- [ ] `TZLabel` → urls (already shim-resolved to `~/toolbar/urls`; boundary-only); `eventUsageLogic` → `product-tours/constants` (1 KB leaf, part of the product-tours seam family)
 
-### Step 7 — lazy boundaries in toolbar source
+### Step 7 — lazy boundaries in toolbar source (in review: `rafa/toolbar-migration-6-lazy-menus`)
 
-- [ ] Convert the nine `visibleMenu` bodies in `frontend/src/toolbar/bar/Toolbar.tsx` + `SurveySidebar`/`ProductToursSidebar`/modals to `React.lazy(() => retryImport(() => import(...)))` with `Spinner` fallback. Largest first: actions/TaxonomicFilter, experiments, surveys, heatmaps, web-vitals, debugger (react-json-view), product tours
-- [ ] Audit eagerly-mounted per-tab logics (e.g. `webVitalsToolbarLogic.mount()` in `ToolbarApp.tsx`) — keep a slim eager core where background collection is deliberate
-- [ ] Ratchet the eager budget down
+- [x] The nine `visibleMenu` bodies + `ProductToursSidebar`/`SurveySidebar`/`FieldNotesOverlay` are `React.lazy(() => retryImport(() => import(...)))` behind `Suspense` (Spinner fallback in the menu container, null for sidebars). `eventDebugMenuLogic` (and its 225KB taxonomy JSON) is component-only so it defers with the debugger menu
+- [x] `productToursLogic` imports `generateStepHtml` (tiptap/prosemirror/highlight.js, ~500KB) dynamically via a memoized `retryImport` — only fetched when a tour is edited/previewed; the two draft-compare subscriptions became async (module-cache awaits preserve call order after first load)
+- [x] Eager budget ratcheted 3.05 MB → 2.1 MB (measured 1,905,558 — eager JS down 31%, deferred now 1.93 MB ≈ 50% of app JS)
+- [x] New guard in `check-toolbar-size.mjs`: every CSS input in any chunk stylesheet must also be in the entry stylesheet (the only one the shadow root loads) — fails the build if a lazy feature's styles would silently never render. Watch out: with splitting, every dynamic-import target carries `entryPoint` in the metafile; use `findEntryOutput`
+- [ ] Audit eagerly-mounted per-tab logics (e.g. `webVitalsToolbarLogic.mount()` in `ToolbarApp.tsx`, `actionsLogic` via toolbarLogic dragging fuse.js) — keep a slim eager core where background collection is deliberate
 
 ### Step 8 — tree-shaking enablers + cleanup (highest breakage risk; last)
 

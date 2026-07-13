@@ -63,7 +63,11 @@ def check_observation_quota(organization_id: UUID, observation_credits: int) -> 
 
 
 def start_apply_scanner_workflow(
-    scanner: ReplayScanner, session_id: str, *, triggered_by_user_id: int
+    scanner: ReplayScanner,
+    session_id: str,
+    *,
+    triggered_by_user_id: int,
+    trigger: ObservationTrigger,
 ) -> tuple[str, WorkflowStartOutcome]:
     """Start the deterministic apply-scanner workflow for one (scanner, session); never raises."""
     workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
@@ -75,7 +79,7 @@ def start_apply_scanner_workflow(
                 scanner_id=scanner.id,
                 session_id=session_id,
                 team_id=scanner.team_id,
-                triggered_by=ObservationTrigger.ON_DEMAND,
+                triggered_by=trigger,
                 triggered_by_user_id=triggered_by_user_id,
             ),
             id=workflow_id,

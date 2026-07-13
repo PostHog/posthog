@@ -4,7 +4,7 @@ import json
 import time
 import base64
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self
@@ -250,6 +250,7 @@ class Integration(models.Model):
         # or reads this kind; see `products/slack_app/backend/api.py` for the live integration.
         SLACK_POSTHOG_CODE = "slack-posthog-code"
         SNAPCHAT = "snapchat"
+        SNOWFLAKE = "snowflake"
         STRIPE = "stripe"
         TIKTOK_ADS = "tiktok-ads"
         TWILIO = "twilio"
@@ -302,17 +303,28 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == Integration.IntegrationKind.AWS_S3:
             name = self.integration_id or "unknown ID"
-            # config["auth_type"] leaves room for a future OIDC / IAM-role mode; only keys exist today.
-            auth_label = self.config.get("auth_type", "access key")
+
             account_id = self.config.get("aws_account_id")
-            detail = f"{auth_label}, AWS account {account_id}" if account_id else auth_label
+            role = self.config.get("aws_role_arn")
+
+            if role:
+                detail = f"AWS role '{role}'"
+            elif account_id:
+                detail = f"AWS account {account_id}"
+            else:
+                detail = "access key"
+
             return f"{name} ({detail})"
         if self.kind == Integration.IntegrationKind.S3_COMPATIBLE:
             name = self.integration_id or "unknown ID"
-            auth_label = self.config.get("auth_type", "access key")
             endpoint_url = self.config.get("endpoint_url")
-            detail = f"{auth_label}, {endpoint_url}" if endpoint_url else auth_label
+            detail = f"access key, {endpoint_url}" if endpoint_url else "access key"
             return f"{name} ({detail})"
+        if self.kind == Integration.IntegrationKind.SNOWFLAKE:
+            name = self.integration_id or "unknown ID"
+            auth_type = self.config.get("authentication_type", "password")
+            account = self.config.get("account")
+            return f"{name} (account: {account}, {auth_type} auth)"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":
@@ -353,6 +365,8 @@ class OauthConfig:
     token_info_graphql_query: str | None = None
     token_info_config_fields: list[str] | None = None
     additional_authorize_params: dict[str, str] | None = None
+    # When set, disconnecting the integration also revokes the grant at the provider
+    token_revoke_url: str | None = None
 
 
 # Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
@@ -435,6 +449,7 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://login.salesforce.com/services/oauth2/authorize",
                 token_url="https://login.salesforce.com/services/oauth2/token",
+                token_revoke_url="https://login.salesforce.com/services/oauth2/revoke",
                 client_id=settings.SALESFORCE_CONSUMER_KEY,
                 client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="full refresh_token",
@@ -448,6 +463,7 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://test.salesforce.com/services/oauth2/authorize",
                 token_url="https://test.salesforce.com/services/oauth2/token",
+                token_revoke_url="https://test.salesforce.com/services/oauth2/revoke",
                 client_id=settings.SALESFORCE_CONSUMER_KEY,
                 client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="full refresh_token",
@@ -1073,6 +1089,43 @@ class OauthIntegration:
                 )
 
         return integration
+
+    def revoke_token(self) -> None:
+        """Revoke the OAuth grant at the provider, for kinds with a revoke endpoint.
+
+        Revoking the refresh token also invalidates its access tokens (per RFC 7009 and
+        Salesforce's revoke semantics), so the provider no longer considers PostHog authorized
+        after a disconnect. Callers treat this as best-effort — the local deletion proceeds
+        regardless.
+        """
+        oauth_config = self.oauth_config_for_kind(self.integration.kind)
+        if not oauth_config.token_revoke_url:
+            return
+
+        token = self.integration.sensitive_config.get("refresh_token") or self.integration.sensitive_config.get(
+            "access_token"
+        )
+        if not token:
+            return
+
+        revoke_url = oauth_config.token_revoke_url
+        # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is only a
+        # token-exchange fallback), so the static prod revoke URL would miss them. Revoke at the
+        # org's own instance host instead - it serves oauth2/revoke and matches prod or sandbox.
+        instance_url = self.integration.config.get("instance_url")
+        if self.integration.kind == "salesforce" and instance_url:
+            revoke_url = f"{instance_url.rstrip('/')}/services/oauth2/revoke"
+
+        # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
+        # resending the token to another host. raise_for_status surfaces a provider rejection
+        # to the caller's capture_exception instead of it passing silently as a revoke.
+        response = requests.post(
+            revoke_url,
+            data={"token": token},
+            timeout=10,
+            allow_redirects=False,
+        )
+        response.raise_for_status()
 
     def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         # Not all integrations have refresh tokens or expiries, so we just return False if we can't check
@@ -3539,6 +3592,84 @@ def _create_unique_s3_integration(
         raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
 
 
+def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: str) -> bool:
+    """Check if the AWS role is only in one organization.
+
+    This is used as a security measure to block multiple organizations from
+    assuming the same role.
+
+    In the future we may lift this restriction, but initially we want to make sure about
+    AWS role ownership with this check. This complements other runtime checks in
+    batch exports; see `get_credentials_using_user_aws_role` in
+    `s3_batch_export.py`.
+    """
+    has_same_aws_role_integrations = (
+        Integration.objects.select_related("team__organization")
+        .filter(
+            kind=Integration.IntegrationKind.AWS_S3,
+            config__aws_role_arn=aws_role_arn,
+        )
+        .exclude(team__organization_id=organization_id)
+    ).exists()
+
+    if has_same_aws_role_integrations:
+        return False
+
+    return True
+
+
+def _return_non_empty_str_from_config(config: Mapping, key: str) -> str | None:
+    if (value := config.get(key)) is not None and isinstance(value, str) and len(value) > 0:
+        return value
+    return None
+
+
+class AwsS3RoleBasedIntegration:
+    """An AWS S3 integration storing a customer's AWS role."""
+
+    integration: Integration
+    aws_role_arn: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.AWS_S3:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        try:
+            self.aws_role_arn = integration.config["aws_role_arn"]
+        except KeyError:
+            raise S3CredentialIntegrationError("S3 integration is not valid: 'aws_role_arn' missing")
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        organization_id: str,
+        created_by: "User | None" = None,
+        **config,
+    ) -> Integration:
+        name = _return_non_empty_str_from_config(config, "name")
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+
+        aws_role_arn = _return_non_empty_str_from_config(config, "aws_role_arn")
+        if not aws_role_arn:
+            raise S3CredentialIntegrationError("A valid role ARN is required for an AWS S3 integration")
+
+        if not is_unique_aws_role_by_organization_id(aws_role_arn, organization_id):
+            raise ValidationError("Cannot create AWS S3 integration: Invalid role")
+
+        return _create_unique_s3_integration(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.AWS_S3,
+            name=name,
+            config={"name": name, "aws_role_arn": aws_role_arn},
+            sensitive_config={},
+            created_by=created_by,
+        )
+
+
 class AwsS3Integration:
     """An AWS S3 integration storing reusable AWS credentials.
 
@@ -3603,13 +3734,20 @@ class AwsS3Integration:
     def integration_from_config(
         cls,
         team_id: int,
-        name: str,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
         created_by: "User | None" = None,
+        **config,
     ) -> Integration:
+        name = _return_non_empty_str_from_config(config, "name")
         if not name:
             raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+
+        aws_access_key_id = _return_non_empty_str_from_config(config, "aws_access_key_id")
+        if not aws_access_key_id:
+            raise S3CredentialIntegrationError("Access key ID is required for an AWS S3 integration")
+
+        aws_secret_access_key = _return_non_empty_str_from_config(config, "aws_secret_access_key")
+        if not aws_secret_access_key:
+            raise S3CredentialIntegrationError("Secret access key is required for an AWS S3 integration")
 
         # Fail fast on invalid/expired credentials, and capture the (non-sensitive) account id.
         account_id = cls.validate_credentials(aws_access_key_id, aws_secret_access_key)
@@ -3976,3 +4114,141 @@ def cleanup_ses_identity_on_integration_delete(sender: Any, instance: Integratio
     )
 
     transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain))
+
+
+class SnowflakeIntegrationError(Exception):
+    """Error raised when a Snowflake integration is not valid."""
+
+    pass
+
+
+# A Snowflake account identifier: an alphanumeric first character followed by alphanumerics, dots,
+# hyphens and underscores.
+_SNOWFLAKE_ACCOUNT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+class SnowflakeIntegration:
+    """A Snowflake integration storing reusable Snowflake credentials.
+
+    Holds the account, user, and authentication material (a password, or a key-pair) needed to
+    connect to Snowflake. Database, warehouse, schema, table name and role stay on the batch export
+    destination config, so one credential can be reused across many exports.
+
+    Supports both of Snowflake's authentication types:
+      - "password": `password` in sensitive_config.
+      - "keypair": `private_key` (PEM) plus optional `private_key_passphrase` in sensitive_config.
+
+    Rather than using an auto-generated ID (e.g. '{account}-{user}-{auth_type}'), we use a
+    user-provided name, similarly to how we do for S3 integrations. The benefits of this approach
+    are:
+        - a user can create multiple integrations for the same account, allowing for credential rotation
+        - we don't overwrite an existing integration if creating an integration for the same account,
+          so existing exports can continue to use the old credentials
+        - a human-readable name in the UI
+    """
+
+    integration: Integration
+    account: str
+    user: str
+    authentication_type: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.SNOWFLAKE:
+            raise SnowflakeIntegrationError(
+                f"Integration provided is not a Snowflake integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        try:
+            self.account = integration.config["account"]
+            self.user = integration.config["user"]
+            self.authentication_type = integration.config["authentication_type"]
+        except KeyError as e:
+            raise SnowflakeIntegrationError(f"Snowflake integration is not valid: {str(e)} missing")
+
+    @property
+    def password(self) -> str | None:
+        return self.integration.sensitive_config.get("password")
+
+    @property
+    def private_key(self) -> str | None:
+        return self.integration.sensitive_config.get("private_key")
+
+    @property
+    def private_key_passphrase(self) -> str | None:
+        return self.integration.sensitive_config.get("private_key_passphrase")
+
+    @staticmethod
+    def validate_account(account: str) -> None:
+        """Validate the Snowflake account identifier format.
+
+        Snowflake has no user-supplied host: the connector derives the host from the account, always
+        on a fixed Snowflake-owned domain suffix, so there is no SSRF surface as there is for
+        Databricks or S3-compatible. We validate the identifier's shape to reject URLs and arbitrary
+        hosts (for example, anything with a scheme, `/`, `@`, `:`, `#`, or whitespace).
+        """
+        if not _SNOWFLAKE_ACCOUNT_RE.fullmatch(account):
+            raise SnowflakeIntegrationError(
+                f"Snowflake integration is not valid: invalid account identifier '{account}'"
+            )
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        name: str,
+        account: str,
+        user: str,
+        authentication_type: str,
+        password: str | None = None,
+        private_key: str | None = None,
+        private_key_passphrase: str | None = None,
+        created_by: User | None = None,
+    ) -> Integration:
+        if not (name and account and user):
+            raise SnowflakeIntegrationError("Name, account, and user must be provided")
+        if not all(isinstance(value, str) for value in (name, account, user, authentication_type)):
+            raise SnowflakeIntegrationError("Name, account, user, and authentication type must be strings")
+        if not all(
+            value is None or isinstance(value, str) for value in (password, private_key, private_key_passphrase)
+        ):
+            raise SnowflakeIntegrationError("Password, private key, and private key passphrase must be strings")
+
+        cls.validate_account(account)
+
+        sensitive_config: dict[str, str] = {}
+        if authentication_type == "password":
+            if not password:
+                raise SnowflakeIntegrationError("Password is required for password authentication")
+            sensitive_config["password"] = password
+        elif authentication_type == "keypair":
+            if not private_key:
+                raise SnowflakeIntegrationError("Private key is required for key-pair authentication")
+            sensitive_config["private_key"] = private_key
+            if private_key_passphrase:
+                sensitive_config["private_key_passphrase"] = private_key_passphrase
+        else:
+            raise SnowflakeIntegrationError(f"Invalid authentication type: {authentication_type}")
+
+        # `name` is the unencrypted, frontend-visible identifier — never a credential. Unlike most
+        # integrations, it is a free-form user-supplied name rather than one derived from the
+        # connection, so we create rather than upsert: re-using a name is a 400, not a silent
+        # overwrite of an unrelated credential set.
+        try:
+            # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
+            # surrounding transaction.
+            with transaction.atomic():
+                return Integration.objects.create(
+                    team_id=team_id,
+                    kind=Integration.IntegrationKind.SNOWFLAKE,
+                    integration_id=name,
+                    config={
+                        "name": name,
+                        "account": account,
+                        "user": user,
+                        "authentication_type": authentication_type,
+                    },
+                    sensitive_config=sensitive_config,
+                    created_by=created_by,
+                )
+        except IntegrityError:
+            raise SnowflakeIntegrationError(f"An integration named '{name}' already exists")

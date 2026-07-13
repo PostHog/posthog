@@ -224,7 +224,7 @@ class AlgoliaSourceConfig(config.Config):
 
 @config.config
 class AlgunaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -290,7 +290,7 @@ class AmplitudeSourceConfig(config.Config):
 
 @config.config
 class AnthropicSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -487,7 +487,7 @@ class BitlySourceConfig(config.Config):
 
 @config.config
 class BlandAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -687,7 +687,8 @@ class ChargifySourceConfig(config.Config):
 
 @config.config
 class ChartHopSourceConfig(config.Config):
-    pass
+    api_key: str
+    org_id: str | None = None
 
 
 @config.config
@@ -952,7 +953,7 @@ class CultureAmpSourceConfig(config.Config):
 
 @config.config
 class CursorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1018,7 +1019,7 @@ class DbtSourceConfig(config.Config):
 
 @config.config
 class DecagonSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1028,7 +1029,7 @@ class DeelSourceConfig(config.Config):
 
 @config.config
 class DeepgramSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1186,7 +1187,7 @@ class ElasticsearchSourceConfig(config.Config):
 
 @config.config
 class ElevenLabsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1328,7 +1329,7 @@ class FireboltSourceConfig(config.Config):
 
 @config.config
 class FirecrawlSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1541,6 +1542,11 @@ class GoogleCalendarSourceConfig(config.Config):
 
 
 @config.config
+class GoogleChatSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class GoogleClassroomSourceConfig(config.Config):
     pass
 
@@ -1667,7 +1673,8 @@ class HarnessSourceConfig(config.Config):
 
 @config.config
 class HarveySourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "au"] = config.value(default="us")
 
 
 @config.config
@@ -1972,6 +1979,11 @@ class KernelSourceConfig(config.Config):
 
 
 @config.config
+class KickscaleSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class KisiSourceConfig(config.Config):
     pass
 
@@ -2098,7 +2110,7 @@ class LinearSourceConfig(config.Config):
 
 @config.config
 class LingoDevSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2124,7 +2136,7 @@ class LinnworksSourceConfig(config.Config):
 
 @config.config
 class LinodeSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2236,7 +2248,9 @@ class MatomoSourceConfig(config.Config):
 
 @config.config
 class MaxioSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -2284,7 +2298,7 @@ class MetabaseSourceConfig(config.Config):
 
 @config.config
 class MetorialSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2339,7 +2353,7 @@ class MissiveSourceConfig(config.Config):
 
 @config.config
 class MistralAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2437,7 +2451,7 @@ class NetSuiteSourceConfig(config.Config):
 
 @config.config
 class NetlifySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2721,7 +2735,7 @@ class PartnerizeSourceConfig(config.Config):
 
 @config.config
 class PayFitSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3186,6 +3200,11 @@ class RssSourceConfig(config.Config):
 
 
 @config.config
+class RudderStackSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class RuddrSourceConfig(config.Config):
     api_key: str
 
@@ -3282,7 +3301,8 @@ class ScaleAISourceConfig(config.Config):
 
 @config.config
 class ScalewaySourceConfig(config.Config):
-    pass
+    secret_key: str
+    organization_id: str
 
 
 @config.config
@@ -3365,7 +3385,7 @@ class ShipStationSourceConfig(config.Config):
 
 @config.config
 class ShippoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3432,8 +3452,14 @@ class SimplesatSourceConfig(config.Config):
 
 
 @config.config
-class SkyvernSourceConfig(config.Config):
+class SingularSourceConfig(config.Config):
     pass
+
+
+@config.config
+class SkyvernSourceConfig(config.Config):
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -3575,6 +3601,11 @@ class StripeSourceConfig(config.Config):
 
 
 @config.config
+class SumsubSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class SupabaseSourceConfig(config.Config):
     host: str
     database: str
@@ -3611,6 +3642,11 @@ class SurvicateSourceConfig(config.Config):
 @config.config
 class SvixSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class SwonkieSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3764,7 +3800,7 @@ class TodoistSourceConfig(config.Config):
 
 @config.config
 class TogetherAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3791,7 +3827,8 @@ class TremendousSourceConfig(config.Config):
 
 @config.config
 class TriggerDevSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -4028,7 +4065,9 @@ class WrikeSourceConfig(config.Config):
 
 @config.config
 class WritesonicSourceConfig(config.Config):
-    pass
+    api_key: str
+    site_url: str
+    project_id: str | None = None
 
 
 @config.config
@@ -4094,6 +4133,11 @@ class ZapSignSourceConfig(config.Config):
 
 @config.config
 class ZapierSupportedStorageSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class ZellifySourceConfig(config.Config):
     pass
 
 
@@ -4472,6 +4516,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
         ExternalDataSourceType.GOOGLEANALYTICS: GoogleAnalyticsSourceConfig,
         ExternalDataSourceType.GOOGLECALENDAR: GoogleCalendarSourceConfig,
+        ExternalDataSourceType.GOOGLECHAT: GoogleChatSourceConfig,
         ExternalDataSourceType.GOOGLECLASSROOM: GoogleClassroomSourceConfig,
         ExternalDataSourceType.GOOGLECLOUDSTORAGE: GoogleCloudStorageSourceConfig,
         ExternalDataSourceType.GOOGLEDIRECTORY: GoogleDirectorySourceConfig,
@@ -4554,6 +4599,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.KATANA: KatanaSourceConfig,
         ExternalDataSourceType.KEKA: KekaSourceConfig,
         ExternalDataSourceType.KERNEL: KernelSourceConfig,
+        ExternalDataSourceType.KICKSCALE: KickscaleSourceConfig,
         ExternalDataSourceType.KISI: KisiSourceConfig,
         ExternalDataSourceType.KISSMETRICS: KissmetricsSourceConfig,
         ExternalDataSourceType.KLARNA: KlarnaSourceConfig,
@@ -4779,6 +4825,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.ROLLBAR: RollbarSourceConfig,
         ExternalDataSourceType.ROOTLY: RootlySourceConfig,
         ExternalDataSourceType.RSS: RssSourceConfig,
+        ExternalDataSourceType.RUDDERSTACK: RudderStackSourceConfig,
         ExternalDataSourceType.RUDDR: RuddrSourceConfig,
         ExternalDataSourceType.RUNPOD: RunPodSourceConfig,
         ExternalDataSourceType.SAPFIELDGLASS: SAPFieldglassSourceConfig,
@@ -4826,6 +4873,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SIMFIN: SimFinSourceConfig,
         ExternalDataSourceType.SIMPLECAST: SimpleCastSourceConfig,
         ExternalDataSourceType.SIMPLESAT: SimplesatSourceConfig,
+        ExternalDataSourceType.SINGULAR: SingularSourceConfig,
         ExternalDataSourceType.SKYVERN: SkyvernSourceConfig,
         ExternalDataSourceType.SLACK: SlackSourceConfig,
         ExternalDataSourceType.SLASH: SlashSourceConfig,
@@ -4852,12 +4900,14 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.STREAMELEMENTS: StreamElementsSourceConfig,
         ExternalDataSourceType.STREAMLABS: StreamlabsSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
+        ExternalDataSourceType.SUMSUB: SumsubSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.SUPERWALL: SuperwallSourceConfig,
         ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,
         ExternalDataSourceType.SURVEYSPARROW: SurveySparrowSourceConfig,
         ExternalDataSourceType.SURVICATE: SurvicateSourceConfig,
         ExternalDataSourceType.SVIX: SvixSourceConfig,
+        ExternalDataSourceType.SWONKIE: SwonkieSourceConfig,
         ExternalDataSourceType.SYNTHESIA: SynthesiaSourceConfig,
         ExternalDataSourceType.SYSTEME: SystemeSourceConfig,
         ExternalDataSourceType.TMDB: TMDbSourceConfig,
@@ -4948,6 +4998,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.YOUTUBEDATA: YoutubeDataSourceConfig,
         ExternalDataSourceType.ZAPSIGN: ZapSignSourceConfig,
         ExternalDataSourceType.ZAPIERSUPPORTEDSTORAGE: ZapierSupportedStorageSourceConfig,
+        ExternalDataSourceType.ZELLIFY: ZellifySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
         ExternalDataSourceType.ZENDESKSELL: ZendeskSellSourceConfig,
         ExternalDataSourceType.ZENDESKSUNSHINE: ZendeskSunshineSourceConfig,
