@@ -117,6 +117,7 @@ hogli evals:sandboxed cli_mcp --provider modal    # a domain, remote, fully para
 - Env is loaded automatically (`.env` by the harness, `.env.local`/`.env.development`/`.env.services` by hogli) and a preflight validates the required variables before any infrastructure boots.
 - `--provider docker` (default) caps at 4 concurrent sandboxes (16 GB each); `--provider modal` is unbounded — every case runs at once, `--max-sandboxes` is the cost knob.
 - `--trials N` repeats every case for variance on stochastic behavior; `--fail-under <fraction>` gates the run's mean score.
+- `--agent-runtime codex` runs the OpenAI Codex harness (default model `gpt-5.5`) instead of Claude; it requires `LLM_GATEWAY_OPENAI_API_KEY`. The runtime/model land in the Braintrust experiment metadata, so compare scores within one runtime.
 - For non-interactive runs set `EXPORT_EVAL_RESULTS=1`: Braintrust's progress bars mangle redirected terminal output, and `eval_results.jsonl` (one JSON summary per experiment) is the reliable record.
 - Fastest debugging is the local log dir `ee/hogai/eval/sandboxed/logs/<experiment>/latest/` — per case: `<case>.jsonl` (raw agent log), `<case>.artifacts.json`, `<case>.summary.txt`. `logs/runs.jsonl` indexes historical runs.
 

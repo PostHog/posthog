@@ -252,9 +252,20 @@ class AcpLogParser:
 
         if not self._gen_timestamp:
             self._gen_timestamp = ts
-        meta = update.get("_meta", {})
-        cc = meta.get("claudeCode", {}) if isinstance(meta, dict) else {}
-        tool_name = cc.get("toolName", update.get("title", "unknown_tool"))
+        # The runtime adapters stamp the real tool name in different _meta keys
+        # (claude → _meta.claudeCode, codex → _meta.posthog); the title is only a
+        # display string (e.g. "posthog/exec"), so it's the last resort.
+        meta = update.get("_meta") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        tool_name = next(
+            (
+                adapter_meta["toolName"]
+                for adapter_meta in (meta.get("claudeCode"), meta.get("posthog"))
+                if isinstance(adapter_meta, dict) and adapter_meta.get("toolName")
+            ),
+            update.get("title", "unknown_tool"),
+        )
         tool_call_id = update.get("toolCallId", str(uuid.uuid4()))
         raw_input = update.get("rawInput", {})
 

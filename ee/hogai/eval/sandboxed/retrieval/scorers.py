@@ -31,6 +31,7 @@ nothing has to be threaded through ``expected``. The third opts in via
 from __future__ import annotations
 
 import re
+import json
 from typing import Any
 
 from braintrust import Score
@@ -42,13 +43,16 @@ __all__ = ["InfoCalledBeforeTool", "InformationSchemaBeforeSql", "LookupIdInOutp
 
 
 class SkillLoaded(Scorer):
-    """Binary: did the agent load a specific Claude Code skill?
+    """Binary: did the agent load a specific skill?
 
-    Recognized as either:
-    * a successful ``Skill`` tool call (``input.skill == skill_name``), or
+    Recognized as any of:
+    * a successful ``Skill`` tool call (``input.skill == skill_name``),
     * a successful ``Read`` tool call whose ``file_path`` references the
       skill's ``SKILL.md`` (catches the fallback path where the agent
-      reads the skill file directly).
+      reads the skill file directly), or
+    * any other successful tool call that references the skill's ``SKILL.md``
+      path in its name or input — the codex runtime has no ``Skill``/``Read``
+      tools and reads skills through shell commands instead.
     """
 
     def __init__(self, skill_name: str, *, name: str | None = None):
@@ -84,6 +88,17 @@ class SkillLoaded(Scorer):
                     name=self._name(),
                     score=1.0,
                     metadata={"matched_via": "read_skill_md", "file_path": file_path},
+                )
+
+        skill_file_ref = f"{self.skill_name}/SKILL.md"
+        for call in parser.get_tool_calls():
+            if call.is_error:
+                continue
+            if skill_file_ref in call.name or skill_file_ref in json.dumps(call.input, default=str):
+                return Score(
+                    name=self._name(),
+                    score=1.0,
+                    metadata={"matched_via": "tool_reference", "tool": call.name[:120]},
                 )
 
         return Score(

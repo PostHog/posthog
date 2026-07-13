@@ -36,11 +36,15 @@ class SandboxedDemoData:
         master_team_id: int,
         django_db_blocker: NullDbBlocker,
         agent_model: str | None = None,
+        agent_runtime: str | None = None,
+        reasoning_effort: str | None = None,
         sandbox_timeout_seconds: int | None = None,
     ):
         self.master_team_id = master_team_id
         self._django_db_blocker = django_db_blocker
         self.agent_model = agent_model
+        self.agent_runtime = agent_runtime
+        self.reasoning_effort = reasoning_effort
         self.sandbox_timeout_seconds = sandbox_timeout_seconds
 
     def make_context(self, case_label: str) -> CustomPromptSandboxContext:
@@ -58,6 +62,8 @@ class SandboxedDemoData:
             user_id=user.id,
             repository="posthog/hedgebox",
             model=self.agent_model,
+            runtime_adapter=self.agent_runtime,
+            reasoning_effort=self.reasoning_effort,
             # Under TEST=1, SANDBOX_TTL_SECONDS is 15 minutes — equal to the default
             # per-case timeout — so a slow Modal case would have its sandbox reaped
             # exactly as it was finishing. The modal provider passes a larger TTL here.
@@ -96,6 +102,8 @@ def ensure_demo_ready(
     *,
     blocker: NullDbBlocker,
     agent_model: str,
+    agent_runtime: str,
+    reasoning_effort: str | None,
     sandbox_timeout_seconds: int | None,
 ) -> SandboxedDemoData:
     """Seed the master Hedgebox team (once) and expose a per-case context factory."""
@@ -107,11 +115,13 @@ def ensure_demo_ready(
             {"team_id": master_team_id},
         )
     logger.info("Master demo ready: team_id=%d event_counts=%s", master_team_id, rows)
-    logger.info("Sandboxed eval agent model pinned to %r", agent_model)
+    logger.info("Sandboxed eval agent pinned to model=%r runtime=%r", agent_model, agent_runtime)
 
     return SandboxedDemoData(
         master_team_id=master_team_id,
         django_db_blocker=blocker,
         agent_model=agent_model,
+        agent_runtime=agent_runtime,
+        reasoning_effort=reasoning_effort,
         sandbox_timeout_seconds=sandbox_timeout_seconds,
     )

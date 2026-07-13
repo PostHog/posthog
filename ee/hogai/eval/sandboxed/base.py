@@ -398,6 +398,9 @@ class _SandboxedEvalRun:
             update=True,
             is_public=self.is_public,
             no_send_logs=self.no_send_logs,
+            # Experiment names stay runtime/model-agnostic so history lines up across
+            # runs; the metadata is what lets Braintrust filter or compare by them.
+            metadata={"agent_model": self.ctx.agent_model, "agent_runtime": self.ctx.agent_runtime},
         )
 
         await self._finalize(result)
