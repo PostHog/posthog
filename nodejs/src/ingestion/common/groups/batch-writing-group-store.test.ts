@@ -301,6 +301,43 @@ describe('BatchWritingGroupStore', () => {
         )
     })
 
+    it('keeps separate cache entries for two group types sharing a group key', async () => {
+        // A cache key without group_type_index would make the second upsert
+        // read the first type's cached row, merge both types' properties into
+        // one entry, and flush a single contaminated write.
+        jest.spyOn(groupRepository, 'fetchGroup').mockImplementation((_teamId, groupTypeIndex) =>
+            Promise.resolve({ ...group, group_type_index: groupTypeIndex, group_properties: {} })
+        )
+
+        await groupStore.upsertGroup(teamId, projectId, 0, 'shared-key', { a: '1' }, DateTime.now())
+        await groupStore.upsertGroup(teamId, projectId, 1, 'shared-key', { b: '2' }, DateTime.now())
+
+        await groupStore.flush()
+
+        expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(2)
+        expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(2)
+        expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
+            teamId,
+            0,
+            'shared-key',
+            1,
+            { a: '1' },
+            group.created_at,
+            {},
+            {}
+        )
+        expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
+            teamId,
+            1,
+            'shared-key',
+            1,
+            { b: '2' },
+            group.created_at,
+            {},
+            {}
+        )
+    })
+
     it('should not write to db if no properties are changed', async () => {
         // Mock the groupRepository.fetchGroup to return a group with the same properties
         jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValue(group)
@@ -342,7 +379,7 @@ describe('BatchWritingGroupStore', () => {
 
         expect(groupRepository.insertGroup).toHaveBeenCalledTimes(1)
         expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(2) // Once for initial fetch, once for retry
-        expect(cacheDeleteSpy).toHaveBeenCalledWith(teamId, 'test')
+        expect(cacheDeleteSpy).toHaveBeenCalledWith(teamId, 1, 'test')
 
         // The retry found the winning row and flushed our properties onto it.
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
@@ -392,7 +429,7 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0)
         expect(results).toHaveLength(0)
-        expect(groupStore.getGroupCache().get(teamId, 'test')?.version).toBe(7)
+        expect(groupStore.getGroupCache().get(teamId, 1, 'test')?.version).toBe(7)
     })
 
     describe('useBatchUpdates', () => {
@@ -474,10 +511,10 @@ describe('BatchWritingGroupStore', () => {
             expect(messagesByKey.get('g-b').group_type_index).toBe(1)
 
             // The cache converges on each group's own merged row.
-            expect(groupStore.getGroupCache().get(teamId, 'g-a')?.version).toBe(5)
-            expect(groupStore.getGroupCache().get(teamId, 'g-a')?.group_properties).toEqual(rowA.group_properties)
-            expect(groupStore.getGroupCache().get(teamId, 'g-b')?.version).toBe(9)
-            expect(groupStore.getGroupCache().get(teamId, 'g-b')?.group_properties).toEqual(rowB.group_properties)
+            expect(groupStore.getGroupCache().get(teamId, 0, 'g-a')?.version).toBe(5)
+            expect(groupStore.getGroupCache().get(teamId, 0, 'g-a')?.group_properties).toEqual(rowA.group_properties)
+            expect(groupStore.getGroupCache().get(teamId, 1, 'g-b')?.version).toBe(9)
+            expect(groupStore.getGroupCache().get(teamId, 1, 'g-b')?.group_properties).toEqual(rowB.group_properties)
         })
 
         it('falls back to individual writes when the batch statement fails', async () => {
@@ -606,7 +643,7 @@ describe('BatchWritingGroupStore', () => {
 
             // Re-dirty the entry during the async DB write after the linearization point.
             jest.spyOn(groupRepository, 'updateGroupOptimistically').mockImplementationOnce(() => {
-                const entry = groupStore.getGroupCache().get(teamId, 'test')
+                const entry = groupStore.getGroupCache().get(teamId, 1, 'test')
                 if (entry) {
                     entry.needsWrite = true
                 }
@@ -616,7 +653,7 @@ describe('BatchWritingGroupStore', () => {
             await groupStore.flush()
 
             expect(groupStore.getGroupCache().getSize()).toBe(1)
-            expect(groupStore.getGroupCache().get(teamId, 'test')?.needsWrite).toBe(true)
+            expect(groupStore.getGroupCache().get(teamId, 1, 'test')?.needsWrite).toBe(true)
         })
 
         it('defers eviction of dirty entries until after flush', async () => {
