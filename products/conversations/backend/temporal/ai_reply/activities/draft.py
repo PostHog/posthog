@@ -177,14 +177,13 @@ DIAGNOSTIC INVESTIGATION (this ticket reports something broken — investigate t
 - Form a hypothesis from the ticket, verify it against the data, and base your reply on what the data shows — not on guesses.
 """
 
-    # Config/metadata read tools (flag/experiment/survey/dashboard setup, taxonomy) are in
-    # BASE_DRAFT_SCOPES on every draft. They return project data (config + aggregate stats), so
-    # keep them off auto-publishable replies for the same reason as the customer-data tools: an
-    # auto-sent reply stays doc/BK-only so project data the review gate passes as an "aggregate"
-    # can't reach an untrusted author. Human-reviewed replies (private-note how_to, diagnostic,
-    # account_billing) get them. The row-level subset (individual survey responses, per-user flag
-    # blast radius/evaluations) is advertised separately via data_safety_block when
-    # grants_customer_data.
+    # Config/metadata read tools (flag/experiment/survey/dashboard setup, taxonomy) are granted by
+    # BASE_DRAFT_SCOPES on human-reviewed drafts, but auto-publishable drafts only get the narrower
+    # PUBLISHABLE_DRAFT_SCOPES (docs + BK). Advertise these tools only when they're actually
+    # granted -- i.e. on human-reviewed replies (private-note how_to, diagnostic, account_billing).
+    # The scope tier is the real boundary; this keeps the prompt consistent with it. The row-level
+    # subset (individual survey responses, per-user flag blast radius/evaluations) is advertised
+    # separately via data_safety_block when grants_customer_data.
     config_tools_block = ""
     if not auto_publishable:
         config_tools_block = """
