@@ -7,6 +7,7 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
+import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import {
     EventsQuery,
@@ -80,7 +81,7 @@ describe('insightNavLogic', () => {
                     source: {
                         ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
                         filterTestAccounts: true,
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                 },
@@ -205,7 +206,7 @@ describe('insightNavLogic', () => {
                         commonFilter: {},
                         commonFilterTrendsStickiness: {},
                         filterTestAccounts: true,
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                     },
                 })
             })
@@ -560,7 +561,7 @@ describe('insightNavLogic', () => {
                             ],
                             trendsFilter: {},
                             filterTestAccounts: true,
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                             breakdownFilter: {
                                 breakdowns: [
                                     { property: 'num', type: 'person' },
@@ -582,7 +583,7 @@ describe('insightNavLogic', () => {
                             { property: '$device_type', type: 'event' },
                         ],
                     },
-                    version: 2,
+                    version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                 } as TrendsQuery
 
                 await expectLogic(logic, () => {
@@ -637,7 +638,7 @@ describe('insightNavLogic', () => {
                             },
                         ],
                         interval: 'hour',
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         trendsFilter: {
                             display: ChartDisplayType.ActionsBar,
                             showPercentStackView: true,
@@ -724,7 +725,7 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         breakdownFilter: {
                             breakdowns: [
                                 { property: '$browser', type: 'event' },
@@ -765,7 +766,7 @@ describe('insightNavLogic', () => {
                     source: {
                         kind: NodeKind.TrendsQuery,
                         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         breakdownFilter: {
                             breakdowns: [
                                 { property: '$browser', type: 'event' },
@@ -814,7 +815,7 @@ describe('insightNavLogic', () => {
                         kind: NodeKind.TrendsQuery,
                         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
                         interval: 'minute',
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                     },
                 }
 
@@ -855,7 +856,7 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         breakdownFilter: {
                             breakdown: '$browser',
                             breakdown_type: 'event',
@@ -902,7 +903,7 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         breakdownFilter: {
                             breakdowns: [
                                 { property: '$browser', type: 'event' },
@@ -952,7 +953,7 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         compareFilter: { compare: true },
                     },
                 }
@@ -993,7 +994,7 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         interval: 'week',
                     },
                 }
@@ -1036,7 +1037,7 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         breakdownFilter: {
                             breakdowns: [
                                 { property: '$browser', type: 'event' },
@@ -1080,7 +1081,7 @@ describe('insightNavLogic', () => {
                             },
                         ],
                         interval: 'hour',
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         trendsFilter: {
                             display: ChartDisplayType.ActionsBar,
                             showValuesOnSeries: true,

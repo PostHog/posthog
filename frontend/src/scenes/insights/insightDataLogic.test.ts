@@ -15,6 +15,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { useMocks } from '~/mocks/jest'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
+import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
 import {
@@ -358,7 +359,7 @@ describe('insightDataLogic', () => {
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         },
                     },
                 })

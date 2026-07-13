@@ -6,6 +6,7 @@ import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mock
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
 import { FunnelsQuery, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -61,7 +62,7 @@ describe('insightVizDataLogic', () => {
                     source: {
                         ...trendsQueryDefault,
                         filterTestAccounts: true,
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                     },
                 },
             })
@@ -78,7 +79,7 @@ describe('insightVizDataLogic', () => {
                         ...trendsQueryDefault,
                         filterTestAccounts: true,
                         samplingFactor: 0.1,
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                     },
                 },
             })
@@ -87,7 +88,7 @@ describe('insightVizDataLogic', () => {
                 ...trendsQueryDefault,
                 filterTestAccounts: true,
                 samplingFactor: 0.1,
-                version: 2,
+                version: LATEST_VERSIONS[NodeKind.TrendsQuery],
             })
         })
 
@@ -120,7 +121,7 @@ describe('insightVizDataLogic', () => {
                             funnelToStep: 1,
                         },
                         trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                     },
                 },
             })
@@ -169,7 +170,7 @@ describe('insightVizDataLogic', () => {
                             ],
                         },
                         trendsFilter: {},
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                     },
                 },
             })
@@ -219,7 +220,7 @@ describe('insightVizDataLogic', () => {
                             },
                         ],
                         trendsFilter: {},
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                     },
                 },
             })
@@ -284,7 +285,7 @@ describe('insightVizDataLogic', () => {
                             },
                         ],
                         trendsFilter: {},
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                     },
                 },
             })
@@ -370,7 +371,7 @@ describe('insightVizDataLogic', () => {
                                 date_to: null,
                                 explicitDate: false,
                             },
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         },
                     },
                 })
@@ -399,7 +400,7 @@ describe('insightVizDataLogic', () => {
                                 date_to: '-3d',
                                 explicitDate: false,
                             },
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         },
                     },
                 })
@@ -521,7 +522,7 @@ describe('insightVizDataLogic', () => {
                                 breakdown_type: 'event',
                                 breakdown: '$current_url',
                             },
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         },
                     },
                 })
@@ -547,7 +548,7 @@ describe('insightVizDataLogic', () => {
                                 breakdown_type: 'event',
                                 breakdown: '$browser',
                             },
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         },
                     },
                 })
@@ -574,7 +575,7 @@ describe('insightVizDataLogic', () => {
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         },
                     },
                 })
@@ -597,7 +598,7 @@ describe('insightVizDataLogic', () => {
                                 display: 'ActionsAreaGraph',
                                 showValuesOnSeries: true,
                             },
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         },
                     },
                 })
@@ -627,7 +628,7 @@ describe('insightVizDataLogic', () => {
                                 layout: FunnelLayout.horizontal,
                             },
                             trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         },
                     },
                 })
@@ -844,7 +845,7 @@ describe('insightVizDataLogic', () => {
                                 date_to: undefined,
                             },
                             trendsFilter: { smoothingIntervals: undefined },
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                         },
                     },
                 })

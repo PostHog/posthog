@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
+import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { EventsNode, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -75,7 +76,7 @@ export function buildPropertyGroupTrendsQuery(
     const trendsQuery: TrendsQuery = {
         kind: NodeKind.TrendsQuery,
         series,
-        version: 2,
+        version: LATEST_VERSIONS[NodeKind.TrendsQuery],
         interval: 'week',
         dateRange: {
             date_to: null,
