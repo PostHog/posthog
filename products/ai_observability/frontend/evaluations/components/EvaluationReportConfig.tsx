@@ -81,7 +81,15 @@ export function ScheduleConfig({
 }
 
 /** Threshold config shown when frequency is 'every_n' */
-function ThresholdConfig({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
+function ThresholdConfig({
+    value,
+    error,
+    onChange,
+}: {
+    value: number
+    error?: string
+    onChange: (value: number) => void
+}): JSX.Element {
     return (
         <div>
             <label className="font-semibold text-sm">Evaluation count threshold</label>
@@ -91,8 +99,10 @@ function ThresholdConfig({ value, onChange }: { value: number; onChange: (value:
                 max={TRIGGER_THRESHOLD_MAX}
                 value={value}
                 onChange={(val) => onChange(Number(val))}
+                status={error ? 'danger' : undefined}
                 fullWidth
             />
+            {error && <p className="text-xs text-danger mt-1">{error}</p>}
             <p className="text-xs text-muted mt-1">
                 A report will be generated after this many new evaluation results arrive. Checked every 5 minutes. Min{' '}
                 {TRIGGER_THRESHOLD_MIN}, max {TRIGGER_THRESHOLD_MAX.toLocaleString()}.
@@ -102,7 +112,15 @@ function ThresholdConfig({ value, onChange }: { value: number; onChange: (value:
 }
 
 /** Cooldown config shown when frequency is 'every_n' */
-function CooldownConfig({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
+function CooldownConfig({
+    value,
+    error,
+    onChange,
+}: {
+    value: number
+    error?: string
+    onChange: (value: number) => void
+}): JSX.Element {
     return (
         <div>
             <label className="font-semibold text-sm">Minimum hours between reports</label>
@@ -112,8 +130,10 @@ function CooldownConfig({ value, onChange }: { value: number; onChange: (value: 
                 max={COOLDOWN_HOURS_MAX}
                 value={value}
                 onChange={(val) => onChange(Number(val))}
+                status={error ? 'danger' : undefined}
                 fullWidth
             />
+            {error && <p className="text-xs text-danger mt-1">{error}</p>}
             <p className="text-xs text-muted mt-1">
                 After a report is generated, wait this many hours before generating another — even if the threshold is
                 crossed again. Min {COOLDOWN_HOURS_MIN}, max {COOLDOWN_HOURS_MAX}.
@@ -187,7 +207,7 @@ function DeliveryTargetsConfig({
 /** Shared form body used by both the create-evaluation and edit-existing-evaluation paths.
  * All state is backed by `evaluationReportLogic.configDraft` keyed by evaluationId. */
 function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Element {
-    const { configDraft } = useValues(evaluationReportLogic({ evaluationId }))
+    const { configDraft, configErrors } = useValues(evaluationReportLogic({ evaluationId }))
     const {
         setDraftFrequency,
         setDraftScheduleCadence,
@@ -213,8 +233,16 @@ function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Eleme
             </div>
             {configDraft.frequency === 'every_n' && (
                 <>
-                    <ThresholdConfig value={configDraft.triggerThreshold} onChange={setDraftTriggerThreshold} />
-                    <CooldownConfig value={configDraft.cooldownHours} onChange={setDraftCooldownHours} />
+                    <ThresholdConfig
+                        value={configDraft.triggerThreshold}
+                        error={configErrors.triggerThreshold}
+                        onChange={setDraftTriggerThreshold}
+                    />
+                    <CooldownConfig
+                        value={configDraft.cooldownHours}
+                        error={configErrors.cooldownHours}
+                        onChange={setDraftCooldownHours}
+                    />
                 </>
             )}
             {configDraft.frequency === 'scheduled' && (

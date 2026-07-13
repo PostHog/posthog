@@ -52,6 +52,7 @@ from posthog.models.integration import (
     AnthropicIntegration,
     ApplePushIntegration,
     AwsS3Integration,
+    AwsS3RoleBasedIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -658,22 +659,20 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
         elif validated_data["kind"] == "aws-s3":
             config = validated_data.get("config", {})
-            name = config.get("name")
-            aws_access_key_id = config.get("aws_access_key_id")
-            aws_secret_access_key = config.get("aws_secret_access_key")
 
-            if not (name and aws_access_key_id and aws_secret_access_key):
-                raise ValidationError("Name, access key ID, and secret access key must be provided")
-            if not all(isinstance(value, str) for value in (name, aws_access_key_id, aws_secret_access_key)):
-                raise ValidationError("Name, access key ID, and secret access key must be strings")
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
+            integration = AwsS3RoleBasedIntegration if "aws_role_arn" in config else AwsS3Integration
 
             try:
-                instance = AwsS3Integration.integration_from_config(
+                instance = integration.integration_from_config(
                     team_id=team_id,
-                    name=name,
-                    aws_access_key_id=aws_access_key_id,
-                    aws_secret_access_key=aws_secret_access_key,
                     created_by=request.user,
+                    organization_id=organization_id,
+                    **config,
                 )
             except S3CredentialIntegrationError as e:
                 raise ValidationError(str(e))
