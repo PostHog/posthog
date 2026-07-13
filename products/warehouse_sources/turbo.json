@@ -10,6 +10,7 @@
                 "backend/temporal/data_imports/sources/google_search_console/**",
                 "backend/temporal/data_imports/sources/mysql/**",
                 "backend/temporal/data_imports/sources/postgres/**",
+                "backend/temporal/data_imports/sources/redshift/**",
                 "backend/temporal/data_imports/sources/salesforce/**",
                 "backend/temporal/data_imports/sources/snowflake/**",
                 "backend/temporal/data_imports/sources/stripe/**"

@@ -10,7 +10,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     DataCatalogMetricApi,
+    DataCatalogMetricRunApi,
+    DataCatalogMetricRunRequestApi,
     DataCatalogMetricsListParams,
+    DataCatalogMetricsRunCreateParams,
     PaginatedDataCatalogMetricListApi,
     PatchedDataCatalogMetricApi,
 } from './api.schemas'
@@ -157,5 +160,79 @@ export const dataCatalogMetricsDestroy = async (
     return apiMutator<void>(getDataCatalogMetricsDestroyUrl(projectId, name), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDataCatalogMetricsApproveCreateUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${name}/approve/`
+}
+
+/**
+ * Bless a metric as canonical. Returns 409 while the metric is drifted from its insight.
+ */
+export const dataCatalogMetricsApproveCreate = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<DataCatalogMetricApi> => {
+    return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsApproveCreateUrl(projectId, name), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getDataCatalogMetricsRefreshFromInsightCreateUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${name}/refresh_from_insight/`
+}
+
+/**
+ * Re-snapshot the linked insight's current query into the definition.
+ */
+export const dataCatalogMetricsRefreshFromInsightCreate = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<DataCatalogMetricApi> => {
+    return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsRefreshFromInsightCreateUrl(projectId, name), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getDataCatalogMetricsRunCreateUrl = (
+    projectId: string,
+    name: string,
+    params?: DataCatalogMetricsRunCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_catalog/metrics/${name}/run/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_catalog/metrics/${name}/run/`
+}
+
+/**
+ * Execute the metric's definition and return the normalized result envelope.
+ */
+export const dataCatalogMetricsRunCreate = async (
+    projectId: string,
+    name: string,
+    dataCatalogMetricRunRequestApi?: DataCatalogMetricRunRequestApi,
+    params?: DataCatalogMetricsRunCreateParams,
+    options?: RequestInit
+): Promise<DataCatalogMetricRunApi> => {
+    return apiMutator<DataCatalogMetricRunApi>(getDataCatalogMetricsRunCreateUrl(projectId, name, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricRunRequestApi),
     })
 }

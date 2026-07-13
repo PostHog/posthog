@@ -71,6 +71,26 @@ export const FeatureFlagsStaffCacheRebuildCreateBody = /* @__PURE__ */ zod.objec
         ),
 })
 
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig (currently just
+ * minimal_flag_called_events).
+ *
+ * Single-team writes only, by design: this setting is meant to be flipped one team at a time
+ * after staff manually verify that team's SDK versions support the slim $feature_flag_called
+ * event shape, unlike the cache tools' bulk rebuild/clear.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.object({
+    team_id: zod.number().describe('Team id to update. Exactly one team per request.'),
+    minimal_flag_called_events: zod
+        .boolean()
+        .describe(
+            "New value for the team's minimal_flag_called_events setting. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape."
+        ),
+})
+
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
 
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false

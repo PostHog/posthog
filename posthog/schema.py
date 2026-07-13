@@ -14997,7 +14997,10 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
         extra="forbid",
     )
     fields: dict[str, DatabaseSchemaField]
-    format: str
+    format: str | None = Field(
+        default=None,
+        description=("Absent for a dual-mode source's virtual tables, which have no synced S3 backing."),
+    )
     id: str
     name: str
     row_count: float | None = None
@@ -15010,7 +15013,10 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     )
     source: DatabaseSchemaSource | None = None
     type: Literal["data_warehouse"] = "data_warehouse"
-    url_pattern: str
+    url_pattern: str | None = Field(
+        default=None,
+        description=("Absent for a dual-mode source's virtual tables, which have no synced S3 backing."),
+    )
 
 
 class DocumentSimilarityQueryResponse(BaseModel):
@@ -24024,9 +24030,9 @@ class HogQLQuery(BaseModel):
     connectionId: str | None = Field(
         default=None,
         description=(
-            "Optional id of a direct external data source (access_method='direct') to"
-            " run against instead of ClickHouse. Warehouse import sources are not valid"
-            " here."
+            "Optional id of a direct-query-capable external data source to run against"
+            " instead of ClickHouse — a pure-direct source, or a synced source with"
+            " direct query enabled."
         ),
     )
     explain: bool | None = None
@@ -28103,9 +28109,9 @@ class HogQLAutocomplete(BaseModel):
     connectionId: str | None = Field(
         default=None,
         description=(
-            "Optional id of a direct external data source (access_method='direct') to"
-            " run against instead of ClickHouse. Warehouse import sources are not valid"
-            " here."
+            "Optional id of a direct-query-capable external data source to run against"
+            " instead of ClickHouse — a pure-direct source, or a synced source with"
+            " direct query enabled."
         ),
     )
     endPosition: int = Field(..., description="End position of the editor word")
@@ -28199,9 +28205,9 @@ class HogQLMetadata(BaseModel):
     connectionId: str | None = Field(
         default=None,
         description=(
-            "Optional id of a direct external data source (access_method='direct') to"
-            " run against instead of ClickHouse. Warehouse import sources are not valid"
-            " here."
+            "Optional id of a direct-query-capable external data source to run against"
+            " instead of ClickHouse — a pure-direct source, or a synced source with"
+            " direct query enabled."
         ),
     )
     debug: bool | None = Field(
