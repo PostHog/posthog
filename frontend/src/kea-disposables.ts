@@ -13,7 +13,7 @@ type DisposableEntry = {
     options: DisposableOptions
 }
 
-type DisposablesManager = {
+export type DisposablesManager = {
     add: (setup: SetupFunction, key?: string, options?: DisposableOptions) => void
     dispose: (key: string) => boolean
     registry: Map<string, DisposableEntry>

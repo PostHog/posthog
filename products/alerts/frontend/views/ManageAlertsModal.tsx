@@ -98,6 +98,8 @@ interface ManageAlertsModalProps extends InsightAlertsLogicProps {
     /** The insight's query, so the unsupported-reason copy can be specific (e.g. time-to-convert funnels). */
     insightQuery?: Record<string, any> | null
     onClose?: () => void
+    onCreateAlert?: () => void
+    onEditAlert?: (alertId: AlertType['id']) => void
 }
 
 export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
@@ -109,6 +111,24 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
 
     const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
+    const openAlert = (alertId: AlertType['id']): void => {
+        if (props.onEditAlert) {
+            props.onClose?.()
+            props.onEditAlert(alertId)
+            return
+        }
+
+        push(urls.insightAlert(props.insightShortId, alertId))
+    }
+    const createAlert = (): void => {
+        if (props.onCreateAlert) {
+            props.onClose?.()
+            props.onCreateAlert()
+            return
+        }
+
+        push(urls.insightAlert(props.insightShortId, 'new'))
+    }
 
     return (
         <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">
@@ -136,11 +156,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                         </div>
 
                         {alerts.map((alert) => (
-                            <AlertListItem
-                                key={alert.id}
-                                alert={alert}
-                                onClick={() => push(urls.insightAlert(props.insightShortId, alert.id))}
-                            />
+                            <AlertListItem key={alert.id} alert={alert} onClick={() => openAlert(alert.id)} />
                         ))}
                     </div>
                 ) : (
@@ -155,7 +171,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             <LemonModal.Footer>
                 <LemonButton
                     type="primary"
-                    onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}
+                    onClick={createAlert}
                     disabledReason={
                         !props.canCreateAlertForInsight
                             ? alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled }, props.insightQuery)
