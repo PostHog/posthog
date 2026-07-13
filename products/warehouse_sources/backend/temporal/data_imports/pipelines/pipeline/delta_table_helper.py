@@ -745,8 +745,8 @@ class DeltaTableHelper:
         `optimize.compact` (which rewrites partitions) it is memory-safe even on an oversized table.
 
         Uses the delta version (commit count) as a cheap proxy for tombstone accumulation — no S3 LIST to
-        decide. Returns the current version to persist as the new watermark when it vacuumed, or on first
-        encounter (seeding the watermark without vacuuming, to avoid a synchronized vacuum wave on deploy);
+        decide. Returns the current version to persist as the new watermark when it vacuumed, on first
+        encounter, or when the table was recreated (both reseed the watermark without vacuuming);
         None when nothing changed.
         """
         table = await self.get_delta_table()
@@ -754,9 +754,12 @@ class DeltaTableHelper:
             return None
 
         version = await asyncio.to_thread(table.version)
-        if last_vacuum_version is None:
+        if last_vacuum_version is None or version < last_vacuum_version:
             # First encounter: seed the watermark without vacuuming so existing tables clean up gradually
             # over the next `commit_threshold` commits rather than all vacuuming at once on deploy.
+            # A version below the watermark means the table was reset/recreated (delta versions are
+            # monotonic within one incarnation) and no reset path clears the persisted watermark —
+            # left alone it would block the cadence until the new table out-versioned the old one.
             return version
 
         commits_since = version - last_vacuum_version
