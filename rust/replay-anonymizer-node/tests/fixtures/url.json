@@ -156,7 +156,18 @@
     },
     "input": "https://user:hunter2@app.example.com/settings",
     "collapseHost": false,
+    "firstPartyHosts": ["customer-site.test"],
     "expected": "https://app.example.com/[redacted]"
+  },
+  {
+    "name": "without first-party host patterns every host collapses",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "https://app.acme.test/dashboard",
+    "collapseHost": false,
+    "expected": "https://example.com/[redacted]"
   },
   {
     "name": "scheme without slashes keeps the protocol and redacts the rest: tel",

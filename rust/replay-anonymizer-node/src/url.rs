@@ -7,9 +7,12 @@
 //! - Fragment: kept only if it is an allow-listed alphanumeric token.
 //! - Userinfo (`user:pass@`) is always stripped from the authority.
 //! - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
-//! - With `collapse_host`, or when the host matches the context's first-party host patterns
-//!   (the team's recording domains), it additionally drops the port and collapses the host to
-//!   `example.com` (keeping a leading allow-listed subdomain label).
+//! - Host policy: the port is dropped and the host collapses to `example.com` (keeping a leading
+//!   allow-listed subdomain label) with `collapse_host` (positions that are the recorded page or
+//!   its assets by construction), when the host matches the context's first-party host patterns
+//!   (the team's recording domains), or when no patterns are configured — with nothing to classify
+//!   against, the recorded site's own domain must not pass through. A real hostname survives only
+//!   as a classified external domain, keeping first-party and external URLs distinguishable.
 
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
@@ -71,7 +74,10 @@ pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option
             // parse as the authority) must not pass through as if it were a hostname.
             out.push_str("[redacted]");
             changed = true;
-        } else if collapse_host || is_first_party_host(ctx, host_port) {
+        } else if collapse_host
+            || ctx.first_party_hosts.is_empty()
+            || is_first_party_host(ctx, host_port)
+        {
             let collapsed = collapsed_host(allow, host_port);
             if collapsed != host_port {
                 changed = true;

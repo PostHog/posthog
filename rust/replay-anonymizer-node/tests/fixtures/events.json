@@ -94,6 +94,34 @@
     "expected": { "type": 5, "data": { "tag": "note", "payload": { "msg": "call me at ************" } } }
   },
   {
+    "name": "custom event payload url-like fields collapse or mask the real host",
+    "allow": { "text": [], "url": [] },
+    "event": {
+      "type": 5,
+      "data": {
+        "tag": "$pageview",
+        "payload": {
+          "$current_url": "https://app.acme.test/orders/42?token=abc",
+          "$referrer": "https://www.searchengine.test/search?q=widgets",
+          "$host": "app.acme.test",
+          "$pathname": "/orders/42"
+        }
+      }
+    },
+    "expected": {
+      "type": 5,
+      "data": {
+        "tag": "$pageview",
+        "payload": {
+          "$current_url": "https://example.com/[redacted]/$$",
+          "$referrer": "https://example.com/[redacted]",
+          "$host": "***.****.****",
+          "$pathname": "/******/##"
+        }
+      }
+    }
+  },
+  {
     "name": "network plugin scrubs request name url and body text",
     "allow": { "text": [], "url": ["api"] },
     "event": {
@@ -522,14 +550,14 @@
               "type": 2,
               "id": 7,
               "tagName": "iframe",
-              "attributes": { "rr_src": "https://widget.example-vendor.co/[redacted]/[redacted]/" },
+              "attributes": { "rr_src": "https://example.com/[redacted]/[redacted]/" },
               "childNodes": []
             },
             {
               "type": 2,
               "id": 8,
               "tagName": "iframe",
-              "attributes": { "src": "https://widget.example-vendor.co/[redacted]/[redacted]/" },
+              "attributes": { "src": "https://example.com/[redacted]/[redacted]/" },
               "childNodes": []
             }
           ]
