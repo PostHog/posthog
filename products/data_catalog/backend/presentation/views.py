@@ -13,6 +13,7 @@ from rest_framework import status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -33,6 +34,15 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet[Metric]) -> QuerySet[Metric]:
         return queryset.filter(team_id=self.team_id, deleted=False).order_by("-created_at")
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        # Creating or relinking from an insight copies that insight's query into the metric, so the
+        # token must also hold insight read access, not just catalog write.
+        if getattr(view, "action", None) not in ("create", "update", "partial_update"):
+            return None
+        if isinstance(request.data, dict) and request.data.get("source_insight_short_id"):
+            return ["data_catalog:write", "insight:read"]
+        return None
 
     def list(self, request: Request, *args, **kwargs) -> Response:
         # Precompute drift for the whole page in one bulk query, so is_drifted doesn't fan out
@@ -94,7 +104,9 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["POST"],
-        required_scopes=["data_catalog_approval:write"],
+        # data_catalog:read composes with the approval scope: an action-level required_scopes list
+        # replaces the viewset default, so approval alone must not grant catalog access.
+        required_scopes=["data_catalog_approval:write", "data_catalog:read"],
         request=None,
         responses={200: MetricSerializer},
     )
@@ -107,7 +119,9 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["POST"],
         url_path="refresh_from_insight",
-        required_scopes=["data_catalog:write"],
+        # Re-snapshotting copies the insight's query into the metric, so the token needs insight
+        # read access too (mirrors dangerously_get_required_scopes for create/update).
+        required_scopes=["data_catalog:write", "insight:read"],
         request=None,
         responses={200: MetricSerializer},
     )

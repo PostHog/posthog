@@ -176,6 +176,9 @@ class TestMetricLifecycleAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("without_approval_scope", ["data_catalog:read", "data_catalog:write"], status.HTTP_403_FORBIDDEN),
+            # Approval alone must not grant catalog access: the action's required_scopes list
+            # replaces the viewset default, so it has to compose the catalog scope back in.
+            ("approval_scope_only", ["data_catalog_approval:write"], status.HTTP_403_FORBIDDEN),
             (
                 "with_approval_scope",
                 ["data_catalog:read", "data_catalog:write", "data_catalog_approval:write"],
@@ -188,3 +191,50 @@ class TestMetricLifecycleAPI(APIBaseTest):
         self.client.logout()  # force the personal API key authenticator, not the session
         response = self.client.post(f"{self.url}mrr/approve/", **self._bearer(scopes))
         assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("without_insight_read", ["data_catalog:read", "data_catalog:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "with_insight_read",
+                ["data_catalog:read", "data_catalog:write", "insight:read"],
+                status.HTTP_201_CREATED,
+            ),
+        ]
+    )
+    def test_create_from_insight_needs_insight_read_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+        # Creating from an insight copies its query into the metric response, so a catalog-write
+        # token must also hold insight read access to do it.
+        insight = self._insight()
+        self.client.logout()
+        response = self.client.post(
+            self.url,
+            {"name": "mrr", "description": "d", "source_insight_short_id": insight.short_id},
+            format="json",
+            **self._bearer(scopes),
+        )
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("without_insight_read", ["data_catalog:read", "data_catalog:write"], status.HTTP_403_FORBIDDEN),
+            ("with_insight_read", ["data_catalog:read", "data_catalog:write", "insight:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_refresh_from_insight_needs_insight_read_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+        insight = self._insight()
+        upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        self.client.logout()
+        response = self.client.post(f"{self.url}mrr/refresh_from_insight/", **self._bearer(scopes))
+        assert response.status_code == expected, response.json()
+
+    def test_plain_create_does_not_need_insight_scope(self) -> None:
+        # The insight:read requirement is dynamic — a create without a source insight must still
+        # work with catalog write alone.
+        self.client.logout()
+        response = self.client.post(
+            self.url, {"name": "mrr", "description": "d"}, format="json", **self._bearer(["data_catalog:write"])
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()

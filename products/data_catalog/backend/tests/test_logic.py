@@ -236,6 +236,37 @@ class TestApproveMetric(BaseTest):
         with self.assertRaises(MetricDrifted):
             approve_metric(metric, self.user)
 
+    def test_reapprove_of_drifted_approved_metric_raises(self) -> None:
+        # The idempotent already-approved return must not short-circuit the drift check: re-approving
+        # after the source insight changed has to surface the 409, not silently reconfirm.
+        insight = self._insight()
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        approve_metric(metric, self.user)
+        Insight.objects.filter(pk=insight.pk).update(query=_HOGQL_B)
+        with self.assertRaises(MetricDrifted):
+            approve_metric(metric, self.user)
+
+    def test_approve_checks_drift_on_the_current_row_not_the_loaded_instance(self) -> None:
+        # An approve racing a relink must drift-check the row as it is at approval time. The stale
+        # instance still holds the original link; the fresh row was relinked to a different insight
+        # whose query has since changed, so approval must be blocked.
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="mrr",
+            description="d",
+            source_insight_short_id=self._insight().short_id,
+        )
+        stale = Metric.objects.for_team(self.team.id).get(pk=metric.pk)
+        insight_b = self._insight(query=_HOGQL_B)
+        update_metric(metric, team=self.team, user=self.user, source_insight_short_id=insight_b.short_id)
+        Insight.objects.filter(pk=insight_b.pk).update(query={"kind": "HogQLQuery", "query": "select 1"})
+
+        with self.assertRaises(MetricDrifted):
+            approve_metric(stale, self.user)
+
 
 class TestRefreshFromInsight(BaseTest):
     def _insight(self, query: dict | None = None) -> Insight:
@@ -305,6 +336,22 @@ class TestUpdateResetsApproval(BaseTest):
         refined = upsert_metric(team=self.team, user=self.user, name="mrr", description="clarified")
         assert refined.status == MetricStatus.APPROVED
 
+    def test_stale_update_after_approve_still_resets_approval(self) -> None:
+        # A PATCH racing an approve: the update's instance was loaded while the metric was still
+        # proposed, so without reloading the row it would skip the approval reset and leave its
+        # unreviewed definition approved.
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        stale = Metric.objects.for_team(self.team.id).get(pk=metric.pk)
+        approve_metric(metric, self.user)
+
+        update_metric(stale, team=self.team, user=self.user, definition=_HOGQL_B)
+
+        metric.refresh_from_db()
+        assert metric.status == MetricStatus.PROPOSED
+        assert metric.approved_by_id is None
+        assert metric.definition is not None
+        assert "persons" in metric.definition["query"]
+
 
 class TestUpdateInsightLink(BaseTest):
     def _insight(self, query: dict | None = None) -> Insight:
@@ -328,6 +375,25 @@ class TestUpdateInsightLink(BaseTest):
         assert updated.definition is not None
         assert "persons" in updated.definition["query"]
         assert compute_drift([updated])[updated.id] is False
+
+    @parameterized.expand(["update", "refine"])
+    def test_definition_edit_unlinks_source_insight(self, path: str) -> None:
+        # A directly-edited definition no longer derives from the insight; keeping the link would
+        # let drift compare the old snapshot hash against a definition it doesn't describe.
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="mrr",
+            description="d",
+            source_insight_short_id=self._insight().short_id,
+        )
+        if path == "update":
+            edited = update_metric(metric, team=self.team, user=self.user, definition=_HOGQL_B)
+        else:
+            edited = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_B)
+
+        assert edited.source_insight_short_id is None
+        assert edited.source_insight_query_hash is None
 
     def test_definition_and_source_are_mutually_exclusive_on_update(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)

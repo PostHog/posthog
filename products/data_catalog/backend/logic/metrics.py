@@ -106,8 +106,8 @@ def _resolve_definition_fields(
 
     Returns only the keys the caller actually engaged, so a refine that supplies neither writes
     nothing (leaving a stored definition and its insight link untouched). A supplied definition
-    validates and extracts referenced tables; a non-empty insight id snapshots the query; a
-    supplied-but-empty insight id clears the link and its snapshot hash.
+    validates, extracts referenced tables, and unlinks any source insight; a non-empty insight id
+    snapshots the query; a supplied-but-empty insight id clears the link and its snapshot hash.
     """
     insight_supplied = not isinstance(source_insight_short_id, _Unset)
 
@@ -128,6 +128,10 @@ def _resolve_definition_fields(
         canonical_def, referenced = _canonical_definition(definition, team, user)
         result["definition"] = canonical_def
         result["referenced_table_names"] = referenced
+        # A directly-supplied definition no longer derives from any insight; keeping the link would
+        # let drift compare the old snapshot hash against a definition it doesn't describe.
+        result["source_insight_short_id"] = None
+        result["source_insight_query_hash"] = None
 
     if insight_supplied:
         # Supplied but empty (the truthy case returned above): unlink and drop the snapshot hash.
@@ -236,26 +240,30 @@ def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields)
     if "name" in fields:
         raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
 
-    old_definition_hash = _definition_hash(metric.definition)
-
     # Route definition / insight-link through the same resolver as create, so a PATCH honors the
-    # definition-XOR-insight rule, snapshots (and validates) on relink, and drops the hash on unlink.
+    # definition-XOR-insight rule, snapshots (and validates) on relink, unlinks on a direct
+    # definition edit, and drops the hash on unlink. Resolution (validation, insight snapshot)
+    # stays outside the row lock below to keep the hold time short.
     definition_arg = fields.pop("definition", _UNSET)
     source_insight_arg = fields.pop("source_insight_short_id", _UNSET)
     fields.update(_resolve_definition_fields(definition_arg, source_insight_arg, team, user))
 
-    for key, value in fields.items():
-        setattr(metric, key, value)
+    with team_scope(team.id), transaction.atomic():
+        # Lock and reload so the lifecycle check runs against the current row, not the instance this
+        # request loaded: a PATCH racing an approve must see the fresh approved status to reset it.
+        metric = Metric.objects.for_team(team.id).select_for_update().get(pk=metric.pk)
+        old_definition_hash = _definition_hash(metric.definition)
 
-    changed_fields = set(fields.keys())
-    if _definition_hash(metric.definition) != old_definition_hash and metric.status == MetricStatus.APPROVED:
-        # The definition now computes something different, so its approval no longer holds.
-        _reset_to_proposed(metric)
-        changed_fields |= _APPROVAL_FIELDS
+        for key, value in fields.items():
+            setattr(metric, key, value)
 
-    with team_scope(team.id):
-        # Persist only the columns this request touched: the instance was loaded before validation,
-        # so a full-row save would clobber a concurrent relink/edit with this stale row's values.
+        changed_fields = set(fields.keys())
+        if _definition_hash(metric.definition) != old_definition_hash and metric.status == MetricStatus.APPROVED:
+            # The definition now computes something different, so its approval no longer holds.
+            _reset_to_proposed(metric)
+            changed_fields |= _APPROVAL_FIELDS
+
+        # Persist only the columns this request touched, so unrelated concurrent writes survive.
         metric.save(update_fields=[*changed_fields, "updated_at"])
     _capture(user, team, "data catalog metric updated", metric)
     return metric
@@ -263,16 +271,20 @@ def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields)
 
 def approve_metric(metric: Metric, user: Optional[User]) -> Metric:
     """Bless a metric as canonical. Blocked (409) while drifted. Idempotent on an already-approved metric."""
-    if metric.status == MetricStatus.APPROVED:
-        return metric
-    if compute_drift([metric])[metric.id]:
-        raise MetricDrifted()
-    metric.status = MetricStatus.APPROVED
-    metric.approved_by = user
-    metric.approved_at = timezone.now()
-    with team_scope(metric.team_id):
-        # Scope the write to the approval columns so it can't clobber a concurrent relink/edit that
-        # changed the definition or source link on the row this stale instance was loaded from.
+    with team_scope(metric.team_id), transaction.atomic():
+        # Lock and reload so the drift check runs against the definition actually being approved,
+        # not the instance this request loaded before a concurrent edit/relink.
+        metric = Metric.objects.for_team(metric.team_id).select_for_update().get(pk=metric.pk)
+        if compute_drift([metric])[metric.id]:
+            # Checked before the idempotent return: an approved metric whose insight has since
+            # changed must still surface 409, not silently reconfirm the stale approval.
+            raise MetricDrifted()
+        if metric.status == MetricStatus.APPROVED:
+            return metric
+        metric.status = MetricStatus.APPROVED
+        metric.approved_by = user
+        metric.approved_at = timezone.now()
+        # Scope the write to the approval columns so it can't clobber unrelated concurrent writes.
         metric.save(update_fields=[*_APPROVAL_FIELDS, "updated_at"])
     _capture(user, metric.team, "data catalog metric approved", metric)
     return metric
@@ -280,30 +292,35 @@ def approve_metric(metric: Metric, user: Optional[User]) -> Metric:
 
 def refresh_metric_from_insight(metric: Metric, user: Optional[User]) -> Metric:
     """Re-snapshot the linked insight's current query; a changed definition resets approval."""
-    if not metric.source_insight_short_id:
-        raise ValidationError({"source_insight_short_id": "This metric is not linked to an insight."})
+    with team_scope(metric.team_id), transaction.atomic():
+        # Lock and reload so the re-snapshot applies to the row's current link and status, not the
+        # instance this request loaded before a concurrent relink/unlink/approve.
+        metric = Metric.objects.for_team(metric.team_id).select_for_update().get(pk=metric.pk)
+        if not metric.source_insight_short_id:
+            raise ValidationError({"source_insight_short_id": "This metric is not linked to an insight."})
 
-    insight = fetch_insight(metric.team_id, metric.source_insight_short_id, include_deleted=True)
-    if insight is None or insight.deleted:
-        raise SourceInsightUnavailable()
-    _require_insight_viewer_access(insight, metric.team, user)
-    query = effective_insight_query(insight)
-    if not query:
-        raise SourceInsightUnavailable("Could not convert the source insight's query. Edit the definition or unlink.")
+        insight = fetch_insight(metric.team_id, metric.source_insight_short_id, include_deleted=True)
+        if insight is None or insight.deleted:
+            raise SourceInsightUnavailable()
+        _require_insight_viewer_access(insight, metric.team, user)
+        query = effective_insight_query(insight)
+        if not query:
+            raise SourceInsightUnavailable(
+                "Could not convert the source insight's query. Edit the definition or unlink."
+            )
 
-    canonical_def, referenced = _canonical_definition(query, metric.team, user)
-    new_hash = canonical_query_hash(query)
-    changed = new_hash != metric.source_insight_query_hash
+        canonical_def, referenced = _canonical_definition(query, metric.team, user)
+        new_hash = canonical_query_hash(query)
+        changed = new_hash != metric.source_insight_query_hash
 
-    metric.definition = canonical_def
-    metric.referenced_table_names = referenced
-    metric.source_insight_query_hash = new_hash
-    changed_fields = {"definition", "referenced_table_names", "source_insight_query_hash"}
-    if changed and metric.status == MetricStatus.APPROVED:
-        _reset_to_proposed(metric)
-        changed_fields |= _APPROVAL_FIELDS
+        metric.definition = canonical_def
+        metric.referenced_table_names = referenced
+        metric.source_insight_query_hash = new_hash
+        changed_fields = {"definition", "referenced_table_names", "source_insight_query_hash"}
+        if changed and metric.status == MetricStatus.APPROVED:
+            _reset_to_proposed(metric)
+            changed_fields |= _APPROVAL_FIELDS
 
-    with team_scope(metric.team_id):
         metric.save(update_fields=[*changed_fields, "updated_at"])
     _capture(user, metric.team, "data catalog metric updated", metric)
     return metric
