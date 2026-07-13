@@ -1219,11 +1219,24 @@ export function principalsMatch(stored: SessionPrincipal | null, incoming: Sessi
         case 'jwt':
             return incoming.kind === 'jwt' && stored.sub === incoming.sub
         case 'slack':
-            return (
-                incoming.kind === 'slack' &&
-                stored.workspace_id === incoming.workspace_id &&
-                stored.slack_user_id === incoming.slack_user_id
-            )
+            if (
+                incoming.kind !== 'slack' ||
+                stored.workspace_id !== incoming.workspace_id ||
+                stored.slack_user_id !== incoming.slack_user_id
+            ) {
+                return false
+            }
+            // If either side went through authoritative admission, both must
+            // resolve to the SAME canonical identity. A rebound canonical
+            // (unlink + re-link as a different subject; or an admission trust
+            // model that flipped on/off between the stored session and this
+            // request) is a new principal, not a resume of the old thread —
+            // otherwise the new identity would drive a session that still
+            // references the previous identity's stored credentials.
+            if (stored.canonical_agent_user_id || incoming.canonical_agent_user_id) {
+                return stored.canonical_agent_user_id === incoming.canonical_agent_user_id
+            }
+            return true
         case 'posthog_internal':
             return incoming.kind === 'posthog_internal' && stored.team_id === incoming.team_id
         case 'shared_secret':
