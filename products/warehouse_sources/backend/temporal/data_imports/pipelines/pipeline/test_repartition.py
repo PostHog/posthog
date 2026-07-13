@@ -1,3 +1,4 @@
+import os
 import asyncio
 import datetime
 from types import SimpleNamespace
@@ -527,6 +528,27 @@ class TestMissingLiveObjectPath:
     )
     def test_classification(self, _name, error, expected):
         assert repartition_module._missing_live_object_path(error, self.LIVE) == expected
+
+
+class TestMissingLiveObjectRealError:
+    """Drift guard: the cases above fixture message strings we author, so they can't catch delta-rs /
+    pyarrow rewording a missing-file error on a library upgrade — which would silently stop the
+    self-heal from ever firing. This provokes a real error from the installed deltalake by reading a
+    table whose data file is gone, and fails if `_missing_live_object_path` can no longer extract it."""
+
+    def test_real_missing_file_error_is_classified(self, tmp_path):
+        live = str(tmp_path / "live")
+        delta = _write_month_partitioned(live, [(1, datetime.datetime(2024, 1, 15))])
+        data_file = delta.file_uris()[0]
+        os.remove(data_file)
+
+        with pytest.raises(Exception) as exc_info:
+            # Same read path the repartition scan takes; surfaces the missing-file error.
+            delta.to_pyarrow_dataset().scanner().to_reader().read_all()
+
+        matched = repartition_module._missing_live_object_path(exc_info.value, live)
+        assert matched is not None, f"error wording drifted past _MISSING_OBJECT_PATTERNS: {exc_info.value!r}"
+        assert matched.endswith(data_file.rsplit("/", 1)[-1])
 
 
 class TestLiveMissingDataFile:

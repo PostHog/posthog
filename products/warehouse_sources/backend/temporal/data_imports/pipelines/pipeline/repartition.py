@@ -188,6 +188,12 @@ async def _ensure_claim(schema: ExternalDataSchema, claim_token: str | None) -> 
 
 
 # Message shapes delta-rs / pyarrow raise when a table's log references an object gone from S3.
+# "Object at location <path> not found" is the Rust `object_store` crate's NotFound display
+# (github.com/apache/arrow-rs-object-store), surfaced through delta-rs; "File not found: <path>"
+# is the datafusion/kernel scan variant. These are matched by exact wording, so a library upgrade
+# that rewords them would silently stop recognizing the hole (fails safe to today's stuck loop, not
+# data loss). `TestMissingLiveObjectRealError` provokes a real error from the installed deltalake and
+# fails the moment the wording drifts past these patterns, so the drift can't rot unnoticed.
 _MISSING_OBJECT_PATTERNS = (
     re.compile(r"Object at location (\S+)"),
     re.compile(r"File not found: (\S+)"),
