@@ -54,7 +54,6 @@ tools:
         feature_entitlement: audit_logs
         url_prefix: /activity
         response:
-            selectable: true
             include:
                 - id
                 - user.id
@@ -69,6 +68,7 @@ tools:
                 - detail.type
                 - detail.changes
                 - created_at
+            selectable: true
     approval-policies-create:
         operation: approval_policies_create
         enabled: false
