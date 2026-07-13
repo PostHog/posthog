@@ -17,8 +17,8 @@ use super::dns::DnsResolver;
 use super::mux::ResolveMux;
 use super::subscription::{spawn_subscription, LoadCell, LoadSnapshot, SubscriptionHandle};
 use crate::metric_consts::{
-    REMOTE_RESOLUTION_ENDPOINTS_BY_STATE, REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT,
-    REMOTE_RESOLUTION_POOL_SIZE,
+    REMOTE_RESOLUTION_ALL_EJECTED_DEGRADED, REMOTE_RESOLUTION_ENDPOINTS_BY_STATE,
+    REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT, REMOTE_RESOLUTION_POOL_SIZE,
 };
 
 const RESOLVE_MUX_QUEUE_CAPACITY: usize = 64;
@@ -454,6 +454,10 @@ impl EndpointPool {
         // Bootstrap therefore waits for one Subscribe tick before routing
         // begins.
         let mut candidates: Vec<Candidate> = Vec::with_capacity(inner.endpoints.len());
+        // Endpoints currently in overload-ejection cooldown that are otherwise
+        // routable (fresh, non-draining snapshot). Used only as a degraded
+        // fallback when every routable endpoint is ejected — see below.
+        let mut ejected_candidates: Vec<Candidate> = Vec::new();
         let mut active_endpoint_count = 0usize;
         let mut ejected_endpoint_count = 0usize;
         let mut saw_missing_or_stale_snapshot = false;
@@ -462,20 +466,26 @@ impl EndpointPool {
                 continue;
             }
             active_endpoint_count += 1;
-            if state
+            let ejected = state
                 .overload_ejected_until
-                .is_some_and(|ejected_until| ejected_until > now)
-            {
+                .is_some_and(|ejected_until| ejected_until > now);
+            if ejected {
                 ejected_endpoint_count += 1;
-                continue;
+            } else {
+                state.overload_ejected_until = None;
             }
-            state.overload_ejected_until = None;
             let Some(snapshot) = state.load.lock().ok().and_then(|guard| guard.clone()) else {
-                saw_missing_or_stale_snapshot = true;
+                // An ejected endpoint's snapshot doesn't inform the empty-reason
+                // classification: it's excluded for being ejected, not stale.
+                if !ejected {
+                    saw_missing_or_stale_snapshot = true;
+                }
                 continue;
             };
             if !snapshot.is_fresh(now, stale_after) {
-                saw_missing_or_stale_snapshot = true;
+                if !ejected {
+                    saw_missing_or_stale_snapshot = true;
+                }
                 continue;
             }
             if snapshot.draining {
@@ -486,24 +496,45 @@ impl EndpointPool {
                 .load(Ordering::Acquire)
                 .min(u32::MAX as usize) as u32;
             let estimated_in_flight = snapshot.in_flight.max(local_in_flight);
-            candidates.push(Candidate {
+            let candidate = Candidate {
                 addr: *addr,
                 channel: state.channel.clone(),
                 mux: state.mux.clone(),
                 counter: state.in_flight.clone(),
                 endpoint_label: state.endpoint_label.clone(),
                 load_weight: available_capacity_weight(estimated_in_flight, snapshot.max_in_flight),
-            });
+            };
+            if ejected {
+                ejected_candidates.push(candidate);
+            } else {
+                candidates.push(candidate);
+            }
         }
 
         record_endpoint_states(&inner, now, stale_after);
 
         if candidates.is_empty() {
-            return Err(EndpointPoolError::Empty(classify_empty_reason(
-                active_endpoint_count,
-                ejected_endpoint_count,
-                saw_missing_or_stale_snapshot,
-            )));
+            // Every routable endpoint is in overload-ejection cooldown. Hard-
+            // failing here converts a transient, soft overload into a dropped
+            // batch (the per-item retry loop burns its budget on repeated
+            // pool_empty and fails the whole /process request). Instead, degrade:
+            // route across the ejected pods that still carry a fresh, non-
+            // draining snapshot. The load-weighted / rendezvous selection below
+            // then prefers the least-loaded one, so we lean on the pod with the
+            // most headroom rather than dropping the work.
+            if ejected_candidates.is_empty() {
+                return Err(EndpointPoolError::Empty(classify_empty_reason(
+                    active_endpoint_count,
+                    ejected_endpoint_count,
+                    saw_missing_or_stale_snapshot,
+                )));
+            }
+            metrics::counter!(REMOTE_RESOLUTION_ALL_EJECTED_DEGRADED).increment(1);
+            warn!(
+                ejected = ejected_candidates.len(),
+                "all remote resolution endpoints ejected under overload; degrading to least-loaded ejected pod"
+            );
+            candidates = ejected_candidates;
         }
 
         // Prefer endpoints not yet tried this round. If every candidate has
@@ -1459,7 +1490,12 @@ mod test {
     }
 
     #[tokio::test]
-    async fn select_reports_all_ejected_when_every_endpoint_is_in_cooldown() {
+    async fn select_degrades_to_ejected_pod_when_every_endpoint_is_in_cooldown() {
+        // When every routable endpoint is in overload-ejection cooldown, the
+        // pool must degrade to an ejected pod rather than hard-fail: returning
+        // Empty here would burn the caller's retry budget on pool_empty and
+        // drop the whole batch. Both pods carry a fresh, non-draining snapshot,
+        // so one of them is a valid degraded target.
         let addrs = [addr("10.0.0.1:50061"), addr("10.0.0.2:50061")];
         let mut config = mock_config();
         config.overload_ejection_initial = Duration::from_secs(1);
@@ -1469,6 +1505,32 @@ mod test {
 
         for addr in addrs {
             pool.eject_overloaded(addr).await;
+        }
+
+        let handle = pool
+            .select(&[])
+            .await
+            .expect("all-ejected pool should degrade to an ejected pod, not hard-fail");
+        assert!(addrs.contains(&handle.addr));
+    }
+
+    #[tokio::test]
+    async fn select_reports_all_ejected_when_ejected_pods_lack_a_fresh_snapshot() {
+        // An ejected pod is only a degraded fallback when it's otherwise
+        // routable. With stale snapshots there's nothing safe to fall back to,
+        // so the pool still surfaces Empty(AllEndpointsEjected).
+        let addrs = [addr("10.0.0.1:50061"), addr("10.0.0.2:50061")];
+        let mut config = mock_config();
+        config.overload_ejection_initial = Duration::from_secs(1);
+        config.overload_ejection_max = Duration::from_secs(1);
+        let pool = EndpointPool::from_addrs_without_subscriptions(config, &addrs).unwrap();
+        let stale = LoadSnapshot {
+            observed_at: Instant::now() - Duration::from_secs(10),
+            ..fresh_snapshot()
+        };
+        for a in addrs {
+            assert!(pool.inject_load_snapshot_for_test(a, stale.clone()).await);
+            pool.eject_overloaded(a).await;
         }
 
         assert!(matches!(

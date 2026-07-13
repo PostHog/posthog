@@ -31,7 +31,14 @@ pub(super) async fn resolve_work_item(
 ) -> Result<ResolvedRemoteItem, UnhandledError> {
     let max_attempts = ctx.config.max_retries.saturating_add(1);
     let mut excluded_endpoints: Vec<SocketAddr> = Vec::new();
+    // Detailed cause of the most recent failed attempt, kept for the structured
+    // exhaustion log. It embeds high-cardinality data (endpoints, server
+    // messages) so it must NOT flow into the returned error string — that
+    // string becomes an error-tracking issue, and per-item detail there would
+    // fragment one root cause into an issue per token/endpoint. `last_outcome`
+    // is the bounded tag that goes into the returned message instead.
     let mut last_error: Option<String> = None;
+    let mut last_outcome: &'static str = "no attempts";
     let mut attempts_used = 0u32;
     let mut routing_permit = None;
 
@@ -60,6 +67,10 @@ pub(super) async fn resolve_work_item(
                     "reason" => reason,
                 )
                 .increment(1);
+                // The reason tag is a bounded enum, so it's safe to carry into
+                // the returned error string; the full `err` (which may name a
+                // host) stays in `last_error` for the exhaustion log only.
+                last_outcome = reason;
                 last_error = Some(format!("pool unavailable: {err}"));
                 if attempt + 1 < max_attempts {
                     sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
@@ -101,6 +112,7 @@ pub(super) async fn resolve_work_item(
                     "remote resolution transport-level retry for item"
                 );
                 excluded_endpoints.push(endpoint);
+                last_outcome = "transport_retry";
                 last_error = Some(err.to_string());
                 if attempt + 1 < max_attempts {
                     sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
@@ -109,16 +121,25 @@ pub(super) async fn resolve_work_item(
                 continue;
             }
             Err((err, _permit)) => {
+                let reason = err.reason_tag();
                 metrics::counter!(
                     REMOTE_RESOLUTION_REQUESTS,
                     "outcome" => "terminal",
-                    "reason" => err.reason_tag(),
+                    "reason" => reason,
                 )
                 .increment(1);
                 record_reroute_depth("terminal", attempts_used);
+                warn!(
+                    endpoint = %endpoint,
+                    token = work_item.token,
+                    reason,
+                    error = %err,
+                    "remote resolution failed terminally for item"
+                );
+                // Bounded reason tag only — no token/endpoint — so terminal
+                // transport failures collapse into one issue per gRPC class.
                 return Err(UnhandledError::Other(format!(
-                    "remote resolution failed terminally for item {}: {err}",
-                    work_item.token
+                    "remote resolution failed terminally ({reason})"
                 )));
             }
         };
@@ -127,6 +148,7 @@ pub(super) async fn resolve_work_item(
         let Some(outcome) = single_outcome(work_item.token, outcomes)? else {
             metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "missing_items")
                 .increment(1);
+            last_outcome = "missing_items";
             last_error = Some(format!(
                 "missing item outcome from {endpoint} for token {}",
                 work_item.token
@@ -168,6 +190,7 @@ pub(super) async fn resolve_work_item(
                 );
                 ctx.pool.eject_overloaded(endpoint).await;
                 excluded_endpoints.push(endpoint);
+                last_outcome = "overloaded_item";
                 last_error = Some(format!(
                     "per-item Overloaded outcome from {endpoint}: {message}"
                 ));
@@ -188,6 +211,7 @@ pub(super) async fn resolve_work_item(
                     "remote resolution returned item retry; rerouting"
                 );
                 excluded_endpoints.push(endpoint);
+                last_outcome = "retryable_item";
                 last_error = Some(format!("per-item Retry outcome from {endpoint}: {message}"));
                 if attempt + 1 < max_attempts {
                     sleep_with_deadline(
@@ -202,11 +226,19 @@ pub(super) async fn resolve_work_item(
 
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "exhausted").increment(1);
     record_reroute_depth("exhausted", attempts_used);
+    warn!(
+        token = work_item.token,
+        attempts = max_attempts,
+        last_outcome,
+        detail = last_error.as_deref().unwrap_or("no recorded cause"),
+        "remote resolution exhausted retries for item"
+    );
+    // Bounded `last_outcome` tag only — no token, no endpoint, no server
+    // message — so a single overload window collapses into one error-tracking
+    // issue instead of one per item token. Per-item detail lives in the log
+    // above.
     Err(UnhandledError::Other(format!(
-        "remote resolution exhausted retries for item {} ({} attempt(s)): {}",
-        work_item.token,
-        max_attempts,
-        last_error.unwrap_or_else(|| "no recorded cause".to_string()),
+        "remote resolution exhausted retries after {max_attempts} attempt(s) (last outcome: {last_outcome})"
     )))
 }
 
@@ -261,9 +293,10 @@ fn single_outcome(
             continue;
         }
         if matching.replace(outcome).is_some() {
-            return Err(UnhandledError::Other(format!(
-                "remote resolution returned duplicate outcome for item {token}"
-            )));
+            warn!(token, "remote resolution returned duplicate outcome for item");
+            return Err(UnhandledError::Other(
+                "remote resolution returned duplicate outcome for item".to_string(),
+            ));
         }
     }
     Ok(matching)
@@ -348,8 +381,13 @@ fn classify_outcome(
 
 fn terminal_item_error(token: u64, message: String) -> UnhandledError {
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed").increment(1);
+    warn!(
+        token,
+        detail = %message,
+        "remote resolution item failed terminally under all-or-nothing policy"
+    );
     UnhandledError::Other(format!(
-        "remote resolution item {token} failed terminally; failing batch under all-or-nothing rollout policy ({message})"
+        "remote resolution item failed terminally; failing batch under all-or-nothing rollout policy ({message})"
     ))
 }
 
