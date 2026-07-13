@@ -172,13 +172,45 @@ def _fetch_slack_channel_aggregate_rows(org_ids: list[str]) -> list[dict[str, ob
             slack_issue_count=Count("id"),
             last_slack_activity=Max("activity_at"),
         )
-        .order_by(
-            "organization_id",
-            "-last_slack_activity",
-            "-slack_issue_count",
-            "slack_channel_id",
-            "slack_team_id",
-        )
+    )
+
+
+def _fetch_trusted_slack_channel_activity_rows(
+    channel_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    channel_filters = Q()
+    for row in channel_rows:
+        team_id = row.get("representative_team_id")
+        slack_channel_id = row.get("slack_channel_id")
+        if not isinstance(team_id, int) or not isinstance(slack_channel_id, str) or not slack_channel_id:
+            continue
+
+        # Match slack_team_id by raw value (None compiles to IS NULL) so the filter
+        # stays aligned with the lookup keys built from these same rows.
+        channel_filters |= Q(team_id=team_id, slack_channel_id=slack_channel_id, slack_team_id=row.get("slack_team_id"))
+
+    if not channel_filters:
+        return []
+
+    return list(
+        Ticket.objects.filter(channel_filters, channel_source=Channel.SLACK, identity_verified=True)
+        .annotate(activity_at=_activity_at())
+        .values("team_id", "slack_team_id", "slack_channel_id")
+        .annotate(last_slack_activity=Max("activity_at"))
+    )
+
+
+def _trusted_channel_sort_key(row: dict[str, object]) -> tuple[str, float, int, str, str]:
+    last_slack_activity = row.get("last_slack_activity")
+    activity_timestamp = last_slack_activity.timestamp() if isinstance(last_slack_activity, dt.datetime) else 0
+    slack_issue_count = row.get("slack_issue_count")
+
+    return (
+        str(row["organization_id"]),
+        -activity_timestamp,
+        -(slack_issue_count if isinstance(slack_issue_count, int) else 0),
+        str(row.get("slack_channel_id") or ""),
+        str(row.get("slack_team_id") or ""),
     )
 
 
@@ -203,11 +235,13 @@ def aggregate_conversations_slack_signals_for_orgs(
 ) -> dict[str, ConversationsSlackSignals]:
     """Aggregate Conversations Slack signals for organizations.
 
-    Only tickets with verified org attribution count (see
-    ``_tickets_with_verified_org``). If an organization has multiple Slack
-    channels, choose the most recently active workspace-scoped channel, then
-    tie-break by ticket count and channel ID. Salesforce exposes a single
-    Slack channel field, so the issue/user/activity stats are for that
+    Channels and issue counts come from tickets with verified org attribution
+    (see ``_tickets_with_verified_org``). Once a channel is trusted that way,
+    ``last_slack_activity`` reflects every identity-verified ticket in it, so
+    replies attributed to another org (e.g. PostHog employees) still count as
+    recency. If an organization has multiple Slack channels, choose the most
+    recently active one, then tie-break by ticket count and channel ID.
+    Salesforce exposes a single Slack channel field, so the stats are for that
     representative channel.
     """
     if not org_ids:
@@ -215,7 +249,26 @@ def aggregate_conversations_slack_signals_for_orgs(
 
     LOGGER.info("fetching_conversations_slack_signals", org_count=len(org_ids))
     rows = _fetch_slack_channel_aggregate_rows(org_ids)
+    channel_activity_rows = _fetch_trusted_slack_channel_activity_rows(rows)
     latest_ticket_rows = _fetch_latest_support_ticket_rows(org_ids)
+
+    channel_activity_by_key = {
+        (row.get("team_id"), row.get("slack_team_id"), row.get("slack_channel_id")): row.get("last_slack_activity")
+        for row in channel_activity_rows
+    }
+
+    for row in rows:
+        channel_key = (row.get("representative_team_id"), row.get("slack_team_id"), row.get("slack_channel_id"))
+        trusted_channel_activity = channel_activity_by_key.get(channel_key)
+        org_channel_activity = row.get("last_slack_activity")
+        # The trusted lookup covers only the representative team, while the aggregate
+        # max spans every team in the group, so only ever move activity forward.
+        if isinstance(trusted_channel_activity, dt.datetime) and (
+            not isinstance(org_channel_activity, dt.datetime) or trusted_channel_activity > org_channel_activity
+        ):
+            row["last_slack_activity"] = trusted_channel_activity
+
+    rows.sort(key=_trusted_channel_sort_key)
 
     selected_rows: dict[str, dict[str, object]] = {}
     for row in rows:

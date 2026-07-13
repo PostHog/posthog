@@ -34,8 +34,11 @@ class TestConversationsSlackSignals(SimpleTestCase):
             assert build_support_ticket_url(2, 1234) == "https://us.posthog.com/project/2/support/tickets/1234"
 
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_latest_support_ticket_rows")
+    @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
-    def test_aggregates_latest_channel_for_org(self, mock_fetch_rows, mock_fetch_latest_tickets):
+    def test_aggregates_latest_channel_for_org(
+        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets
+    ):
         org_id = "org-1"
         mock_fetch_rows.return_value = [
             {
@@ -55,6 +58,7 @@ class TestConversationsSlackSignals(SimpleTestCase):
                 "last_slack_activity": dt.datetime(2026, 6, 1, 12, 0, tzinfo=dt.UTC),
             },
         ]
+        mock_fetch_channel_activity.return_value = []
         mock_fetch_latest_tickets.return_value = [
             {
                 "organization_id": org_id,
@@ -77,10 +81,14 @@ class TestConversationsSlackSignals(SimpleTestCase):
         assert signals.most_recent_support_ticket_url == "https://us.posthog.com/project/2/support/tickets/1234"
 
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_latest_support_ticket_rows")
+    @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
-    def test_returns_latest_support_ticket_without_slack_rows(self, mock_fetch_rows, mock_fetch_latest_tickets):
+    def test_returns_latest_support_ticket_without_slack_rows(
+        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets
+    ):
         org_id = "org-1"
         mock_fetch_rows.return_value = []
+        mock_fetch_channel_activity.return_value = []
         mock_fetch_latest_tickets.return_value = [
             {
                 "organization_id": org_id,
@@ -102,9 +110,11 @@ class TestConversationsSlackSignals(SimpleTestCase):
         assert signals.most_recent_support_ticket_url == "https://us.posthog.com/project/2/support/tickets/5678"
 
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_latest_support_ticket_rows")
+    @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
-    def test_returns_empty_when_no_rows(self, mock_fetch_rows, mock_fetch_latest_tickets):
+    def test_returns_empty_when_no_rows(self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets):
         mock_fetch_rows.return_value = []
+        mock_fetch_channel_activity.return_value = []
         mock_fetch_latest_tickets.return_value = []
 
         result = aggregate_conversations_slack_signals_for_orgs(["org-1"], include_slack_user_count=False)
@@ -275,6 +285,35 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         assert (
             signals.most_recent_support_ticket_url
             == f"https://us.posthog.com/project/{self.team.id}/support/tickets/{legit_ticket.ticket_number}"
+        )
+
+    def test_employee_activity_updates_a_trusted_customer_channel(self):
+        customer_activity = dt.datetime(2026, 6, 29, 10, 0, tzinfo=dt.UTC)
+        other_channel_activity = dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC)
+        employee_activity = dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC)
+        self._create_slack_ticket(channel_id="C_CUSTOMER", activity_at=customer_activity)
+        most_recent_customer_ticket = self._create_slack_ticket(
+            channel_id="C_OTHER", activity_at=other_channel_activity
+        )
+
+        employee_org, employee = self._create_member_of_other_org(f"employee-{uuid.uuid4()}@posthog.com")
+        self._create_slack_ticket(
+            org_id=str(employee_org.id),
+            channel_id="C_CUSTOMER",
+            activity_at=employee_activity,
+            distinct_id=employee.distinct_id,
+        )
+
+        with self.settings(SITE_URL="https://us.posthog.com"):
+            result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
+
+        signals = result[self.org_id]
+        assert signals.slack_channel_url == "https://app.slack.com/client/T123/C_CUSTOMER"
+        assert signals.last_slack_activity == employee_activity
+        assert signals.slack_issue_count == 1
+        assert (
+            signals.most_recent_support_ticket_url
+            == f"https://us.posthog.com/project/{self.team.id}/support/tickets/{most_recent_customer_ticket.ticket_number}"
         )
 
     def test_email_channel_ticket_verified_by_email_from(self):
