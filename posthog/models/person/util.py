@@ -86,9 +86,10 @@ def _batched_get_persons_by_uuids(
     """Fetch persons for the given UUIDs, one RPC per PERSONHOG_BATCH_SIZE batch.
 
     Sequential by default. Callers with large, latency-sensitive lookups opt into a
-    concurrent fan-out by passing ``concurrency`` (typically
-    ``settings.PERSONHOG_BATCH_CONCURRENCY``) — opt-in so the many small/background
-    callers of this helper don't multiply their load on the personhog bulk pools.
+    concurrent fan-out by passing ``concurrency`` — opt-in so the many small/background
+    callers of this helper don't multiply their load on the personhog bulk pools. Keep
+    opted-in values modest: each in-flight RPC can occupy up to 2 connections of a
+    replica's 5-connection bulk Postgres pool.
     """
     client = _get_client()
     batches = [uuids[i : i + PERSONHOG_BATCH_SIZE] for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE)]
