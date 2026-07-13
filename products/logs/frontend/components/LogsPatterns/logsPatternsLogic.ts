@@ -308,9 +308,9 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
     }),
 
     afterMount(({ actions, values }) => {
-        // Compare may already be armed before this logic mounts — e.g. "explain changes" in the
-        // Logs view dispatches openPatternsComparison on the config logic, then the view switch
-        // mounts Patterns. Loading the plain mine here would answer the wrong question.
+        // Compare state lives on the config logic and survives Logs↔Patterns lens switches,
+        // so this logic can mount with compare already on — loading the plain mine then would
+        // answer the wrong question.
         if (values.compareEnabled) {
             actions.loadDiff()
         } else {
