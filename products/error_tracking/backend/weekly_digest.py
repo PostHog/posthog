@@ -70,7 +70,8 @@ def get_exception_summary_for_team(team: Team, daily_rows: list | None = None) -
     if not daily_rows:
         return {}
 
-    today = timezone.now().date()
+    # ClickHouse returns team-timezone dates, so bucket against the team-local today, not UTC
+    today = timezone.now().astimezone(team.timezone_info).date()
     exception_count = 0
     ingestion_failure_count = 0
     prev_exception_count = 0
@@ -221,7 +222,8 @@ def get_daily_exception_counts(team: Team, daily_rows: list | None = None) -> li
     if daily_rows is None:
         daily_rows = _query_daily_rows(team)
 
-    today = timezone.now().date()
+    # ClickHouse returns team-timezone dates, so bucket against the team-local today, not UTC
+    today = timezone.now().astimezone(team.timezone_info).date()
     counts_by_day: dict[datetime.date, int] = {}
     for day, day_count, _failure_count in daily_rows:
         if 1 <= (today - day).days <= 7:

@@ -1965,11 +1965,9 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
     if not all_org_teams:
         return
 
-    # Unfiltered per-team counts: which teams have any exceptions, and how busy each is (for busiest-project
-    # auto-select). This is one ClickHouse query for the whole org.
+    # Which teams have any exceptions at all — one ClickHouse query for the whole org.
     unfiltered_counts = error_tracking_api.get_exception_counts(list(all_org_teams.keys()))
-    counts_by_team = {row[0]: row[1] for row in unfiltered_counts}
-    team_ids_with_exceptions = {tid for tid in counts_by_team if tid in all_org_teams}
+    team_ids_with_exceptions = {row[0] for row in unfiltered_counts if row[0] in all_org_teams}
     if not team_ids_with_exceptions:
         return
 
@@ -1985,9 +1983,18 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         else list(all_memberships)
     )
 
-    # First-time users are auto-enrolled onto their busiest project; keying that off the unfiltered counts
-    # means we don't need a per-team build just to decide who is subscribed to what.
-    autoselect_counts = {tid: {"exception_count": counts_by_team.get(tid, 0)} for tid in team_ids_with_exceptions}
+    # First-time users are auto-enrolled onto their busiest project. Ranking must use test-account-filtered
+    # counts: unfiltered counts can permanently enroll a user onto a project whose digest builds empty
+    # (auto-select is a one-shot decision). Only computed when the org actually has a first-time user.
+    setting_key = _DIGEST_PROJECT_SETTING_KEYS[NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value]
+    autoselect_counts: dict[int, dict] = {}
+    if any(setting_key not in (m.user.partial_notification_settings or {}) for m in memberships):
+        autoselect_counts = {
+            tid: summary
+            for tid in team_ids_with_exceptions
+            if (summary := error_tracking_api.get_exception_summary_for_team(all_org_teams[tid]))
+            and summary["exception_count"] > 0
+        }
 
     # Pass 1 — resolve each recipient's enabled teams from notification settings + project access only (no
     # ClickHouse). This yields the set of teams at least one recipient will actually receive, so Pass 2 builds
@@ -2026,15 +2033,26 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         logger.info(f"Sent Error Tracking weekly digest to 0 members for org {org_id} (no subscribed recipients)")
         return
 
-    # Pass 2 — build digest data only for teams a recipient has enabled.
+    # Pass 2 — build digest data only for teams a recipient has enabled. A failing team is skipped so the
+    # rest of the org still gets its digest; the task re-raises at the end to trigger autoretry for it.
     team_digest_data: dict[int, dict] = {}
+    failed_team_ids: list[int] = []
     for team_id in needed_team_ids:
-        data = error_tracking_api.build_team_digest_data(all_org_teams[team_id])
+        try:
+            data = error_tracking_api.build_team_digest_data(all_org_teams[team_id])
+        except Exception:
+            logger.exception(f"Failed to build Error Tracking weekly digest data for team {team_id} in org {org_id}")
+            failed_team_ids.append(team_id)
+            continue
         if data:
             team_digest_data[team_id] = data
 
-    # Org projects not represented as a section this week (no exceptions, or no data after test-account filtering).
-    excluded_project_count = len(all_org_teams) - len(team_digest_data)
+    # Org projects not represented as a section this week: no exceptions, no data after test-account
+    # filtering, or a failed build. Teams a recipient disabled are named in their disabled list instead,
+    # so they must not be counted here.
+    excluded_project_count = (
+        len(all_org_teams) - len(team_ids_with_exceptions) + (len(needed_team_ids) - len(team_digest_data))
+    )
 
     sent_count = 0
     failed_count = 0
@@ -2081,12 +2099,15 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
 
     logger.info(
         f"Sent Error Tracking weekly digest to {sent_count} members for org {org_id} "
-        f"({len(team_digest_data)} teams built, {failed_count} failures)"
+        f"({len(team_digest_data)} teams built, {len(failed_team_ids)} team builds failed, {failed_count} send failures)"
     )
 
-    if failed_count:
+    if failed_count or failed_team_ids:
         # Trigger celery autoretry; already-sent recipients are skipped via MessagingRecord.
-        raise Exception(f"Error Tracking weekly digest failed for {failed_count} recipients in org {org_id}")
+        raise Exception(
+            f"Error Tracking weekly digest failed for {failed_count} recipients "
+            f"and {len(failed_team_ids)} team builds in org {org_id}"
+        )
 
 
 def get_integration_display_name(kind: str) -> str:

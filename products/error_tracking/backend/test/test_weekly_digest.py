@@ -19,6 +19,7 @@ from posthog.models.utils import uuid7
 from posthog.tasks.email import send_error_tracking_weekly_digest_for_org
 from posthog.tasks.email_utils import compute_week_over_week_change
 
+from products.error_tracking.backend.facade import api as error_tracking_facade
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -673,3 +674,90 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
             # Retry of the org task must not send the same campaign twice (MessagingRecord dedupe)
             send_error_tracking_weekly_digest_for_org(str(self.organization.id))
             assert mock_post.call_count == 1
+
+    def _create_second_team_with_exception(self, name: str = "Team B") -> Team:
+        team_b = Team.objects.create(organization=self.organization, name=name)
+        _create_event(
+            distinct_id="user_b",
+            event="$exception",
+            team=team_b,
+            properties={},
+            timestamp=_days_ago(1),
+        )
+        return team_b
+
+    @override_settings(ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS=["*"])
+    def test_auto_select_uses_filtered_counts(self):
+        # Team A has more raw exceptions, but all from internal users; team B has one real exception.
+        # A first-time user must be enrolled onto B, not onto A whose digest builds empty.
+        self.team.test_account_filters = [
+            {"key": "email", "type": "person", "operator": "not_icontains", "value": "@internal.com"}
+        ]
+        self.team.save()
+        _create_person(distinct_ids=["internal_user"], properties={"email": "bot@internal.com"}, team=self.team)
+        for _ in range(5):
+            _create_event(
+                distinct_id="internal_user", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1)
+            )
+        team_b = self._create_second_team_with_exception()
+        flush_persons_and_events()
+
+        self.user.role_at_organization = "engineering"
+        self.user.save()
+
+        with patch("products.error_tracking.backend.weekly_digest.requests.post"):
+            send_error_tracking_weekly_digest_for_org(str(self.organization.id))
+
+        self.user.refresh_from_db()
+        project_enabled = (self.user.partial_notification_settings or {}).get(
+            "error_tracking_weekly_digest_project_enabled", {}
+        )
+        assert project_enabled == {str(team_b.pk): True}
+
+    @override_settings(ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS=["*"])
+    def test_failing_team_build_does_not_block_other_teams(self):
+        _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))
+        team_b = self._create_second_team_with_exception()
+        flush_persons_and_events()
+
+        self.user.partial_notification_settings = {
+            "error_tracking_weekly_digest_project_enabled": {str(self.team.pk): True, str(team_b.pk): True}
+        }
+        self.user.save()
+
+        real_build = error_tracking_facade.build_team_digest_data
+
+        def build_or_fail(team):
+            if team.pk == self.team.pk:
+                raise Exception("ClickHouse query failed")
+            return real_build(team)
+
+        with (
+            patch("posthog.tasks.email.error_tracking_api.build_team_digest_data", side_effect=build_or_fail),
+            patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post,
+        ):
+            with pytest.raises(Exception, match="team builds"):
+                send_error_tracking_weekly_digest_for_org(str(self.organization.id))
+
+        # The healthy team's digest still went out despite the failing team.
+        assert mock_post.call_count == 1
+        sections = mock_post.call_args.kwargs["json"]["digest"]["project_sections"]
+        assert [s["team_name"] for s in sections] == [team_b.name]
+
+    @override_settings(ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS=["*"])
+    def test_disabled_team_not_counted_as_excluded(self):
+        _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))
+        team_b = self._create_second_team_with_exception()
+        flush_persons_and_events()
+
+        self.user.partial_notification_settings = {
+            "error_tracking_weekly_digest_project_enabled": {str(self.team.pk): True, str(team_b.pk): False}
+        }
+        self.user.save()
+
+        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+            send_error_tracking_weekly_digest_for_org(str(self.organization.id))
+
+        digest = mock_post.call_args.kwargs["json"]["digest"]
+        assert digest["disabled_project_names"] == [team_b.name]
+        assert digest["excluded_project_count"] == 0
