@@ -405,10 +405,16 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
+        # CompressedManifest: collectstatic pre-generates .gz (and .br, since the
+        # brotli package is already a dependency) so WhiteNoise serves compressed
+        # bytes directly, no runtime compression needed. /static isn't in
+        # ScopedGZipMiddleware's GZIP_RESPONSE_ALLOW_LIST, so these bundles (SDK
+        # JS, ~226KB apiece) were shipped fully uncompressed before this change.
+        # Same Manifest base class: hashed names and manifest behavior unchanged.
         "BACKEND": (
             "django.contrib.staticfiles.storage.StaticFilesStorage"
             if TEST
-            else "whitenoise.storage.ManifestStaticFilesStorage"
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
         ),
     },
 }
