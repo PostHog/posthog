@@ -146,7 +146,7 @@ class TestFanOutRuns:
         # with created_at_start. A regression that stopped passing created_at_start would turn every
         # incremental sync into a full-history refetch; one that dropped a workflow would lose its runs.
         manager = FakeResumableManager()
-        run_params: list[dict] = []
+        run_params: list[tuple[str, dict]] = []
 
         def fetch(session, url, params, headers, logger):
             if url.endswith("/v1/agents"):
@@ -163,8 +163,8 @@ class TestFanOutRuns:
                     "key",
                     None,
                     "runs",
-                    mock.MagicMock(),  # type: ignore[arg-type]
-                    manager,
+                    mock.MagicMock(),
+                    manager,  # type: ignore[arg-type]
                     should_use_incremental_field=True,
                     db_incremental_field_last_value=datetime(2026, 1, 9, tzinfo=UTC),
                 )
@@ -207,7 +207,7 @@ class TestSourceResponse:
         ],
     )
     def test_response_shape(self, endpoint, expected_primary_keys, expected_partition):
-        response = skyvern_source("key", None, endpoint, mock.MagicMock(), mock.MagicMock())  # type: ignore[arg-type]
+        response = skyvern_source("key", None, endpoint, mock.MagicMock(), mock.MagicMock())
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         # Skyvern lists return newest-first, so the pipeline must checkpoint in desc mode.

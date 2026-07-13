@@ -22,8 +22,9 @@ SKYVERN_DEFAULT_BASE_URL = "https://api.skyvern.com"
 # safe ceiling for the others (their only documented bound is a minimum of 1).
 PAGE_SIZE = 100
 
-# Bound per-workflow paging so one workflow with a huge run history can't scan unbounded. 100 pages *
-# 100 rows = 10k newest runs per workflow per sync; incremental syncs narrow this via created_at_start.
+# Bound per-workflow paging on incremental syncs so a huge run history can't scan unbounded. 100 pages
+# * 100 rows = 10k runs per workflow within the created_at_start window. Full refreshes ignore this cap
+# (see _get_fan_out_rows) so a workflow's older runs are never permanently truncated.
 MAX_PAGES_PER_WORKFLOW = 100
 
 
@@ -135,7 +136,10 @@ def validate_credentials(api_key: str, base_url: str | None) -> tuple[bool, str 
     """Probe the cheapest list endpoint to confirm the API key is genuine."""
     url = f"{_base_url(base_url)}/v1/agents"
     try:
-        response = make_tracked_session().get(
+        # base_url is user-supplied, so treat it as an SSRF boundary: pin redirects off so a
+        # malicious/self-hosted host can't bounce the API key to an internal address. The egress proxy
+        # is the load-bearing control; this is defense-in-depth.
+        response = make_tracked_session(allow_redirects=False).get(
             url, headers=_get_headers(api_key), params={"page": 1, "page_size": 1}, timeout=10
         )
     except requests.exceptions.RequestException as e:
@@ -233,7 +237,12 @@ def _get_fan_out_rows(
         page = start_page if index == start_index else 1
         url = f"{base_url}{config.path.format(workflow_permanent_id=workflow_permanent_id)}"
 
-        while page <= MAX_PAGES_PER_WORKFLOW:
+        # A full refresh (no created_at_start window) must page through every run, or a workflow with
+        # more than MAX_PAGES_PER_WORKFLOW * PAGE_SIZE runs would be permanently truncated: later
+        # incremental syncs only fetch runs newer than the watermark, so the skipped older pages would
+        # never be backfilled. The cap only guards runaway on incremental syncs, whose created_at_start
+        # window already bounds the volume.
+        while created_at_start is None or page <= MAX_PAGES_PER_WORKFLOW:
             params: dict[str, Any] = {"page": page, "page_size": PAGE_SIZE}
             if created_at_start:
                 params["created_at_start"] = created_at_start
@@ -252,7 +261,8 @@ def _get_fan_out_rows(
             )
         else:
             logger.warning(
-                "Skyvern: per-workflow run page cap reached; older runs skipped",
+                "Skyvern: per-workflow incremental run page cap reached; some runs within the "
+                "lookback window may be skipped until the next full refresh",
                 workflow_permanent_id=workflow_permanent_id,
                 max_pages=MAX_PAGES_PER_WORKFLOW,
             )
@@ -276,7 +286,9 @@ def get_rows(
     config = SKYVERN_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     resolved_base_url = _base_url(base_url)
-    session = make_tracked_session()
+    # base_url is user-supplied — pin redirects off as an SSRF boundary so a hostile host can't
+    # redirect the credentialed request to an internal address (see validate_credentials).
+    session = make_tracked_session(allow_redirects=False)
 
     if config.fan_out_over_workflows:
         yield from _get_fan_out_rows(

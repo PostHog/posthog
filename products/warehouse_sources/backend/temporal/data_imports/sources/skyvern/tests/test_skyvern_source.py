@@ -3,6 +3,8 @@ from unittest import mock
 
 import structlog
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SkyvernSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern import source as source_module
@@ -104,7 +106,12 @@ class TestSkyvernSource:
     def test_config_has_required_api_key_and_optional_base_url(self):
         # api_key must stay a required secret and base_url optional, or self-hosted setup breaks and
         # the key stops being masked in the wizard.
-        fields = {f.name: f for f in self.source.get_source_config.fields}
+        fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
         assert fields["api_key"].required is True
         assert fields["api_key"].secret is True
         assert fields["base_url"].required is False
+
+    def test_base_url_is_a_connection_host_field(self):
+        # base_url decides where the API key is sent, so retargeting it must re-require the secret —
+        # otherwise the stored key could be exfiltrated to an attacker-controlled host on edit.
+        assert self.source.connection_host_fields == ["base_url"]

@@ -43,6 +43,13 @@ class SkyvernSource(ResumableSource[SkyvernSourceConfig, SkyvernResumeConfig]):
         return ExternalDataSourceType.SKYVERN
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The API key is sent to whatever host `base_url` points at, so retargeting it must re-require
+        # the secret — otherwise an editor could change only `base_url` (the masked key is preserved on
+        # edit) and exfiltrate the stored key to a host they control.
+        return ["base_url"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SKYVERN,
