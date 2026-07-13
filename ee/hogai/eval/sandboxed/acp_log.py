@@ -46,8 +46,10 @@ class ParsedLog:
     first_timestamp: str = ""
     last_timestamp: str = ""
     model: str = ""
-    """Agent model resolved from the ACP ``session/new`` exchange — either the
-    request's ``params.model`` or the response's ``result.models.currentModelId``.
+    """Agent model resolved from the ACP ``session/new`` exchange — the request's
+    ``params.model``, the response's ``result.models.currentModelId``, or the
+    response's ``configOptions`` entry with ``id == "model"`` (the only channel
+    the posthog claude/codex adapters actually populate).
     Empty when the log predates this capture (callers should fall back)."""
 
     @property
@@ -106,6 +108,7 @@ class AcpLogParser:
         self._gen_start_ts: str = ""  # When the model call was invoked
         self._gen_last_output_ts: str = ""  # Timestamp of most recent output block
         self._last_tool_result_ts: str = ""  # Drives next gen's start_ts
+        self._pending_gen_usage: dict[str, int] = {}  # Latest _posthog/usage_update, consumed on flush
 
     def parse(self, raw_log: str) -> ParsedLog:
         for line in raw_log.strip().split("\n"):
@@ -153,6 +156,9 @@ class AcpLogParser:
             if self._handle_result(entry_result):
                 return  # end_turn consumed this entry
 
+        if method == "_posthog/usage_update":
+            self._on_usage_update(notification)
+            return
         if method == "_posthog/console":
             self._on_console(notification, ts)
             return
@@ -175,6 +181,15 @@ class AcpLogParser:
                 current = models_block.get("currentModelId")
                 if isinstance(current, str) and current:
                     self._result.model = current
+        if not self._result.model:
+            # The posthog adapters don't fill result.models; the model lives in the
+            # session/new result's configOptions picker instead.
+            for option in entry_result.get("configOptions") or []:
+                if isinstance(option, dict) and option.get("id") == "model":
+                    current_value = option.get("currentValue")
+                    if isinstance(current_value, str) and current_value:
+                        self._result.model = current_value
+                    break
         usage = entry_result.get("usage")
         if isinstance(usage, dict):
             self._last_token_usage = {
@@ -189,6 +204,29 @@ class AcpLogParser:
             self._last_token_usage = {}
             return True
         return False
+
+    def _on_usage_update(self, notification: dict) -> None:
+        """Record per-model-call token usage for the generation currently being built.
+
+        The codex adapter reports each call's tokens in ``params.usage`` here — its
+        end_turn result carries no usage. The claude adapter's variant of this
+        notification has no ``usage`` key (usage arrives on the prompt result), so
+        it falls through untouched.
+        """
+        params = notification.get("params")
+        usage = params.get("usage") if isinstance(params, dict) else None
+        if not isinstance(usage, dict):
+            return
+        normalized = {
+            "inputTokens": usage.get("inputTokens", 0),
+            "outputTokens": usage.get("outputTokens", 0),
+            "cachedReadTokens": usage.get("cachedReadTokens", 0),
+            "cachedWriteTokens": usage.get("cachedWriteTokens", 0),
+            "totalTokens": usage.get("totalTokens", 0),
+        }
+        if "reasoningTokens" in usage:
+            normalized["reasoningTokens"] = usage.get("reasoningTokens", 0)
+        self._pending_gen_usage = normalized
 
     def _on_console(self, notification: dict, ts: str) -> None:
         params = notification.get("params", {}) or {}
@@ -296,7 +334,7 @@ class AcpLogParser:
             return
 
         raw_output = update.get("rawOutput", "")
-        content = self._extract_text(update)
+        content = self._extract_tool_content(update)
         output_text = raw_output if raw_output else (content or "")
         if isinstance(output_text, dict):
             output_text = json.dumps(output_text)
@@ -339,11 +377,15 @@ class AcpLogParser:
         """Flush accumulated output into a GenerationDescriptor with full history as input."""
         if not self._current_output:
             return
+        # An explicit usage (claude's end_turn result) wins; otherwise attach the
+        # latest _posthog/usage_update, which codex emits once per model call.
+        effective_usage = token_usage or self._pending_gen_usage
+        self._pending_gen_usage = {}
         self._result.generations.append(
             GenerationDescriptor(
                 input_messages=list(self._history),
                 output_content=list(self._current_output),
-                token_usage=token_usage or {},
+                token_usage=effective_usage or {},
                 timestamp=self._gen_timestamp,
                 start_ts=self._gen_start_ts,
                 end_ts=self._gen_last_output_ts or self._gen_timestamp,
@@ -355,6 +397,33 @@ class AcpLogParser:
         self._gen_timestamp = ""
         self._gen_start_ts = ""
         self._gen_last_output_ts = ""
+
+    @staticmethod
+    def _extract_tool_content(update: dict) -> str:
+        """Extract a tool result's text from the ACP ``ToolCallContent`` list.
+
+        Both adapters send tool results as a list of ``{"type": "content",
+        "content": {"type": "text", ...}}`` blocks — for codex it's the only output
+        channel (``rawOutput`` is never set, so this is what reaches the parsed
+        log). File-change results carry ``diff`` blocks instead of text.
+        Non-list content falls back to the plain-text extraction.
+        """
+        content = update.get("content")
+        if not isinstance(content, list):
+            return AcpLogParser._extract_text(update)
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "diff":
+                parts.append(f"[diff] {block.get('path', '')}")
+                continue
+            inner = block.get("content")
+            if isinstance(inner, dict) and inner.get("type") == "text":
+                text = inner.get("text", "").strip()
+                if text:
+                    parts.append(text)
+        return "\n".join(parts)
 
     @staticmethod
     def _extract_text(update: dict) -> str:
