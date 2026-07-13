@@ -199,12 +199,15 @@ const WORKFLOWS: WorkflowHealthItemApi[] = [
         buckets: [{ bucket_start: '2026-05-30T00:00:00Z', run_count: 100, completed: 95, successes: 90, failures: 4 }],
         workflow_name: 'CI',
         run_count: 100,
+        successful_run_count: 90,
         success_rate: 0.95,
         p50_seconds: 120,
         p95_seconds: 600,
         last_failure_at: '2026-05-30T00:00:00Z',
         latest_run_failed: false,
         latest_run_conclusion: 'success',
+        latest_run_id: 123456,
+        latest_run_attempt: 1,
     },
 ]
 function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealthRow {

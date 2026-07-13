@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CICardSummaryApi,
     CIFailureLogsApi,
+    CISignalsConfigApi,
+    CISignalsConfigUpdateApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
@@ -81,6 +83,43 @@ export const engineeringAnalyticsAuthorWorkflowCosts = async (
     return apiMutator<WorkflowCostApi[]>(getEngineeringAnalyticsAuthorWorkflowCostsUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsCiSignalsConfigRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/engineering_analytics/ci-signals-config/`
+}
+
+/**
+ * Return the atomic CI Signals configuration and aggregate GitHub warehouse sync status.
+ */
+export const engineeringAnalyticsCiSignalsConfigRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CISignalsConfigApi> => {
+    return apiMutator<CISignalsConfigApi>(getEngineeringAnalyticsCiSignalsConfigRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsCiSignalsConfigUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/engineering_analytics/ci-signals-config/`
+}
+
+/**
+ * Enable or disable all CI signal detectors in one transaction.
+ */
+export const engineeringAnalyticsCiSignalsConfigUpdate = async (
+    projectId: string,
+    cISignalsConfigUpdateApi: CISignalsConfigUpdateApi,
+    options?: RequestInit
+): Promise<CISignalsConfigApi> => {
+    return apiMutator<CISignalsConfigApi>(getEngineeringAnalyticsCiSignalsConfigUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cISignalsConfigUpdateApi),
     })
 }
 

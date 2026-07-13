@@ -7,7 +7,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
+from products.engineering_analytics.backend.logic.ci_signals_config import CI_SIGNAL_SOURCE_TYPES
+from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT
 from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
+from products.signals.backend.models import SignalSourceConfig
 
 _VIEWS = "products.engineering_analytics.backend.presentation.views.api"
 
@@ -60,12 +63,15 @@ def _workflow_health() -> contracts.WorkflowHealthItem:
         repo=contracts.RepoRef(provider="github", owner="PostHog", name="posthog"),
         workflow_name="CI",
         run_count=10,
+        successful_run_count=9,
         success_rate=0.9,
         p50_seconds=120.0,
         p95_seconds=600.0,
         last_failure_at=datetime(2026, 1, 20, tzinfo=UTC),
         latest_run_failed=False,
         latest_run_conclusion="success",
+        latest_run_id=123,
+        latest_run_attempt=1,
         granularity="day",
         buckets=[
             contracts.WorkflowHealthBucket(
@@ -133,6 +139,29 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         body = response.json()
         assert [s["id"] for s in body] == [sources[0].id, sources[1].id]
         assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older"}
+
+    def test_ci_signals_config_updates_the_detector_bundle(self) -> None:
+        response = self.client.put(self._url("ci-signals-config"), {"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["enabled"] is True
+        assert set(
+            SignalSourceConfig.objects.filter(
+                team=self.team,
+                source_product=SOURCE_PRODUCT,
+                enabled=True,
+            ).values_list("source_type", flat=True)
+        ) == set(CI_SIGNAL_SOURCE_TYPES)
+
+        response = self.client.put(self._url("ci-signals-config"), {"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["enabled"] is False
+        assert not SignalSourceConfig.objects.filter(
+            team=self.team,
+            source_product=SOURCE_PRODUCT,
+            enabled=True,
+        ).exists()
 
     def test_ci_cards_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_ci_cards", return_value=_cards()):
@@ -398,7 +427,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "run_scope must be one of" in response.json()["detail"]
 
-    @parameterized.expand(["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"])
+    @parameterized.expand(
+        ["sources", "ci-signals-config", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"]
+    )
     def test_requires_authentication(self, action: str) -> None:
         self.client.logout()
         response = self.client.get(self._url(action))

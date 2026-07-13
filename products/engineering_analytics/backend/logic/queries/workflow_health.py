@@ -49,13 +49,16 @@ _SELECT = f"""
         repo_name,
         workflow_name,
         count() AS run_count,
+        countIf(status = 'completed' AND conclusion = 'success') AS successful_run_count,
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
         quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds,
         quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,
         max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
-        argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed,
-        argMaxIf(conclusion, run_started_at, status = 'completed') AS latest_conclusion,
+        argMaxIf(conclusion IN ('failure', 'timed_out'), updated_at, status = 'completed') AS latest_failed,
+        argMaxIf(conclusion, updated_at, status = 'completed') AS latest_conclusion,
+        argMaxIf(id, updated_at, status = 'completed') AS latest_run_id,
+        argMaxIf(run_attempt, updated_at, status = 'completed') AS latest_run_attempt,
         countIf(run_attempt > 1) AS rerun_cycles
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
@@ -206,6 +209,7 @@ def query_workflow_health(
             repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
             workflow_name=workflow_name,
             run_count=run_count,
+            successful_run_count=successful_run_count,
             success_rate=opt_float(success_rate),
             p50_seconds=opt_float(p50_seconds),
             p95_seconds=opt_float(p95_seconds),
@@ -216,6 +220,8 @@ def query_workflow_health(
             # The raw conclusion of that latest completed run, so the UI can tell a real pass from a
             # cancelled/skipped run (both have latest_run_failed false). None when nothing completed.
             latest_run_conclusion=(latest_conclusion or None) if completed_count else None,
+            latest_run_id=int(latest_run_id) if completed_count else None,
+            latest_run_attempt=int(latest_run_attempt) if completed_count else None,
             granularity=granularity,
             buckets=[
                 buckets_by_workflow.get((repo_owner, repo_name, workflow_name), {}).get(
@@ -232,5 +238,5 @@ def query_workflow_health(
             rerun_cycles=rerun_cycles,
             success_rate_prev=prev_rate_by_workflow.get((repo_owner, repo_name, workflow_name)),
         )
-        for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, rerun_cycles in response.results
+        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles in response.results
     ]

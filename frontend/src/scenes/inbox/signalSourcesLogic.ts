@@ -7,11 +7,17 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import {
+    engineeringAnalyticsCiSignalsConfigRetrieve,
+    engineeringAnalyticsCiSignalsConfigUpdate,
+} from 'products/engineering_analytics/frontend/generated/api'
+import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { captureSignalSourceConnected } from './inboxAnalytics'
 import type { signalSourcesLogicType } from './signalSourcesLogicType'
@@ -26,15 +32,8 @@ export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.IssueSpiking,
 ]
 
-/** Matches the CI detectors in `products/engineering_analytics/backend/logic/signals`. */
-export const CI_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
-    SignalSourceType.CiFlakyCheck,
-    SignalSourceType.CiBrokenMaster,
-    SignalSourceType.CiDurationRegression,
-]
-
 /** The GitHub warehouse tables the CI detectors read (SPEC: curated read layer). */
-export const CI_SIGNALS_REQUIRED_TABLES = ['workflow_runs', 'pull_requests']
+export const CI_SIGNALS_REQUIRED_TABLES = ['workflow_runs', 'pull_requests', 'workflow_jobs']
 
 /**
  * Which signal source a data-warehouse setup flow was opened for — GitHub backs both
@@ -179,6 +178,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     const response = await api.signalSourceConfigs.list()
                     return response.results
                 },
+            },
+        ],
+        ciSignalsConfig: [
+            null as CISignalsConfigApi | null,
+            {
+                loadCiSignalsConfig: async (): Promise<CISignalsConfigApi> =>
+                    engineeringAnalyticsCiSignalsConfigRetrieve(String(teamLogic.values.currentTeamId)),
             },
         ],
     }),
@@ -393,26 +399,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 })
             },
         ],
-        ciSignalsConfig: [
-            (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
-                sourceConfigs?.find((c) => c.source_product === SignalSourceProduct.EngineeringAnalytics) ?? null,
-        ],
         ciSignalsIsFullyEnabled: [
-            (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null): boolean => {
-                if (!sourceConfigs?.length) {
-                    return false
-                }
-                return CI_SIGNAL_SOURCE_TYPES.every((sourceType) => {
-                    const c = sourceConfigs.find(
-                        (row) =>
-                            row.source_product === SignalSourceProduct.EngineeringAnalytics &&
-                            row.source_type === sourceType
-                    )
-                    return c?.enabled === true
-                })
-            },
+            (s) => [s.ciSignalsConfig],
+            (ciSignalsConfig: CISignalsConfigApi | null): boolean => ciSignalsConfig?.enabled ?? false,
         ],
         isCiSignalsToggling: [
             (s) => [s.togglingSourceKeys],
@@ -448,16 +437,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         // If the required table for a signal source is not yet syncing on the existing DW source,
         // enable it so the signals workflow has data to process.
         async function ensureRequiredTableSyncing(dwSourceType: string, tableName: string): Promise<void> {
-            const source = values.dataWarehouseSources?.results?.find(
-                (s: ExternalDataSource) => s.source_type === dwSourceType
+            const schemas = values.dataWarehouseSources?.results
+                ?.filter((source: ExternalDataSource) => source.source_type === dwSourceType)
+                .flatMap((source: ExternalDataSource) => source.schemas ?? [])
+                .filter((schema: ExternalDataSourceSchema) => schema.name === tableName && !schema.should_sync)
+            await Promise.all(
+                (schemas ?? []).map((schema: ExternalDataSourceSchema) =>
+                    api.externalDataSchemas.update(schema.id, { should_sync: true })
+                )
             )
-            if (!source) {
-                return
-            }
-            const schema = source.schemas?.find((s: ExternalDataSourceSchema) => s.name === tableName)
-            if (schema && !schema.should_sync) {
-                await api.externalDataSchemas.update(schema.id, { should_sync: true })
-            }
         }
 
         return {
@@ -595,11 +583,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             toggleCiSignals: async ({ viaSetupWizard }, breakpoint) => {
                 const desiredEnabled = !values.ciSignalsIsFullyEnabled
-                const configs = values.sourceConfigs ?? []
-                // First connection when no persisted CI-signals config existed before this enable.
-                const wasConnected = configs.some(
-                    (c) => c.source_product === SignalSourceProduct.EngineeringAnalytics && !c.id.startsWith('new_')
-                )
+                const wasConnected = values.ciSignalsConfig?.configured ?? false
                 // The setup wizard just connected GitHub with the CI tables preselected, so both
                 // checks below would race the still-refreshing sources list — skip them.
                 if (desiredEnabled && !viaSetupWizard) {
@@ -623,24 +607,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                 }
                 try {
-                    for (const sourceType of CI_SIGNAL_SOURCE_TYPES) {
-                        const existing = configs.find(
-                            (c) =>
-                                c.source_product === SignalSourceProduct.EngineeringAnalytics &&
-                                c.source_type === sourceType
-                        )
-                        if (existing && !existing.id.startsWith('new_')) {
-                            await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
-                        } else if (desiredEnabled) {
-                            await api.signalSourceConfigs.create({
-                                source_product: SignalSourceProduct.EngineeringAnalytics,
-                                source_type: sourceType,
-                                enabled: true,
-                                config: {},
-                            })
-                        }
-                    }
+                    const updatedConfig = await engineeringAnalyticsCiSignalsConfigUpdate(
+                        String(teamLogic.values.currentTeamId),
+                        { enabled: desiredEnabled }
+                    )
                     breakpoint()
+                    actions.loadCiSignalsConfigSuccess(updatedConfig)
                     actions.toggleCiSignalsComplete()
                     if (desiredEnabled) {
                         captureSignalSourceConnected({
@@ -656,6 +628,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.toggleCiSignalsComplete()
                     const errorMessage = error?.detail || error?.message || 'Failed to toggle GitHub CI signals'
                     lemonToast.error(errorMessage)
+                    actions.loadCiSignalsConfig()
                     actions.loadSourceConfigs()
                 }
             },
@@ -760,6 +733,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // The condition allows us to safely mount this logic for user without the product autonomy feature flag
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()
+                if (values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                    actions.loadCiSignalsConfig()
+                }
             }
         },
     })),

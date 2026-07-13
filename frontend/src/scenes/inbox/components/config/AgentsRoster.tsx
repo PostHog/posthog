@@ -7,6 +7,8 @@ import { LemonButton, LemonSkeleton, LemonSwitch, LemonTag, Link, Spinner } from
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
@@ -23,7 +25,7 @@ const STATUS_TAG: Record<AgentRosterStatus, { label: string; type: LemonTagType 
 
 function resolveAgentStatus(
     armed: boolean,
-    syncStatus: SignalSourceConfigStatus | null | undefined
+    syncStatus: SignalSourceConfigStatus | SyncStatusEnumApi | null | undefined
 ): AgentRosterStatus {
     if (!armed) {
         return 'standby'
@@ -43,7 +45,7 @@ interface AgentSourceState {
     loading: boolean
     /** True for data-warehouse sources that haven't been connected yet – shows a Connect button. */
     requiresSetup: boolean
-    syncStatus: SignalSourceConfigStatus | null | undefined
+    syncStatus: SignalSourceConfigStatus | SyncStatusEnumApi | null | undefined
 }
 
 function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element {
@@ -230,8 +232,8 @@ export function AgentsRoster(): JSX.Element {
                     return {
                         armed: ciSignalsIsFullyEnabled,
                         loading: isCiSignalsToggling,
-                        requiresSetup: ciSignalsConfig === null,
-                        syncStatus: ciSignalsConfig?.status,
+                        requiresSetup: !(ciSignalsConfig?.configured ?? false),
+                        syncStatus: ciSignalsConfig?.sync_status,
                     }
             }
         },

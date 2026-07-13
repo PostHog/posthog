@@ -23,9 +23,9 @@ SOURCE_TYPE_DURATION_REGRESSION = "ci_duration_regression"
 class CISignalFinding:
     """One detected CI condition, ready to emit.
 
-    ``source_id`` is stable per (repo, workflow, condition) so re-emitting the same condition
-    regroups onto the same report instead of spamming a new one. ``weight`` (0–1) is the signal's
-    importance; ``remediation`` carries the human + agent fix guidance and the suggested priority.
+    ``source_id`` identifies one immutable observation. The emitter uses it as an idempotency key,
+    so retries cannot duplicate evidence. ``weight`` (0–1) is the signal's importance;
+    ``remediation`` carries the human + agent fix guidance and the suggested priority.
     """
 
     source_type: str

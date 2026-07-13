@@ -7,6 +7,7 @@ the OpenAPI spec, generated TypeScript types, and the ``pr_lifecycle`` MCP tool
 schema.
 """
 
+from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
@@ -15,6 +16,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIFailureLogLine,
     CIFailureLogs,
     CIJobFailureLog,
+    CISignalsConfig,
     CIStatusRollup,
     CostPerMergeBucket,
     FlakyTestItem,
@@ -49,6 +51,23 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
+
+
+class CISignalsConfigSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CISignalsConfig
+        extra_kwargs = {
+            "configured": {"help_text": "Whether this project has ever configured CI signals."},
+            "enabled": {"help_text": "Whether every CI signal detector is enabled."},
+            "sync_status": {
+                "help_text": "Aggregate sync status for pull requests, workflow runs, and workflow jobs.",
+                "allow_null": True,
+            },
+        }
+
+
+class CISignalsConfigUpdateSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(help_text="Enable or disable every CI signal detector atomically.")
 
 
 class GitHubSourceSerializer(DataclassSerializer):
@@ -678,6 +697,7 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
         extra_kwargs = {
             "workflow_name": {"help_text": "GitHub Actions workflow name."},
             "run_count": {"help_text": "Total runs started in the window."},
+            "successful_run_count": {"help_text": "Completed successful runs used for duration percentiles."},
             "success_rate": {
                 "help_text": "Fraction of completed runs that succeeded (0-1). Null if no completed runs.",
                 "allow_null": True,
@@ -705,6 +725,14 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             "latest_run_conclusion": {
                 "help_text": "Raw conclusion of the most recent completed run ('success', 'cancelled', 'skipped', "
                 "...), so a real pass can be told from a non-failure non-success. Null when none completed.",
+                "allow_null": True,
+            },
+            "latest_run_id": {
+                "help_text": "GitHub run ID for the most recent completed workflow run, or null.",
+                "allow_null": True,
+            },
+            "latest_run_attempt": {
+                "help_text": "Attempt number for the most recent completed workflow run, or null.",
                 "allow_null": True,
             },
             "granularity": {

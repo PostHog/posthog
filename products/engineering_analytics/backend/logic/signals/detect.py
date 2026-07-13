@@ -18,11 +18,10 @@ from products.engineering_analytics.backend.logic.signals.detectors import detec
 logger = structlog.get_logger(__name__)
 
 
-def detect_for_team(team: Team) -> list[CISignalFinding]:
-    """All CI signal findings for a team, or ``[]`` when it has no usable GitHub warehouse source."""
+def detect_for_source(team: Team, source_id: str) -> list[CISignalFinding]:
+    """CI signal findings for one GitHub source, or ``[]`` while its required tables sync."""
     try:
-        curated = CuratedGitHubSource.for_team(team)
+        curated = CuratedGitHubSource.for_team(team, source_id=source_id)
     except GitHubSourceNotConnectedError:
-        # Enrolled but no usable GitHub source yet — nothing to detect, not an error.
         return []
     return detect_all(curated)

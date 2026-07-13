@@ -33,6 +33,10 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
+from products.engineering_analytics.backend.logic.ci_signals_config import (
+    get_ci_signals_config as get_ci_signals_config,
+    update_ci_signals_config as update_ci_signals_config,
+)
 from products.engineering_analytics.backend.logic.quarantine import (
     build_quarantine as build_quarantine,
     request_quarantine as request_quarantine,

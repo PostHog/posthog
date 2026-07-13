@@ -35,6 +35,12 @@ tools:
             short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the
             run/job metadata behind these logs.
         feature_flag: engineering-analytics
+    engineering-analytics-ci-signals-config-retrieve:
+        operation: engineering_analytics_ci_signals_config_retrieve
+        enabled: false
+    engineering-analytics-ci-signals-config-update:
+        operation: engineering_analytics_ci_signals_config_update
+        enabled: false
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true

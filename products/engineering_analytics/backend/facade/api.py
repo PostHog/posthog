@@ -26,6 +26,7 @@ from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
+    CISignalsConfig,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
@@ -61,6 +62,14 @@ def _authorized_source(
     else the oldest connected. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
     return logic.CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
+
+
+def get_ci_signals_config(*, team: Team) -> CISignalsConfig:
+    return logic.get_ci_signals_config(team=team)
+
+
+def update_ci_signals_config(*, team: Team, enabled: bool, created_by_id: int) -> CISignalsConfig:
+    return logic.update_ci_signals_config(team=team, enabled=enabled, created_by_id=created_by_id)
 
 
 def get_pr_lifecycle(

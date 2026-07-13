@@ -11,6 +11,8 @@ contract. These same endpoints back both the MCP tools and the UI:
 - ``quarantine`` — the repo's checked-in flaky-test quarantine file.
 """
 
+from typing import TypedDict
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -33,6 +35,8 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
     CIFailureLogsSerializer,
+    CISignalsConfigSerializer,
+    CISignalsConfigUpdateSerializer,
     FlakyTestListSerializer,
     GitHubSourceSerializer,
     MasterFailureGroupSerializer,
@@ -54,6 +58,11 @@ from products.engineering_analytics.backend.presentation.serializers import (
 )
 
 ENGINEERING_ANALYTICS_TAG = "engineering_analytics"
+
+
+class _CISignalsConfigUpdateData(TypedDict):
+    enabled: bool
+
 
 _DATE_FROM = OpenApiParameter(
     name="date_from",
@@ -167,8 +176,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "master_failures",
         "run_failure_logs",
         "job_aggregates",
+        "ci_signals_config",
     ]
-    scope_object_write_actions: list[str] = ["quarantine_request"]
+    scope_object_write_actions: list[str] = ["quarantine_request", "update_ci_signals_config"]
 
     def handle_exception(self, exc: Exception) -> Response:
         # No GitHub warehouse source connected — every read action degrades the same way.
@@ -194,6 +204,31 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     def sources(self, request: Request, **kwargs) -> Response:
         result = api.list_github_sources(team=self.team, user_access_control=self.user_access_control)
         return Response(GitHubSourceSerializer(instance=result, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_ci_signals_config_retrieve",
+        responses={200: CISignalsConfigSerializer},
+        description="Return the atomic CI Signals configuration and aggregate GitHub warehouse sync status.",
+    )
+    @action(detail=False, methods=["get"], url_path="ci-signals-config", pagination_class=None)
+    def ci_signals_config(self, request: Request, **kwargs) -> Response:
+        result = api.get_ci_signals_config(team=self.team)
+        return Response(CISignalsConfigSerializer(instance=result).data)
+
+    @validated_request(
+        request_serializer=CISignalsConfigUpdateSerializer,
+        operation_id="engineering_analytics_ci_signals_config_update",
+        responses={200: OpenApiResponse(response=CISignalsConfigSerializer)},
+        description="Enable or disable all CI signal detectors in one transaction.",
+    )
+    @ci_signals_config.mapping.put
+    def update_ci_signals_config(self, request: TypedRequest[_CISignalsConfigUpdateData], **kwargs) -> Response:
+        result = api.update_ci_signals_config(
+            team=self.team,
+            enabled=request.validated_data["enabled"],
+            created_by_id=int(request.user.id),
+        )
+        return Response(CISignalsConfigSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_ci_cards",

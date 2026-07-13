@@ -25,6 +25,37 @@ export interface WorkflowCostApi {
     excluded_jobs: number
 }
 
+/**
+ * * `running` - RUNNING
+ * * `completed` - COMPLETED
+ * * `failed` - FAILED
+ */
+export type SyncStatusEnumApi = (typeof SyncStatusEnumApi)[keyof typeof SyncStatusEnumApi]
+
+export const SyncStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface CISignalsConfigApi {
+    /** Whether this project has ever configured CI signals. */
+    configured: boolean
+    /** Whether every CI signal detector is enabled. */
+    enabled: boolean
+    /** Aggregate sync status for pull requests, workflow runs, and workflow jobs.
+     *
+     * * `running` - RUNNING
+     * * `completed` - COMPLETED
+     * * `failed` - FAILED */
+    sync_status: SyncStatusEnumApi | null
+}
+
+export interface CISignalsConfigUpdateApi {
+    /** Enable or disable every CI signal detector atomically. */
+    enabled: boolean
+}
+
 export interface CICardSummaryApi {
     /** Count of open pull requests. */
     open_prs: number
@@ -812,6 +843,8 @@ export interface WorkflowHealthItemApi {
     workflow_name: string
     /** Total runs started in the window. */
     run_count: number
+    /** Completed successful runs used for duration percentiles. */
+    successful_run_count: number
     /**
      * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
      * @nullable
@@ -842,6 +875,16 @@ export interface WorkflowHealthItemApi {
      * @nullable
      */
     latest_run_conclusion: string | null
+    /**
+     * GitHub run ID for the most recent completed workflow run, or null.
+     * @nullable
+     */
+    latest_run_id: number | null
+    /**
+     * Attempt number for the most recent completed workflow run, or null.
+     * @nullable
+     */
+    latest_run_attempt: number | null
     /** Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'. */
     granularity: string
     /**
