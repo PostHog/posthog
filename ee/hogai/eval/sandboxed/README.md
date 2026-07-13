@@ -22,6 +22,9 @@ Selectors are substrings matched against a suite id of the form `<domain>/<modul
 Omit them to run every suite.
 An unmatched selector fails immediately, before anything is provisioned.
 
+The harness needs the Rust toolchain (`cargo`, provided by the flox shell): person and group reads go through personhog with no ORM fallback, so it builds and runs `personhog-replica` + `personhog-router` from `rust/` against the test persons DB.
+The first build compiles the crates and can take several minutes; later builds are incremental no-ops.
+
 ```bash
 # every suite, docker sandboxes, 4 at a time
 python -m ee.hogai.eval.sandboxed.harness

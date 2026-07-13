@@ -6,6 +6,7 @@ import logging
 
 from .cli import parse_args
 from .django_env import setup_django
+from .ports import PERSONHOG_ROUTER_PORT
 from .providers import SANDBOX_PROVIDER_SETTING, PreflightError
 
 USAGE_ERROR_EXIT_CODE = 2
@@ -21,6 +22,15 @@ def main(argv: list[str] | None = None) -> int:
     # SANDBOX_PROVIDER=docker, so without this a modal run would cache DockerSandbox
     # and execute locally. See SANDBOX_PROVIDER_SETTING.
     os.environ["SANDBOX_PROVIDER"] = SANDBOX_PROVIDER_SETTING[options.provider]
+
+    # Point person/group reads at the harness's own personhog router before Django
+    # loads settings. PERSONHOG_ADDR is read from env once at django.setup(), and the
+    # personhog client is a cached singleton keyed off that setting at its first call.
+    # Bootstrap-phase reads (demo seeding, taxonomy inference) run before the
+    # async-phase override_settings, so setting it there would be too late — the
+    # singleton is already built. A PERSONHOG_ADDR leaked from a sourced dev .env
+    # would otherwise silently point eval reads at the dev persons DB.
+    os.environ["PERSONHOG_ADDR"] = f"127.0.0.1:{PERSONHOG_ROUTER_PORT}"
 
     setup_django()
 

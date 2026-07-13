@@ -26,7 +26,14 @@ from .live_server import EvalLiveServer
 from .ports import DJANGO_LIVE_PORT
 from .providers import build_provider
 from .reporting import ProgressReporter, SuiteRunResult
-from .services import build_local_skills, start_llm_gateway, start_mcp_server, stop_all_subprocesses
+from .services import (
+    build_local_skills,
+    ensure_personhog_binaries,
+    start_llm_gateway,
+    start_mcp_server,
+    start_personhog,
+    stop_all_subprocesses,
+)
 from .temporal_env import (
     TemporalWorkerThread,
     start_temporal_env,
@@ -71,6 +78,7 @@ class SandboxedEvalHarness:
             return 0
 
         self.provider.preflight()
+        ensure_personhog_binaries()
         try:
             self._bootstrap()
             return asyncio.run(self._run_suites(suites))
@@ -90,6 +98,11 @@ class SandboxedEvalHarness:
         database.setup()
         self._stack.callback(database.teardown)
         self._database = database
+
+        # Bring personhog up before the live server and demo seeding: those bootstrap
+        # reads go through the router, and a dead router would poison personhog's 30s
+        # negative group-types cache for the rest of the run.
+        self._stack.callback(start_personhog())
 
         live_server = EvalLiveServer(DJANGO_LIVE_PORT)
         self._stack.callback(live_server.stop)

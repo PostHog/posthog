@@ -46,7 +46,7 @@ Do not widen that to `BaseException`, which would swallow `CancelledError` and `
 Bootstrap registers teardown on an `ExitStack` as each resource comes up, so a failure halfway through still unwinds what already started.
 `atexit` hooks plus the subprocess manager's signal handlers cover Ctrl-C, where neither stack unwinds.
 
-After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18787 / 14040, no `task-sandbox-*` containers, and no Temporal dev server.
+After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18787 / 14040 / 15051 / 15052, no `task-sandbox-*` containers, and no Temporal dev server.
 
 Three layers tear a case's sandbox down, outermost last:
 
@@ -71,6 +71,9 @@ The chosen provider must reach `settings.SANDBOX_PROVIDER` **before `django.setu
 `products.tasks` resolves the sandbox class from that setting exactly once and caches it in module globals, so the first `Sandbox` access wins for the whole process.
 `.env` ships `SANDBOX_PROVIDER=docker`, so setting it late let a `--provider modal` run cache `DockerSandbox` and execute the agent in a local container while still pointing it at the ngrok URLs.
 Docker mode hid this because the cached value already matched.
+
+`PERSONHOG_ADDR` follows the same rule for the same reason: the personhog client is a cached singleton keyed off settings at its first call, and bootstrap-phase reads run before the async-phase `override_settings`.
+`__main__` therefore sets it in the environment before `django.setup()`, pointing at the harness's own router on 15052 — which also shields the run from a `PERSONHOG_ADDR` leaked out of a sourced dev `.env`, where reads would silently hit the dev persons DB.
 
 ## pytest
 
