@@ -4,6 +4,7 @@ import type { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 // group don't import the logic's heavy dependency graph — the logic circularly imports back into
 // scenes/session-recordings, which caused "Cannot access 'DEFAULT_UNIVERSAL_GROUP_FILTER' before
 // initialization" TDZ errors on hot reload.
+// String literal, not FilterLogicalOperator.And: a value import of ~/types here would recreate the circular import this leaf module exists to avoid.
 const AND = 'AND' as FilterLogicalOperator
 
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
