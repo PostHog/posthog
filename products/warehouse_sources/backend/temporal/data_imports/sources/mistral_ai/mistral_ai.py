@@ -28,6 +28,17 @@ class MistralAIRetryableError(Exception):
     pass
 
 
+class MistralAIUnexpectedResponseError(Exception):
+    """A 2xx response whose body doesn't match any shape we know how to read rows from.
+
+    Deterministic (a wrong data_key, a schema change, or a wrapped-vs-bare mismatch), so it is not
+    retried — we fail the sync loudly rather than treat the un-parseable page as "no more rows" and
+    finish a green sync with data silently missing.
+    """
+
+    pass
+
+
 @dataclasses.dataclass
 class MistralAIResumeConfig:
     # Next 0-indexed page to fetch. Pages already yielded are persisted to staging before a crash,
@@ -116,14 +127,21 @@ def _extract_rows(config: MistralAIEndpointConfig, data: Any) -> list[dict[str, 
     """Pull the list of rows out of a response body.
 
     Most endpoints wrap rows in `{"data": [...]}`; /v1/agents and /v1/conversations return a bare
-    JSON array (`data_key=None`).
+    JSON array. A bare array is accepted for any endpoint so a wrapped-vs-bare mismatch still syncs
+    instead of silently dropping every row. Anything we can't read a list out of raises rather than
+    returning `[]`, because `get_rows` treats `[]` as end-of-pagination.
     """
-    if config.data_key is None:
-        return data if isinstance(data, list) else []
-    if isinstance(data, dict):
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and config.data_key is not None:
         rows = data.get(config.data_key)
-        return rows if isinstance(rows, list) else []
-    return []
+        if isinstance(rows, list):
+            return rows
+    raise MistralAIUnexpectedResponseError(
+        f"Mistral AI {config.name}: unexpected response shape (expected a JSON array"
+        f"{f' or object with key {config.data_key!r}' if config.data_key is not None else ''}, "
+        f"got {type(data).__name__})"
+    )
 
 
 def get_rows(
@@ -136,8 +154,10 @@ def get_rows(
     incremental_field: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = MISTRAL_AI_ENDPOINTS[endpoint]
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session(headers=_get_headers(api_key))
+    # One session reused across every page so urllib3 keeps the connection alive. `redact_values`
+    # masks the raw API key if a request is sampled into HTTP telemetry (Bearer auth isn't one of
+    # the header names the transport scrubs by default).
+    session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
     base_params = _build_base_params(config, should_use_incremental_field, db_incremental_field_last_value)
     url = f"{MISTRAL_AI_BASE_URL}{config.path}"
 
@@ -190,9 +210,10 @@ def mistral_ai_source(
             incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
-        # Incremental endpoints request ascending creation order where the API allows it (batch jobs);
-        # fine-tuning has no sort param but its dataset fits one batch, keeping the watermark correct.
-        sort_mode="asc",
+        # "asc" where we can guarantee ascending page order (batch jobs force order_by=created);
+        # "desc" where we can't (fine-tuning jobs) so the watermark is only persisted at the end of a
+        # successful run. Full-refresh endpoints ignore sort_mode.
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime",
@@ -204,7 +225,7 @@ def mistral_ai_source(
 def validate_credentials(api_key: str) -> bool:
     # /v1/models is the cheapest authenticated probe: unpaginated, needs no extra scopes.
     try:
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_key,)).get(
             f"{MISTRAL_AI_BASE_URL}/v1/models",
             headers=_get_headers(api_key),
             timeout=10,

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -11,8 +11,10 @@ class MistralAIEndpointConfig:
     # Stable creation-time field used for datetime partitioning (never a mutable field like
     # updated_at/modified_at). `created` on models, `created_at` everywhere else.
     partition_key: str
-    # Where the list lives in the response body. Most endpoints wrap rows in `{"data": [...]}`;
-    # /v1/agents and /v1/conversations return a bare JSON array, so `data_key=None`.
+    # Preferred location of the list in the response body. Most endpoints wrap rows in
+    # `{"data": [...]}`; /v1/agents and /v1/conversations return a bare JSON array (`data_key=None`).
+    # `_extract_rows` also accepts a bare array regardless of this setting, so an endpoint that
+    # returns the un-wrapped shape still syncs rather than silently dropping every row.
     data_key: Optional[str] = "data"
     # /v1/models is the only list endpoint with no pagination — a single GET returns everything.
     paginated: bool = True
@@ -28,6 +30,11 @@ class MistralAIEndpointConfig:
     # Some endpoints let us force ascending creation order so the incremental watermark advances
     # monotonically. (param_name, ascending_value) — e.g. batch jobs accept order_by=created.
     order_by: Optional[tuple[str, str]] = None
+    # How the watermark is persisted for incremental endpoints. "asc" stages the running max after
+    # every page (safe only when the API returns rows in ascending creation order); "desc" persists
+    # the watermark once at the end of a successful sync, so an endpoint whose page order we can't
+    # guarantee never advances the watermark past rows still waiting on later pages.
+    sort_mode: Literal["asc", "desc"] = "asc"
 
     @property
     def supports_incremental(self) -> bool:
@@ -65,15 +72,16 @@ MISTRAL_AI_ENDPOINTS: dict[str, MistralAIEndpointConfig] = {
         partition_key="created_at",
     ),
     # Fine-tuning jobs with status, hyperparameters, trained-token counts, and timestamps.
-    # Incremental via created_after. The endpoint exposes no sort parameter, so ordering is not
-    # guaranteed; the dataset is small enough (jobs are rare) that a run completes in a single
-    # batch, keeping the max-created_at watermark correct regardless of arrival order.
+    # Incremental via created_after. The endpoint exposes no sort parameter, so page order is not
+    # guaranteed; use "desc" semantics so the watermark is only persisted once the whole run
+    # succeeds, never advancing past older jobs sitting on a later page.
     "fine_tuning_jobs": MistralAIEndpointConfig(
         name="fine_tuning_jobs",
         path="/v1/fine_tuning/jobs",
         partition_key="created_at",
         incremental_field="created_at",
         created_after_param="created_after",
+        sort_mode="desc",
     ),
     # Batch inference jobs with request counts and statuses. Incremental via created_after; we pass
     # order_by=created to force ascending order (the API defaults to -created / newest-first).
@@ -102,7 +110,8 @@ MISTRAL_AI_ENDPOINTS: dict[str, MistralAIEndpointConfig] = {
         data_key=None,
         should_sync_default=False,
     ),
-    # Beta. Document libraries (retrieval knowledge bases); ISO created_at.
+    # Beta. Document libraries (retrieval knowledge bases); ISO created_at. Kept on the wrapped
+    # default, but `_extract_rows` also accepts a bare array if the beta endpoint returns one.
     "libraries": MistralAIEndpointConfig(
         name="libraries",
         path="/v1/libraries",

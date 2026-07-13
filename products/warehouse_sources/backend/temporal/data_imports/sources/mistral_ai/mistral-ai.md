@@ -7,17 +7,17 @@ sourceId: MistralAI
 beta: true
 ---
 
-{/*
+<!--
 This user-facing source doc belongs in the posthog.com repo at
 contents/docs/cdp/sources/mistral-ai.md (served at /docs/cdp/sources/mistral-ai and
 /docs/data-warehouse/sources/mistral-ai). It lives beside the source code only because this PR has no
 posthog.com checkout to drop it into — copy it over and delete this note.
-*/}
+-->
 
-import SourceSetupIntro from "../_snippets/source-setup-intro.mdx"
-import SyncModes from "../_snippets/sync-modes.mdx"
-import TroubleshootingLink from "../_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../_snippets/alpha-release.mdx"
+import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
+import SyncModes from "../\_snippets/sync-modes.mdx"
+import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
+import AlphaRelease from "../\_snippets/alpha-release.mdx"
 
 <AlphaRelease />
 

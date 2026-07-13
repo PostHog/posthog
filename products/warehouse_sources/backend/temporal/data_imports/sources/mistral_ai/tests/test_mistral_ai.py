@@ -10,6 +10,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai import mistral_ai
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.mistral_ai import (
     MistralAIResumeConfig,
+    MistralAIUnexpectedResponseError,
     _build_base_params,
     _extract_rows,
     _format_created_after,
@@ -96,13 +97,28 @@ class TestExtractRows:
         [
             ("wrapped_data", "files", {"data": [{"id": "a"}], "total": 1}, [{"id": "a"}]),
             ("bare_list", "agents", [{"id": "a"}, {"id": "b"}], [{"id": "a"}, {"id": "b"}]),
-            ("wrapped_missing_key", "files", {"object": "list"}, []),
-            ("wrapped_but_list_endpoint", "agents", {"data": [{"id": "a"}]}, []),
-            ("empty", "files", {"data": []}, []),
+            # A wrapped endpoint that actually returns a bare array must still sync its rows rather
+            # than silently drop them (Mistral's list shapes aren't uniform across endpoints).
+            ("bare_list_for_wrapped_endpoint", "models", [{"id": "m"}], [{"id": "m"}]),
+            ("empty_wrapped", "files", {"data": []}, []),
+            ("empty_bare", "agents", [], []),
         ]
     )
     def test_extract(self, _name: str, endpoint: str, body: Any, expected: list[dict]) -> None:
         assert _extract_rows(MISTRAL_AI_ENDPOINTS[endpoint], body) == expected
+
+    @parameterized.expand(
+        [
+            # A 2xx with an unreadable shape must raise, not return [] — get_rows treats [] as the
+            # end of pagination, so a silent [] finishes a green sync with rows missing.
+            ("wrapped_missing_key", "files", {"object": "list"}),
+            ("dict_for_bare_endpoint", "agents", {"data": [{"id": "a"}]}),
+            ("data_key_not_a_list", "files", {"data": {"nested": "object"}}),
+        ]
+    )
+    def test_extract_raises_on_unexpected_shape(self, _name: str, endpoint: str, body: Any) -> None:
+        with pytest.raises(MistralAIUnexpectedResponseError):
+            _extract_rows(MISTRAL_AI_ENDPOINTS[endpoint], body)
 
 
 class TestGetRows:
@@ -192,7 +208,7 @@ class TestFetchPageRetries:
         # A credential error must surface immediately (so get_non_retryable_errors fails the sync),
         # never spin through the retry budget.
         resp = MagicMock(status_code=status, ok=False, text="nope")
-        resp.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error")
+        resp.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error", response=resp)
         session = MagicMock()
         session.get.return_value = resp
 
@@ -212,12 +228,17 @@ class TestFetchPageRetries:
 class TestSourceResponse:
     @parameterized.expand(
         [
-            ("models", "created", ["id"]),
-            ("files", "created_at", ["id"]),
-            ("fine_tuning_jobs", "created_at", ["id"]),
+            # batch jobs force ascending order (order_by=created), so the watermark can advance per
+            # page; fine-tuning has no sort param, so it must persist the watermark only at run end.
+            ("models", "created", ["id"], "asc"),
+            ("files", "created_at", ["id"], "asc"),
+            ("batch_jobs", "created_at", ["id"], "asc"),
+            ("fine_tuning_jobs", "created_at", ["id"], "desc"),
         ]
     )
-    def test_partitioning_and_keys(self, endpoint: str, partition_key: str, primary_keys: list[str]) -> None:
+    def test_partitioning_and_keys(
+        self, endpoint: str, partition_key: str, primary_keys: list[str], sort_mode: str
+    ) -> None:
         response = mistral_ai_source(
             api_key="sk-x",
             endpoint=endpoint,
@@ -228,4 +249,4 @@ class TestSourceResponse:
         assert response.primary_keys == primary_keys
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [partition_key]
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == sort_mode

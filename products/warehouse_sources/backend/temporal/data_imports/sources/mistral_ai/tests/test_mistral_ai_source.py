@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.mistral_ai import MistralAIResumeConfig
@@ -31,6 +31,7 @@ class TestSourceConfig:
         fields = MistralAISource().get_source_config.fields
         assert len(fields) == 1
         api_key = fields[0]
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.name == "api_key"
         assert api_key.required is True
         assert api_key.secret is True
