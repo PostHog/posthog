@@ -163,18 +163,37 @@ class TestResume:
 
 
 class TestSourceResponse:
-    @parameterized.expand([("sessions", ["id"]), ("tool_calls", ["id"]), ("providers", ["id"])])
-    def test_primary_keys_and_asc_watermark(self, endpoint: str, expected_pk: list[str]) -> None:
-        # sort_mode must stay "asc": we request order=asc, so a "desc" claim would corrupt the
-        # per-batch incremental watermark. Partition key must be the stable created_at, never updated_at.
+    @parameterized.expand(
+        [
+            # Pagination is by record id (order=asc). `updated_at` is not monotonic in id order, so
+            # those syncs must run "desc" (the pipeline then commits the watermark only after a full
+            # run). An "asc" claim here lets an interrupted sync advance the watermark past rows it
+            # hasn't fetched, silently losing them from the warehouse.
+            ("sessions_default_updated_at", "sessions", None, "desc"),
+            ("provider_runs_default_updated_at", "provider_runs", None, "desc"),
+            ("provider_deployments_default_updated_at", "provider_deployments", None, "desc"),
+            # A user overriding sessions onto created_at makes per-batch checkpointing safe again.
+            ("sessions_user_picks_created_at", "sessions", "created_at", "asc"),
+            # created_at tracks id order, so append-only streams checkpoint safely per batch.
+            ("session_messages_created_at", "session_messages", None, "asc"),
+            ("tool_calls_created_at", "tool_calls", None, "asc"),
+            # Full-refresh-only endpoint has no incremental field.
+            ("providers_full_refresh", "providers", None, "asc"),
+        ]
+    )
+    def test_sort_mode_matches_incremental_field(
+        self, _name: str, endpoint: str, incremental_field: str | None, expected_sort_mode: str
+    ) -> None:
         response = metorial_source(
             api_key="metorial_sk_x",
             endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
+            incremental_field=incremental_field,
         )
-        assert response.primary_keys == expected_pk
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == expected_sort_mode
+        assert response.primary_keys == ["id"]
+        # Partition key must be the stable created_at, never updated_at (partitions would rewrite each sync).
         assert response.partition_keys == ["created_at"]
 
 

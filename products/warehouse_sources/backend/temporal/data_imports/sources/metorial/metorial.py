@@ -8,7 +8,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.settings import (
@@ -65,9 +65,10 @@ def _build_params(
 ) -> dict[str, Any]:
     """Build the base query params reused on every page of a list request.
 
-    `order=asc` makes pagination deterministic and lets the pipeline advance the incremental
-    watermark safely (matches SourceResponse.sort_mode="asc"). The incremental filter is re-sent on
-    every page so pagination can never walk back past the watermark.
+    `order=asc` paginates deterministically by record id. The incremental filter is re-sent on every
+    page so pagination can never walk back past the watermark. Note this orders by id, not by the
+    incremental field: `created_at` tracks id order (safe to checkpoint per batch), but `updated_at`
+    does not, so `updated_at` syncs run in `sort_mode="desc"` (see `metorial_source`).
     """
     params: dict[str, Any] = {"limit": DEFAULT_PAGE_SIZE, "order": "asc"}
 
@@ -198,6 +199,14 @@ def metorial_source(
 ) -> SourceResponse:
     config = METORIAL_ENDPOINTS[endpoint]
 
+    # Pagination is `order=asc` by record id. Metorial ids are time-sorted, so a `created_at` sync
+    # genuinely arrives oldest-first and the pipeline can safely checkpoint the watermark after each
+    # batch. `updated_at` is NOT monotonic in id order (a row created long ago can be updated
+    # recently), so those syncs run `desc`: the pipeline then commits the watermark only after a full
+    # successful run, so an interrupted sync can't advance past rows it hasn't fetched yet.
+    chosen_field = incremental_field or config.default_incremental_field
+    sort_mode: SortMode = "asc" if chosen_field in (None, "created_at") else "desc"
+
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
@@ -210,9 +219,7 @@ def metorial_source(
             incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
-        # We request `order=asc` and re-send the incremental filter on every page, so rows genuinely
-        # arrive oldest-first and the watermark can checkpoint safely after each batch.
-        sort_mode="asc",
+        sort_mode=sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime",
