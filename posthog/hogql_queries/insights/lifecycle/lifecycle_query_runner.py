@@ -347,6 +347,10 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     timings=self.timings,
                 )
             )
+            # Days of week: lifecycle statuses are derived from activity on the selected days only
+            day_of_week_filter = self.query_date_range.day_of_week_filter_expr(self.timestamp_field)
+            if day_of_week_filter is not None:
+                event_filters.append(day_of_week_filter)
         with self.timings.measure("properties"):
             if self.query.properties is not None and self.query.properties != []:
                 event_filters.append(property_to_expr(self.query.properties, self.team))
