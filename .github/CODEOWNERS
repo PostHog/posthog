@@ -34,15 +34,12 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 # The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
 .github/scripts/codeowners.js @PostHog/team-security
 # The distributed-ownership resolver the auto-assigner executes on that same
-# pull_request_target event (via `python -m posthog_owners`).
-tools/owners/posthog_owners/** @PostHog/team-security
-# Top-level modules in the resolver's sys.path root (tools/owners) could shadow
-# stdlib/pyyaml imports (yaml.py, json.py) for that privileged process, so gate those too.
-tools/owners/*.py @PostHog/team-security
-# A new top-level regular package (yaml/__init__.py) would shadow imports the
-# same way; namespace dirs without __init__.py cannot (regular modules found
-# later on sys.path win), so gating the __init__.py is sufficient.
-tools/owners/*/__init__.py @PostHog/team-security
+# pull_request_target event (via `python -m posthog_owners`), with tools/owners
+# as the privileged sys.path root. Anything importable placed in that tree can
+# shadow stdlib/pyyaml for the privileged process — top-level modules (yaml.py),
+# shadow packages (yaml/__init__.py), and extension modules (yaml.so, *.pyd)
+# alike — so the whole directory is gated rather than enumerating suffixes.
+tools/owners/** @PostHog/team-security
 
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect the distributed owners.yaml files, which drive non-required reviewer
