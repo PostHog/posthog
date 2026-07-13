@@ -691,6 +691,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 const isNew = props.evaluationId === 'new'
+
+                // Validate the (optional) scheduled-report draft before saving anything —
+                // an out-of-range trigger threshold would otherwise be rejected by the
+                // backend after the eval had already saved, so the report change appeared
+                // to fail silently.
+                const reportLogicKey = isNew ? 'new' : props.evaluationId
+                const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
+                if (
+                    evaluationSupportsReports(values.evaluation!) &&
+                    reportLogic.isMounted() &&
+                    reportLogic.values.triggerThresholdError
+                ) {
+                    const message = reportLogic.values.triggerThresholdError
+                    lemonToast.error(message)
+                    actions.saveEvaluationFailure(message)
+                    return
+                }
+
                 const response = isNew
                     ? // nosemgrep: prefer-codegen-api
                       await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
@@ -706,8 +724,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 // evaluationReportLogic is only mounted when EvaluationReportConfig is
                 // rendered (gated on the reports feature flag), so skip when it isn't —
                 // reading .values on an unmounted keyed logic would throw.
-                const reportLogicKey = isNew ? 'new' : props.evaluationId
-                const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
                 if (response?.id && evaluationSupportsReports(response) && reportLogic.isMounted()) {
                     const reportConfigStillLoading =
                         !isNew && reportLogic.values.reportsLoading && !reportLogic.values.activeReport

@@ -415,6 +415,22 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 return reports.find((r: EvaluationReport) => !r.deleted) || null
             },
         ],
+        triggerThresholdError: [
+            (s) => [s.configDraft],
+            (draft): string | null => {
+                // Only the every_n mode sends trigger_threshold to the backend, which
+                // rejects anything outside [MIN, MAX]. Catch it here so the save shows a
+                // clear message instead of failing silently on the API response.
+                if (draft.frequency !== 'every_n') {
+                    return null
+                }
+                const value = draft.triggerThreshold
+                if (!Number.isInteger(value) || value < TRIGGER_THRESHOLD_MIN || value > TRIGGER_THRESHOLD_MAX) {
+                    return `Enter a whole number between ${TRIGGER_THRESHOLD_MIN} and ${TRIGGER_THRESHOLD_MAX.toLocaleString()}.`
+                }
+                return null
+            },
+        ],
         isConfigDirty: [
             (s) => [s.activeReport, s.configDraft],
             (activeReport, draft): boolean => {

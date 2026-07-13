@@ -81,7 +81,15 @@ export function ScheduleConfig({
 }
 
 /** Threshold config shown when frequency is 'every_n' */
-function ThresholdConfig({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
+function ThresholdConfig({
+    value,
+    onChange,
+    error,
+}: {
+    value: number
+    onChange: (value: number) => void
+    error: string | null
+}): JSX.Element {
     return (
         <div>
             <label className="font-semibold text-sm">Evaluation count threshold</label>
@@ -91,12 +99,17 @@ function ThresholdConfig({ value, onChange }: { value: number; onChange: (value:
                 max={TRIGGER_THRESHOLD_MAX}
                 value={value}
                 onChange={(val) => onChange(Number(val))}
+                status={error ? 'danger' : undefined}
                 fullWidth
             />
-            <p className="text-xs text-muted mt-1">
-                A report will be generated after this many new evaluation results arrive. Checked every 5 minutes. Min{' '}
-                {TRIGGER_THRESHOLD_MIN}, max {TRIGGER_THRESHOLD_MAX.toLocaleString()}.
-            </p>
+            {error ? (
+                <p className="text-xs text-danger mt-1">{error}</p>
+            ) : (
+                <p className="text-xs text-muted mt-1">
+                    A report will be generated after this many new evaluation results arrive. Checked every 5 minutes.
+                    Min {TRIGGER_THRESHOLD_MIN}, max {TRIGGER_THRESHOLD_MAX.toLocaleString()}.
+                </p>
+            )}
         </div>
     )
 }
@@ -187,7 +200,7 @@ function DeliveryTargetsConfig({
 /** Shared form body used by both the create-evaluation and edit-existing-evaluation paths.
  * All state is backed by `evaluationReportLogic.configDraft` keyed by evaluationId. */
 function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Element {
-    const { configDraft } = useValues(evaluationReportLogic({ evaluationId }))
+    const { configDraft, triggerThresholdError } = useValues(evaluationReportLogic({ evaluationId }))
     const {
         setDraftFrequency,
         setDraftScheduleCadence,
@@ -213,7 +226,11 @@ function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Eleme
             </div>
             {configDraft.frequency === 'every_n' && (
                 <>
-                    <ThresholdConfig value={configDraft.triggerThreshold} onChange={setDraftTriggerThreshold} />
+                    <ThresholdConfig
+                        value={configDraft.triggerThreshold}
+                        onChange={setDraftTriggerThreshold}
+                        error={triggerThresholdError}
+                    />
                     <CooldownConfig value={configDraft.cooldownHours} onChange={setDraftCooldownHours} />
                 </>
             )}
