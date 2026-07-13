@@ -73,7 +73,9 @@ export const useRichContentEditor = ({
         onSelectionUpdate: onSelectionUpdate,
         onUpdate: ({ editor }) => onUpdate(editor.getJSON()),
         onCreate: ({ editor }) => onCreate(editor),
-        onDestroy: ({ editor }) => onDestroy(editor),
+        // TipTap emits the `destroy` event with no payload (unlike create/update),
+        // so close over the editor instance rather than destructuring undefined.
+        onDestroy: () => onDestroy(editor),
     })
 
     useEffect(() => {
