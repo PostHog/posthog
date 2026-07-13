@@ -447,6 +447,7 @@ const logsAttributeValuesList = (): ToolBase<typeof LogsAttributeValuesListSchem
                 filterGroup: params.filterGroup,
                 key: params.key,
                 serviceNames: params.serviceNames,
+                useArchive: params.useArchive,
                 value: params.value,
             },
         })
@@ -474,6 +475,7 @@ const logsAttributesList = (): ToolBase<typeof LogsAttributesListSchema, Schemas
                 search: params.search,
                 search_values: params.search_values,
                 serviceNames: params.serviceNames,
+                useArchive: params.useArchive,
             },
         })
         const filtered = pickResponseFields(result, ['results', 'count']) as typeof result

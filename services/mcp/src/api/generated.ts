@@ -30624,6 +30624,8 @@ export namespace Schemas {
       /** Field to break down sparkline data by (used only by sparkline endpoint) */
       sparklineBreakdownBy?: LogsSparklineBreakdownBy | null;
       tags?: QueryLogTags | null;
+      /** Query the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled. */
+      useArchive?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -63483,6 +63485,8 @@ export namespace Schemas {
       facetSearch?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
+      /** When true, compute facet values from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false. */
+      useArchive?: boolean;
     }
 
     export interface _LogsFacetValuesRequest {
@@ -63650,6 +63654,8 @@ export namespace Schemas {
       excludeAttributes?: boolean;
       /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
       customColumns?: string[];
+      /** When true, query the logs archive (Iceberg-backed cold storage) instead of the hot ClickHouse tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Archive queries are slower and have no live-tail. Defaults to false. */
+      useArchive?: boolean;
     }
 
     export interface _LogsQueryRequest {
@@ -63772,6 +63778,8 @@ export namespace Schemas {
        * * `severity` - severity
        * * `service` - service */
       sparklineBreakdownBy?: SparklineBreakdownByEnum;
+      /** When true, compute the sparkline from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false. */
+      useArchive?: boolean;
     }
 
     export interface _LogsSparklineBucket {
@@ -67962,6 +67970,10 @@ export namespace Schemas {
      * Filter attributes to those appearing in logs from these services.
      */
     serviceNames?: string[];
+    /**
+     * When true, read attribute keys from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.
+     */
+    useArchive?: boolean;
     };
 
     export type EnvironmentsLogsAttributesRetrieveAttributeType = typeof EnvironmentsLogsAttributesRetrieveAttributeType[keyof typeof EnvironmentsLogsAttributesRetrieveAttributeType];
@@ -68024,6 +68036,10 @@ export namespace Schemas {
      * Filter values to those appearing in logs from these services.
      */
     serviceNames?: string[];
+    /**
+     * When true, read attribute values from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.
+     */
+    useArchive?: boolean;
     /**
      * Search filter for attribute values
      * @minLength 1
@@ -75568,6 +75584,10 @@ export namespace Schemas {
      * Filter attributes to those appearing in logs from these services.
      */
     serviceNames?: string[];
+    /**
+     * When true, read attribute keys from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.
+     */
+    useArchive?: boolean;
     };
 
     export type LogsAttributesRetrieveAttributeType = typeof LogsAttributesRetrieveAttributeType[keyof typeof LogsAttributesRetrieveAttributeType];
@@ -75630,6 +75650,10 @@ export namespace Schemas {
      * Filter values to those appearing in logs from these services.
      */
     serviceNames?: string[];
+    /**
+     * When true, read attribute values from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.
+     */
+    useArchive?: boolean;
     /**
      * Search filter for attribute values
      * @minLength 1
