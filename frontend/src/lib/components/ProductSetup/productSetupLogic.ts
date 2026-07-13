@@ -3,8 +3,8 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

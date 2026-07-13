@@ -36,11 +36,16 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ObservationResultSummary } from '../../components/ObservationCard'
-import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
+import type {
+    FeedbackThemesApi,
+    PromptEvaluationResultApi,
+    ReplayObservationApi,
+    ReplayScannerPromptSuggestionApi,
+} from '../../generated/api.schemas'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
 import { formatCredits } from '../../utils/credits'
-import { fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
+import { buildChartDayFormatter, fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
@@ -237,7 +242,10 @@ function SuggestionEvaluationPanel({
         return (
             <div className="border rounded p-3 flex items-center gap-2 text-sm text-muted">
                 <Spinner />
-                Testing against rated sessions… {evaluation.results.length} of {evaluation.total || '?'} done
+                {/* The endpoint stamps the planned total upfront; the select activity replaces it with the real count. */}
+                {evaluation.total
+                    ? `Testing against rated sessions… ${evaluation.results.length} of ${evaluation.total} done`
+                    : 'Starting the test against your rated sessions…'}
             </div>
         )
     }
@@ -290,22 +298,55 @@ function SuggestionEvaluationPanel({
                 Per-session results
             </LemonButton>
             {detailsOpen && (
-                <div className="space-y-1">
-                    {evaluation.results.map((result) => (
-                        <div key={result.session_id} className="flex flex-wrap items-center gap-2 text-xs">
-                            <LemonTag type={EVALUATION_OUTCOME_TAGS[result.outcome]?.type ?? 'muted'}>
-                                {EVALUATION_OUTCOME_TAGS[result.outcome]?.label ?? result.outcome}
-                            </LemonTag>
-                            <Link to={urls.replaySingle(result.session_id)} className="font-mono">
-                                {result.session_id.slice(0, 8)}…
-                            </Link>
-                            <span className="text-muted">
-                                rated {result.rated_correct ? 'right' : 'wrong'} · {result.before ?? 'n/a'} →{' '}
-                                {result.after ?? (result.error ? `failed: ${result.error.slice(0, 80)}` : 'n/a')}
-                            </span>
-                        </div>
-                    ))}
-                </div>
+                <LemonTable
+                    size="small"
+                    columns={
+                        [
+                            {
+                                title: 'Outcome',
+                                key: 'outcome',
+                                render: (_, result) => (
+                                    <LemonTag type={EVALUATION_OUTCOME_TAGS[result.outcome]?.type ?? 'muted'}>
+                                        {EVALUATION_OUTCOME_TAGS[result.outcome]?.label ?? result.outcome}
+                                    </LemonTag>
+                                ),
+                            },
+                            {
+                                title: 'Session',
+                                key: 'session',
+                                render: (_, result) => (
+                                    <Link to={urls.replaySingle(result.session_id)} className="font-mono">
+                                        {result.session_id.slice(0, 8)}…
+                                    </Link>
+                                ),
+                            },
+                            {
+                                title: 'Team rating',
+                                key: 'rated',
+                                render: (_, result) => (result.rated_correct ? 'Right' : 'Wrong'),
+                            },
+                            {
+                                title: 'Current prompt',
+                                key: 'before',
+                                render: (_, result) => result.before ?? 'n/a',
+                            },
+                            {
+                                title: 'Suggested prompt',
+                                key: 'after',
+                                render: (_, result) =>
+                                    result.after ??
+                                    (result.error ? (
+                                        <span className="text-muted">Failed: {result.error.slice(0, 80)}</span>
+                                    ) : (
+                                        'n/a'
+                                    )),
+                            },
+                        ] as LemonTableColumns<PromptEvaluationResultApi>
+                    }
+                    dataSource={evaluation.results}
+                    rowKey="session_id"
+                    embedded
+                />
             )}
         </div>
     )
@@ -369,7 +410,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
             <div className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="text-muted text-sm">
                     {ratedCount === 0
-                        ? 'Rate results below and PostHog AI will recommend prompt improvements here.'
+                        ? 'Rate results below to get AI-recommended prompt improvements here.'
                         : 'No recommendation yet for the current ratings.'}
                 </span>
                 <LemonButton
@@ -391,8 +432,8 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         body = (
             <div className="space-y-3">
                 <p className="text-sm m-0">
-                    Your scanner configuration looks good! PostHog AI reviewed the rated sessions and has no prompt
-                    changes to recommend.
+                    Your scanner configuration looks good! The AI reviewed the rated sessions and has no prompt changes
+                    to recommend.
                 </p>
                 {currentSuggestion.rationale && <p className="text-sm text-muted m-0">{currentSuggestion.rationale}</p>}
                 <SuggestionMeta suggestion={currentSuggestion} />
@@ -594,13 +635,6 @@ function VersionBadgeBridge({
 
 type ChartMode = 'session' | 'rating'
 
-// Full "MMM D" labels collide at 30 days and the chart drops the overlap, hiding dates.
-// Keep the month only where it anchors (first tick, month boundaries) so every day fits.
-function formatChartDay(label: string, index: number): string {
-    const day = label.split(' ')[1]
-    return index === 0 || day === '1' ? label : day
-}
-
 const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string }[] = [
     {
         value: 'session',
@@ -635,6 +669,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                 : null,
         [labelStats, mode]
     )
+    const formatChartDay = useMemo(() => buildChartDayFormatter(chart?.dates ?? []), [chart])
     // Prompt-version markers sit on calendar time, so they render under the dates in both views.
     const versionMarkers = useMemo(
         () =>
@@ -765,6 +800,65 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
     )
 }
 
+/** Recurring failure modes summarized from the team's written feedback, so raters know what to look for.
+ * Clicking a theme filters the results table below to the sessions behind it. */
+function FeedbackThemeChips({
+    scannerId,
+    feedbackThemes,
+}: {
+    scannerId: string
+    feedbackThemes: FeedbackThemesApi
+}): JSX.Element | null {
+    const { themeFilter } = useValues(scannerQualityLogic({ scannerId }))
+    const { setThemeFilter } = useActions(scannerQualityLogic({ scannerId }))
+    if (feedbackThemes.themes.length === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Tooltip title="Recurring failure modes summarized from your team's written feedback. They update with the prompt recommendation and also steer it.">
+                <span className="text-xs text-muted">Feedback themes:</span>
+            </Tooltip>
+            {feedbackThemes.themes.map((theme) => {
+                const isActive = themeFilter?.theme === theme.theme
+                const clickable = theme.sessions.length > 0
+                return (
+                    <Tooltip
+                        key={theme.theme}
+                        title={
+                            <div className="space-y-1">
+                                <div>
+                                    {theme.count} feedback comment{theme.count === 1 ? '' : 's'} describe this failure
+                                    mode. Watch for it when rating.
+                                    {clickable &&
+                                        (isActive
+                                            ? ' Click to stop filtering by it.'
+                                            : ' Click to filter the table to its sessions.')}
+                                </div>
+                                {/* Index keys: the list is static and never reordered, while two raters can write identical quotes. */}
+                                {theme.examples.map((example, index) => (
+                                    <div key={index} className="text-muted italic">
+                                        "{example}"
+                                    </div>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonTag
+                            type={isActive ? 'highlight' : 'muted'}
+                            onClick={clickable ? () => setThemeFilter(isActive ? null : theme) : undefined}
+                            forceClickable={clickable}
+                            data-attr="vision-quality-feedback-theme"
+                        >
+                            {theme.theme} · {theme.count}
+                        </LemonTag>
+                    </Tooltip>
+                )
+            })}
+        </div>
+    )
+}
+
 /**
  * The scanner's Quality tab: the current prompt recommendation (with history), quality over time,
  * and the results still awaiting a rating.
@@ -888,8 +982,8 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
     return (
         <div className="flex flex-col gap-6">
             <p className="text-muted m-0 max-w-2xl">
-                Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. PostHog AI
-                turns your team's ratings into the prompt recommendation below.
+                Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. Your team's
+                ratings power the AI prompt recommendation below.
             </p>
 
             <PromptRecommendationPanel scannerId={scannerId} />
@@ -915,6 +1009,9 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                         />
                     </div>
                 </div>
+                {scanner?.feedback_themes && (
+                    <FeedbackThemeChips scannerId={scannerId} feedbackThemes={scanner.feedback_themes} />
+                )}
                 <LemonTable
                     columns={columns}
                     dataSource={observations}

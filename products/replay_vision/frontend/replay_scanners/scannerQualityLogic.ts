@@ -15,6 +15,7 @@ import {
 } from '../generated/api'
 import type {
     CurrentPromptSuggestionApi,
+    FeedbackThemeApi,
     ObservationLabelStatsApi,
     ReplayObservationApi,
     ReplayObservationLabelApi,
@@ -29,6 +30,9 @@ export type RatedFilterValue = 'all' | 'unrated' | 'rated'
 
 export const QUALITY_PAGE_SIZE = 20
 export const LABEL_CHART_DAYS = 30
+// How many rated sessions a test re-runs unless the user picks a size. Mirrors the backend
+// serializer default, keeping the default quota spend small while the cap allows far more.
+export const DEFAULT_TEST_SESSIONS = 10
 
 export interface ScannerQualityLogicProps {
     scannerId: string
@@ -49,6 +53,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         loadObservationsFailure: true,
         setPage: (page: number) => ({ page }),
         setRatedFilter: (value: RatedFilterValue) => ({ value }),
+        setThemeFilter: (theme: FeedbackThemeApi | null) => ({ theme }),
         setSort: (sorting: ObservationsSorting | null) => ({ sorting }),
         labelChanged: (observationId: string, label: ReplayObservationLabelApi | null) => ({ observationId, label }),
         loadLabelStats: true,
@@ -96,7 +101,17 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             {
                 setPage: (_, { page }) => Math.max(1, page),
                 setRatedFilter: () => 1,
+                setThemeFilter: () => 1,
                 setSort: () => 1,
+            },
+        ],
+        // A feedback theme selected as table filter. Changing the rated filter clears it, since the
+        // theme's sessions are a rated subset that would contradict the user's explicit choice.
+        themeFilter: [
+            null as FeedbackThemeApi | null,
+            {
+                setThemeFilter: (_, { theme }) => theme,
+                setRatedFilter: () => null,
             },
         ],
         sort: [
@@ -110,6 +125,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             'unrated' as RatedFilterValue,
             {
                 setRatedFilter: (_, { value }) => value,
+                // A theme's sessions are all rated, so a narrower rated filter would contradict what's shown.
+                setThemeFilter: (state, { theme }) => (theme ? 'all' : state),
             },
         ],
         observationsLoading: [
@@ -165,9 +182,9 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 loadCurrentSuggestionSuccess: (_, { current }) => current.evaluation_session_cap ?? 0,
             },
         ],
-        // The user's chosen test size. Null means "as many as allowed".
+        // The user's chosen test size, starting at the small default. Null means "as many as allowed".
         testSessionLimit: [
-            null as number | null,
+            DEFAULT_TEST_SESSIONS as number | null,
             {
                 setTestSessionLimit: (_, { limit }) => limit,
             },
@@ -259,7 +276,10 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 if (offset > 0) {
                     params.offset = offset
                 }
-                if (values.ratedFilter !== 'all') {
+                if (values.themeFilter) {
+                    // The theme's sessions are rated by definition, so the rated filter is moot here.
+                    params.session_id = values.themeFilter.sessions.map((session) => session.session_id).join(',')
+                } else if (values.ratedFilter !== 'all') {
                     params.labeled = values.ratedFilter === 'rated'
                 }
                 if (values.sort) {
@@ -285,6 +305,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
 
         setPage: () => actions.loadObservations(),
         setRatedFilter: () => actions.loadObservations(),
+        setThemeFilter: () => actions.loadObservations(),
         setSort: () => actions.loadObservations(),
 
         // Debounced so a burst of ratings reloads the chart and staleness once.
@@ -382,6 +403,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 const suggestion = await visionScannersPromptSuggestionsGenerateCreate(String(teamId), props.scannerId)
                 cache.suggestionEpoch = (cache.suggestionEpoch ?? 0) + 1
                 actions.generateSuggestionSuccess(suggestion)
+                // Generation also refreshes the feedback-theme chips, which live on the scanner.
+                replayScannerLogic.findMounted({ id: props.scannerId })?.actions.loadScanner()
             } catch (error: any) {
                 lemonToast.error(`Couldn't generate a recommendation${error.detail ? `: ${error.detail}` : ''}`)
                 actions.generateSuggestionFailure()
