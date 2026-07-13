@@ -2,6 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -44,6 +45,12 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _get_session(api_key: str) -> requests.Session:
+    # The API key travels in the Authorization header on every request; register it for value-based
+    # redaction so a failed or sampled request never persists the customer's secret in HTTP logs.
+    return make_tracked_session(redact_values=(api_key,))
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -76,7 +83,7 @@ def validate_credentials(api_key: str) -> bool:
     # Listing projects is the cheapest probe that proves the token is genuine; it is also the seed for
     # every other (project-scoped) endpoint, so a token that can't list projects can't sync anything.
     try:
-        response = make_tracked_session().get(
+        response = _get_session(api_key).get(
             f"{DEEPGRAM_BASE_URL}/projects",
             headers=_get_headers(api_key),
             timeout=10,
@@ -108,12 +115,37 @@ def _format_start_value(value: Any) -> str:
     return str(value)
 
 
+def _redact_url_userinfo(url: str) -> str:
+    """Strip embedded userinfo (`user:pass@`) from a URL.
+
+    Deepgram callback URLs can carry Basic Auth credentials in the userinfo component; those must not
+    land in the warehouse where anyone with query access could read them. The host/path is preserved
+    so the row still records which callback was used.
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url
+    if "@" not in parts.netloc:
+        return url
+    host = parts.netloc.rsplit("@", 1)[1]
+    return urlunsplit(parts._replace(netloc=host))
+
+
 def _transform_row(row: dict[str, Any], project_id: str, config: DeepgramEndpointConfig) -> dict[str, Any]:
     if config.flatten_key and isinstance(row.get(config.flatten_key), dict):
         nested = row.pop(config.flatten_key)
         row = {**row, **nested}
     # Fan-out rows carry the parent project's id so the composite primary key stays unique table-wide.
     row["project_id"] = project_id
+    # Request-log rows can echo the callback URL, which may embed Basic Auth credentials.
+    if isinstance(row.get("callback"), str):
+        row["callback"] = _redact_url_userinfo(row["callback"])
+    # A row missing a required primary-key field would let the delta merge build a partial predicate
+    # and overwrite unrelated rows in the same project, so fail loudly instead of emitting it.
+    for primary_key in config.primary_keys:
+        if row.get(primary_key) is None:
+            raise ValueError(f"Deepgram {config.name} row missing required primary key '{primary_key}'")
     return row
 
 
@@ -195,7 +227,7 @@ def get_rows(
     headers = _get_headers(api_key)
     # One session reused across every request so urllib3 keeps the connection alive instead of
     # re-handshaking per project/page.
-    session = make_tracked_session()
+    session = _get_session(api_key)
 
     if config.is_project_list:
         data = _fetch_json(session, f"{DEEPGRAM_BASE_URL}/projects", headers, logger, params={})

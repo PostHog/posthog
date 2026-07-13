@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
@@ -81,6 +82,23 @@ class TestTransformRow:
         assert row["project_id"] == "proj-1"
         assert row["member"] == {"email": "a@b.co"}
         assert "api_key" not in row
+
+    @parameterized.expand(
+        [
+            ("basic_auth", "https://user:pass@hooks.example.com/cb", "https://hooks.example.com/cb"),
+            ("no_creds", "https://hooks.example.com/cb", "https://hooks.example.com/cb"),
+            ("not_a_url", "not-a-url", "not-a-url"),
+        ]
+    )
+    def test_redacts_callback_userinfo(self, _name: str, callback: str, expected: str) -> None:
+        # A callback URL can embed Basic Auth creds; they must not reach the warehouse.
+        row = _transform_row({"request_id": "r1", "callback": callback}, "proj-1", DEEPGRAM_ENDPOINTS["requests"])
+        assert row["callback"] == expected
+
+    def test_missing_primary_key_raises(self) -> None:
+        # A row missing request_id would let the merge overwrite unrelated rows; fail instead of emit.
+        with pytest.raises(ValueError, match="request_id"):
+            _transform_row({"created": "2026-01-01"}, "proj-1", DEEPGRAM_ENDPOINTS["requests"])
 
 
 class TestValidateCredentials:
