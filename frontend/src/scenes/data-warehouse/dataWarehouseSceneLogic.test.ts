@@ -76,12 +76,15 @@ describe('dataWarehouseSceneLogic', () => {
 
     // The URL is parsed before the warehouse status arrives, so a requested tab has to survive the
     // wait — clamping it against a tab list that doesn't include Overview yet would drop it.
-    it('honors a tab requested before the warehouse status resolves', async () => {
-        warehouseStatusResponse = [200, { state: 'ready' }]
-        mountScene()
-        router.actions.push(urls.dataOps(DataWarehouseTab.OVERVIEW))
-        await waitForWarehouseStatus()
+    it.each([[DataWarehouseTab.OVERVIEW], [DataWarehouseTab.SETTINGS]])(
+        'honors a tab requested before the warehouse status resolves (%s)',
+        async (tab) => {
+            warehouseStatusResponse = [200, { state: 'ready' }]
+            mountScene()
+            router.actions.push(urls.dataOps(tab))
+            await waitForWarehouseStatus()
 
-        expect(logic.values.activeTab).toBe(DataWarehouseTab.OVERVIEW)
-    })
+            expect(logic.values.activeTab).toBe(tab)
+        }
+    )
 })

@@ -93,6 +93,14 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     })),
     actionToUrl(({ values }) => ({
         setActiveTab: () => {
+            // Until the warehouse status lands, availableTabs is provisional (Overview may still be
+            // hidden) — canonicalizing against it now could strip a `?tab=` the user asked for and
+            // then re-dispatch setActiveTab(null) via urlToAction, erasing the request. Skipping the
+            // rewrite here (kea-router treats undefined as "don't navigate") leaves the URL alone
+            // until activeTab is derived from the real tab set.
+            if (!values.warehouseStatusResolved) {
+                return
+            }
             const searchParams = { ...router.values.searchParams }
             // The default (first available) tab is canonical at /data-ops with no ?tab.
             if (values.activeTab && values.activeTab !== values.availableTabs[0]) {
