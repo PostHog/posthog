@@ -33,7 +33,6 @@ def _make_helper(*, run_maintenance_returns: int | None = None, file_uris: list[
         get_delta_table=AsyncMock(return_value=MagicMock()),
         get_file_uris=AsyncMock(return_value=file_uris or []),
         compact_table=AsyncMock(),
-        compact_if_fragmented=AsyncMock(return_value=False),
         run_maintenance=AsyncMock(return_value=run_maintenance_returns),
     )
 
@@ -125,20 +124,25 @@ class TestRunPostLoadDeltaMaintenance:
         update_config.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_cdc_companion_compacts_on_threshold_without_touching_watermark(self):
-        # The schema's single last_vacuum_version watermark tracks the snapshot table; letting the
-        # _cdc companion (a different delta table with unrelated versions) run cadence maintenance
-        # would corrupt the snapshot's vacuum cadence. Its partition count is derived from its own
-        # layout too — schema.partition_count describes the snapshot table, not the companion.
-        schema = _make_schema(is_cdc=True, sync_type_config={"last_vacuum_version": 41})
-        helper = _make_helper(file_uris=["s3://bucket/orders_cdc/a.parquet"])
+    async def test_cdc_companion_uses_its_own_watermark_key(self):
+        # The snapshot and _cdc companion are different delta tables with unrelated versions, so
+        # the companion must run cadence maintenance against last_vacuum_version_cdc — reading or
+        # writing the snapshot's last_vacuum_version would corrupt both cadences, and skipping
+        # cadence maintenance entirely would let companion tombstones accumulate until the
+        # file-count thresholds happen to trip. Partition count is derived from its own layout —
+        # schema.partition_count describes the snapshot table.
+        schema = _make_schema(is_cdc=True, sync_type_config={"last_vacuum_version": 41, "last_vacuum_version_cdc": 7})
+        helper = _make_helper(run_maintenance_returns=9, file_uris=["s3://bucket/orders_cdc/a.parquet"])
 
         update_config, _ = await _run_post_load(schema, helper, cdc_write_mode="scd2_append")
 
-        helper.compact_if_fragmented.assert_awaited_once_with(partition_count=1)
-        helper.run_maintenance.assert_not_awaited()
-        helper.compact_table.assert_not_awaited()
-        update_config.assert_not_called()
+        assert helper.run_maintenance.await_args is not None
+        assert helper.run_maintenance.await_args.kwargs == {
+            "partition_count": 1,
+            "last_vacuum_version": 7,
+            "commit_threshold": 100,
+        }
+        update_config.assert_called_once_with(schema.id, schema.team_id, updates={"last_vacuum_version_cdc": 9})
 
     @parameterized.expand(
         [

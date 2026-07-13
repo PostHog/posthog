@@ -306,24 +306,21 @@ async def run_post_load_operations(
                     file_uris = await delta_table_helper.get_file_uris()
                     partition_count = len({uri.rsplit("/", 1)[0] for uri in file_uris}) or None
 
-                if is_cdc_companion:
-                    # One schema can back two delta tables (snapshot + _cdc companion) but holds a
-                    # single last_vacuum_version watermark, and the two tables' versions are unrelated.
-                    # Keep the cadence vacuum (and the watermark) on the snapshot path only; the
-                    # companion relies on compact_if_fragmented, which vacuums whenever it compacts.
-                    await delta_table_helper.compact_if_fragmented(partition_count=partition_count)
-                else:
-                    last_vacuum_version = (schema.sync_type_config or {}).get("last_vacuum_version")
-                    commit_threshold = int(getattr(settings, "DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100))
-                    new_version = await delta_table_helper.run_maintenance(
-                        partition_count=partition_count,
-                        last_vacuum_version=last_vacuum_version,
-                        commit_threshold=commit_threshold,
+                # One schema can back two delta tables (snapshot + _cdc companion) whose delta
+                # versions are unrelated numbers, so each table's vacuum cadence gets its own
+                # watermark key — sharing one would corrupt both cadences.
+                watermark_key = "last_vacuum_version_cdc" if is_cdc_companion else "last_vacuum_version"
+                last_vacuum_version = (schema.sync_type_config or {}).get(watermark_key)
+                commit_threshold = int(getattr(settings, "DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100))
+                new_version = await delta_table_helper.run_maintenance(
+                    partition_count=partition_count,
+                    last_vacuum_version=last_vacuum_version,
+                    commit_threshold=commit_threshold,
+                )
+                if new_version is not None and new_version != last_vacuum_version:
+                    await database_sync_to_async_pool(update_sync_type_config_keys)(
+                        schema.id, schema.team_id, updates={watermark_key: new_version}
                     )
-                    if new_version is not None and new_version != last_vacuum_version:
-                        await database_sync_to_async_pool(update_sync_type_config_keys)(
-                            schema.id, schema.team_id, updates={"last_vacuum_version": new_version}
-                        )
         except Exception as e:
             capture_exception(e)
             logger.exception(f"Delta maintenance failed: {e}", exc_info=e)
