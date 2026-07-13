@@ -39,7 +39,10 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         # Skip on workflow_dispatch — always build everything (escape hatch)
-        if: github.event_name != 'workflow_dispatch'
+        if: >-
+            github.event_name != 'workflow_dispatch' &&
+            (github.event_name != 'pull_request' ||
+             github.event.pull_request.head.repo.full_name == github.repository)
         permissions:
             contents: read
         outputs:
@@ -77,6 +80,8 @@ jobs:
         # Run unless affected explicitly found zero images ('none') or failed.
         if: |
             always() && !cancelled() &&
+            (github.event_name != 'pull_request' ||
+             github.event.pull_request.head.repo.full_name == github.repository) &&
             needs.affected.result != 'failure' &&
             needs.affected.outputs.image-filter != 'none'
         uses: ./.github/workflows/_rust-build-images.yml
@@ -91,7 +96,14 @@ jobs:
                 type=semver,pattern={{major}}.{{minor}}
                 type=sha
             timeout-minutes: 30
-        secrets: inherit
+        secrets:
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+            # Deliberately reuses the frontend sourcemap upload key: sourcemaps and
+            # native symbols go through the same symbol-set upload API on the same
+            # internal project, so there is no separate org secret to create.
+            # Rotating POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY affects both uploads.
+            POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
         permissions:
             id-token: write
             contents: read

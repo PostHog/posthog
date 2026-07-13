@@ -2,14 +2,15 @@ import asyncio
 from datetime import UTC, datetime
 
 import structlog
-from asgiref.sync import sync_to_async
 from google.genai import Client as RawGenAIClient
 from temporalio import activity
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     DELETE_CONCURRENCY,
@@ -18,10 +19,9 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants impo
     SWEEP_MIN_AGE,
 )
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import (
+    delete_and_untrack,
     index_size,
-    is_gemini_file_gone,
     iter_tracked_files,
-    untrack_uploaded_file,
 )
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import (
     CleanupSweepInputs,
@@ -59,8 +59,15 @@ async def _classify_workflow(temporal: Client, workflow_id: str) -> str:
 
 
 @activity.defn(name="replay_vision_sweep_gemini_files_activity")
+@track_activity()
 async def sweep_gemini_files_activity(inputs: CleanupSweepInputs) -> CleanupSweepResult:
     """Reclaims orphaned Gemini files. Failures counted, never raised."""
+    # Continuous background heartbeats — a degraded-API delete fan-out otherwise outlives the heartbeat timeout.
+    async with Heartbeater(factor=4):
+        return await _sweep_gemini_files(inputs)
+
+
+async def _sweep_gemini_files(inputs: CleanupSweepInputs) -> CleanupSweepResult:
     raw_client = RawGenAIClient(api_key=gemini_api_key())
     temporal = await async_connect()
     cutoff = datetime.now(UTC) - SWEEP_MIN_AGE
@@ -110,28 +117,14 @@ async def sweep_gemini_files_activity(inputs: CleanupSweepInputs) -> CleanupSwee
 
     async def _delete(tracked: TrackedFile) -> bool:
         async with delete_sem:
-            try:
-                await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=tracked.gemini_file_name)
-            except Exception as e:
-                if not is_gemini_file_gone(e):
-                    # Key kept for next-cycle retry; 48h TTL backstops.
-                    logger.exception(
-                        "replay_vision.cleanup_sweep.delete_failed",
-                        gemini_file_name=tracked.gemini_file_name,
-                        workflow_id=tracked.workflow_id,
-                        signals_type="cleanup-sweep",
-                    )
-                    return False
-                # File already gone (e.g., a previous untrack failed). Drop the key so we
-                # don't keep retrying a doomed delete.
-                logger.info(
-                    "replay_vision.cleanup_sweep.delete_already_gone",
-                    gemini_file_name=tracked.gemini_file_name,
-                    workflow_id=tracked.workflow_id,
-                    signals_type="cleanup-sweep",
-                )
-            await untrack_uploaded_file(tracked.gemini_file_name)
-            return True
+            # On transient failure the key is kept for next-cycle retry; the 48h TTL backstops.
+            return await delete_and_untrack(
+                raw_client,
+                tracked.gemini_file_name,
+                log_source="replay_vision.cleanup_sweep",
+                workflow_id=tracked.workflow_id,
+                signals_type="cleanup-sweep",
+            )
 
     delete_results = await asyncio.gather(*(_delete(t) for t in to_delete))
     deleted = sum(1 for r in delete_results if r)

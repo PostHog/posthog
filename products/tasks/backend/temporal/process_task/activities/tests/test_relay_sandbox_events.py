@@ -5,12 +5,14 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import httpx_sse
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
@@ -295,6 +297,123 @@ class TestRelaySandboxEventsCancellation:
         redis_stream.mark_error.assert_not_awaited()
 
 
+class TestRelaySandboxEventsMissingActor:
+    @pytest.mark.django_db
+    async def test_missing_slack_actor_fails_non_retryable_with_stream_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        redis_stream = SimpleNamespace(
+            initialize=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+
+        class StubTaskRunRedisStream:
+            def __init__(self, stream_key: str, use_dedicated: bool = False) -> None:
+                self.stream_key = stream_key
+
+            async def initialize(self) -> None:
+                await redis_stream.initialize()
+
+            async def mark_complete(self) -> None:
+                await redis_stream.mark_complete()
+
+            async def mark_error(self, error: str) -> None:
+                await redis_stream.mark_error(error)
+
+        class StubTaskRunQuerySet:
+            def select_related(self, *_args: str) -> "StubTaskRunQuerySet":
+                return self
+
+            async def aget(self, id: str) -> SimpleNamespace:
+                return SimpleNamespace(
+                    task=SimpleNamespace(id="task-id", created_by=None, origin_product=None),
+                    # A recorded actor that no longer resolves — deterministic, so the
+                    # activity must fail for good instead of retrying forever.
+                    state={"interaction_origin": "slack", "slack_actor_user_id": 424_242},
+                )
+
+        relay_loop_mock = AsyncMock()
+        monkeypatch.setattr(relay_sandbox_events_module, "TaskRunRedisStream", StubTaskRunRedisStream)
+        monkeypatch.setattr(
+            relay_sandbox_events_module,
+            "TaskRunModel",
+            SimpleNamespace(objects=StubTaskRunQuerySet()),
+        )
+        monkeypatch.setattr(relay_sandbox_events_module, "validate_sandbox_url", lambda _url: None)
+        monkeypatch.setattr(relay_sandbox_events_module, "_relay_loop", relay_loop_mock)
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await relay_sandbox_events(
+                RelaySandboxEventsInput(
+                    run_id="run-id",
+                    task_id="task-id",
+                    sandbox_url="https://sandbox.example",
+                    sandbox_connect_token=None,
+                    team_id=1,
+                    distinct_id="distinct-id",
+                )
+            )
+
+        assert exc_info.value.non_retryable is True
+        redis_stream.mark_error.assert_awaited_once()
+        relay_loop_mock.assert_not_awaited()
+
+
+class TestBrokerPermissionRequestStateRefresh:
+    @pytest.mark.django_db
+    def test_mode_downgrade_after_relay_start_escalates_instead_of_auto_approving(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+
+        from products.tasks.backend.models import Task
+
+        organization = Organization.objects.create(name="broker-refresh-org")
+        team = Team.objects.create(organization=organization, name="broker-refresh-team")
+        creator = User.objects.create(email="broker-refresh@example.com")
+        task = Task.objects.create(
+            team=team,
+            title="Create a PDF",
+            created_by=creator,
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        task_run = TaskRun.objects.create(
+            task=task,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_url": "https://sandbox.example.com", "slack_permission_mode": "full_auto"},
+        )
+        # The object the relay holds from its start; the user downgrades the mode mid-run.
+        stale_task_run = TaskRun.objects.select_related("task__created_by").get(id=task_run.id)
+        TaskRun.objects.filter(id=task_run.id).update(
+            state={"sandbox_url": "https://sandbox.example.com", "slack_permission_mode": "ask_before_write"}
+        )
+
+        permission_request = {
+            "request_id": "perm-1",
+            "tool_call": {"title": "Run tool", "rawInput": {"toolName": "Bash", "command": "rm -rf report.xlsx"}},
+            "options": [
+                {"optionId": "allow", "kind": "allow_once", "name": "Yes"},
+                {"optionId": "reject", "kind": "reject_once", "name": "No"},
+            ],
+        }
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.permission_broker.create_sandbox_connection_token",
+                return_value="sandbox-token",
+            ),
+            patch("products.tasks.backend.logic.services.permission_broker.send_agent_command") as mock_send,
+            patch(
+                "products.slack_app.backend.services.agent_permissions.post_slack_permission_request_for_task_run"
+            ) as mock_prompt,
+        ):
+            relay_sandbox_events_module._broker_permission_request(stale_task_run, permission_request)
+
+        mock_send.assert_not_called()
+        mock_prompt.assert_called_once()
+
+
 class TestRelaySandboxEventsErrorHandling:
     @parameterized.expand(
         [
@@ -412,6 +531,80 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         redis_stream.write_event.assert_awaited_once_with(terminal_event)
+        redis_stream.mark_complete.assert_awaited_once()
+        redis_stream.mark_error.assert_not_awaited()
+
+    async def test_permission_request_dispatches_to_broker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        permission_event = {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/permission_request",
+                "params": {
+                    "requestId": "perm-1",
+                    "options": [{"kind": "allow_once", "optionId": "allow"}],
+                    "toolCall": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
+                },
+            },
+        }
+        terminal_event = {
+            "type": "notification",
+            "notification": {"method": "_posthog/task_complete"},
+        }
+        task_run = SimpleNamespace(id="run-id")
+        dispatch_mock = MagicMock()
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(permission_event))
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
+            return SuccessfulEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def fake_to_thread(func, *args):
+            func(*args)
+
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(relay_sandbox_events_module, "_broker_permission_request", dispatch_mock)
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            task_run=cast(TaskRun, task_run),
+        )
+
+        redis_stream.write_event.assert_any_await(permission_event)
+        dispatch_mock.assert_called_once_with(
+            task_run,
+            {
+                "request_id": "perm-1",
+                "tool_call": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
+                "tool_name": "Bash",
+                "options": [{"optionId": "allow", "kind": "allow_once", "name": ""}],
+            },
+        )
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 
@@ -603,7 +796,7 @@ class TestRelaySandboxEventsErrorHandling:
             fake_mark_error_unless_run_is_terminal,
         )
 
-        with pytest.raises(RuntimeError, match="relay error"):
+        with pytest.raises(ApplicationError, match="relay error") as exc_info:
             await relay_sandbox_events(
                 RelaySandboxEventsInput(
                     run_id="run-id",
@@ -615,6 +808,10 @@ class TestRelaySandboxEventsErrorHandling:
                 )
             )
 
+        # An error sentinel was written to the stream, so the failure must be
+        # non-retryable — a retried attempt would append events past the
+        # sentinel that disconnected consumers never see.
+        assert exc_info.value.non_retryable is True
         redis_stream.mark_complete.assert_not_awaited()
         redis_stream.mark_error.assert_awaited_once_with("relay error")
 

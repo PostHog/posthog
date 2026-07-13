@@ -30,11 +30,14 @@ import { EncryptedFields } from '../utils/encryption-utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation } from '../utils/invocation-utils'
 import { mirrorCall } from '../utils/mirror-call'
+import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
 
 export interface HogTransformerConfig {
     siteUrl: string
     hogWatcherSampleRate: number
+    hogRustVmExecutionEnabled: boolean
+    mmdbFileLocation: string
 }
 
 export const hogTransformationDroppedEvents = new Counter({
@@ -85,6 +88,7 @@ export class HogTransformerService implements HogTransformer {
     private invocationResults: CyclotronJobInvocationResult[] = []
     private cachedGeoIp?: GeoIp
     private cachedTransformationFunctions?: ReturnType<typeof getTransformationFunctions>
+    private rustVmExecutor: RustVmExecutor | null
 
     constructor(
         private hogFunctionManager: HogFunctionManagerService,
@@ -96,7 +100,11 @@ export class HogTransformerService implements HogTransformer {
         private geoipService: GeoIPService,
         private redis: RedisV2,
         private config: HogTransformerConfig
-    ) {}
+    ) {
+        this.rustVmExecutor = config.hogRustVmExecutionEnabled
+            ? new RustVmExecutor({ mmdbPath: config.mmdbFileLocation })
+            : null
+    }
 
     public async start(): Promise<void> {}
 
@@ -299,6 +307,7 @@ export class HogTransformerService implements HogTransformer {
                 return {
                     event: null,
                     invocationResults: results,
+                    droppedBy: { id: hogFunction.id, name: hogFunction.name },
                 }
             }
 
@@ -399,13 +408,24 @@ export class HogTransformerService implements HogTransformer {
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
-        const result = isLegacyPluginHogFunction(hogFunction)
-            ? await this.pluginExecutor.execute(invocation)
-            : await this.hogExecutor.execute(invocation, {
-                  functions: transformationFunctions,
-                  asyncFunctionsNames: [],
-              })
-        return result
+        if (isLegacyPluginHogFunction(hogFunction)) {
+            return await this.pluginExecutor.execute(invocation)
+        }
+
+        if (this.rustVmExecutor) {
+            const sensitiveValues = this.hogExecutor.getSensitiveValues(hogFunction, globalsWithInputs.inputs)
+            const rustResult = this.rustVmExecutor.execute(invocation, sensitiveValues)
+            // Null means the Rust VM can't run this program (addon not built, unsupported host
+            // function): fall through to the Node VM.
+            if (rustResult) {
+                return rustResult
+            }
+        }
+
+        return await this.hogExecutor.execute(invocation, {
+            functions: transformationFunctions,
+            asyncFunctionsNames: [],
+        })
     }
 
     public async fetchAndCacheHogFunctionStates(functionIds: string[]): Promise<void> {
@@ -450,9 +470,10 @@ export class HogTransformerService implements HogTransformer {
 /**
  * Config needed by the HogTransformer when running inside ingestion.
  * This is CdpCoreServicesConfig (CDP redis, watcher, monitoring, encryption, etc.)
- * plus the ingestion-specific CDP_HOG_WATCHER_SAMPLE_RATE from CommonConfig.
+ * plus the ingestion-specific sample rates from CommonConfig.
  */
-export type HogTransformerServiceConfig = CdpCoreServicesConfig & Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
+export type HogTransformerServiceConfig = CdpCoreServicesConfig &
+    Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE' | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION'>
 
 export interface HogTransformerServiceDeps {
     geoipService: GeoIPService
@@ -507,7 +528,6 @@ export function createHogTransformerService(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-            selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
@@ -556,6 +576,8 @@ export function createHogTransformerService(
         {
             siteUrl: config.SITE_URL,
             hogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
+            hogRustVmExecutionEnabled: config.CDP_HOG_RUST_VM_EXECUTION_ENABLED,
+            mmdbFileLocation: config.MMDB_FILE_LOCATION,
         }
     )
 }

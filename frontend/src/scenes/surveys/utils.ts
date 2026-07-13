@@ -536,6 +536,10 @@ export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
     return true
 }
 
+export function doesSurveyRepeatOnEveryEvent(survey: Pick<Survey, 'conditions'>): boolean {
+    return !!(survey.conditions?.events?.repeatedActivation && (survey.conditions?.events?.values?.length ?? 0) > 0)
+}
+
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
     const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
     if (!conditions) {

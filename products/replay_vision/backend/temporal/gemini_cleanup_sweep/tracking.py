@@ -3,12 +3,17 @@
 import json
 from collections.abc import AsyncIterator
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
 import structlog
+from asgiref.sync import sync_to_async
 from google.genai.errors import APIError
 from redis import asyncio as aioredis
+
+if TYPE_CHECKING:
+    from google.genai import Client as RawGenAIClient
 
 from posthog.redis import get_async_client
 
@@ -28,6 +33,22 @@ def is_gemini_file_gone(error: Exception) -> bool:
     files as 403 PERMISSION_DENIED ("...or it may not exist"), not just 404 — callers should
     untrack on either instead of retrying a doomed delete."""
     return isinstance(error, APIError) and error.code in (403, 404)
+
+
+async def delete_and_untrack(
+    raw_client: "RawGenAIClient", gemini_file_name: str, *, log_source: str, **log_kwargs: Any
+) -> bool:
+    """Delete the Gemini file and drop its tracking key; returns False (key kept for retry) on transient failure."""
+    try:
+        await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=gemini_file_name)
+    except Exception as e:
+        if not is_gemini_file_gone(e):
+            logger.exception(f"{log_source}.delete_failed", gemini_file_name=gemini_file_name, **log_kwargs)
+            return False
+        # File already gone (e.g. a previous untrack failed) — drop the key so we don't retry a doomed delete.
+        logger.info(f"{log_source}.delete_already_gone", gemini_file_name=gemini_file_name, **log_kwargs)
+    await untrack_uploaded_file(gemini_file_name)
+    return True
 
 
 def _redis() -> aioredis.Redis:

@@ -45,15 +45,6 @@ pub enum RouterMode {
     Leader,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProxyMode {
-    /// Typed mode: deserialize/serialize every request through the PersonHogService trait.
-    Typed,
-    /// Raw mode: proxy raw bytes to replica for most methods, only deserialize
-    /// for GetPerson (STRONG) and UpdatePersonProperties which need leader routing.
-    Raw,
-}
-
 impl fmt::Display for RouterMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -77,29 +68,6 @@ impl FromStr for RouterMode {
     }
 }
 
-impl fmt::Display for ProxyMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ProxyMode::Typed => write!(f, "typed"),
-            ProxyMode::Raw => write!(f, "raw"),
-        }
-    }
-}
-
-impl FromStr for ProxyMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "typed" => Ok(ProxyMode::Typed),
-            "raw" => Ok(ProxyMode::Raw),
-            other => Err(format!(
-                "unknown proxy mode '{other}', expected 'typed' or 'raw'"
-            )),
-        }
-    }
-}
-
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:50052")]
@@ -108,12 +76,6 @@ pub struct Config {
     /// Router mode: "replica" (default) or "leader"
     #[envconfig(default = "replica")]
     pub router_mode: RouterMode,
-
-    /// Proxy mode: "typed" (default) or "raw"
-    /// Typed: full deserialization through PersonHogService trait
-    /// Raw: byte-level proxying for most methods, only typed for leader paths
-    #[envconfig(default = "typed")]
-    pub proxy_mode: ProxyMode,
 
     /// URL of the personhog-replica backend (DNS mode only)
     #[envconfig(default = "http://127.0.0.1:50051")]
@@ -181,14 +143,9 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub backend_keepalive_timeout_secs: u64,
 
-    /// Maximum gRPC message size to encode (send), in bytes.
-    /// Applied to the router's gRPC server and its backend clients (replica, leader).
-    /// Defaults to 128 MiB.
-    #[envconfig(default = "134217728")]
-    pub grpc_max_send_message_size: usize,
-
-    /// Maximum gRPC message size to decode (receive), in bytes.
-    /// Applied to the router's gRPC server and its backend clients (replica, leader).
+    /// Maximum request body size the proxy will collect before forwarding,
+    /// in bytes. Oversized requests are rejected with RESOURCE_EXHAUSTED.
+    /// Responses stream through unbounded (see `response_size_warn_bytes`).
     #[envconfig(default = "134217728")]
     pub grpc_max_recv_message_size: usize,
 
@@ -267,6 +224,13 @@ pub struct Config {
     /// Debounce interval (ms) for batching pod events before rebalancing
     #[envconfig(default = "1000")]
     pub coordinator_rebalance_debounce_ms: u64,
+
+    /// How often the coordinator re-evaluates in-flight handoffs
+    /// regardless of watch events — the liveness backstop for state
+    /// changes that fire no event (e.g. router departures) and for
+    /// events missed before a watch attaches.
+    #[envconfig(default = "5")]
+    pub coordinator_reconcile_secs: u64,
 
     // ── K8s awareness (leader mode only) ────────────────────────
     /// Enable K8s-aware departure classification for smarter rebalancing.
@@ -384,53 +348,6 @@ mod tests {
             );
         }
     }
-
-    // ── ProxyMode ─────────────────────────────────────────────────────────────
-
-    #[test]
-    fn proxy_mode_from_str_valid_variants() {
-        let cases = [
-            ("typed", ProxyMode::Typed),
-            ("raw", ProxyMode::Raw),
-            ("TYPED", ProxyMode::Typed),
-            ("RAW", ProxyMode::Raw),
-        ];
-        for (input, expected) in cases {
-            let result: Result<ProxyMode, _> = input.parse();
-            assert_eq!(
-                result.unwrap(),
-                expected,
-                "'{input}' should parse to {expected:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn proxy_mode_from_str_invalid_returns_error() {
-        let invalid_inputs = ["byte", "", "proxy", "passthrough"];
-        for input in invalid_inputs {
-            let result: Result<ProxyMode, _> = input.parse();
-            assert!(result.is_err(), "'{input}' should be an error");
-        }
-    }
-
-    #[test]
-    fn proxy_mode_display() {
-        assert_eq!(ProxyMode::Typed.to_string(), "typed");
-        assert_eq!(ProxyMode::Raw.to_string(), "raw");
-    }
-
-    #[test]
-    fn proxy_mode_roundtrips() {
-        for mode in [ProxyMode::Typed, ProxyMode::Raw] {
-            let s = mode.to_string();
-            let parsed: ProxyMode = s.parse().unwrap();
-            assert_eq!(
-                parsed, mode,
-                "Display → FromStr roundtrip failed for {mode:?}"
-            );
-        }
-    }
 }
 
 impl Config {
@@ -504,6 +421,10 @@ impl Config {
 
     pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {
         Duration::from_millis(self.coordinator_rebalance_debounce_ms)
+    }
+
+    pub fn coordinator_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_reconcile_secs)
     }
 
     pub fn stash_max_wait(&self) -> Duration {

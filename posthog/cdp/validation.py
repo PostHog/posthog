@@ -39,6 +39,7 @@ register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
 register_supported_function("postHogGetAccount")
 register_supported_function("postHogUpdateAccount")
+register_supported_function("postHogSetAccountProperties")
 
 
 # Globals that the realtime transformer actually populates at runtime.
@@ -136,6 +137,18 @@ class HyphenatedPropertyDetector(TraversingVisitor):
         return True
 
 
+class RecordAliasRewriter(TraversingVisitor):
+    """Rewrite `{record.x}` template references to `{event.properties.x}` for data-warehouse-table
+    sources. The synced row is delivered under `event.properties` at runtime, so `record` is a
+    friendlier alias users can write in destination/workflow templates instead of `event.properties`.
+    """
+
+    def visit_field(self, node: ast.Field):
+        super().visit_field(node)
+        if node.chain and str(node.chain[0]) == "record":
+            node.chain = ["event", "properties", *node.chain[1:]]
+
+
 def collect_inputs(node: ast.Expr) -> set[str]:
     input_collector = InputCollector()
     input_collector.visit(node)
@@ -146,17 +159,23 @@ def generate_template_bytecode(
     obj: Any,
     input_collector: set[str],
     function_type: Optional[str] = None,
+    is_dwh_source: bool = False,
 ) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
     """
 
     if isinstance(obj, dict):
-        return {key: generate_template_bytecode(value, input_collector, function_type) for key, value in obj.items()}
+        return {
+            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source)
+            for key, value in obj.items()
+        }
     elif isinstance(obj, list):
-        return [generate_template_bytecode(item, input_collector, function_type) for item in obj]
+        return [generate_template_bytecode(item, input_collector, function_type, is_dwh_source) for item in obj]
     elif isinstance(obj, str):
         node = parse_string_template(obj)
+        if is_dwh_source:
+            RecordAliasRewriter().visit(node)
         input_collector.update(collect_inputs(node))
         detector = HyphenatedPropertyDetector()
         detector.visit(node)
@@ -176,7 +195,7 @@ def generate_template_bytecode(
         return obj
 
 
-def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
+def transpile_template_code(obj: Any, compiler: JavaScriptCompiler, is_dwh_source: bool = False) -> str:
     """
     Clones an object, compiling any string values to bytecode templates
     """
@@ -186,7 +205,7 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
             + (
                 ", ".join(
                     [
-                        f"{json.dumps(str(key))}: {transpile_template_code(value, compiler)}"
+                        f"{json.dumps(str(key))}: {transpile_template_code(value, compiler, is_dwh_source)}"
                         for key, value in obj.items()
                     ]
                 )
@@ -194,9 +213,12 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
             + "}"
         )
     elif isinstance(obj, list):
-        return "[" + (", ".join([transpile_template_code(item, compiler) for item in obj])) + "]"
+        return "[" + (", ".join([transpile_template_code(item, compiler, is_dwh_source) for item in obj])) + "]"
     elif isinstance(obj, str):
-        return compiler.visit(parse_string_template(obj))
+        node = parse_string_template(obj)
+        if is_dwh_source:
+            RecordAliasRewriter().visit(node)
+        return compiler.visit(node)
     else:
         return json.dumps(obj)
 
@@ -225,6 +247,8 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "posthog_ticket_tags",
             "posthog_business_hours",
             "non_failure_status_codes",
+            "customer_analytics_account_properties",
+            "customer_analytics_account_relationships",
         ]
     )
     key = serializers.CharField()
@@ -271,6 +295,7 @@ class InputsItemSerializer(serializers.Serializer):
     def validate(self, attrs):
         schema = self.context["schema"]
         function_type = self.context["function_type"]
+        is_dwh_source = self.context.get("is_dwh_source", False)
         value = attrs.get("value")
         item_type = schema["type"]
 
@@ -301,7 +326,11 @@ class InputsItemSerializer(serializers.Serializer):
             else:
                 if not isinstance(value, bool):
                     raise serializers.ValidationError({"input": f"Value must be a boolean."})
-        elif item_type == "dictionary":
+        elif item_type in (
+            "dictionary",
+            "customer_analytics_account_properties",
+            "customer_analytics_account_relationships",
+        ):
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be a dictionary."})
         elif item_type == "integration":
@@ -347,6 +376,8 @@ class InputsItemSerializer(serializers.Serializer):
                         "email",
                         "native_email",
                         "posthog_ticket_tags",
+                        "customer_analytics_account_properties",
+                        "customer_analytics_account_relationships",
                     ] or (item_type == "boolean" and isinstance(value, str))
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
@@ -355,14 +386,14 @@ class InputsItemSerializer(serializers.Serializer):
 
                         if function_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                             compiler = JavaScriptCompiler()
-                            code = transpile_template_code(value, compiler)
+                            code = transpile_template_code(value, compiler, is_dwh_source=is_dwh_source)
                             attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
                             if "bytecode" in attrs:
                                 del attrs["bytecode"]
                         else:
                             input_collector: set[str] = set()
                             attrs["bytecode"] = generate_template_bytecode(
-                                value, input_collector, function_type=function_type
+                                value, input_collector, function_type=function_type, is_dwh_source=is_dwh_source
                             )
                             attrs["input_deps"] = list(input_collector)
                             if "transpiled" in attrs:
@@ -562,7 +593,12 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     return sorted_list
 
 
-def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> list[Any]:
+def compile_hog(
+    hog: str,
+    hog_type: str,
+    in_repl: Optional[bool] = False,
+    null_safe_comparisons: bool = False,
+) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
@@ -582,7 +618,12 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
             # Stated explicitly so a future refactor can't silently widen the surface.
             supported_functions = set()
 
-        return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
+        return create_bytecode(
+            program,
+            supported_functions=supported_functions,
+            in_repl=in_repl,
+            null_safe_comparisons=null_safe_comparisons,
+        ).bytecode
     except serializers.ValidationError:
         raise
     except Exception as e:

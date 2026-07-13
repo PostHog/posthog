@@ -1,7 +1,8 @@
 import os
+import json
 import uuid
 import datetime
-from typing import cast
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -13,8 +14,9 @@ from django.core.exceptions import ValidationError
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
-from social_core.exceptions import AuthFailed
+from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
@@ -243,6 +245,21 @@ class TestEEAuthenticationAPI(APILicensedTest):
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
 
+    @parameterized.expand(
+        [
+            ("auth_failed", AuthFailed(cast(Any, "google-oauth2"), "bad")),
+            ("missing_parameter", AuthMissingParameter(cast(Any, "google-oauth2"), "code")),
+            ("connection_error", AuthConnectionError(cast(Any, "google-oauth2"), "cert verify failed")),
+        ]
+    )
+    def test_unreachable_or_misconfigured_sso_provider_redirects(self, _name, exception):
+        # An unreachable IdP or one whose TLS cert fails during OIDC discovery raises AuthConnectionError,
+        # a sibling of AuthFailed - it must redirect gracefully rather than surface as an unhandled 500.
+        self.client.logout()
+        with self.settings(**GOOGLE_MOCK_SETTINGS), patch("posthog.api.authentication.auth", side_effect=exception):
+            response = self.client.get("/login/google-oauth2/")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
+
     def test_existing_session_remains_valid_when_sso_enforced(self):
         """Test that existing password-authenticated sessions remain valid after SSO is enforced"""
         self.client.logout()
@@ -303,9 +320,9 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             verified_at=timezone.now(),
             organization=cls.organization,
             jit_provisioning_enabled=True,
-            saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
-            saml_acs_url="https://idp.hogflix.io/saml",
-            saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
+            _saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
+            _saml_acs_url="https://idp.hogflix.io/saml",
+            _saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
     A1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsGA1UECgwET2t0YTEU
     MBIGA1UECwwLU1NPUHJvdmlkZXIxFTATBgNVBAMMDGRldi0xMzU1NDU1NDEcMBoGCSqGSIb3DQEJ
     ARYNaW5mb0Bva3RhLmNvbTAeFw0yMTA4MjExMTIyMjNaFw0zMTA4MjExMTIzMjNaMIGUMQswCQYD
@@ -379,6 +396,19 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         location = response.headers["Location"]
         self.assertIn("https://idp.hogflix.io/saml?SAMLRequest=", location)
 
+    def test_saml_flow_carries_next_url_in_relay_state(self):
+        # The session cookie is SameSite=Lax, so it's dropped on the IdP's cross-site POST
+        # back to /complete/saml/. The `next` redirect must therefore travel in RelayState
+        # (echoed back by the IdP) rather than the session, or re-auth lands the user on `/`.
+        response = self.client.get(
+            "/login/saml/?email=hellohello@posthog.com&next=/settings/organization/authentication"
+        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        relay_state = json.loads(parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0])
+        self.assertEqual(relay_state["idp"], str(self.organization_domain.id))
+        self.assertEqual(relay_state["next"], "/settings/organization/authentication")
+
     def test_cannot_initiate_saml_flow_without_target_email_address(self):
         """
         We need the email address to know how to route the SAML request.
@@ -443,6 +473,70 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         # Test logged in request
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            # Azure AD / Entra omits RelayState entirely for IdP-initiated SSO.
+            ("no_relay_state", None),
+            # Other IdPs send their own RelayState (e.g. an app launch URL) that isn't our UUID.
+            ("url_relay_state", "https://idp.hogflix.io/saml/launch"),
+        ]
+    )
+    @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
+    def test_can_login_with_idp_initiated_saml(self, _name: str, relay_state: str | None) -> None:
+        # IdP-initiated assertions don't carry the OrganizationDomain UUID in RelayState, so we
+        # route to the tenant via the assertion's <Issuer> instead of rejecting it as "Invalid
+        # RelayState". The fixture's Issuer matches the linked IdP config's saml_entity_id.
+        user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            encoding="utf_8",
+        ) as f:
+            saml_response = f.read()
+
+        # No SP-initiated request preceded this, so there is no PostHog-issued RelayState and no
+        # saml_state in the session — exactly the IdP-initiated case.
+        post_data = {"SAMLResponse": saml_response}
+        if relay_state is not None:
+            post_data["RelayState"] = relay_state
+
+        response = self.client.post("/complete/saml/", post_data, follow=True, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/")  # redirect to the home page
+
+        _session = self.client.session
+        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+
+    @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
+    def test_saml_login_redirects_to_next_url_from_relay_state(self):
+        # End-to-end counterpart to test_saml_flow_carries_next_url_in_relay_state: a JSON
+        # RelayState carrying `next` (as the IdP echoes it back) must land the user on that page
+        # rather than `/`, since the SameSite=Lax session cookie is dropped on this cross-site POST.
+        User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        self.client.get("/login/saml/?email=engineering@posthog.com&next=/settings/organization/authentication")
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+        _session.save()
+
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), encoding="utf_8") as f:
+            saml_response = f.read()
+
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": json.dumps(
+                    {"idp": str(self.organization_domain.id), "next": "/settings/organization/authentication"}
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], "/settings/organization/authentication")
 
     @freeze_time("2021-08-25T23:37:55.345Z")
     def test_saml_jit_provisioning_and_assertion_with_different_attribute_names(self):
@@ -553,7 +647,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_improperly_signed_payload(self):
-        self.organization_domain.saml_x509_cert = """MIIDPjCCAiYCCQC864/0fftWQTANBgkqhkiG9w0BAQsFADBhMQswCQYDVQQGEwJV
+        self.organization_domain._saml_x509_cert = """MIIDPjCCAiYCCQC864/0fftWQTANBgkqhkiG9w0BAQsFADBhMQswCQYDVQQGEwJV
 UzELMAkGA1UECAwCVVMxCzAJBgNVBAcMAlVTMQswCQYDVQQKDAJVUzELMAkGA1UE
 CwwCVVMxCzAJBgNVBAMMAlVTMREwDwYJKoZIhvcNAQkBFgJVUzAeFw0yMTA4MjYw
 MDAxMzNaFw0zMTA4MjYwMDAxMzNaMGExCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJV
@@ -821,9 +915,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
             verified_at=timezone.now(),
             organization=other_org,
             jit_provisioning_enabled=True,
-            saml_entity_id=self.organization_domain.saml_entity_id,
-            saml_acs_url=self.organization_domain.saml_acs_url,
-            saml_x509_cert=self.organization_domain.saml_x509_cert,
+            _saml_entity_id=self.organization_domain._saml_entity_id,
+            _saml_acs_url=self.organization_domain._saml_acs_url,
+            _saml_x509_cert=self.organization_domain._saml_x509_cert,
         )
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
@@ -987,9 +1081,9 @@ class TestSSOEnforcement(APILicensedTest):
             organization=self.organization,
             verified_at=timezone.now(),
             sso_enforcement="saml",
-            saml_entity_id="http://www.okta.com/test",
-            saml_acs_url="https://idp.test.io/saml",
-            saml_x509_cert="test_cert",
+            _saml_entity_id="http://www.okta.com/test",
+            _saml_acs_url="https://idp.test.io/saml",
+            _saml_x509_cert="test_cert",
         )
 
         # Test that Google OAuth2 is blocked
@@ -1056,9 +1150,9 @@ class TestSSOEnforcement(APILicensedTest):
             organization=self.organization,
             verified_at=timezone.now(),
             sso_enforcement="google-oauth2",
-            saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
-            saml_acs_url="https://my.posthog.app/complete/saml/",
-            saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
+            _saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
+            _saml_acs_url="https://my.posthog.app/complete/saml/",
+            _saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
 A1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsGA1UECgwET2t0YTEU
 MBIGA1UECwwLU1NPUHJvdmlkZXIxFTATBgNVBAMMDGRldi0xMzU1NDU1NDEcMBoGCSqGSIb3DQEJ
 ARYNaW5mb0Bva3RhLmNvbTAeFw0yMTA4MjExMTIyMjNaFw0zMTA4MjExMTIzMjNaMIGUMQswCQYD

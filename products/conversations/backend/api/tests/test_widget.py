@@ -396,6 +396,76 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["status"], Status.NEW)
 
+    def test_list_tickets_limit_respected_after_default_page_cached(self):
+        # Regression: the offset==0 cache key ignores limit, so a default-page
+        # poll (limit=100) must not leak its full cached page to a ?limit=2 request.
+        for _ in range(3):
+            Ticket.objects.create_with_number(
+                team=self.team,
+                widget_session_id=self.widget_session_id,
+                distinct_id=self.distinct_id,
+                channel_source="widget",
+                status=Status.NEW,
+            )
+
+        # Prime the cache with the default page size.
+        default_page = self.client.get(
+            f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(default_page.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(default_page.json()["results"]), 3)
+
+        limited = self.client.get(
+            f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}&limit=2",
+            **self._get_headers(),
+        )
+        self.assertEqual(limited.status_code, status.HTTP_200_OK)
+        self.assertEqual(limited.json()["count"], 3)
+        self.assertEqual(len(limited.json()["results"]), 2)
+
+    def test_list_tickets_default_page_still_served_from_cache(self):
+        # The widget polling path (offset=0, default limit) must still hit the
+        # cache — the fix must not disable caching for the hot path.
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+            status=Status.NEW,
+        )
+
+        url = f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}"
+
+        # First poll populates the cache, second poll is served from it.
+        first = self.client.get(url, **self._get_headers())
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        with patch("products.conversations.backend.api.widget.get_cached_tickets") as mock_get:
+            mock_get.return_value = {"count": 99, "results": []}
+            second = self.client.get(url, **self._get_headers())
+            mock_get.assert_called_once()
+            # Response comes straight from the cache, not the DB.
+            self.assertEqual(second.json()["count"], 99)
+
+    def test_list_tickets_custom_limit_never_reads_cache(self):
+        # A custom limit must bypass the cache entirely (both read and write).
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+            status=Status.NEW,
+        )
+
+        with patch("products.conversations.backend.api.widget.get_cached_tickets") as mock_get:
+            response = self.client.get(
+                f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}&limit=2",
+                **self._get_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_get.assert_not_called()
+
     def test_mark_read(self):
         ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -624,6 +694,42 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.distinct_id, self.distinct_id)
+        self.assertTrue(ticket.identity_verified)
+
+    def test_anonymous_message_creates_unverified_ticket(self):
+        # A widget_session_id-only (no HMAC) request is not server-attested.
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "message": "Anonymous hello",
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertFalse(ticket.identity_verified)
+
+    def test_verified_message_promotes_anonymous_ticket(self):
+        # An existing anonymous ticket becomes verified once an HMAC-verified
+        # message with the matching distinct_id lands on it.
+        ticket = self._create_ticket()
+        self.assertFalse(ticket.identity_verified)
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                "message": "Now verified",
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertTrue(ticket.identity_verified)
 
     def test_send_message_existing_ticket_ownership_by_distinct_id(self):
         ticket = self._create_ticket()

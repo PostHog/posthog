@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
-import posthoganalytics
 from posthoganalytics import capture_exception
 
 from posthog.schema import (
@@ -30,10 +29,8 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.constants import EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
@@ -57,7 +54,7 @@ class ExposureQueryResult:
     pending: bool
 
 
-MAX_METRICS_TO_SUMMARIZE = 20
+MAX_METRICS_TO_SUMMARIZE = 50
 MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 10
 
 # This threshold is just to avoid minor discrepancies in timestamps.
@@ -69,23 +66,6 @@ FRESHNESS_THRESHOLD_SECONDS = 60
 ExperimentMetricType = Union[
     ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric
 ]
-
-
-def is_experiments_sync_queries_enabled(team: Team) -> bool:
-    """Return whether experiment queries should block on stale cache for this project."""
-    return bool(
-        posthoganalytics.feature_enabled(
-            EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id), "uuid": str(team.uuid)},
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    )
 
 
 def parse_metric_dict(metric_dict: dict) -> ExperimentMetricType | None:
@@ -159,8 +139,9 @@ def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatu
 
 
 class ExperimentSummaryDataService:
-    def __init__(self, team):
+    def __init__(self, team, user):
         self._team = team
+        self._user = user
 
     async def fetch_experiment_data(
         self, experiment_id: int
@@ -195,11 +176,10 @@ class ExperimentSummaryDataService:
         multivariate = feature_flag.filters.get("multivariate", {})
         variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
         stats_method = get_experiment_stats_method(experiment)
-        execution_mode = (
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-            if is_experiments_sync_queries_enabled(experiment.team)
-            else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-        )
+        # PostHog AI gets one shot at the data — unlike the frontend it can't poll, so a
+        # stale metric returned as "pending" is silently dropped from the summary. Always
+        # block on stale cache so every metric resolves inline.
+        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES)
 
@@ -223,6 +203,9 @@ class ExperimentSummaryDataService:
                         team=experiment.team,
                         workload=Workload.ONLINE,
                         limit_context=LimitContext.QUERY_ASYNC,
+                        # Runs for the requesting Max user, so warehouse access is enforced against them.
+                        user=self._user,
+                        error_event_context="agent",
                     )
                     result = query_runner.run(
                         execution_mode=execution_mode,
@@ -275,6 +258,7 @@ class ExperimentSummaryDataService:
                             query=exposure_query,
                             team=experiment.team,
                             limit_context=LimitContext.QUERY_ASYNC,
+                            error_event_context="agent",
                         )
                         exposure_result = exposure_runner.run(
                             execution_mode=execution_mode,

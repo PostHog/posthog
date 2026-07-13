@@ -6,6 +6,7 @@ import { Readable } from 'stream'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import type { LogsSettings } from '~/types'
 
+import { recordLogProcessingDuration } from './ingestion-otel-metrics'
 import { type LogBodyParseResult, parseLogBodyForIngestion } from './log-body-parse'
 import { EMPTY_PII, type PiiScrubStats, scrubLogRecord } from './log-pii-scrub'
 
@@ -328,13 +329,12 @@ export const processLogMessageBuffer = instrumented({
         return { value, pii }
     } finally {
         const durationSeconds = (Date.now() - startTime) / 1000
-        logProcessingDurationHistogram.observe(
-            {
-                json_parse_enabled: String(jsonParse),
-                pii_scrub_enabled: String(piiScrub),
-                compression_codec: codec,
-            },
-            durationSeconds
-        )
+        const durationLabels = {
+            json_parse_enabled: String(jsonParse),
+            pii_scrub_enabled: String(piiScrub),
+            compression_codec: codec,
+        }
+        logProcessingDurationHistogram.observe(durationLabels, durationSeconds)
+        recordLogProcessingDuration(durationSeconds, durationLabels)
     }
 }) as (buffer: Buffer, settings: LogsSettings) => Promise<{ value: Buffer; pii: PiiScrubStats }>

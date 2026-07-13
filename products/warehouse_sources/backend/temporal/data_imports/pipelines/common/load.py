@@ -14,7 +14,10 @@ from posthog.temporal.common.logger import get_logger
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    sync_engineering_analytics_views,
+    sync_revenue_analytics_views,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -411,3 +414,18 @@ async def run_post_load_operations(
 
     logger.debug("Syncing revenue analytics views if needed")
     await database_sync_to_async_pool(sync_revenue_analytics_views)(schema, source)
+
+    logger.debug("Syncing engineering analytics views if needed")
+    await database_sync_to_async_pool(sync_engineering_analytics_views)(schema, source)
+
+    # Measure partition sizes and flag the table for an in-place repartition if a partition has grown
+    # past the memory-safe budget. CDC tables are excluded for now (their companion-table semantics
+    # need separate validation). Detection never raises — it must not break post-load.
+    if not is_cdc_companion and schema.sync_type != ExternalDataSchema.SyncType.CDC:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition_controller import (
+            maybe_flag_for_repartition,
+        )
+
+        delta_table = await delta_table_helper.get_delta_table()
+        if delta_table is not None:
+            await maybe_flag_for_repartition(schema, source, job, delta_table, logger)

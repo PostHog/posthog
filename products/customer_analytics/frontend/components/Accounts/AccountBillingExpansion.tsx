@@ -1,18 +1,25 @@
 import { useActions, useValues } from 'kea'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { BurningMoneyHog, DetectiveHog } from 'lib/components/hedgehogs'
+import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
 import { Query } from '~/queries/Query/Query'
 
 import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
 
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+
 function BillingInsightNotFound({ kind }: { kind: AccountBillingKind }): JSX.Element {
-    const Hog = kind === 'spend' ? BurningMoneyHog : DetectiveHog
+    const Hog = kind === 'spend' ? BurningMoneyHog : HedgehogMagnifyingGlass
     return (
-        <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
+        <div
+            className="flex flex-col items-center justify-center gap-2 p-8 text-center"
+            data-attr="account-billing-insight-not-found"
+        >
             <Hog className="w-24 h-24" />
             <h4 className="mb-0">No billing {kind} insight here</h4>
             <p className="text-secondary max-w-sm mb-0">

@@ -150,13 +150,13 @@ export const chart = {
         index: number,
         totalLabels = trendsSeries.pageviews.labels.length
     ): Promise<InsightTooltipAccessor> {
-        const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: DEBOUNCE_TIMEOUT })
+        const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: DEBOUNCE_TIMEOUT })
         const wrapper = canvas.parentElement!
         const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels)
         return createInsightTooltipAccessor(tooltip)
     },
     async clickAtIndex(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<void> {
-        const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: DEBOUNCE_TIMEOUT })
+        const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: DEBOUNCE_TIMEOUT })
         const wrapper = canvas.parentElement!
         await clickAtIndex(wrapper, index, totalLabels)
     },
@@ -165,7 +165,7 @@ export const chart = {
     async clickTooltipRow(label: string | RegExp): Promise<void> {
         const tooltip = await waitForHogChartTooltip()
         const row = within(tooltip).getByText(label)
-        const clickable = row.closest('tr') ?? row
+        const clickable = row.closest('[data-attr="hog-chart-tooltip-row"]') ?? row.closest('tr') ?? row
         fireEvent.click(clickable)
     },
 }
@@ -175,7 +175,7 @@ export const chart = {
  *  `totalLabels` (the x-axis label count) is required: there's no canonical default series. */
 export const sqlChart = {
     async hoverTooltip(index: number, totalLabels: number): Promise<DefaultTooltipAccessor> {
-        const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: DEBOUNCE_TIMEOUT })
+        const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: DEBOUNCE_TIMEOUT })
         const wrapper = canvas.parentElement!
         const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels)
         return createDefaultTooltipAccessor(tooltip)

@@ -82,7 +82,7 @@ import {
     getModeDisplayName,
 } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
-import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
+import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
@@ -91,6 +91,7 @@ import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
+    activeSceneLogicHasMaxContext,
     findPendingClientToolCall,
     getAgentModeForScene,
     isAssistantMessage,
@@ -212,6 +213,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'openSseForRun as openSandboxSse',
                 'pushHumanMessage as pushSandboxHumanMessage',
                 'pushErrorItem as pushSandboxError',
+                'setRunOpening as setSandboxRunOpening',
                 'bootstrapRun as bootstrapSandboxRun',
                 'reset as resetSandboxStream',
                 'cancelRun as cancelSandboxRun',
@@ -717,6 +719,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 value: `The user selected a mode: "${getModeDisplayName(values.agentMode)}". It was in the legacy implementation. Acknowledge the mode if the user refers to it.`,
                             })
                         }
+                        // Optimistic boot indicator: light the "spinning up sandbox" provisioning state
+                        // for the duration of the open POST, before any SSE state exists. `openSandboxSse`
+                        // (success) clears it via the reducer; the failure/no-handle paths clear it below.
+                        actions.setSandboxRunOpening(true)
                         // Single create-or-resume opener: it creates the conversation row on first use,
                         // starts/continues the Run, and returns the (task, run) handle. A message always
                         // provisions a run (a null handle only happens on a warm with a full pool).
@@ -763,7 +769,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     posthog.captureException(e)
                     actions.pushSandboxError('Failed to send your message. Please try again.')
                 }
-                // The POST failed or no run was started — nothing will stream, release the lock now.
+                // The POST failed or no run was started — nothing will stream. Drop the optimistic boot
+                // indicator and release the lock now.
+                actions.setSandboxRunOpening(false)
                 actions.decrActiveStreamingThreads()
                 releaseStreamingLock()
                 return
@@ -1285,8 +1293,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return false
                 }
                 const activeSceneLogic = sceneLogic.values.activeSceneLogic
-                if (!activeSceneLogic || !('maxContext' in activeSceneLogic.selectors)) {
+                if (!activeSceneLogic) {
+                    // No dashboard scene logic to wait on — its key hasn't resolved or it can't be
+                    // built. Nothing will land, so don't block: send now rather than stalling for the
+                    // full cap and shipping without context anyway.
                     return false
+                }
+                if (!activeSceneLogicHasMaxContext(activeSceneLogic)) {
+                    // The logic exists but isn't mounted yet — building, or briefly unmounted mid
+                    // dashboard→dashboard navigation. Keep waiting (bounded by the cap) so context
+                    // collection picks up the dashboard once it mounts.
+                    return true
                 }
                 return !(activeSceneLogic.values as { dashboard?: unknown }).dashboard
             }
@@ -2117,20 +2134,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         filteredCommands: [
-            (s) => [s.question, s.featureFlags, s.threadLoading, s.billingContext, s.conversation],
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.conversation],
             (
                 question: string,
                 featureFlags: Record<string, boolean | string>,
                 threadLoading: boolean,
-                billingContext: MaxBillingContext | null,
                 conversation: Conversation | null
             ): SlashCommand[] => {
-                const hasPaidPlan =
-                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.PAID ||
-                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.CUSTOM ||
-                    billingContext?.trial?.is_active ||
-                    process.env.NODE_ENV === 'development'
-
                 // Sandbox runtime drops core-memory commands; LangGraph keeps the full set.
                 const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
 
@@ -2139,7 +2149,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         command.name.toLowerCase().startsWith(question.toLowerCase()) &&
                         (!command.flag || featureFlags[command.flag]) &&
                         (!command.requiresIdle || !threadLoading) &&
-                        (!command.requiresPaidPlan || hasPaidPlan) &&
                         (!command.hiddenInSandbox || !isSandboxRuntime)
                 )
             },

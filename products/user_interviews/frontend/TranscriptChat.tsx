@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 
-import { RobotHog } from 'lib/components/hedgehogs'
+import * as roboHogPng from '@posthog/brand/hoggies/png/robo-hog'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonIcon } from 'scenes/persons/PersonDisplay'
@@ -8,6 +10,8 @@ import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { PersonType } from '~/types'
 
 import { TranscriptTurn, parseTranscript } from './parseTranscript'
+
+const HedgehogRoboHog = pngHoggie(roboHogPng)
 
 interface TranscriptChatProps {
     transcript: string
@@ -68,7 +72,7 @@ function TranscriptAvatar({ turn, person, identifier }: TranscriptBubbleProps): 
                 className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-surface-tertiary overflow-hidden"
                 title={turn.name}
             >
-                <RobotHog className="w-8 h-8 object-cover" />
+                <HedgehogRoboHog className="w-8 h-8 object-cover" />
             </span>
         )
     }

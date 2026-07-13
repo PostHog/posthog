@@ -8,6 +8,8 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -19,6 +21,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models import PropertyDefinition, Team
@@ -852,6 +857,203 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
+
+    def _create_search_fixture(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_walrus",
+            team=self.team,
+            input="Where does the walrus sleep?",
+            output="On an ice floe.",
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_penguin",
+            team=self.team,
+            input="Tell me about penguins.",
+            output="Penguins prefer icebergs.",
+            timestamp=datetime(2024, 12, 1, 0, 10),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_paris",
+            team=self.team,
+            input="What is the capital of France?",
+            output="Paris.",
+            timestamp=datetime(2024, 12, 1, 0, 20),
+        )
+        # Older SDKs emit $ai_output (the `output` column) instead of $ai_output_choices.
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_albatross",
+            team=self.team,
+            input="What flies at night?",
+            properties={"$ai_output": {"role": "assistant", "content": "The albatross flies at night."}},
+            timestamp=datetime(2024, 12, 1, 0, 30),
+        )
+
+    def _run_search_query(self, search_term: str, **kwargs: Any):
+        return TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+                searchTerm=search_term,
+                **kwargs,
+            ),
+        ).calculate()
+
+    @parameterized.expand(
+        [
+            ("input_match", "walrus", {"trace_walrus"}),
+            ("output_choices_match", "icebergs", {"trace_penguin"}),
+            ("legacy_output_match", "albatross", {"trace_albatross"}),
+            ("case_insensitive", "WALRUS", {"trace_walrus"}),
+            ("multiple_traces", "ice", {"trace_walrus", "trace_penguin"}),
+            ("no_match", "platypus", set()),
+            ("blank_is_ignored", "   ", {"trace_walrus", "trace_penguin", "trace_paris", "trace_albatross"}),
+        ]
+    )
+    def test_search_term_filters_by_generation_content(self, _name, search_term, expected_trace_ids):
+        self._create_search_fixture()
+
+        response = self._run_search_query(search_term)
+        self.assertEqual({trace.id for trace in response.results}, expected_trace_ids)
+
+    @parameterized.expand(
+        [
+            ("percent", "100% off", "Discount is 100% off", "Discount is 100x off today"),
+            ("underscore", "sold a_b units", "We sold a_b units", "We sold aXb units"),
+        ]
+    )
+    def test_search_term_treats_like_metacharacters_literally(self, _name, search_term, matching, non_matching):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_literal",
+            team=self.team,
+            input=matching,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_wildcard",
+            team=self.team,
+            input=non_matching,
+            timestamp=datetime(2024, 12, 1, 0, 10),
+        )
+
+        response = self._run_search_query(search_term)
+        self.assertEqual({trace.id for trace in response.results}, {"trace_literal"})
+
+    def test_search_term_combines_with_property_filters(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        # Filter and search match different events of trace_both: they must combine at trace level.
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_both",
+            team=self.team,
+            input="Contains the needle.",
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_both",
+            team=self.team,
+            input="Unrelated content.",
+            properties={"foo": "bar"},
+            timestamp=datetime(2024, 12, 1, 0, 1),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_search_only",
+            team=self.team,
+            input="Contains the needle.",
+            timestamp=datetime(2024, 12, 1, 0, 10),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_filter_only",
+            team=self.team,
+            input="Unrelated content.",
+            properties={"foo": "bar"},
+            timestamp=datetime(2024, 12, 1, 0, 20),
+        )
+
+        response = self._run_search_query(
+            "needle",
+            properties=[EventPropertyFilter(key="foo", value="bar", operator=PropertyOperator.EXACT)],
+        )
+        self.assertEqual({trace.id for trace in response.results}, {"trace_both"})
+
+    def test_search_term_respects_date_range(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_in_range",
+            team=self.team,
+            input="Contains the needle.",
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_out_of_range",
+            team=self.team,
+            input="Contains the needle.",
+            timestamp=datetime(2024, 12, 2, 5, 0),
+        )
+
+        response = self._run_search_query("needle")
+        self.assertEqual({trace.id for trace in response.results}, {"trace_in_range"})
+
+    def test_search_filter_prints_as_global_in(self):
+        # A plain IN passes single-node CI but re-executes the subquery per events
+        # shard in production; only the printed SQL can catch the downgrade.
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+                searchTerm="needle",
+            ),
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(runner._build_trace_ids_query(), context, "clickhouse")
+        # The printer emits GLOBAL IN in function form.
+        assert "globalIn(" in sql
+        assert "ai_events" in sql
+
+    def test_search_candidate_cap_applies_after_filters(self):
+        # With the cap at 1, the more recent trace matches the term but not the property
+        # filter. Drawing the cap from the filtered set keeps the older matching trace;
+        # capping raw text matches first would keep the recent one and empty the page.
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_match",
+            team=self.team,
+            input="Contains the needle.",
+            properties={"foo": "bar"},
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_recent",
+            team=self.team,
+            input="Contains the needle.",
+            timestamp=datetime(2024, 12, 1, 0, 30),
+        )
+
+        with patch("posthog.hogql_queries.ai.traces_query_runner.SEARCH_CANDIDATE_TRACE_LIMIT", 1):
+            response = self._run_search_query(
+                "needle",
+                properties=[EventPropertyFilter(key="foo", value="bar", operator=PropertyOperator.EXACT)],
+            )
+        self.assertEqual({trace.id for trace in response.results}, {"trace_match"})
 
     def test_model_parameters(self):
         _create_person(distinct_ids=["person1"], team=self.team, properties={"foo": "bar"})

@@ -1,21 +1,14 @@
 import { useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 
-import {
-    IconArrowLeft,
-    IconCode,
-    IconDocument,
-    IconEllipsis,
-    IconExternal,
-    IconPullRequest,
-    IconSearch,
-} from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
+import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -23,10 +16,9 @@ import { urls } from 'scenes/urls'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus } from '../../types'
+import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import {
     displayConventionalCommitTitle,
-    ParsedPrUrlParts,
     parseConventionalCommitTitle,
     parsePrUrlParts,
     safeHttpUrl,
@@ -34,9 +26,16 @@ import {
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
-import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
+import {
+    hasKnownSourceProduct,
+    knownSourceProductEntries,
+    SourceProductIconRow,
+    sourceProductsTooltipTitle,
+} from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
-import { RightColumnSection } from './DetailSection'
+import { CommitContent } from './artefactTypes'
+import { DetailSection } from './DetailSection'
+import { PullRequestBranchTag, PullRequestDiffPanel } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -69,6 +68,10 @@ export function ReportDetailBadges({
     )
 }
 
+/** Shared explainer for the finding count in the meta line and the Evidence section. */
+const FINDINGS_TOOLTIP =
+    'Findings are the individual pieces of evidence – signals from your connected sources and scouts – that were grouped into this report.'
+
 /**
  * Single meta line under the title: status/actionability chips, then dot-separated stats
  * (finding count · updated · source stack). `evidenceCount` switches to the live signal count once
@@ -78,10 +81,13 @@ function ReportDetailMeta({
     report,
     evidenceCount,
     actionabilityExplanation,
+    scoutName,
 }: {
     report: SignalReport
     evidenceCount: number
     actionabilityExplanation?: string | null
+    /** Authoring scout's display name, when the report was scout-authored — appended to the "Scout" chip. */
+    scoutName?: string | null
 }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
     // "Ready" is the default terminal state; surface the status chip only until actionability is known.
@@ -90,9 +96,11 @@ function ReportDetailMeta({
     const stats: ReactNode[] = []
     if (evidenceCount > 0) {
         stats.push(
-            <span className="tabular-nums">
-                {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
-            </span>
+            <Tooltip title={FINDINGS_TOOLTIP}>
+                <span className="tabular-nums cursor-help">
+                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                </span>
+            </Tooltip>
         )
     }
     // Mirrors error tracking's "First seen" / "Last seen": surface both lifecycle moments as distinct facts.
@@ -109,7 +117,7 @@ function ReportDetailMeta({
         </span>
     )
     if (hasSource) {
-        stats.push(<MetaSourceStack sourceProducts={report.source_products} />)
+        stats.push(<MetaSourceStack sourceProducts={report.source_products} scoutName={scoutName} />)
     }
 
     return (
@@ -132,22 +140,33 @@ function ReportDetailMeta({
 }
 
 /** Source-product icon stack reused inside the detail meta row. */
-function MetaSourceStack({ sourceProducts }: { sourceProducts?: string[] | null }): JSX.Element | null {
-    const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
+function MetaSourceStack({
+    sourceProducts,
+    scoutName,
+}: {
+    sourceProducts?: string[] | null
+    scoutName?: string | null
+}): JSX.Element | null {
+    const entries = knownSourceProductEntries(sourceProducts)
+    const [primary, ...overflow] = entries
     if (!primary) {
         return null
     }
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
+    const primaryLabel =
+        primary.key === SignalSourceProduct.SignalsScout && scoutName
+            ? `${primary.meta.label} · ${scoutName}`
+            : primary.meta.label
     return (
-        <span className="inline-flex items-center gap-1.5 min-w-0">
-            <SourceProductIconRow
-                entries={[primary, ...overflow]}
-                className="inline-flex items-center gap-1 shrink-0"
-            />
-            <span>
-                {primary.meta.label}
-                {overflow.length > 0 ? ` + ${overflow.length}` : null}
+        <Tooltip title={sourceProductsTooltipTitle(entries)}>
+            <span className="inline-flex items-center gap-1.5 min-w-0 cursor-help">
+                <SourceProductIconRow entries={entries} className="inline-flex items-center gap-1 shrink-0" />
+                <span>
+                    {primaryLabel}
+                    {overflow.length > 0 ? ` + ${overflow.length}` : null}
+                </span>
             </span>
-        </span>
+        </Tooltip>
     )
 }
 
@@ -223,6 +242,10 @@ interface InboxDetailFrameProps {
     summary: { icon: ReactNode; title: string }
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
+    /** Diff body. When present, the overview and this render behind two tabs (GitHub-style PR view). */
+    diffSection?: ReactNode
+    /** Branch tag shown in the "Files changed" tab label, so the tab signals there's code behind it. */
+    diffBranchTag?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
@@ -238,14 +261,22 @@ export function InboxDetailFrame({
     tab,
     summary,
     primaryAction,
+    diffSection,
+    diffBranchTag,
     children,
 }: InboxDetailFrameProps): JSX.Element {
     const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
+    // GitHub-style PR view: when a diff is present, the overview and the diff live behind two tabs.
+    const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
+    const hasDiff = !!diffSection
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
+
+    // Which scout authored this report — the serializer resolves the skill_name off the backing signals.
+    const scoutName = scoutDisplayName(report.scout_name)
 
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
@@ -275,9 +306,62 @@ export function InboxDetailFrame({
         onClick: action.onClick,
     }))
 
+    const overviewBody = (
+        <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
+            <div className="min-w-0">
+                <DetailSection icon={summary.icon} title={summary.title}>
+                    {report.summary ? (
+                        <LemonMarkdown
+                            className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
+                            disableImages
+                        >
+                            {report.summary}
+                        </LemonMarkdown>
+                    ) : (
+                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                            No summary yet – an agent is still investigating.
+                        </p>
+                    )}
+                </DetailSection>
+            </div>
+
+            <div className="flex flex-col min-w-0 gap-5">
+                {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
+                {children}
+                <SuggestedReviewersSection report={report} />
+                {hasEvidence && (
+                    <DetailSection
+                        icon={<IconSearch />}
+                        title="Evidence"
+                        rightSlot={
+                            <Tooltip title={FINDINGS_TOOLTIP}>
+                                <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
+                                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                                </span>
+                            </Tooltip>
+                        }
+                    >
+                        {reportSignalsLoading && reportSignals === null ? (
+                            <EvidenceSkeleton count={evidenceCount} />
+                        ) : (
+                            <div className="flex flex-col gap-3">
+                                {signals.map((signal: SignalNode) => (
+                                    <SignalCard key={signal.signal_id} signal={signal} />
+                                ))}
+                            </div>
+                        )}
+                    </DetailSection>
+                )}
+                <ReportTasksSection report={report} />
+                <ReportActivitySection report={report} />
+            </div>
+        </div>
+    )
+
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
-            <div className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary">
+            {/* With a diff present the tab bar owns the full-width divider, so the heading drops its own. */}
+            <div className={`flex flex-col gap-3.5 ${hasDiff ? 'mb-4' : 'mb-6 pb-5 border-b border-primary'}`}>
                 <LemonButton
                     type="tertiary"
                     size="small"
@@ -312,6 +396,7 @@ export function InboxDetailFrame({
                                 report={report}
                                 evidenceCount={evidenceCount}
                                 actionabilityExplanation={actionabilityExplanation}
+                                scoutName={scoutName}
                             />
                         </div>
                     </div>
@@ -346,98 +431,53 @@ export function InboxDetailFrame({
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-                <div className="min-w-0">
-                    <RightColumnSection icon={summary.icon} title={summary.title}>
-                        {report.summary ? (
-                            <LemonMarkdown
-                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
-                                disableImages
-                            >
-                                {report.summary}
-                            </LemonMarkdown>
-                        ) : (
-                            <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                                No summary yet – an agent is still investigating.
-                            </p>
-                        )}
-                    </RightColumnSection>
-                </div>
-
-                <div className="flex flex-col min-w-0 gap-5">
-                    {/* Pull request (when present) first, then reviewers, evidence, and runs. */}
-                    {children}
-                    <SuggestedReviewersSection report={report} />
-                    {hasEvidence && (
-                        <RightColumnSection
-                            icon={<IconSearch />}
-                            title="Evidence"
-                            rightSlot={
-                                <span className="text-[0.6875rem] text-tertiary tabular-nums">
-                                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+            {hasDiff ? (
+                <LemonTabs
+                    activeKey={activeDetailTab}
+                    onChange={setActiveDetailTab}
+                    tabs={[
+                        { key: 'overview', label: 'Overview', content: overviewBody },
+                        {
+                            key: 'files',
+                            label: (
+                                <span className="flex items-center gap-1.5">
+                                    <span>Files changed</span>
+                                    {diffBranchTag}
                                 </span>
-                            }
-                        >
-                            {reportSignalsLoading && reportSignals === null ? (
-                                <EvidenceSkeleton count={evidenceCount} />
-                            ) : (
-                                <div className="flex flex-col gap-3">
-                                    {signals.map((signal: SignalNode) => (
-                                        <SignalCard key={signal.signal_id} signal={signal} />
-                                    ))}
-                                </div>
-                            )}
-                        </RightColumnSection>
-                    )}
-                    <ReportTasksSection report={report} />
-                    <ReportActivitySection report={report} />
-                </div>
-            </div>
+                            ),
+                            content: <>{diffSection}</>,
+                        },
+                    ]}
+                />
+            ) : (
+                overviewBody
+            )}
         </div>
     )
 }
 
-/**
- * PR identity banner: the `repoSlug#number` ref, mono, with a PR glyph, linking out to GitHub.
- * Surfaced as the first right-column section when the report has a shipped implementation PR.
- */
-function PullRequestBanner({ prUrl, prRef }: { prUrl: string; prRef: ParsedPrUrlParts }): JSX.Element {
-    return (
-        <Link
-            to={prUrl}
-            target="_blank"
-            disableClientSideRouting
-            className="group flex items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-3 no-underline text-inherit transition-colors duration-150 hover:border-primary hover:bg-surface-secondary"
-        >
-            <span className="flex items-center justify-center size-7 shrink-0 rounded-full bg-success-highlight text-success">
-                <IconPullRequest className="text-base" />
-            </span>
-            <span className="font-mono text-[13px] text-primary truncate">
-                {prRef.repoSlug}#{prRef.number}
-            </span>
-            <Tooltip title="Open in GitHub">
-                <span className="shrink-0 text-tertiary transition-colors group-hover:text-default">
-                    <IconExternal className="text-base" />
-                </span>
-            </Tooltip>
-        </Link>
-    )
-}
-
-/**
- * Unified report detail for Pull requests / Reports / Not actionable. The PR banner +
- * "Open in GitHub" action surface only when the report has a shipped implementation PR;
- * otherwise it reads as a plain report. Runs keep their own `AgentRunDetail`.
- */
 /** Point a PR URL at its diff/files tab, without double-appending if it's already there. */
 function prFilesUrl(prUrl: string): string {
     return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
 }
 
+/**
+ * Unified report detail for Pull requests / Reports / Not actionable. The "Open in GitHub" action
+ * surfaces only when the report has a shipped implementation PR; otherwise it reads as a plain
+ * report. When the report has a "Commit pushed" artefact, a GitHub-style "Files changed" tab renders
+ * the branch's diff against the default branch alongside the overview. Runs keep their own `AgentRunDetail`.
+ */
 export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
+    const { latestCommitArtefact } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = !!(prRef && prUrl)
+
+    // The report's branch to diff comes from the latest "Commit pushed" artefact; only offer the diff
+    // tab when that artefact carries the repo + branch the diff endpoint needs.
+    const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
+    const canDiff = !!(commit?.repository && commit?.branch)
 
     return (
         <InboxDetailFrame
@@ -458,12 +498,14 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                     </LemonButton>
                 ) : undefined
             }
-        >
-            {hasPr ? (
-                <RightColumnSection icon={<IconCode />} title="Diff">
-                    <PullRequestBanner prUrl={prFilesUrl(prUrl)} prRef={prRef} />
-                </RightColumnSection>
-            ) : null}
-        </InboxDetailFrame>
+            diffSection={
+                canDiff && commit && latestCommitArtefact ? (
+                    <PullRequestDiffPanel report={report} commit={commit} />
+                ) : undefined
+            }
+            diffBranchTag={
+                canDiff && commit && latestCommitArtefact ? <PullRequestBranchTag commit={commit} /> : undefined
+            }
+        />
     )
 }

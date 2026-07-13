@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { objectsEqual } from 'lib/utils/objects'
 import { getSourceDisplayStatus } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -33,6 +34,16 @@ export const ALL_SOURCES_CATEGORY = 'all'
 // Self-managed (S3/GCS/Azure/R2) connectors don't flow through SourceConfig, so place
 // them in a sensible catalog bucket explicitly.
 const MANUAL_SOURCE_CATEGORY: DataWarehouseSourceCategory = 'File storage'
+
+// Self-managed connectors carry no SourceConfig keywords, and their labels alone ("S3",
+// "Google Cloud Storage") miss the terms users actually search ("amazon", "aws", "gcs").
+// Keys match ManualLinkSourceType.
+const MANUAL_SOURCE_KEYWORDS: Record<string, string[]> = {
+    aws: ['amazon', 'aws', 's3', 'amazon web services', 'amazon s3'],
+    'google-cloud': ['gcs', 'gcp', 'google cloud', 'google cloud storage'],
+    'cloudflare-r2': ['cloudflare', 'r2', 'object storage'],
+    azure: ['azure', 'microsoft azure', 'azure blob', 'blob storage'],
+}
 
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
 // directly as a `survey sent` event rather than using the posthog-js survey popover.
@@ -163,7 +174,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         label: source.name,
                         iconType: source.type,
                         category: MANUAL_SOURCE_CATEGORY,
-                        keywords: [],
+                        keywords: MANUAL_SOURCE_KEYWORDS[source.type] ?? [],
                         status: 'stable',
                         url: urls.dataWarehouseSourceNew(source.type),
                     })
@@ -171,6 +182,10 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
 
                 return [...managed, ...selfManaged]
             },
+            // featureFlags is a broad dependency that changes identity on every flag refresh;
+            // keeping the previous array when the derived catalog is unchanged stops the Fuse
+            // index and every tile from re-deriving on unrelated flag updates.
+            { resultEqualityCheck: objectsEqual },
         ],
 
         categoriesWithCounts: [
@@ -215,12 +230,24 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     selectedCategory === ALL_SOURCES_CATEGORY
                         ? base
                         : base.filter((item) => item.category === selectedCategory)
-                // Keep fuzzy-search relevance order when searching; otherwise sort by name.
-                return trimmed ? filtered : [...filtered].sort((a, b) => a.label.localeCompare(b.label))
+                // Keep fuzzy-search relevance order when searching. When browsing, lead with the
+                // sources the user can connect right now (alphabetically), then "Coming soon" ones,
+                // so the catalog doesn't open on a wall of unavailable tiles.
+                if (trimmed) {
+                    return filtered
+                }
+                return [...filtered].sort((a, b) => {
+                    const aComingSoon = a.status === 'coming_soon'
+                    const bComingSoon = b.status === 'coming_soon'
+                    if (aComingSoon !== bComingSoon) {
+                        return aComingSoon ? 1 : -1
+                    }
+                    return a.label.localeCompare(b.label)
+                })
             },
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
         registerInterest: ({ item }) => {
             posthog.capture('notify_me_pipeline', {
                 name: item.label,
@@ -240,6 +267,12 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         },
         showSourceRequest: () => {
             posthog.capture('survey shown', { $survey_id: SOURCE_REQUEST_SURVEY_ID })
+            // Seed the request with whatever the user just searched, so a "searched for X →
+            // no results → request X" flow doesn't make them retype the same term.
+            const seed = values.search.trim()
+            if (seed) {
+                actions.setSourceRequestText(seed)
+            }
         },
         submitSourceRequest: () => {
             const response = values.sourceRequestText.trim()

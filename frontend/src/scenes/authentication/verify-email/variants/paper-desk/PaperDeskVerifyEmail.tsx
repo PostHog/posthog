@@ -1,7 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { DetectiveHog, ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+
+import { pngHoggie } from 'lib/brand/hoggies'
+import { ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -10,6 +13,8 @@ import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/pape
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from '../../verifyEmailLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 const NOTES: Record<string, string[]> = {
     pending: ['// one email away', '// we just hit send'],
@@ -220,7 +225,7 @@ function VerifyEmail(): JSX.Element {
                 }
             >
                 <div className="flex flex-col items-center text-center">
-                    <DetectiveHog className="block w-auto mx-auto h-28" />
+                    <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
                     <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                         Check your inbox
                     </h1>

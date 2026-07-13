@@ -41,7 +41,7 @@ from django.core.management.base import BaseCommand, CommandError
 import jwt
 import requests
 
-from posthog.models.integration import GITHUB_API_VERSION
+from posthog.egress.github.transport import github_request
 
 GITHUB_APP_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"]
 DEFAULT_BASE_URL = "http://localhost:8010"
@@ -286,9 +286,10 @@ class Command(BaseCommand):
     def _exchange_code(self, code: str) -> dict[str, Any]:
         self.stdout.write("  Exchanging authorization code for credentials…")
         try:
-            resp = requests.post(
+            resp = github_request(
+                "POST",
                 f"https://api.github.com/app-manifests/{quote(code, safe='')}/conversions",
-                headers={"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION},
+                source="signals",
                 timeout=30,
             )
         except requests.RequestException as err:
@@ -329,7 +330,7 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write("Next steps:")
         self.stdout.write(f"  1. Install it on your test repos: https://github.com/apps/{slug}/installations/new")
-        self.stdout.write(f"     (or via PostHog: {base_url.rstrip('/')}/project/1/settings/project-integrations)")
+        self.stdout.write(f"     (or via PostHog: {base_url.rstrip('/')}/project/1/integrations/github)")
         self.stdout.write("  2. Restart your dev server so it picks up the new .env values.")
 
     def _verify_key(self, client_id: str, pem: str) -> None:
@@ -342,13 +343,11 @@ class Command(BaseCommand):
                 loaded_key,
                 algorithm="RS256",
             )
-            resp = requests.get(
+            resp = github_request(
+                "GET",
                 "https://api.github.com/app",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
+                source="signals",
+                headers={"Authorization": f"Bearer {token}"},
                 timeout=30,
             )
         except Exception as err:

@@ -38,14 +38,11 @@ from posthog.api.utils import action
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import (
-    AwsS3Integration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     DatabricksIntegration,
     DatabricksIntegrationError,
     Integration,
-    S3CompatibleIntegration,
-    S3CredentialIntegrationError,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -62,6 +59,7 @@ from products.batch_exports.backend.models.batch_export import (
 )
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
+    SUPPORTED_FILTER_TYPES,
     BaseBatchExportInputs,
     BatchExportIdError,
     BatchExportSchema,
@@ -83,6 +81,9 @@ from products.batch_exports.backend.temporal.destinations.constants import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Quoted, sorted rendering of the supported filter types for user-facing messages.
+_SUPPORTED_FILTER_TYPES_DISPLAY = ", ".join(repr(t) for t in sorted(SUPPORTED_FILTER_TYPES))
 
 
 def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.datetime:
@@ -576,7 +577,15 @@ class BatchExportRequestSerializer(serializers.Serializer):
         required=False,
         help_text="Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.",
     )
-    filters = serializers.JSONField(required=False, allow_null=True)
+    filters = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional list of property filters to restrict which events are exported. Each filter is a "
+            f"serialized HogQL property filter object with a 'type' of one of: {_SUPPORTED_FILTER_TYPES_DISPLAY} "
+            '(e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}).'
+        ),
+    )
     timezone = serializers.CharField(
         required=False,
         allow_null=True,
@@ -598,12 +607,12 @@ class BatchExportRequestSerializer(serializers.Serializer):
     )
 
 
-# S3-family destinations that may authenticate via an Integration, mapped to the handler that
-# validates the linked integration's kind and credentials. Adding a future S3-family destination
-# (e.g. a first-class GCS-via-S3 type) is a one-line addition here.
-S3_INTEGRATION_HANDLERS: dict[str, type[AwsS3Integration] | type[S3CompatibleIntegration]] = {
-    BatchExportDestination.Destination.AWS_S3: AwsS3Integration,
-    BatchExportDestination.Destination.S3_COMPATIBLE: S3CompatibleIntegration,
+# S3-family destinations that may authenticate via an Integration, mapped to
+# the linked integration's kind. Adding a future S3-family destination (e.g. a
+# first-class GCS-via-S3 type) is a one-line addition here.
+S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
+    BatchExportDestination.Destination.AWS_S3: Integration.IntegrationKind.AWS_S3,
+    BatchExportDestination.Destination.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
 }
 
 
@@ -1078,10 +1087,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("'filters' should be an array of filters")
 
         for filter in filters:
-            if isinstance(filter, dict) and any(key in filter for key in ("data_interval_start", "data_interval_end")):
+            if not isinstance(filter, dict):
+                raise serializers.ValidationError("Each filter must be an object")
+
+            if any(key in filter for key in ("data_interval_start", "data_interval_end")):
                 raise serializers.ValidationError(
                     "'data_interval_start' and 'data_interval_end' are run attributes and not 'filters'."
                     " Trigger a backfill if you wish to manually control which periods to batch export."
+                )
+
+            if filter.get("type") not in SUPPORTED_FILTER_TYPES:
+                raise serializers.ValidationError(
+                    f"Each filter must have a 'type' of one of: {_SUPPORTED_FILTER_TYPES_DISPLAY}"
                 )
         return filters
 
@@ -1145,12 +1162,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
             required_non_empty_inputs = ["bucket_name", "region", "prefix"]
             # Credentials are only required inline when no Integration provides them.
             if integration is None:
-                required_non_empty_inputs += ["aws_access_key_id", "aws_secret_access_key"]
+                required_non_empty_inputs += ["aws_access_key_id", "aws_secret_access_key", "aws_role_arn"]
+
             empty_inputs = []
+
             for required_input in required_non_empty_inputs:
                 value = config.get(required_input)
                 if value is not None and isinstance(value, str) and value.strip() == "":
                     empty_inputs.append(required_input)
+
             if empty_inputs:
                 raise serializers.ValidationError(f"The following inputs are empty: {empty_inputs}")
 
@@ -1160,15 +1180,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if integration is not None:
                 # An Integration only makes sense for the integration-backed S3 types. Reject it on the
                 # legacy "S3" type
-                # TODO: remove this branch once the legacy "S3" destination type is fully removed.
-                if destination_type not in S3_INTEGRATION_HANDLERS:
+                # TODO: remove this branch once the legacy "S3" destination type is fully removed
+                try:
+                    kind = S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]
+                except KeyError:
                     raise serializers.ValidationError(
                         f"{destination_type} destinations do not support integration-based credentials."
                     )
-                try:
-                    S3_INTEGRATION_HANDLERS[destination_type](integration)
-                except S3CredentialIntegrationError as e:
-                    raise serializers.ValidationError(str(e))
+
+                if not integration.kind == kind:
+                    raise serializers.ValidationError(
+                        f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+                    )
 
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = merged_config.get("file_format", "JSONLines")

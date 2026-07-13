@@ -6,7 +6,7 @@ from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPE_HINTS, UTILITY_MODEL
-from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message
+from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, tracing_kwargs
 from products.conversations.backend.temporal.ai_reply.schemas import RefineQueriesInput, RefineQueriesOutput
 
 
@@ -15,7 +15,13 @@ async def support_refine_queries_activity(input: RefineQueriesInput) -> RefineQu
     """Use a lightweight LLM to generate search queries from ticket context + missing gaps."""
     async with Heartbeater():
         return await _refine_queries(
-            input.team_id, input.ticket_context, input.missing, input.ticket_type, input.seed_queries
+            input.team_id,
+            input.ticket_context,
+            input.missing,
+            input.ticket_type,
+            input.seed_queries,
+            input.trace_id,
+            input.ticket_id,
         )
 
 
@@ -25,6 +31,8 @@ async def _refine_queries(
     missing: list[str],
     ticket_type: str = "how_to",
     seed_queries: list[str] | None = None,
+    trace_id: str = "",
+    ticket_id: str = "",
 ) -> RefineQueriesOutput:
     type_hint = TICKET_TYPE_HINTS.get(ticket_type, "")
     system = f"""You are a search query generator for a customer support knowledge base.
@@ -52,6 +60,7 @@ derive search queries about the customer's support question."""
         max_tokens=512,
         system=system,
         messages=[{"role": "user", "content": "\n".join(user_parts)}],
+        **tracing_kwargs(trace_id, ticket_id),
     )
     content = anthropic_text(message)
     queries = [line.strip() for line in content.strip().split("\n") if line.strip()]

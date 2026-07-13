@@ -89,6 +89,7 @@ export type { Gutter } from './core/y-axis-gutters'
 
 // Core types
 export type {
+    AxisLinesConfig,
     BarChartConfig,
     BarsConfig,
     ChartConfig,
@@ -114,7 +115,7 @@ export type {
     YAxis,
     YAxisScale,
 } from './core/types'
-export { DEFAULT_Y_AXIS_ID } from './core/types'
+export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
 export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
@@ -136,6 +137,8 @@ export type {
     ReferenceLineStyle,
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
+export { HighlightedRange } from './overlays/HighlightedRange'
+export type { HighlightedRangeProps } from './overlays/HighlightedRange'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'
@@ -146,7 +149,7 @@ export { computeVisibleXLabels } from './overlays/AxisLabels'
 
 export { AnomalyPointsLayer } from './overlays/AnomalyPointsLayer'
 export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
-export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'
+export { movingAverageKey } from './charts/utils/derived-series'
 
 // Timeseries utils
 export { createXAxisTickCallback } from './utils/dates'

@@ -18,6 +18,10 @@ from products.warehouse_sources.backend.models.credential import (
     DataWarehouseCredential,
     get_or_create_datawarehouse_credential,
 )
+from products.warehouse_sources.backend.models.custom_oauth2_integration import (
+    CustomOAuth2Integration,
+    get_custom_oauth2_integration,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -35,6 +39,7 @@ from products.warehouse_sources.backend.models.external_data_source import (
 from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.table import (
+    SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
     DataWarehouseTableColumns,
     acreate_datawarehousetable,
@@ -45,11 +50,15 @@ from products.warehouse_sources.backend.models.util import (
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
+    remove_named_tuples,
+    snowflake_column_to_dwh_column,
+    snowflake_columns_to_dwh_columns,
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
 
 __all__ = [
+    "CustomOAuth2Integration",
     "DataWarehouseCredential",
     "DataWarehouseTable",
     "DataWarehouseTableColumns",
@@ -57,11 +66,13 @@ __all__ = [
     "ExternalDataSchema",
     "ExternalDataSource",
     "PendingSourceCredential",
+    "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "SSHTunnel",
     "WarehouseColumnAnnotation",
     "WarehouseColumnStatistics",
     "acreate_datawarehousetable",
     "asave_datawarehousetable",
+    "get_custom_oauth2_integration",
     "get_all_schemas_for_source_id",
     "get_direct_external_data_source_for_connection",
     "get_latest_run_if_exists",
@@ -70,6 +81,9 @@ __all__ = [
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",
     "postgres_columns_to_dwh_columns",
+    "remove_named_tuples",
+    "snowflake_column_to_dwh_column",
+    "snowflake_columns_to_dwh_columns",
     "sync_frequency_interval_to_sync_frequency",
     "sync_frequency_to_sync_frequency_interval",
     "sync_old_schemas_with_new_schemas",

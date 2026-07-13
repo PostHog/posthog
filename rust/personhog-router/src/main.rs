@@ -12,15 +12,12 @@ use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
-use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_router::backend::discovery::{EndpointConfig, EndpointDiscovery};
 use personhog_router::backend::{
     LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaDnsConfig, StashTable,
 };
-use personhog_router::config::{Config, ProxyMode, ReplicaDiscoveryMode, RouterMode};
+use personhog_router::config::{Config, ReplicaDiscoveryMode, RouterMode};
 use personhog_router::proxy::RawProxyService;
-use personhog_router::router::PersonHogRouter;
-use personhog_router::service::PersonHogRouterService;
 use personhog_router::stash_handler::RouterStashHandler;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
@@ -57,7 +54,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting personhog-router service");
     tracing::info!("Router mode: {}", config.router_mode);
-    tracing::info!("Proxy mode: {}", config.proxy_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Replica discovery mode: {}", config.replica_discovery_mode);
     tracing::info!("Replica URL: {}", config.replica_url);
@@ -122,8 +118,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 retry_config: config.retry_config(),
                 keepalive_interval: config.backend_keepalive_interval(),
                 keepalive_timeout: config.backend_keepalive_timeout(),
-                max_send_message_size: config.grpc_max_send_message_size,
-                max_recv_message_size: config.grpc_max_recv_message_size,
                 num_channels: config.replica_channels,
             })),
             None,
@@ -159,12 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
 
             (
-                Arc::new(ReplicaBackend::new_k8s(
-                    channel,
-                    config.retry_config(),
-                    config.grpc_max_send_message_size,
-                    config.grpc_max_recv_message_size,
-                )),
+                Arc::new(ReplicaBackend::new_k8s(channel, config.retry_config())),
                 Some(disc_readiness),
             )
         }
@@ -274,8 +263,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 num_partitions,
                 timeout: config.backend_timeout(),
                 retry_config: config.retry_config(),
-                max_send_message_size: config.grpc_max_send_message_size,
-                max_recv_message_size: config.grpc_max_recv_message_size,
             },
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
@@ -334,6 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 keepalive_interval: config.coordinator_keepalive_interval(),
                 election_retry_interval: config.coordinator_election_retry_interval(),
                 rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
+                reconcile_interval: config.coordinator_reconcile_interval(),
             },
             Arc::new(StickyBalancedStrategy),
             k8s_awareness,
@@ -357,9 +345,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
-    let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
-    let proxy_mode = config.proxy_mode;
     let retry_config = config.retry_config();
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
@@ -374,40 +360,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let incoming = tracked_tcp_incoming(listener);
 
-        let result = if proxy_mode == ProxyMode::Raw {
-            let proxy = RawProxyService::new(
-                replica_backend,
-                leader_backend,
-                retry_config,
-                max_recv,
-                config.response_size_warn_bytes,
-            );
-            Server::builder()
-                .http2_keepalive_interval(keepalive_interval)
-                .http2_keepalive_timeout(keepalive_timeout)
-                .layer(GrpcMetricsLayer::default())
-                .add_service(proxy)
-                .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
-                .await
-        } else {
-            let replica_dyn: Arc<dyn personhog_router::backend::PersonHogBackend> = replica_backend;
-            let mut router = PersonHogRouter::new(replica_dyn);
-            if let Some(leader) = leader_backend {
-                router = router.with_leader(leader);
-            }
-            let service = PersonHogRouterService::new(Arc::new(router));
-            Server::builder()
-                .http2_keepalive_interval(keepalive_interval)
-                .http2_keepalive_timeout(keepalive_timeout)
-                .layer(GrpcMetricsLayer::default())
-                .add_service(
-                    PersonHogServiceServer::new(service)
-                        .max_encoding_message_size(max_send)
-                        .max_decoding_message_size(max_recv),
-                )
-                .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
-                .await
-        };
+        let proxy = RawProxyService::new(
+            replica_backend,
+            leader_backend,
+            retry_config,
+            max_recv,
+            config.response_size_warn_bytes,
+        );
+        let result = Server::builder()
+            .http2_keepalive_interval(keepalive_interval)
+            .http2_keepalive_timeout(keepalive_timeout)
+            .layer(GrpcMetricsLayer::default())
+            .add_service(proxy)
+            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+            .await;
 
         if let Err(e) = result {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

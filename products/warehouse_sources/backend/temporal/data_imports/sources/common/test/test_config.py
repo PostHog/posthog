@@ -1,3 +1,4 @@
+import json
 import typing
 
 import pytest
@@ -95,6 +96,37 @@ def test_optional_int_converter_handles_numeric_via_from_dict(value, expected):
     cfg = TestConfig.from_dict({"port": value})
 
     assert cfg.port == expected
+
+
+# A representative Fernet token, as it appears when `job_inputs` decryption fails upstream and the
+# raw ciphertext flows into config parsing. Not a real credential.
+_UNDECRYPTED_TOKEN = (
+    "gAAAAABqTJ0OKLTREfglaXr0DZrJ4eYT7GVcKeA0avLvEzY7k3ll0JuD8VpL--DGJ9Dbt9y3KwyAolvAXit1ceqyuOzwyjTqlg=="
+)
+
+
+@pytest.mark.parametrize(
+    "config_dict",
+    [
+        # The reported crash: an int-converted `port` that never got decrypted would raise the
+        # opaque `invalid literal for int() with base 10: 'gAAAAA...'`.
+        {"host": "db.example.com", "port": _UNDECRYPTED_TOKEN},
+        # A plain string field left encrypted must also fail here, not pass ciphertext downstream.
+        {"host": _UNDECRYPTED_TOKEN, "port": "5432"},
+    ],
+)
+def test_from_dict_raises_clear_error_on_undecrypted_secret(config_dict):
+    """Still-encrypted job inputs must fail with a clear error that does not echo the token."""
+
+    @config.config
+    class TestConfig(config.Config):
+        host: str
+        port: int = config.value(converter=int)
+
+    with pytest.raises(config.UndecryptedConfigError) as exc_info:
+        TestConfig.from_dict(config_dict)
+
+    assert _UNDECRYPTED_TOKEN not in str(exc_info.value)
 
 
 def test_nested_to_config_with_flat_dict():
@@ -462,14 +494,16 @@ def test_to_config_scalar_under_nested_config_key(
     assert cfg.account_id == expected_account_id
 
 
-@pytest.mark.parametrize("bad_input", ["not a mapping", '{"key_file": {}}', b"bytes", 5, ["a", "b"], None])
+@pytest.mark.parametrize("bad_input", ["not a mapping", '"scalar"', "[1, 2, 3]", b"bytes", 5, ["a", "b"], None])
 def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
     """A non-mapping input must raise an actionable error, not the opaque builtin `TypeError`.
 
     Stored config can come back as a non-mapping (e.g. a double-encoded string from an
     `EncryptedJSONField`). Indexing into it deep inside `to_config` raised
     `TypeError: string indices must be integers`, which is impossible to triage from the
-    source alone. `from_dict` must reject it up front with the config class name in the message.
+    source alone. A string that decodes to a mapping is recovered, but any other shape
+    (unparseable text, or JSON that decodes to a scalar/list) must be rejected up front with
+    the config class name in the message.
     """
 
     @config.config
@@ -484,6 +518,42 @@ def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
 
     with pytest.raises(TypeError, match="Cannot build 'SourceConfig'"):
         SourceConfig.from_dict(bad_input)
+
+
+def test_from_dict_recovers_double_encoded_json_string():
+    """A config stored as a JSON string (double-encoded by `EncryptedJSONField`) must be
+    decoded back into a working config instead of crashing the sync with `Cannot build ...`.
+    """
+
+    @config.config
+    class SourceConfig(config.Config):
+        host: str
+        port: int = 0
+
+    config_dict = {"host": "example", "port": 5432}
+
+    cfg = SourceConfig.from_dict(json.dumps(config_dict))
+
+    assert cfg.host == "example"
+    assert cfg.port == 5432
+
+
+def test_to_config_optional_config_does_not_retain_unparseable_dict():
+    # A present-but-unparseable mapping under an `Optional[Config]` field must not leak
+    # through the `None` arm of the union as a raw dict. Doing so left a typed field
+    # holding an untyped dict and crashed downstream with `'dict' object has no
+    # attribute '<field>'`; the field must fall back to its default (None) instead.
+    @config.config
+    class AuthConfig:
+        type: str  # required, so a payload that can't fill it makes the config arm fail
+
+    @config.config
+    class SourceConfig(config.Config):
+        auth: AuthConfig | None = None
+
+    cfg = SourceConfig.from_dict({"auth": {"unrecognized_key": "value"}})
+
+    assert cfg.auth is None
 
 
 @config.config

@@ -112,6 +112,33 @@ export function pivotDurationHistogram(
     return { data, bucketsNs, labels: bucketsNs.map(formatBucketLabel) }
 }
 
+/** Exclusive upper edge of a 1-2-5 bucket — the next bucket on the series (1→2, 2→5, 5→10). */
+export function bucketUpperBound(bucketNs: number): number {
+    const decade = Math.pow(10, Math.floor(Math.log10(Math.max(bucketNs, 1))))
+    const mantissa = bucketNs / decade
+    return Math.round(mantissa < 2 ? 2 * decade : mantissa < 5 ? 5 * decade : 10 * decade)
+}
+
+/**
+ * Duration range covered by an inclusive bar-index selection on the histogram axis.
+ * Bucket b covers [b, nextBucket(b)), so the range's max is the bucket after the last selected
+ * bar (extrapolated on the 1-2-5 series when the selection ends on the last bar).
+ */
+export function selectionToDurationRange(
+    bucketsNs: number[],
+    startIndex: number,
+    endIndex: number
+): { minNs: number; maxNs: number } | null {
+    if (bucketsNs.length === 0) {
+        return null
+    }
+    const start = Math.max(0, Math.min(startIndex, bucketsNs.length - 1))
+    const end = Math.max(start, Math.min(endIndex, bucketsNs.length - 1))
+    const minNs = bucketsNs[start]
+    const maxNs = bucketsNs[end + 1] ?? bucketUpperBound(bucketsNs[end])
+    return { minNs, maxNs }
+}
+
 /**
  * Duration range spanned by the visible slice of a duration-sorted list, given the durations of
  * its rows in display order. Returns min/max regardless of ASC/DESC sort direction.

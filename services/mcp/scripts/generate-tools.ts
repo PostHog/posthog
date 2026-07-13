@@ -673,6 +673,14 @@ function composeToolSchema(
                 paramFallbacks[paramName] = override.fallback
             }
 
+            // An `optional` override must also surface as optional in the agent-facing
+            // JSON Schema. When combined with `cast` the field is wrapped in
+            // `z.preprocess(...)`, which doesn't propagate inner `.optional()` (zod 4
+            // marks it required), so register it here for `wrapWithCast` to re-apply.
+            if (override.optional) {
+                optionalParamNames.add(paramName)
+            }
+
             const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
             if (castHelper) {
                 castHelperImports.add(castHelper)
@@ -1064,16 +1072,19 @@ function generateToolCode(
     // Response filtering — pick/omit fields before enrichment
     const responseFilter = buildResponseFilter(config)
     if (responseFilter.code) {
-        // Warn if filtering might break enrich_url
+        // Warn if filtering might break enrich_url — only for response-sourced fields;
+        // '{params.x}' fields are read from the request params, so filtering can't break them.
         if (config.enrich_url) {
-            const { field } = parseEnrichUrl(config.enrich_url)
-            if (config.response?.exclude?.includes(field)) {
-                console.warn(`Warning: tool "${toolName}" excludes response field "${field}" used by enrich_url`)
-            }
-            if (config.response?.include?.length && !config.response?.include.includes(field)) {
-                console.warn(
-                    `Warning: tool "${toolName}" uses response_include without "${field}" needed by enrich_url`
-                )
+            const { field, source } = parseEnrichUrl(config.enrich_url)
+            if (source === 'result') {
+                if (config.response?.exclude?.includes(field)) {
+                    console.warn(`Warning: tool "${toolName}" excludes response field "${field}" used by enrich_url`)
+                }
+                if (config.response?.include?.length && !config.response?.include.includes(field)) {
+                    console.warn(
+                        `Warning: tool "${toolName}" uses response_include without "${field}" needed by enrich_url`
+                    )
+                }
             }
         }
     }
@@ -1721,6 +1732,7 @@ function generateDefinitionsJson(
             // Per-tool feature_flag wins; otherwise inherit the category-level
             // gate (lets one line gate a whole not-yet-GA product).
             const featureFlag = toolConfig.feature_flag ?? category.feature_flag
+            const featureEntitlement = toolConfig.feature_entitlement ?? category.feature_entitlement
             const featureFlagBehavior = toolConfig.feature_flag_behavior ?? category.feature_flag_behavior
             const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
 
@@ -1748,6 +1760,7 @@ function generateDefinitionsJson(
                     },
                     ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
                     ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -1771,6 +1784,7 @@ function generateDefinitionsJson(
                     },
                     ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
                     ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -1791,6 +1805,7 @@ function generateDefinitionsJson(
                     },
                     ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
                     ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -1813,6 +1828,9 @@ function generateDefinitionsJson(
                     readOnlyHint: wrapperConfig.annotations.readOnly,
                 },
                 ...(wrapperConfig.feature_flag ? { feature_flag: wrapperConfig.feature_flag } : {}),
+                ...(wrapperConfig.feature_entitlement
+                    ? { feature_entitlement: wrapperConfig.feature_entitlement }
+                    : {}),
                 ...(wrapperConfig.feature_flag_behavior
                     ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior }
                     : {}),
@@ -1991,6 +2009,7 @@ function generateQueryWrapperDefinitionsJson(
                 readOnlyHint: toolConfig.annotations.readOnly,
             },
             ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
+            ...(toolConfig.feature_entitlement ? { feature_entitlement: toolConfig.feature_entitlement } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),

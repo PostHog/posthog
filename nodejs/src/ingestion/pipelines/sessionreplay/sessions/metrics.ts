@@ -6,6 +6,15 @@ export class SessionBatchMetrics {
         help: 'Number of session recording batches that have been flushed',
     })
 
+    private static readonly sessionsDroppedMissingRetention = new Counter({
+        name: 'recording_blob_ingestion_v2_sessions_dropped_missing_retention_total',
+        help: 'Number of sessions dropped before recording because retention could not be resolved (e.g. deleted team)',
+    })
+
+    public static incrementSessionsDroppedMissingRetention(count: number = 1): void {
+        this.sessionsDroppedMissingRetention.inc(count)
+    }
+
     private static readonly sessionsFlushed = new Counter({
         name: 'recording_blob_ingestion_v2_sessions_flushed_total',
         help: 'Number of individual sessions that have been flushed',

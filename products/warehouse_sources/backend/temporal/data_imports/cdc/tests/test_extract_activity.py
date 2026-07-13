@@ -1,6 +1,6 @@
 import uuid
 from contextlib import nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 import pytest
@@ -10,8 +10,14 @@ import pyarrow as pa
 import psycopg.errors
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
+    CDC_BACKPRESSURE_STUCK_AGE,
     CDC_MAX_CHANGES_PER_READ,
+    CDC_ORPHAN_JOB_MIN_AGE,
+    CDC_ORPHANED_JOB_MESSAGE,
     SLOT_INVALIDATION_RECOVERY_MESSAGE,
     CDCExtractActivity,
     CDCExtractInput,
@@ -20,6 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BatchQueue,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
@@ -305,6 +314,57 @@ def _make_extract_activity(source, log=None) -> CDCExtractActivity:
     activity_obj.source = source
     activity_obj.log = log or MagicMock()
     return activity_obj
+
+
+class TestBackpressureGuard:
+    def _activity(self) -> CDCExtractActivity:
+        source = _make_source()
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [_make_schema("users", source=source)]
+        return act
+
+    @pytest.mark.parametrize(
+        "age_seconds,expect_skip,expect_stuck",
+        [
+            (None, False, None),
+            (30.0, True, False),
+            (CDC_BACKPRESSURE_STUCK_AGE.total_seconds() + 1, True, True),
+        ],
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.metrics.get_tick_skipped_metric")
+    @patch("psycopg.Connection.connect")
+    def test_skips_only_while_previous_batches_pend(
+        self, mock_connect, mock_metric, age_seconds, expect_skip, expect_stuck
+    ):
+        act = self._activity()
+
+        with patch.object(BatchQueue, "get_oldest_non_terminal_batch_age_seconds", return_value=age_seconds):
+            assert act._previous_load_still_pending() is expect_skip
+
+        if expect_skip:
+            mock_metric.assert_called_once_with(act.inputs.team_id, str(act.inputs.source_id), expect_stuck)
+        else:
+            mock_metric.assert_not_called()
+
+    def test_fails_open_when_queue_db_unreachable(self):
+        act = self._activity()
+
+        with patch("psycopg.Connection.connect", side_effect=Exception("queue db down")):
+            assert act._previous_load_still_pending() is False
+
+    @patch("psycopg.Connection.connect")
+    def test_run_skips_tick_without_touching_schemas_or_reader(self, mock_connect):
+        act = self._activity()
+
+        with (
+            patch.object(act, "_setup", return_value=True),
+            patch.object(act, "_mark_schemas_running") as mark_running,
+            patch.object(BatchQueue, "get_oldest_non_terminal_batch_age_seconds", return_value=42.0),
+        ):
+            act.run()
+
+        mark_running.assert_not_called()
+        assert act.reader is None
 
 
 class TestFlushDeferredRuns:
@@ -2609,3 +2669,66 @@ class TestCDCBoundedReadLoop:
 
         assert reader.upto_nchanges_calls == [CDC_MAX_CHANGES_PER_READ, CDC_MAX_CHANGES_PER_READ * 2]
         assert reader.confirmed_positions == ["0/300"]  # nothing to advance on pass 1; pass 2 drains
+
+
+@pytest.mark.django_db
+class TestReconcileOrphanedPriorJobs:
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.psycopg.Connection.connect")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.BatchQueue.count_batches_for_run")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    def test_only_fails_stale_prior_runs_with_no_queued_batches(self, mock_activity, mock_count, mock_connect, team):
+        mock_activity.info.return_value = MagicMock(workflow_run_id="current-run")
+
+        source = ExternalDataSource.objects.create(
+            team_id=team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=team.pk,
+            source=source,
+            name="users",
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_mode": "streaming"},
+        )
+
+        def _job(workflow_run_id: str, age: timedelta) -> ExternalDataJob:
+            job = ExternalDataJob.objects.create(
+                team_id=team.pk,
+                pipeline_id=source.pk,
+                schema=schema,
+                status=ExternalDataJob.Status.RUNNING,
+                rows_synced=0,
+                workflow_id="wf",
+                workflow_run_id=workflow_run_id,
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
+            )
+            # created_at is auto_now_add; backdate via update to control the reconcile window.
+            ExternalDataJob.objects.filter(id=job.id).update(created_at=datetime.now(UTC) - age)
+            return job
+
+        old_no_batch = _job("old-1", timedelta(hours=2))  # stale, ended, empty  -> FAILED
+        old_with_batch = _job("old-2", timedelta(hours=2))  # stale but queued    -> left alone
+        current_run = _job("current-run", timedelta(hours=2))  # this run's own    -> left alone
+        too_recent = _job("recent-1", CDC_ORPHAN_JOB_MIN_AGE / 2)  # inside floor   -> left alone
+        ancient = _job("ancient-1", timedelta(days=20))  # past batch retention     -> left alone
+
+        # Only old_with_batch reports queued batches; the rest have none.
+        mock_count.side_effect = lambda conn, job_id: 3 if job_id == str(old_with_batch.id) else 0
+
+        activity_obj = CDCExtractActivity(CDCExtractInput(team_id=team.pk, source_id=source.pk))
+        activity_obj.log = MagicMock()
+        activity_obj.cdc_schemas = [schema]
+
+        activity_obj._reconcile_orphaned_prior_jobs()
+
+        old_no_batch.refresh_from_db()
+        assert old_no_batch.status == ExternalDataJob.Status.FAILED
+        assert old_no_batch.latest_error == CDC_ORPHANED_JOB_MESSAGE
+        assert old_no_batch.finished_at is not None
+
+        for untouched in (old_with_batch, current_run, too_recent, ancient):
+            untouched.refresh_from_db()
+            assert untouched.status == ExternalDataJob.Status.RUNNING

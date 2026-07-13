@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { ReadingHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -20,6 +21,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
+
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
@@ -56,7 +59,7 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     invalid_heatmap_data: 'invalid-heatmap-data',
 }
 
-const WARNING_TYPE_RENDERER = {
+export const WARNING_TYPE_RENDERER = {
     cannot_merge_already_identified: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             sourcePersonDistinctId: string
@@ -330,7 +333,7 @@ export function IngestionWarningsView(): JSX.Element {
                     titleOverride="Nice! No ingestion warnings in the past 30 days"
                     description="Your incoming events look clean. If we detect any issues with your data, we'll show them here."
                     docsURL="https://posthog.com/docs/data/data-management#ingestion-warnings"
-                    customHog={ReadingHog}
+                    customHog={HedgehogReadingIsMagic}
                     actionElementOverride={
                         <LemonButton
                             type="primary"
