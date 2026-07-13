@@ -350,12 +350,16 @@ def _reset_build_state_after_fork() -> None:
     # held (fork only clones the calling thread), deadlocking its first lazy build. Web
     # and celery build eagerly pre-fork so they never hit this; the deliberately-lazy
     # fork points (e.g. dagster's multiprocessing/billiard workers) are the exposed ones.
+    # _walked_schema_nodes must also be cleared: it's keyed by id(), and fork resets the
+    # allocator's id space in the child, so stale entries could alias a live node's id.
     global _build_lock
     _build_lock = threading.RLock()
     _currently_building.classes = set()
+    _walked_schema_nodes.clear()
 
 
-os.register_at_fork(after_in_child=_reset_build_state_after_fork)
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_build_state_after_fork)
 
 
 # Schema dict nodes already walked by _build_reachable_model_classes, keyed by id() with
@@ -364,9 +368,7 @@ os.register_at_fork(after_in_child=_reset_build_state_after_fork)
 # subgraphs once per class that reaches them. Storing the node (not just its id) pins it
 # alive for the life of the process, which is required for soundness: ids are only unique
 # among live objects, so an id-only set would silently alias a freed node's id onto a
-# later, unrelated node once the allocator recycled it — e.g. under model_rebuild(force=True),
-# which replaces a class's schema and frees the old nodes. There are no in-repo
-# force=True callers on schema models today, but the memo must hold regardless.
+# later, unrelated node once the allocator recycled it.
 _walked_schema_nodes: dict[int, Any] = {}
 
 

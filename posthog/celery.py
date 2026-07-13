@@ -204,9 +204,9 @@ def build_schema_models_pre_fork(**kwargs) -> None:
 
     try:
         build_all_schema_models()
-    except Exception:
+    except Exception as e:
         logger.exception("celery worker failed to eagerly build schema models; refusing to boot")
-        raise SystemExit(1)
+        raise SystemExit(f"celery worker failed to eagerly build schema models: {e}")
 
 
 @worker_process_init.connect
