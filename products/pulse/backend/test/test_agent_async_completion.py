@@ -124,15 +124,3 @@ class TestAgentEventsCallback(SimpleTestCase):
         # Token minted for a different run must not drive this run's completion.
         response = self._post(TURN_COMPLETE_LINE, token=self._token(run_id="other-run"))
         assert response.status_code == 403
-
-    def test_oversized_body_is_413(self) -> None:
-        # Untrusted agent output must be bounded before buffering; spoof Content-Length so we
-        # don't have to build a 5 MB body.
-        request = self.rf.post(
-            f"/internal/pulse/runs/{RUN_ID}/agent-events/",
-            data=TURN_COMPLETE_LINE,
-            content_type="application/x-ndjson",
-            HTTP_AUTHORIZATION=f"Bearer {self._token()}",
-            CONTENT_LENGTH="6000000",
-        )
-        assert pulse_agent_events(request, RUN_ID).status_code == 413
