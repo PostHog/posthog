@@ -152,9 +152,15 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # no equivalent escape hatch yet, so callers cannot force precomputation
         # on a sub-12h experiment for the exposures view.
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        if config.experiment_precomputation_enabled and experiment_has_min_runtime_for_precomputation(
-            self.experiment.start_date,
-            self.experiment.end_date,
+        # group_type_index gate: mirrors the main runner — group builds always fail
+        # (the INSERT can't resolve the materialized $group_N column on sharded_events).
+        if (
+            self.group_type_index is None
+            and config.experiment_precomputation_enabled
+            and experiment_has_min_runtime_for_precomputation(
+                self.experiment.start_date,
+                self.experiment.end_date,
+            )
         ):
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
