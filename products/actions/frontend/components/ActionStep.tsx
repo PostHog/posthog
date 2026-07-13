@@ -9,6 +9,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { URL_MATCHING_HINTS } from 'lib/components/UrlMatchingHints'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -22,7 +23,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { URL_MATCHING_HINTS } from '../utils/hints'
 import {
     SCREEN_NAME_MATCHING_LABEL,
     SCREEN_NAME_PROPERTY,

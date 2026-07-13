@@ -74,6 +74,25 @@ def pin_team_oom(team_id: int) -> None:
         logger.warning("web_precompute.oom_pin_failed", team_id=team_id, exc_info=True)
 
 
+def clear_team_oom_pin(team_id: int) -> bool:
+    """Remove a team's OOM pin so its next inserts run at full window width again.
+
+    Returns whether a pin existed. Unlike the read/write helpers this is NOT
+    best-effort: it is only called from operator tooling, where a Redis failure
+    should surface instead of silently reporting the pin as cleared."""
+    return redis.get_client().delete(_oom_pin_key(team_id)) > 0
+
+
+def list_oom_pinned_team_ids() -> list[int]:
+    """Team ids currently OOM-pinned, via a prefix SCAN (operator tooling only)."""
+    prefix = TEAM_OOM_PIN_REDIS_PREFIX
+    team_ids = []
+    for key in redis.get_client().scan_iter(match=f"{prefix}*"):
+        key_str = key.decode() if isinstance(key, bytes) else key
+        team_ids.append(int(key_str[len(prefix) :]))
+    return sorted(team_ids)
+
+
 # --- Stale-while-revalidate (RFC 5861) -------------------------------------------------
 #
 # The lazy executor's `stale_while_revalidate_seconds` is the *serve* half: user-facing
