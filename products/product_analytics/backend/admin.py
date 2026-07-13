@@ -1,10 +1,17 @@
+from typing import Any, cast
+
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.admin.filters import DeletedFilter
+from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, bulk_log_activity
+from posthog.models.user import User
 
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -82,9 +89,61 @@ class InsightAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("team", "dashboard", "created_by", "last_modified_by")
     ordering = ("-created_at",)
+    actions = ["restore_selected"]
 
     def get_queryset(self, request):
         return Insight.objects_including_soft_deleted.all()
+
+    def get_actions(self, request: HttpRequest) -> dict[str, Any]:
+        # Insights are soft-deleted product-side; the built-in bulk action is a hard
+        # DELETE with FK cascades, so offering it invites irreversible mistakes.
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
+
+    @admin.action(
+        permissions=["change"],
+        description="Restore selected insights (re-activates tiles on live dashboards)",
+    )
+    def restore_selected(self, request: HttpRequest, queryset: QuerySet[Insight]) -> None:
+        insights = list(queryset.filter(deleted=True).select_related("team"))
+        for insight in insights:
+            insight.deleted = False
+            insight.save()  # post_save signal re-creates the FileSystem entry
+
+        if insights:
+            # Mirror the bulk_restore endpoint: bring tiles back on dashboards that still
+            # exist, and leave an audit trail (Insight has no ModelActivityMixin, so
+            # nothing gets logged on save). Unnamed insights (e.g. experiment internals)
+            # are skipped in the log, matching the API paths.
+            DashboardTile.objects_including_soft_deleted.filter(
+                insight_id__in=[insight.id for insight in insights],
+                deleted=True,
+                dashboard__deleted=False,
+            ).update(deleted=False)
+            user = cast(User, request.user)
+            bulk_log_activity(
+                [
+                    LogActivityEntry(
+                        organization_id=insight.team.organization_id,
+                        team_id=insight.team_id,
+                        user=user,
+                        was_impersonated=False,
+                        item_id=insight.id,
+                        scope="Insight",
+                        activity="restored",
+                        detail=Detail(name=insight.name or insight.derived_name, short_id=insight.short_id),
+                    )
+                    for insight in insights
+                    if insight.name or insight.derived_name
+                ]
+            )
+
+        skipped = queryset.count() - len(insights)
+        message = f"Restored {len(insights)} insights."
+        if skipped:
+            message += f" Skipped {skipped} that were not soft-deleted."
+        self.message_user(request, message, messages.SUCCESS)
 
     fieldsets = (
         (None, {"fields": ("name", "description", "team", "short_id")}),
