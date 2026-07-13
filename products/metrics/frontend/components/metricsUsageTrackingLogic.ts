@@ -1,7 +1,9 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
-import type { MetricsQuery } from '~/queries/schema/schema-general'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { type MetricsQuery, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
@@ -40,6 +42,8 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
             ],
             metricsSamplesLogic,
             ['setActiveTab as samplesPanelTabChanged', 'loadSamplesSuccess'],
+            teamLogic,
+            ['addProductIntent'],
         ],
         values: [metricsViewerLogic, ['hasMetricName', 'aggregation', 'groupByKeys', 'queryFilters']],
     })),
@@ -48,7 +52,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
         sampleRowExpanded: (sample: _MetricEventSampleApi) => ({ sample }),
         tracePivotClicked: (sample: _MetricEventSampleApi) => ({ sample }),
     }),
-    listeners(({ values, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         sceneTabChanged: ({ activeTab }) => {
             posthog.capture('metrics tab changed', { tab: activeTab })
         },
@@ -116,6 +120,15 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 has_group_by: values.groupByKeys.length > 0,
                 has_filters: values.queryFilters.length > 0,
             })
+            // Once per mount, not per query — live refresh re-runs the query every 15s,
+            // and each intent call is an API request (the backend counts repeats itself).
+            if (!cache.viewerQueryIntentFired) {
+                cache.viewerQueryIntentFired = true
+                actions.addProductIntent({
+                    product_type: ProductKey.METRICS,
+                    intent_context: ProductIntentContext.METRICS_VIEWER_QUERY_RUN,
+                })
+            }
         },
         fetchQueryResultsFailure: ({ error, errorObject }) => {
             // A superseded/unmounted query aborts — user-initiated, not a failure.
