@@ -75,7 +75,7 @@ async function api(action, params = {}) {
     if (!res.ok) {
         // The endpoint 400s with a clear `detail` when no GitHub source is connected — a
         // configuration error a retry can't fix; 5xx/429 are transients worth riding out.
-        fail(parsed.detail || body, res.status >= 500 || res.status === 429)
+        fail(parsed?.detail || body, res.status >= 500 || res.status === 429)
     }
     return parsed
 }
