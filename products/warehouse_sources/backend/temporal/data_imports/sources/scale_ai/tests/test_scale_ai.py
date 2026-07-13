@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -8,6 +8,7 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai import scale_ai
 from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.scale_ai import (
     ScaleAIResumeConfig,
@@ -105,7 +106,7 @@ class TestExtractDocs:
 
 
 def _collect(
-    manager: _FakeResumableManager, monkeypatch: Any, endpoint: str, pages: dict[Any, dict], **kw: Any
+    manager: _FakeResumableManager, monkeypatch: Any, endpoint: str, pages: dict[Any, Any], **kw: Any
 ) -> list[dict]:
     """Drive get_rows with a per-request fake fetch keyed by (next_token/offset).
 
@@ -128,7 +129,11 @@ def _collect(
 
     rows: list[dict] = []
     for table in get_rows(
-        api_key="live_key", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager, **kw
+        api_key="live_key",
+        endpoint=endpoint,
+        logger=MagicMock(),
+        resumable_source_manager=cast(ResumableSourceManager[ScaleAIResumeConfig], manager),
+        **kw,
     ):
         rows.extend(table.to_pylist())
     manager.last_fetch_params = calls  # type: ignore[attr-defined]
@@ -232,7 +237,7 @@ class TestFetchPageRetries:
         response.status_code = status_code
         response.ok = status_code < 400
         response.json.return_value = {"docs": []}
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} error")
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} error", response=response)
         session.get.return_value = response
 
         with patch.object(scale_ai._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
