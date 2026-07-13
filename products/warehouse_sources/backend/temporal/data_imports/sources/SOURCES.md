@@ -561,6 +561,7 @@ doesn't conflict with concurrent PRs.
 - google_ad_manager
 - google_analytics
 - google_calendar
+- google_chat
 - google_classroom
 - google_cloud_storage
 - google_directory
@@ -612,6 +613,7 @@ doesn't conflict with concurrent PRs.
 - kapa_ai
 - keka
 - kernel
+- kickscale
 - kisi
 - kissmetrics
 - klarna
@@ -741,6 +743,7 @@ doesn't conflict with concurrent PRs.
 - rocket_chat
 - rocketlane
 - rss
+- rudderstack
 - runpod
 - safetyculture
 - sage_hr
@@ -790,6 +793,7 @@ doesn't conflict with concurrent PRs.
 - strava
 - streamelements
 - streamlabs
+- sumsub
 - superwall
 - surveymonkey
 - survicate
@@ -859,6 +863,7 @@ doesn't conflict with concurrent PRs.
 - youtube_data
 - zapier_supported_storage
 - zapsign
+- zellify
 - zendesk_sunshine
 - zenefits
 - zenloop
