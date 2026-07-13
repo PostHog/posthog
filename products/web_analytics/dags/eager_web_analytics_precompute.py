@@ -82,6 +82,7 @@ from django.db.models import Max
 import dagster
 import pydantic
 import structlog
+from dagster import DagsterRunStatus, RunsFilter
 from prometheus_client import Counter
 
 from posthog.schema import WebAnalyticsPreComputeStrategy, WebStatsBreakdown
@@ -437,6 +438,8 @@ class EagerWarmConfig(dagster.Config):
 def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWarmConfig) -> dict[str, int]:
     """Run the baseline tile matrix against every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting."""
     started = time.monotonic()
+    if context.job_name == "web_analytics_eager_backfill":
+        _fail_on_concurrent_run(context)
     team_ids, gate_reason, diagnostics = _resolve_eager_audience(active_teams_pct=config.active_teams_pct)
     # Captured before the ramp enrollment below mutates the setting — this set is
     # what "statically enrolled" means for the priority sort further down.
@@ -609,6 +612,33 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
 # variant, that's the signal the lazy path's cold-read cost is the thing to fix.
 def web_analytics_eager_baseline_warming_job():
     warm_eager_baseline_op()
+
+
+def _fail_on_concurrent_run(context: dagster.OpExecutionContext) -> None:
+    """Fail fast when another run of the same job is already in flight.
+
+    The hourly warmer gets this from its schedule's `check_for_concurrent_runs`
+    skip, but manual launches bypass schedule evaluation entirely - two
+    simultaneous backfills would not double-insert (the pending-job unique index
+    dedupes windows) yet would burn duplicate audience fetches and coordination
+    for zero extra coverage."""
+    in_flight = context.instance.get_run_records(
+        RunsFilter(
+            job_name=context.job_name,
+            statuses=[
+                DagsterRunStatus.QUEUED,
+                DagsterRunStatus.NOT_STARTED,
+                DagsterRunStatus.STARTING,
+                DagsterRunStatus.STARTED,
+            ],
+        )
+    )
+    other = [r for r in in_flight if r.dagster_run.run_id != context.run_id]
+    if other:
+        raise dagster.Failure(
+            f"Another {context.job_name} run is already in flight ({other[0].dagster_run.run_id}); "
+            "wait for it or terminate it first - a concurrent backfill adds no coverage."
+        )
 
 
 @dagster.job(
