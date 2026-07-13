@@ -3952,7 +3952,7 @@ class VeeqoSourceConfig(config.Config):
 
 @config.config
 class VellumSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

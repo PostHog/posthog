@@ -399,6 +399,7 @@ the row lists both.
 | typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                 | HTTP                        | requests                                                        | ✅                          |
 | unleash                 | HTTP                        | requests                                                        | ✅                          |
+| vellum                  | HTTP                        | requests                                                        | ✅                          |
 | vercel                  | HTTP                        | requests                                                        | ✅                          |
 | vitally                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                 | HTTP                        | requests                                                        | ✅                          |
@@ -838,7 +839,6 @@ doesn't conflict with concurrent PRs.
 - vantage
 - vapi
 - veeqo
-- vellum
 - vespa
 - visma_economic
 - vultr
