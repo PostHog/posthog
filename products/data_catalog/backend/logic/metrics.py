@@ -155,8 +155,20 @@ def _invalidates_approval(metric: Metric, fields: dict) -> bool:
     definition-less metric the description is the entire meaningful definition, so a description or
     unit edit — reachable with catalog write access alone — must reset approval just as a definition
     edit does.
+
+    Changing the source-insight link (unlink or relink) while the metric is drifted also
+    invalidates: it would erase the drift signal that flags the approval as stale, laundering an
+    outdated approval into "approved and current". Unlinking an in-sync metric keeps approval — the
+    blessed definition is unchanged and was in lockstep when tracking stopped.
     """
     if "definition" in fields and _definition_hash(fields["definition"]) != _definition_hash(metric.definition):
+        return True
+    if (
+        "source_insight_short_id" in fields
+        and fields["source_insight_short_id"] != metric.source_insight_short_id
+        and metric.status == MetricStatus.APPROVED
+        and compute_drift([metric])[metric.id]
+    ):
         return True
     return any(key in fields and fields[key] != getattr(metric, key) for key in _APPROVAL_RELEVANT_FIELDS)
 

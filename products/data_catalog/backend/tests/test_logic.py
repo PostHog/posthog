@@ -373,6 +373,28 @@ class TestUpdateInsightLink(BaseTest):
     def _insight(self, query: dict | None = None) -> Insight:
         return Insight.objects.create(team=self.team, created_by=self.user, query=query or _HOGQL_A)
 
+    @parameterized.expand(
+        [
+            ("drifted", True, MetricStatus.PROPOSED),
+            ("in_sync", False, MetricStatus.APPROVED),
+        ]
+    )
+    def test_unlink_resets_approval_only_while_drifted(self, _name: str, drifted: bool, expected: str) -> None:
+        # Unlinking a drifted approved metric would erase the drift signal that flags the approval
+        # as stale, so it must re-open review; unlinking an in-sync metric keeps the blessing.
+        insight = self._insight()
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        approve_metric(metric, self.user)
+        if drifted:
+            Insight.objects.filter(pk=insight.pk).update(query=_HOGQL_B)
+
+        updated = update_metric(metric, team=self.team, user=self.user, source_insight_short_id=None)
+
+        assert updated.source_insight_short_id is None
+        assert updated.status == expected
+
     def test_relink_to_new_insight_snapshots_and_resets_approval(self) -> None:
         metric = upsert_metric(
             team=self.team,
