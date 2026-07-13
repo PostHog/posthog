@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, ClassVar, Optional
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import ProgrammingError
+from django.db import OperationalError, ProgrammingError
 from django.test import TestCase
 from django.utils import timezone
 
@@ -200,11 +200,17 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             == 1
         )
 
-    def test_missing_table_is_suppressed_without_reporting(self) -> None:
+    @parameterized.expand(
+        [
+            ("missing_table", ProgrammingError('relation "posthog_task_run" does not exist')),
+            ("transient_connection_timeout", OperationalError("connection timeout expired")),
+        ]
+    )
+    def test_transient_db_errors_are_suppressed_without_reporting(self, _name: str, error: Exception) -> None:
         with (
             patch(
                 "products.tasks.backend.facade.api.collect_task_run_state_metrics",
-                side_effect=ProgrammingError('relation "posthog_task_run" does not exist'),
+                side_effect=error,
             ),
             patch("posthog.tasks.tasks.capture_exception") as capture_mock,
         ):

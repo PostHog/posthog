@@ -362,6 +362,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "StatusCake",
         documentation_url="https://bots.fyi/d/statuscake-uptime",
     ),
+    "Google-Ads-Conversions": BotDefinition(
+        "Google Ads Conversions",
+        "monitoring",
+        "Bot",
+        "Google",
+        documentation_url="https://support.google.com/google-ads/answer/6095821",
+    ),
     "Datadog": BotDefinition(
         "Datadog",
         "monitoring",
@@ -543,6 +550,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     # Headless Browsers
     "Mozlila/": BotDefinition("Mozlila Typo Bot", "headless_browser", "Automation", "Unknown"),
+    # Real Chrome always emits "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/..."; a platform
+    # paren followed directly by Chrome (no KHTML clause) only occurs in hand-built UAs from
+    # scraper/stealth-automation fleets (observed cross-team at ~30x the human events-per-IP).
+    "\\) AppleWebKit/537\\.36 Chrome/": BotDefinition(
+        "Malformed Chrome UA", "headless_browser", "Automation", "Unknown"
+    ),
     "HeadlessChrome": BotDefinition(
         "Headless Chrome",
         "headless_browser",
@@ -573,5 +586,90 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Automation",
         "Selenium",
         documentation_url="https://www.selenium.dev/",
+    ),
+    # Server-side batch (prod $http_log Vercel log drain, 7d, self-declared crawlers/monitors
+    # absent from the JS-pageview stream). Each key is anchored on the operator's own declared
+    # token, never a pattern that could match a real browser.
+    # Search / index crawlers
+    "ClueWeb-Crawler": BotDefinition("ClueWeb", "search_crawler", "Bot", "Carnegie Mellon University"),
+    "mwmbl": BotDefinition("Mwmbl", "search_crawler", "Bot", "Mwmbl", documentation_url="https://mwmbl.org/"),
+    "MojeekBot": BotDefinition(
+        "Mojeek", "search_crawler", "Bot", "Mojeek", documentation_url="https://www.mojeek.com/bot.html"
+    ),
+    "meta-webindexer": BotDefinition("Meta Web Indexer", "search_crawler", "Bot", "Meta"),
+    r"archive\.org_bot": BotDefinition(
+        "Internet Archive", "search_crawler", "Bot", "Internet Archive", documentation_url="https://archive.org/"
+    ),
+    "jobcrawler": BotDefinition("jobcrawler", "search_crawler", "Bot", "Unknown"),
+    "FlamingoBot": BotDefinition("FlamingoBot", "search_crawler", "Bot", "hackernews.pink"),
+    # Archival / research crawlers
+    "heritrix": BotDefinition(
+        "Heritrix",
+        "search_crawler",
+        "Bot",
+        "image-meta.com",
+        documentation_url="https://github.com/internetarchive/heritrix3",
+    ),
+    "crawlcrawl-actors": BotDefinition("crawlcrawl", "search_crawler", "Bot", "Unknown"),
+    # AI / agent crawlers
+    "Inkeep-Crawler": BotDefinition(
+        "Inkeep", "ai_crawler", "AI Agent", "Inkeep", documentation_url="https://inkeep.com/"
+    ),
+    "KhojifyBot": BotDefinition("Khojify", "ai_crawler", "AI Agent", "Khojify"),
+    "AzureAI-SearchBot": BotDefinition("Azure AI Search", "ai_crawler", "AI Agent", "Microsoft"),
+    "GrowthXBot": BotDefinition("GrowthX", "ai_crawler", "AI Agent", "GrowthX"),
+    "RegieBrainBot": BotDefinition(
+        "Regie.ai", "ai_crawler", "AI Agent", "Regie.ai", documentation_url="https://www.regie.ai/"
+    ),
+    "IntelvaneBot": BotDefinition("Intelvane", "ai_crawler", "AI Agent", "Intelvane"),
+    "ModelContextProtocol": BotDefinition(
+        "Model Context Protocol",
+        "ai_crawler",
+        "AI Agent",
+        "Unknown",
+        documentation_url="https://modelcontextprotocol.io/",
+    ),
+    "Amazon-Bedrock-AgentCore-Browser": BotDefinition(
+        "Amazon Bedrock AgentCore",
+        "ai_crawler",
+        "AI Agent",
+        "Amazon",
+        documentation_url="https://aws.amazon.com/bedrock/agentcore/",
+    ),
+    "ResearchBot": BotDefinition("ResearchBot", "ai_crawler", "AI Agent", "Unknown"),
+    "ShapBot": BotDefinition("Shap", "ai_crawler", "AI Agent", "Shap"),
+    "ABEvalBot": BotDefinition("ABEvalBot", "ai_crawler", "AI Agent", "Unknown"),
+    "OzDocsCrawler": BotDefinition("OzDocs", "ai_crawler", "AI Agent", "Unknown"),
+    "polygazer": BotDefinition("polygazer", "ai_crawler", "AI Agent", "Unknown"),
+    "BIC-Probe": BotDefinition("BIC Probe", "ai_crawler", "AI Agent", "pracharvedam.ai"),
+    # SEO / marketing crawlers
+    "MBCrawler": BotDefinition(
+        "Monitor Backlinks",
+        "seo_crawler",
+        "Bot",
+        "Monitor Backlinks",
+        documentation_url="https://monitorbacklinks.com/",
+    ),
+    "AffsignalCrawler": BotDefinition("Affsignal", "seo_crawler", "Bot", "Affsignal"),
+    "RankyDockyBot": BotDefinition("RankyDocky", "seo_crawler", "Bot", "RankyDocky"),
+    "pricingbrief-bot": BotDefinition("PricingBrief", "seo_crawler", "Bot", "PricingBrief"),
+    "SiteavailObservatory": BotDefinition("Siteavail", "seo_crawler", "Bot", "Siteavail"),
+    "appzbot": BotDefinition("appzbot", "seo_crawler", "Bot", "Unknown"),
+    "Optimize Pilot Research Bot": BotDefinition("Optimize Pilot", "seo_crawler", "Bot", "Optimize Pilot"),
+    # Uptime / monitors
+    "KalleWorks-Monitor": BotDefinition("KalleWorks", "monitoring", "Bot", "KalleWorks"),
+    "LosClouds-Monitor": BotDefinition("LosClouds", "monitoring", "Bot", "LosClouds"),
+    "Exit1-Website-Monitor": BotDefinition(
+        "Exit1", "monitoring", "Bot", "Exit1", documentation_url="https://exit1.dev/"
+    ),
+    "UptimeWizardBot": BotDefinition("UptimeWizard", "monitoring", "Bot", "UptimeWizard"),
+    "PreflightBot": BotDefinition("Preflight", "monitoring", "Bot", "Preflight"),
+    # Security scanner
+    "MerchantSecurityScanner": BotDefinition(
+        "Stripe Merchant Security Scanner", "monitoring", "Bot", "Stripe", documentation_url="https://stripe.com/"
+    ),
+    # Social crawler (well-known bot not yet vendored here)
+    "Discordbot": BotDefinition(
+        "Discord", "social_crawler", "Bot", "Discord", documentation_url="https://discord.com/"
     ),
 }

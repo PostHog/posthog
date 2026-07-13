@@ -12,6 +12,7 @@
         "posthog-js": "catalog:"
     },
     "devDependencies": {
+        "@testing-library/react": "^14.3.1",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
@@ -19,6 +20,7 @@
         "@dnd-kit/modifiers": "*",
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@posthog/products-error-tracking": "workspace:*",
         "@storybook/react": "catalog:",

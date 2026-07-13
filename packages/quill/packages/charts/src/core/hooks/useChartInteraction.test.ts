@@ -1,5 +1,4 @@
-import { renderHook, type RenderHookResult } from '@testing-library/react'
-import { act } from 'react'
+import { act, renderHook, type RenderHookResult } from '@testing-library/react'
 
 import { dimensions } from '../../testing'
 import type { ChartScales } from '../types'
@@ -87,7 +86,8 @@ describe('useChartInteraction — tooltip pinning', () => {
 
     function renderInteraction(
         pinnable = true,
-        onPointClick?: (data: unknown) => void
+        onPointClick?: (data: unknown) => void,
+        resolveClickToNearestSeries = false
     ): RenderHookResult<ReturnType<typeof useChartInteraction>, unknown> {
         return renderHook(() =>
             useChartInteraction({
@@ -99,6 +99,7 @@ describe('useChartInteraction — tooltip pinning', () => {
                 wrapperRef: refs.wrapperRef,
                 showTooltip: true,
                 pinnable,
+                resolveClickToNearestSeries,
                 onPointClick: onPointClick as never,
                 resolveValue: (s, i) => s.data[i],
             })
@@ -134,6 +135,31 @@ describe('useChartInteraction — tooltip pinning', () => {
 
         expect(result.current.tooltipCtx).not.toBeNull()
         expect(result.current.hoverIndex).toBeGreaterThanOrEqual(0)
+    })
+
+    it('treats a resolveHoverIndex veto (-1) as a dead zone — no hover index, no tooltip', () => {
+        const { result } = renderHook(() =>
+            useChartInteraction({
+                scales,
+                dimensions,
+                labels,
+                series,
+                canvasRef: refs.canvasRef,
+                wrapperRef: refs.wrapperRef,
+                showTooltip: true,
+                pinnable: false,
+                resolveValue: (s, i) => s.data[i],
+                // Chart-type seam vetoes every position (e.g. a funnel compare bar's blank volume gap).
+                resolveHoverIndex: () => -1,
+            })
+        )
+
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 200, 100)
+        })
+
+        expect(result.current.hoverIndex).toBe(-1)
+        expect(result.current.tooltipCtx).toBeNull()
     })
 
     it('pins tooltip on click when pinnable and multiple series', () => {
@@ -278,6 +304,29 @@ describe('useChartInteraction — tooltip pinning', () => {
         expect(onPointClick).not.toHaveBeenCalled()
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
     })
+
+    // Series values at Tue (x=200): a=20 -> yPixel 180, b=15 -> yPixel 185.
+    it.each<[number, string]>([
+        [180, 'a'],
+        [185, 'b'],
+    ])(
+        'resolveClickToNearestSeries fires onPointClick for the series nearest cursorY=%i (%s) instead of pinning',
+        (cursorY, expectedKey) => {
+            const onPointClick = jest.fn()
+            const { result } = renderInteraction(true, onPointClick, true)
+
+            act(() => {
+                simulateMouseMove(result.current.handlers, refs, 200, cursorY)
+            })
+            act(() => {
+                result.current.handlers.onClick()
+            })
+
+            expect(onPointClick).toHaveBeenCalledTimes(1)
+            expect(onPointClick.mock.calls[0][0].series.key).toBe(expectedKey)
+            expect(result.current.tooltipCtx?.isPinned).toBe(false)
+        }
+    )
 
     it('rebuilds the pinned tooltip when series data changes underneath the pin', () => {
         const { rerender, result } = renderHook(

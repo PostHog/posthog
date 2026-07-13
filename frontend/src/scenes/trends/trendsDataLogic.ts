@@ -5,6 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -18,6 +19,7 @@ import {
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
     BreakdownFilter,
     EventsNode,
@@ -61,6 +63,8 @@ export const INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD: Record<IntervalType, num
     day: 7,
     week: 4,
     month: 3,
+    quarter: 4,
+    year: 3,
 }
 
 const DEFAULT_CONFIDENCE_LEVEL = 95
@@ -114,6 +118,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'getTheme',
                 'theme',
             ],
+            insightLogic(props),
+            ['showPersonsModal'],
         ],
         actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter']],
     })),
@@ -175,8 +181,12 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
         hasPersonsModal: [
-            (s) => [s.formula, s.hasDataWarehouseSeries, s.isLifecycle, s.querySource],
-            (formula, hasDataWarehouseSeries, isLifecycle, querySource) => {
+            (s) => [s.formula, s.hasDataWarehouseSeries, s.isLifecycle, s.querySource, s.showPersonsModal],
+            (formula, hasDataWarehouseSeries, isLifecycle, querySource, showPersonsModal) => {
+                if (!showPersonsModal || isSharedView()) {
+                    return false
+                }
+
                 if (isMultiSeriesFormula(formula)) {
                     return false
                 }

@@ -27,6 +27,7 @@ from posthog.models.user import User
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
+from products.tasks.backend.temporal.process_task.utils import parse_run_state
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
@@ -132,7 +133,7 @@ class SandboxWarmer:
 
         - Idempotent: if the Task already has a non-terminal Run, return it without provisioning.
         - Fresh: a Task with no Runs gets a new warm Run; a Task whose latest Run is terminal gets a
-          successor that resumes from it (filesystem reuse via ``snapshot_external_id``).
+          successor that resumes from it (snapshot reuse via ``snapshot_external_id``).
         - ``extra_state`` carries product-specific Run state the generic warmer can't know (e.g. PostHog
           AI's ``systemPrompt``, or a target ``branch``); it is merged into the warm Run's initial state.
         - ``create_pr`` is forwarded to the processing workflow; it defaults to ``False`` (PostHog AI warm
@@ -164,9 +165,7 @@ class SandboxWarmer:
             if existing is not None:
                 # Latest Run is terminal — resume into a successor so the warm session reuses its filesystem.
                 run_state["resume_from_run_id"] = str(existing.id)
-                snapshot_external_id = (existing.state or {}).get("snapshot_external_id")
-                if snapshot_external_id:
-                    run_state["snapshot_external_id"] = snapshot_external_id
+                run_state.update(parse_run_state(existing.state).resume_snapshot_carry_state())
 
             new_run = locked.create_run(mode=mode, extra_state=run_state, branch=run_state.get("branch"))
 

@@ -28,20 +28,17 @@ permissions:
     packages: read
 
 env:
-    # Pin to a concrete chschema build (not :latest) for reproducibility. sha-1871283
-    # adds file()/heredoc query refs with beautify-canonical normalization on the
-    # layer loader (#68/#69) so a query authored as file("sql/x.sql") compares equal
-    # to its golden; it retains the modifier-aware diff (#59). Override via repo variable.
-    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-1871283' }}
+    # Pinned chschema build (not :latest) for reproducibility. Override via repo variable.
+    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-0409212' }}
 
 jobs:
-    ops-hcl-guard:
-        name: Validate + diff OPS HCL against golden dumps
+    hcl-guard:
+        name: Validate + diff HCL against golden dumps
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         # Informational only while the declarative-HCL pilot stabilizes: the guard
         # runs and reports drift, but a failure must not block PRs. Remove once the
-        # OPS/LOGS managed set is trusted and we want it enforced.
+        # managed set is trusted and we want it enforced.
         continue-on-error: true
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

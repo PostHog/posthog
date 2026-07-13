@@ -1,9 +1,15 @@
 import { FEATURE_FLAGS } from 'lib/constants'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { GroupType, GroupTypeIndex } from '~/types'
 
+import {
+    accountRelationshipDefinitionsList,
+    customPropertyDefinitionsList,
+} from 'products/customer_analytics/frontend/generated/api'
+import { OutputMappingSuggestion } from 'products/workflows/frontend/Workflows/hogflows/hogFlowEditorLogic'
 import { registerActionNodeCategory } from 'products/workflows/frontend/Workflows/hogflows/registry/actions/actionNodeRegistry'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 
@@ -31,6 +37,63 @@ const getAccountExternalIdDefaultInputs = (): Record<string, CyclotronInputType>
         groupsModel.findMounted()?.values.groupTypes ?? new Map()
     )
 
+/** Slugify a definition name to a safe variable key suffix: lowercase, non-alphanumeric → `_`, collapse and trim. */
+export const slugifyName = (name: string): string =>
+    name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+
+/** Build a lodash-get-compatible result_path for a custom property name.
+ * Names matching /^[A-Za-z0-9_]+$/ use dot notation; others use bracket notation with `"` escaped. */
+export const customPropertyResultPath = (name: string): string => {
+    if (/^[A-Za-z0-9_]+$/.test(name)) {
+        return `custom_properties.${name}`
+    }
+    const escaped = name.replace(/"/g, '\\"')
+    return `custom_properties["${escaped}"]`
+}
+
+/** Assemble suggestions from definition names, deduped by variable key (first wins on slug collisions). */
+export const buildAccountOutputSuggestions = (
+    customPropertyNames: string[],
+    relationshipNames: string[]
+): OutputMappingSuggestion[] => {
+    const suggestions = [
+        ...customPropertyNames.map((name) => ({
+            key: `account_${slugifyName(name)}`,
+            result_path: customPropertyResultPath(name),
+            label: name,
+        })),
+        ...relationshipNames.map((name) => ({
+            key: `account_relationship_${slugifyName(name)}`,
+            result_path: `relationships["${name.replace(/"/g, '\\"')}"]`,
+            label: `${name} (relationship)`,
+        })),
+    ]
+    const seenKeys = new Set<string>()
+    return suggestions.filter((s) => !seenKeys.has(s.key) && !!seenKeys.add(s.key))
+}
+
+const getOutputMappingSuggestions = async (): Promise<OutputMappingSuggestion[]> => {
+    const projectId = String(projectLogic.findMounted()?.values.currentProjectId ?? '')
+    if (!projectId) {
+        return []
+    }
+    try {
+        const [customPropsResponse, relDefsResponse] = await Promise.all([
+            customPropertyDefinitionsList(projectId),
+            accountRelationshipDefinitionsList(projectId),
+        ])
+        return buildAccountOutputSuggestions(
+            (customPropsResponse.results ?? []).map((defn) => defn.name),
+            (relDefsResponse.results ?? []).map((defn) => defn.name)
+        )
+    } catch {
+        return []
+    }
+}
+
 registerActionNodeCategory({
     label: 'Customer analytics',
     featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
@@ -41,26 +104,10 @@ registerActionNodeCategory({
             description: 'Fetch a Customer analytics account into a workflow variable.',
             config: { template_id: 'template-posthog-get-account', inputs: {} },
             getDefaultInputs: getAccountExternalIdDefaultInputs,
+            getOutputMappingSuggestions,
             output_variable: [
                 { key: 'account', result_path: null, label: 'Account' },
-                { key: 'account_csm_email', result_path: 'properties.csm.email', label: 'CSM email' },
-                { key: 'account_csm_id', result_path: 'properties.csm.id', label: 'CSM ID' },
-                {
-                    key: 'account_executive_email',
-                    result_path: 'properties.account_executive.email',
-                    label: 'Account executive email',
-                },
-                {
-                    key: 'account_executive_id',
-                    result_path: 'properties.account_executive.id',
-                    label: 'Account executive ID',
-                },
-                {
-                    key: 'account_owner_email',
-                    result_path: 'properties.account_owner.email',
-                    label: 'Account owner email',
-                },
-                { key: 'account_owner_id', result_path: 'properties.account_owner.id', label: 'Account owner ID' },
+                { key: 'account_relationships', result_path: 'relationships', label: 'Relationships' },
                 {
                     key: 'account_stripe_customer_id',
                     result_path: 'properties.stripe_customer_id',
@@ -83,9 +130,25 @@ registerActionNodeCategory({
         },
         {
             type: 'function',
-            name: 'Update account',
-            description: 'Assign role contacts or tag a Customer analytics account.',
-            config: { template_id: 'template-posthog-update-account', inputs: {} },
+            name: 'Tag account',
+            description: 'Add, replace, or remove tags on a Customer analytics account.',
+            config: { template_id: 'template-posthog-tag-account', inputs: {} },
+            getDefaultInputs: getAccountExternalIdDefaultInputs,
+            output_variable: { key: 'account', result_path: null },
+        },
+        {
+            type: 'function',
+            name: 'Update account relationships',
+            description: 'Assign users to relationship roles on a Customer analytics account.',
+            config: { template_id: 'template-posthog-update-account-relationships', inputs: {} },
+            getDefaultInputs: getAccountExternalIdDefaultInputs,
+            output_variable: { key: 'account', result_path: null },
+        },
+        {
+            type: 'function',
+            name: 'Update account property',
+            description: 'Set custom property values on a Customer analytics account.',
+            config: { template_id: 'template-posthog-update-account-property', inputs: {} },
             getDefaultInputs: getAccountExternalIdDefaultInputs,
             output_variable: { key: 'account', result_path: null },
         },

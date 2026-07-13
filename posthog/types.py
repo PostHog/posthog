@@ -29,7 +29,9 @@ from posthog.schema import (
     LifecycleQuery,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     PathsQuery,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     RecordingPropertyFilter,
     RetentionQuery,
@@ -59,6 +61,7 @@ type InsightActorsQueryNode = Union[
 type AnyPropertyFilter = Union[
     EventPropertyFilter,
     PersonPropertyFilter,
+    PersonMetadataPropertyFilter,
     ElementPropertyFilter,
     EventMetadataPropertyFilter,
     RevenueAnalyticsPropertyFilter,
@@ -75,6 +78,7 @@ type AnyPropertyFilter = Union[
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     SpanPropertyFilter,
     WorkflowVariablePropertyFilter,
 ]

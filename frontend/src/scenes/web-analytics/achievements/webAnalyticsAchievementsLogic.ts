@@ -4,22 +4,26 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
     webAnalyticsAchievementsAcknowledgeCelebration,
     webAnalyticsAchievementsOverview,
+    webAnalyticsAchievementsRecordInteraction,
 } from 'products/web_analytics/frontend/generated/api'
-import type {
-    AchievementDefinitionApi,
-    AchievementProgressApi,
-    AchievementsListResponseApi,
-    PendingCelebrationApi,
+import {
+    type AchievementDefinitionApi,
+    type AchievementProgressApi,
+    type AchievementsListResponseApi,
+    InteractionKindEnumApi,
+    type PendingCelebrationApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { deriveTrackProgress } from './achievementProgress'
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import type { webAnalyticsAchievementsLogicType } from './webAnalyticsAchievementsLogicType'
+import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
 const celebrationKey = (trackKey: string, stage: number): string => `${trackKey}:${stage}`
 
@@ -41,14 +45,21 @@ function sortByCloseness(
 export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicType>([
     path(['scenes', 'web-analytics', 'achievements', 'webAnalyticsAchievementsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            webAnalyticsAchievementsPreferencesLogic,
+            ['achievementsOptOut', 'preferences'],
+        ],
     })),
     actions({
         openModal: true,
         closeModal: true,
         acknowledgeCelebration: (trackKey: string, stage: number) => ({ trackKey, stage }),
+        recordInteraction: (kind: InteractionKindEnumApi) => ({ kind }),
         markCelebrated: (key: string) => ({ key }),
-        triggerConfetti: true,
         toggleTrackExpanded: (trackKey: string) => ({ trackKey }),
     }),
     loaders(({ values }) => ({
@@ -73,12 +84,6 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             [] as string[],
             {
                 markCelebrated: (state, { key }) => (state.includes(key) ? state : [...state, key]),
-            },
-        ],
-        confettiNonce: [
-            0,
-            {
-                triggerConfetti: (state) => state + 1,
             },
         ],
         expandedTracks: [
@@ -162,7 +167,8 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             if (pending.length === 0) {
                 return
             }
-            pending.forEach((entry) => {
+            if (pending.length === 1) {
+                const entry = pending[0]
                 const track = values.definitions.find((t) => t.key === entry.track_key)
                 lemonToast.success(
                     `Achievement unlocked — ${track?.display_name ?? entry.track_key}: ${entry.stage_name}`,
@@ -173,9 +179,17 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                         },
                     }
                 )
+            } else {
+                lemonToast.success(`You've unlocked ${pending.length} web analytics achievements`, {
+                    button: {
+                        label: 'View',
+                        action: () => actions.openModal(),
+                    },
+                })
+            }
+            pending.forEach((entry) => {
                 actions.acknowledgeCelebration(entry.track_key, entry.stage)
             })
-            actions.triggerConfetti()
         },
         acknowledgeCelebration: async ({ trackKey, stage }) => {
             const track = values.definitions.find((t) => t.key === trackKey)
@@ -195,9 +209,47 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                 posthog.captureException(error)
             }
         },
+        [webAnalyticsAchievementsPreferencesLogic.actionTypes.loadPreferencesSuccess]: () => {
+            if (isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
+                actions.loadAchievements()
+            }
+        },
+        recordInteraction: async ({ kind }) => {
+            if (!isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
+                return
+            }
+            if (values.currentProjectId === undefined || values.currentProjectId === null) {
+                return
+            }
+            try {
+                await webAnalyticsAchievementsRecordInteraction(String(values.currentProjectId), {
+                    interaction_kind: kind,
+                })
+                actions.loadAchievements()
+            } catch {
+                // best-effort gamification signal: never surface recording failures
+            }
+        },
+        // Dashboard interactions count toward achievements. These reports fire only from web
+        // analytics UI, where this logic is mounted via the scene menu bar.
+        [eventUsageLogic.actionTypes.reportWebAnalyticsFilterApplied]: () => {
+            actions.recordInteraction(InteractionKindEnumApi.Data)
+        },
+        [eventUsageLogic.actionTypes.reportWebAnalyticsFilterRemoved]: () => {
+            actions.recordInteraction(InteractionKindEnumApi.Data)
+        },
+        [eventUsageLogic.actionTypes.reportWebAnalyticsDateRangeChanged]: () => {
+            actions.recordInteraction(InteractionKindEnumApi.Data)
+        },
+        [eventUsageLogic.actionTypes.reportWebAnalyticsCompareToggled]: () => {
+            actions.recordInteraction(InteractionKindEnumApi.Data)
+        },
+        [eventUsageLogic.actionTypes.reportWebAnalyticsPathCleaningToggled]: () => {
+            actions.recordInteraction(InteractionKindEnumApi.Data)
+        },
     })),
     afterMount(({ actions, values }) => {
-        if (isWebAnalyticsAchievementsEnabled(values.featureFlags)) {
+        if (values.preferences && isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
             actions.loadAchievements()
         }
     }),

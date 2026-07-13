@@ -54,10 +54,10 @@ html.export-type-image {
     }
 
     body {
-        // Put Inter high on the list so that rendered images are the same no matter which platform it is rendered on.
+        // Put our bundled fonts high on the list so rendered images are the same no matter which platform renders them.
         font-family:
-            'Emoji Flags Polyfill', Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji',
-            'Segoe UI Emoji', 'Segoe UI Symbol';
+            'Emoji Flags Polyfill', RoundHog, Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+            'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     }
 }
 

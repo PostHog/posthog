@@ -476,6 +476,7 @@ describe('maxThreadLogic', () => {
         // it ships with no dashboard context and Max can't see the open dashboard.
         const mockLoadingDashboardScene = (): { values: { dashboard: any } } => {
             const fakeDashboardLogic: any = {
+                isMounted: () => true,
                 selectors: {
                     maxContext: () =>
                         fakeDashboardLogic.values.dashboard
@@ -585,6 +586,31 @@ describe('maxThreadLogic', () => {
                 await jest.advanceTimersByTimeAsync(300)
 
                 expect(streamSpy).toHaveBeenCalledTimes(1)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('sends promptly instead of waiting for the cap when the dashboard scene logic cannot be built', async () => {
+            jest.useFakeTimers()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            try {
+                const streamSpy = mockStream()
+                // On the dashboard scene, but its logic key hasn't resolved / can't be built, so there
+                // is no logic to wait on. The gate must not hold for the full cap in this state.
+                jest.spyOn(sceneLogic.selectors, 'activeSceneId').mockReturnValue(Scene.Dashboard)
+                jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue(null as any)
+
+                maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+                logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+                logic.mount()
+
+                logic.actions.askMax('what am I seeing on this dashboard?')
+
+                await jest.advanceTimersByTimeAsync(300)
+
+                expect(streamSpy).toHaveBeenCalledTimes(1)
+                expect(captureSpy).not.toHaveBeenCalledWith('max dashboard context wait timed out', expect.anything())
             } finally {
                 jest.useRealTimers()
             }
@@ -1781,6 +1807,8 @@ describe('maxThreadLogic', () => {
             expect(names).not.toContain(SlashCommandName.SlashRemember)
             expect(names).toContain(SlashCommandName.SlashUsage)
             expect(names).toContain(SlashCommandName.SlashFeedback)
+            // /ticket must be offered even when no billing context is available — the backend decides eligibility
+            expect(names).toContain(SlashCommandName.SlashTicket)
         })
 
         it('keeps the full command set for langgraph conversations', async () => {
@@ -1790,6 +1818,7 @@ describe('maxThreadLogic', () => {
             expect(names).toContain(SlashCommandName.SlashRemember)
             expect(names).toContain(SlashCommandName.SlashUsage)
             expect(names).toContain(SlashCommandName.SlashFeedback)
+            expect(names).toContain(SlashCommandName.SlashTicket)
         })
     })
 
@@ -3534,6 +3563,20 @@ describe('maxThreadLogic', () => {
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
         })
 
+        it('lights the optimistic boot indicator before the open POST and clears it once the SSE opens', async () => {
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['setSandboxRunOpening', 'openSandboxSse'])
+
+            // openSandboxSse clears the optimistic flag via the reducer, so it never sticks on success.
+            expect(runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.runOpening).toEqual(false)
+        })
+
         it('releases the lock immediately and surfaces an error when the send POST fails', async () => {
             jest.spyOn(api.conversations, 'open').mockRejectedValue(new Error('boom'))
 
@@ -3545,6 +3588,8 @@ describe('maxThreadLogic', () => {
             }).toDispatchActions(['pushSandboxError', 'decrActiveStreamingThreads'])
 
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+            // The boot indicator must not stick once the failed send unwinds.
+            expect(runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.runOpening).toEqual(false)
             expect(
                 runStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.threadItems.some(
                     (item) =>

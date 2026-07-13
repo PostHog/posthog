@@ -871,7 +871,8 @@ const createViewNode = (
     options?: {
         expandedLazyNodeIds?: Set<string>
     },
-    schemaTable?: DatabaseSchemaTable
+    schemaTable?: DatabaseSchemaTable,
+    isMaterializing = false
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
     const isMaterializedView = view.is_materialized === true
@@ -896,7 +897,9 @@ const createViewNode = (
         id: viewId,
         name: view.name,
         type: 'node',
-        icon: isManagedViewsetView ? (
+        icon: isMaterializing ? (
+            <Spinner />
+        ) : isManagedViewsetView ? (
             <IconBolt />
         ) : isManagedView || isMaterializedView ? (
             <IconDatabase />
@@ -1011,6 +1014,21 @@ const createSourceFolderNode = (
         ? `search-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
         : `source-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
 
+    // Distinct ExternalDataSources behind this type folder, so it can link each to its edit page.
+    // A type can have several sources (e.g. two Postgres connections), distinguished by prefix.
+    const sourceTables = isSearch ? matches.map(([table]) => table) : tables
+    const sources: { id: string; label: string }[] = []
+    const seenSourceIds = new Set<string>()
+    sourceTables.forEach((table) => {
+        const source = (table as DatabaseSchemaDataWarehouseTable).source
+        if (source?.id && !seenSourceIds.has(source.id)) {
+            seenSourceIds.add(source.id)
+            // Prefixes are stored with a trailing underscore (e.g. "stripe_"); strip it for display.
+            const label = source.prefix?.trim().replace(/_+$/, '') || source.source_type
+            sources.push({ id: source.id, label })
+        }
+    })
+
     return {
         id: sourceFolderId,
         name: sourceType,
@@ -1033,6 +1051,7 @@ const createSourceFolderNode = (
         record: {
             type: 'source-folder',
             sourceType,
+            sources,
         },
         children: sourceChildren,
     }
@@ -1363,6 +1382,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'dataWarehouseSavedQueryFolders',
                 'dataWarehouseSavedQueryMapById',
                 'dataWarehouseSavedQueriesLoading',
+                'materializingViewIds',
             ],
             draftsLogic,
             ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
@@ -1777,13 +1797,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.searchTerm,
                 s.featureFlags,
                 s.expandedSearchFolders,
+                s.materializingViewIds,
             ],
             (
                 searchTreeSourceContext: SearchTreeSourceContext,
                 searchTreeMatches: SearchTreeMatches,
                 searchTerm: string,
                 featureFlags: FeatureFlagsSet,
-                expandedSearchFolders: string[]
+                expandedSearchFolders: string[],
+                materializingViewIds: string[]
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -1883,9 +1905,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 })
 
                 // Add saved queries
+                const materializingViewIdSet = new Set(materializingViewIds)
                 relevantSavedQueries.forEach(([view, matches]) => {
                     const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
-                    const viewNode = createViewNode(view, matches, true, tableLookup, tableNodeOptions, schemaTable)
+                    const viewNode = createViewNode(
+                        view,
+                        matches,
+                        true,
+                        tableLookup,
+                        tableNodeOptions,
+                        schemaTable,
+                        materializingViewIdSet.has(view.id)
+                    )
                     if (view.folder_id) {
                         const currentChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
                         currentChildren.push(viewNode)
@@ -2007,6 +2038,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.featureFlags,
                 s.queryTabState,
                 s.expandedFolders,
+                s.materializingViewIds,
             ],
             (
                 treeDataContext: TreeDataContext,
@@ -2017,7 +2049,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 hasMoreDrafts: boolean,
                 featureFlags: FeatureFlagsSet,
                 queryTabState: QueryTabState | null,
-                expandedFolders: string[]
+                expandedFolders: string[],
+                materializingViewIds: string[]
             ): TreeDataItem[] => {
                 const {
                     allPosthogTables,
@@ -2118,11 +2151,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     })
                 } else {
                     const viewChildrenByFolderId = new Map<string, TreeDataItem[]>()
+                    const materializingViewIdSet = new Set(materializingViewIds)
 
                     // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
                         const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
-                        const viewNode = createViewNode(view, null, false, tableLookup, tableNodeOptions, schemaTable)
+                        const viewNode = createViewNode(
+                            view,
+                            null,
+                            false,
+                            tableLookup,
+                            tableNodeOptions,
+                            schemaTable,
+                            materializingViewIdSet.has(view.id)
+                        )
                         if (view.folder_id) {
                             const folderChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
                             folderChildren.push(viewNode)

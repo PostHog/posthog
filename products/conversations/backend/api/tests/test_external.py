@@ -6,7 +6,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Team
+from posthog.models import ActivityLog, Team
 from posthog.models.utils import generate_random_token_secret
 
 from products.conversations.backend.models import Ticket
@@ -524,3 +524,187 @@ class TestExternalTicketAPI(BaseTest):
             self.url, {"status": "resolved"}, content_type="application/json", **self._auth_headers()
         )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    # -- Workflow (HogFlow) attribution -----------------------------------
+
+    def _workflow_headers(self, flow_id="0191d3e0-0000-7000-8000-000000000001", token=None):
+        return {
+            **self._auth_headers(token),
+            "HTTP_X_POSTHOG_HOG_FLOW_ID": flow_id,
+        }
+
+    def _latest_ticket_activity(self, activity="updated"):
+        return (
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id), activity=activity
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+    @parameterized.expand(
+        [
+            ("status", {"status": Status.RESOLVED}),
+            ("priority", {"priority": Priority.HIGH}),
+        ]
+    )
+    def test_patch_records_workflow_trigger(self, _name, payload):
+        flow_id = "0191d3e0-0000-7000-8000-000000000001"
+        response = self.client.patch(
+            self.url,
+            payload,
+            content_type="application/json",
+            **self._workflow_headers(flow_id=flow_id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        trigger = activity.detail.get("trigger")
+        assert trigger is not None
+        self.assertEqual(trigger["job_type"], "hog_flow")
+        self.assertEqual(trigger["job_id"], flow_id)
+        # Only the id is stored; the display name is resolved from the workflow on the frontend.
+        self.assertNotIn("name", trigger["payload"])
+
+    def test_patch_without_workflow_header_has_no_trigger(self):
+        response = self.client.patch(
+            self.url,
+            {"status": Status.RESOLVED},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        self.assertIsNone(activity.detail.get("trigger"))
+
+    def test_patch_ignores_malformed_workflow_id(self):
+        # A non-UUID header id is rejected so we never store a job_id that can't resolve to a link.
+        response = self.client.patch(
+            self.url,
+            {"status": Status.RESOLVED},
+            content_type="application/json",
+            **self._workflow_headers(flow_id="not-a-uuid"),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        self.assertIsNone(activity.detail.get("trigger"))
+
+    @parameterized.expand(
+        [
+            ("add", {"tags": ["urgent"], "tags_mode": "add"}, "created", "after", "urgent"),
+            ("remove", {"tags": ["bug"], "tags_mode": "remove"}, "deleted", "before", "bug"),
+        ]
+    )
+    def test_patch_tag_changes_record_workflow_trigger(self, _name, payload, action, direction, tag_name):
+        # Both directions flow through the TaggedItem activity signal: adds fire it on save,
+        # removes only because the endpoint deletes per-instance (a bulk delete would skip it).
+        # The signal picks the workflow trigger up from ActivityTriggerContext; without that,
+        # workflow tag changes render as an anonymous "PostHog" on the ticket timeline.
+        from posthog.models import Tag
+
+        existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=existing_tag)
+
+        response = self.client.patch(
+            self.url,
+            payload,
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        tag_change = next((c for c in activity.detail.get("changes", []) if c["field"] == "tag"), None)
+        assert tag_change is not None
+        self.assertEqual(tag_change["action"], action)
+        self.assertEqual(tag_change[direction], tag_name)
+        self.assertEqual(activity.detail["trigger"]["job_type"], "hog_flow")
+
+    def test_patch_tag_changes_write_tag_audit_entries(self):
+        # Removals used to go through a bulk queryset delete, which skips the TaggedItem signal
+        # and left them out of the global Tag audit stream entirely. Both directions must now
+        # produce a TaggedItem-scope entry, attributed to the workflow.
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "remove"},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        audit_activities = {
+            entry.activity: entry for entry in ActivityLog.objects.filter(team_id=self.team.id, scope="TaggedItem")
+        }
+        self.assertIn("created", audit_activities)
+        self.assertIn("deleted", audit_activities)
+        deleted_detail = audit_activities["deleted"].detail
+        assert deleted_detail is not None
+        self.assertEqual(deleted_detail["trigger"]["job_type"], "hog_flow")
+
+    def test_workflow_trigger_does_not_leak_after_request(self):
+        # The trigger thread-local must be cleared by the context manager, or attribution
+        # would bleed into unrelated activity logged later on a reused worker thread.
+        from posthog.models.activity_logging.utils import activity_storage
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(activity_storage.get_trigger())
+
+    def test_patch_assignee_records_workflow_trigger(self):
+        response = self.client.patch(
+            self.url,
+            {"assignee": {"type": "user", "id": self.user.id}},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity(activity="assigned")
+        assert activity is not None
+        self.assertEqual(activity.detail["trigger"]["job_type"], "hog_flow")
+
+    def test_patch_unchanged_assignee_logs_no_activity(self):
+        # Callers send the assignee whenever it's in the payload (the ticket UI always sends the
+        # full form), so a no-op assignment must not write "assigned to unassigned" entries or
+        # fire assignment-triggered workflows on every save.
+        response = self.client.patch(
+            self.url,
+            {"assignee": None},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(self._latest_ticket_activity(activity="assigned"))
+
+        for _ in range(2):
+            response = self.client.patch(
+                self.url,
+                {"assignee": {"type": "user", "id": self.user.id}},
+                content_type="application/json",
+                **self._auth_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id), activity="assigned"
+            ).count(),
+            1,
+        )

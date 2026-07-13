@@ -151,5 +151,7 @@ For each, suggest one of: **investigate** (`investigating-error-issue`), **assig
   user decide. Bulk actions belong in dedicated skills.
 - If the project uses Inbox (`posthog:inbox-reports-list`), check it first — PostHog
   may have already curated the most actionable issues so you avoid re-deriving them.
-- Provide the issue URL (`/error_tracking/<id>`) for each row so the user can jump
-  straight to the issue page if they want to drill down themselves.
+- Provide each row's `_posthogUrl` (returned on every issue row) so the user can jump
+  straight to the issue page if they want to drill down themselves. If you build the
+  link yourself, use the full `/project/<project_id>/error_tracking/<id>` path, never
+  a bare `/error_tracking/<id>`.

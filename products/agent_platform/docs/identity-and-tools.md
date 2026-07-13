@@ -156,7 +156,7 @@ instead of the tool failing.
 ### What a tool receives — `ToolContext`
 
 Threaded through to every tool: `teamId · applicationId · sessionId`,
-`secret(name)` (decrypted `encrypted_env`), `integrations` (team OAuth tokens),
+`secret(name)` (decrypted `encrypted_env`),
 `credentials.resolve(target)` (the per-session broker), `identity.resolve(provider)`
 (linked-identity gate), `resolvedIdentities` (pre-resolved for gated tools),
 `memoryStore` / `tabularStore`, and `http` (the proxy-bound `HttpClient` — the
@@ -197,6 +197,14 @@ flowchart LR
     decide -->|rejected| skip["return rejection to model"]
     q -.-> decide
 ```
+
+Open (queued) requests are capped per session by
+`spec.limits.max_open_approvals` (default 10).
+Args-hash dedupe collapses identical re-asks onto their existing row without consuming budget,
+but a model looping on a gated tool with distinct args would otherwise flood approvers —
+one Slack post per queued row.
+At the cap, further gated calls return a synthetic `approval_budget_exhausted` error to the model instead of queueing;
+decisions and TTL expiry free budget.
 
 ## The two MCP directions
 

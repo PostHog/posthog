@@ -1,6 +1,9 @@
 from typing import TYPE_CHECKING, Literal
 
+import structlog
 from prometheus_client import Counter, Histogram
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -37,6 +40,21 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
         "prewarmed",
         "outcome",
         "reason",
+    ],
+)
+
+TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
+    "posthog_tasks_task_run_dispatch_callback_total",
+    "on_commit workflow-dispatch callback lifecycle: 'scheduled' when registered, 'fired' when it runs. "
+    "scheduled minus fired is the count of lost callbacks that strand a run in QUEUED.",
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "runtime_adapter",
+        "prewarmed",
+        "phase",
     ],
 )
 
@@ -128,6 +146,12 @@ TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
     labelnames=["origin_product", "retryable"],
 )
 
+TASK_RUN_WIZARD_UNBOUND_TOTAL = Counter(
+    "posthog_tasks_wizard_run_unbound_total",
+    "Wizard cloud runs that reached a terminal status without an output.pr_url binding",
+    labelnames=["status"],
+)
+
 PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     "posthog_tasks_push_dispatcher_failures_total",
     "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
@@ -181,6 +205,10 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_dispatch_callback(task_run: "TaskRun | None", *, phase: Literal["scheduled", "fired"]) -> None:
+    TASK_RUN_DISPATCH_CALLBACK_TOTAL.labels(**_task_run_labels(task_run), phase=phase).inc()
 
 
 def observe_task_run_workflow_start(
@@ -249,6 +277,34 @@ def observe_agent_turn_failed(task_run: "TaskRun") -> None:
         run_source=labels["run_source"],
         runtime_adapter=labels["runtime_adapter"],
     ).inc()
+
+
+_WIZARD_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def observe_wizard_run_unbound(task_run: "TaskRun") -> None:
+    """Record a wizard run ending without its PR ever binding.
+
+    Safe to call on any status write; only terminal wizard runs without an
+    output.pr_url count. Every binding failure mode is silent (agent used a
+    different branch, webhook undelivered, write swallowed), so this counter
+    is the only signal that the wizard PR pipeline regressed.
+    """
+    if task_run.status not in _WIZARD_TERMINAL_STATUSES:
+        return
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if not state.get("wizard_head_branch"):
+        return
+    output = task_run.output if isinstance(task_run.output, dict) else {}
+    if output.get("pr_url"):
+        return
+    TASK_RUN_WIZARD_UNBOUND_TOTAL.labels(status=task_run.status).inc()
+    logger.warning(
+        "wizard_run_terminal_without_pr",
+        run_id=str(task_run.id),
+        status=task_run.status,
+        wizard_head_branch=state.get("wizard_head_branch"),
+    )
 
 
 def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) -> None:

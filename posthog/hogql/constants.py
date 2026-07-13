@@ -48,12 +48,14 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 BREAKDOWN_VALUE_MAX_LENGTH = 400
 
-type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql"]
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql", "snowflake", "redshift"]
 
 # All dialects that compile to an external SQL database queried directly (as opposed to
 # ClickHouse / HogQL). MySQL shares the standard-SQL keyword surface (CURRENT_DATE & co.)
 # but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
-SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql"})
+# Redshift is a Postgres fork: it reuses the Postgres-family lazy-table resolution and
+# property lowering, then its printer blocks the constructs the Redshift engine can't run.
+SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql", "redshift"})
 
 type HogQLParserBackend = Literal["cpp-json", "rust-json", "rust-py"]
 
@@ -138,6 +140,10 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60
+    # None inherits the cluster profile's overflow behavior. Set "throw" when a partial
+    # result is worse than an error (e.g. sampling queries whose output feeds further
+    # computation), or "break" to accept partial results on timeout.
+    timeout_overflow_mode: Optional[str] = None
     max_memory_usage: Optional[int] = None  # default value coming from cloud config
     max_threads: Optional[int] = None
     allow_experimental_object_type: Optional[bool] = True

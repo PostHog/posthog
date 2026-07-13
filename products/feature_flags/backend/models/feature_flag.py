@@ -1,3 +1,4 @@
+import copy
 import json
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -44,6 +45,61 @@ if TYPE_CHECKING:
 
 def default_filters() -> dict:
     return {"groups": []}
+
+
+def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Shape a scheduled-change payload into the serializer data applying it would produce.
+
+    Single source of truth for both the creation-time approval gate
+    (``products.approvals.backend.scheduled_changes.scheduled_change_serializer_data``) and the
+    apply-time dispatcher (``FeatureFlag.scheduled_changes_dispatcher``), so the change the gate
+    evaluates is exactly the change the applier makes — previously two hand-kept-in-sync copies,
+    and the deep-copy-before-mutating fix had to be patched into both separately.
+
+    Returns ``{"active": ...}`` / ``{"filters": ...}`` for a recognized payload, or ``None`` when
+    the payload is malformed (missing ``operation``/``value``) or its operation is unrecognized.
+    Callers decide what ``None`` means: the gate declines to gate an uninterpretable change; the
+    dispatcher raises. Apply-time-only validation (variant rollout sums, payload-key matching)
+    stays in the dispatcher.
+    """
+    operation = payload.get("operation")
+    if operation is None or "value" not in payload:
+        return None
+    value = payload["value"]
+
+    if operation == "update_status":
+        return {"active": value}
+
+    current_filters = flag.get_filters()
+
+    if operation == "add_release_condition":
+        new_groups = value.get("groups", []) if isinstance(value, dict) else []
+        return {
+            "filters": {
+                **current_filters,
+                "groups": current_filters.get("groups", []) + new_groups,
+            }
+        }
+
+    if operation == "update_variants":
+        if not isinstance(value, dict):
+            return None
+        new_variants = value.get("variants", [])
+        new_payloads = value.get("payloads", {})
+        # Deep-copy before mutating: current_filters is flag.filters (a live reference), so assigning
+        # into its nested multivariate dict would mutate the flag's pre-change state in place and
+        # defeat the approval gate's old-vs-new comparison.
+        updated_multivariate = copy.deepcopy(current_filters.get("multivariate", {}))
+        updated_multivariate["variants"] = new_variants
+        return {
+            "filters": {
+                **current_filters,
+                "multivariate": updated_multivariate,
+                "payloads": new_payloads,
+            }
+        }
+
+    return None
 
 
 class FeatureFlagManager(RootTeamManager):
@@ -364,6 +420,15 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             return self.conditions
 
         if not all(property.type == "person" for property in cohort.properties.flat):
+            # Cohorts containing non-person property types (e.g. behavioral, person_metadata)
+            # are deliberately not inlined into flag groups. They flow to SDKs as cohort
+            # references; modern SDKs raise InconclusiveMatchError on unknown property types
+            # and fall back to /flags/, where the Rust matcher handles them.
+            #
+            # Note: do NOT route person_metadata through the legacy posthog/queries/base.py
+            # paths (`property_to_Q` / `match_property`). Those don't recognize the type;
+            # `match_property` in particular dispatches purely on `key` and would silently
+            # produce a wrong-but-not-erroring result.
             return self.conditions
 
         if any(property.negation for property in cohort.properties.flat):
@@ -507,33 +572,19 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             "project_id": self.team.project_id,
         }
 
-        serializer_data = {}
-
-        if payload["operation"] == "add_release_condition":
-            current_filters = self.get_filters()
-            current_groups = current_filters.get("groups", [])
-            new_groups = payload["value"].get("groups", [])
-
-            serializer_data["filters"] = {
-                **current_filters,
-                "groups": current_groups + new_groups,
-            }
-        elif payload["operation"] == "update_status":
-            serializer_data["active"] = payload["value"]
-        elif payload["operation"] == "update_variants":
-            current_filters = self.get_filters()
+        # Apply-time-only validation for variant changes, before shaping the payload. The gate skips
+        # these because an invalid change can't be approved into applying anyway; here they surface
+        # as errors at fire time.
+        if payload["operation"] == "update_variants":
             variant_data = payload["value"]
-
             new_variants = variant_data.get("variants", [])
             new_payloads = variant_data.get("payloads", {})
 
-            # Validate variant rollout percentages before proceeding
             if new_variants:
                 total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
                 if total_rollout != 100:
                     raise ValueError(f"Invalid variant rollout percentages: sum is {total_rollout}, must be 100")
 
-            # Validate payload keys match variant keys
             variant_keys = {v.get("key") for v in new_variants}
             payload_keys = set(new_payloads.keys()) if new_payloads else set()
 
@@ -543,15 +594,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                 invalid_keys = payload_keys - variant_keys
                 raise ValueError(f"Payload keys {invalid_keys} don't match variant keys {variant_keys}")
 
-            updated_multivariate = current_filters.get("multivariate", {})
-            updated_multivariate["variants"] = new_variants
-
-            serializer_data["filters"] = {
-                **current_filters,
-                "multivariate": updated_multivariate,
-                "payloads": new_payloads,
-            }
-        else:
+        # Shape the payload through the shared builder the approval gate also uses, so the applied
+        # change is exactly the one the gate evaluated.
+        serializer_data = build_scheduled_change_serializer_data(self, payload)
+        if serializer_data is None:
             raise Exception(f"Unrecognized operation: {payload['operation']}")
 
         serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)

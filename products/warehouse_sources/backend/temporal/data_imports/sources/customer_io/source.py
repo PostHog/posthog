@@ -144,7 +144,7 @@ class CustomerIOSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             featureFlag="dwh-customer-io",
             webhookSetupCaption=(
                 "PostHog tries to register the reporting webhook for you using your App API Key. "

@@ -98,6 +98,10 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/integrations',
     // /account-connected/<kind> — return after linking GitHub etc.; /complete/github-link/ redirects here.
     '/account-connected',
+    // /account/* — credential/passkey round-trips (e.g. /account/credential-review) must complete
+    // even when onboarding is incomplete, else finishing security setup bounces straight back to
+    // /onboarding and the user is stuck in a redirect loop.
+    '/account',
     // /oauth/authorize and any /oauth/* callback path.
     '/oauth',
     // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
@@ -106,10 +110,19 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/agentic',
     // /cli/authorize, /cli/live (CLI auth round-trip).
     '/cli',
+    // /verify_email/<uuid>/<token> — email verification/change confirmation must run its
+    // urlToAction (POST /api/users/verify_email/) even when onboarding is incomplete, else
+    // /onboarding swallows the click and the email is never updated.
+    urls.verifyEmail(),
     '/startups',
     '/coupons',
     '/legal',
 ]
+
+export function isOnboardingNotRequiredForPath(pathname: string): boolean {
+    const path = removeProjectIdIfPresent(pathname)
+    return pathPrefixesOnboardingNotRequiredFor.some((prefix) => path.startsWith(prefix))
+}
 
 const DelayedLoadingSpinner = (): JSX.Element => {
     const [show, setShow] = useState(false)
@@ -626,9 +639,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         // If the delegation invite is cancelled or expires, the backend clears
                         // onboarding_delegated_to_invite and the redirect re-fires.
                         !isOnboardingRedirectSuppressed(user) &&
-                        !pathPrefixesOnboardingNotRequiredFor.some((path) =>
-                            removeProjectIdIfPresent(location.pathname).startsWith(path)
-                        )
+                        !isOnboardingNotRequiredForPath(location.pathname)
                     ) {
                         const nextUrl =
                             getRelativeNextPath(params.searchParams.next, location) ??
@@ -735,20 +746,33 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
 
     urlToAction(({ actions, values }) => {
-        const mapping: Record<
-            string,
-            (
-                params: Params,
-                searchParams: Params,
-                hashParams: Params,
-                payload: {
-                    method: string
+        type RouteHandler = (
+            params: Params,
+            searchParams: Params,
+            hashParams: Params,
+            payload: {
+                method: string
+            }
+        ) => any
+        const mapping: Record<string, RouteHandler> = {}
+
+        // Malformed URLs (a stray `%`, embedded whitespace) can make redirect building or
+        // scene dispatch throw synchronously while kea-router matches the route. Nothing
+        // upstream catches it, so the whole app fails to render. Guard every route handler:
+        // capture the error and fall back to a 404 instead of crashing.
+        const guardRoute =
+            (handler: RouteHandler): RouteHandler =>
+            (params, searchParams, hashParams, payload) => {
+                try {
+                    return handler(params, searchParams, hashParams, payload)
+                } catch (error) {
+                    posthog.captureException(error, { extra: { source: 'sceneLogic.urlToAction' } })
+                    actions.loadScene(Scene.Error404, undefined, emptySceneParams, payload.method)
                 }
-            ) => any
-        > = {}
+            }
 
         for (const path of Object.keys(redirects)) {
-            mapping[path] = (params, searchParams, hashParams) => {
+            mapping[path] = guardRoute((params, searchParams, hashParams) => {
                 const redirect = redirects[path]
                 const redirectUrl =
                     typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
@@ -756,7 +780,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(
                     withForwardedSearchParams(redirectUrl, searchParams, forwardedRedirectQueryParams)
                 )
-            }
+            })
         }
         // The Home button (via `/`) and a direct visit to /home should both land on the user's
         // configured homepage (set in the Configure home modal). Redirect there unless we're
@@ -785,18 +809,18 @@ export const sceneLogic = kea<sceneLogicType>([
             return true
         }
 
-        mapping['/'] = (_params, searchParams) => {
+        mapping['/'] = guardRoute((_params, searchParams) => {
             if (redirectToConfiguredHomepage(searchParams)) {
                 return
             }
             router.actions.replace(
                 withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
             )
-        }
+        })
 
         const projectHomepagePath = urls.projectHomepage()
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) => {
+            mapping[path] = guardRoute((params, searchParams, hashParams, { method }) => {
                 // A direct visit to /home honors the configured homepage just like the Home button.
                 if (path === projectHomepagePath && redirectToConfiguredHomepage(searchParams)) {
                     return
@@ -811,7 +835,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                     method
                 )
-            }
+            })
         }
 
         mapping['/*'] = (_, __, { method }) => {

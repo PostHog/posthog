@@ -415,6 +415,7 @@ def fetch_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None
 @admin.register(DataDeletionRequest)
 class DataDeletionRequestAdmin(admin.ModelAdmin):
     form = DataDeletionRequestForm
+    actions = ["duplicate_requests"]
     list_display = (
         "id",
         "team_id",
@@ -528,6 +529,34 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.action(permissions=["add"], description="Duplicate selected requests (as new drafts)")
+    def duplicate_requests(self, request, queryset):
+        """Copy each selected request into a fresh draft, noting it's a copy of the original."""
+        created = 0
+        for original in queryset:
+            original_url = request.build_absolute_uri(
+                reverse("admin:posthog_datadeletionrequest_change", args=[original.pk])
+            )
+            copy_note = f"Copy of data deletion request {original.pk} ({original_url})."
+            notes = f"{copy_note}\n\n{original.notes}" if original.notes else copy_note
+            # Build a fresh draft from CRITERIA_FIELDS (the single source of truth) so a new
+            # criteria field is copied automatically. Everything operational — stats, approval,
+            # execution tracking — falls back to model defaults (DRAFT, no stats, not approved).
+            criteria = {field: getattr(original, field) for field in CRITERIA_FIELDS}
+            # Shallow-copy mutable list fields so the duplicate never aliases the original's lists.
+            criteria = {k: list(v) if isinstance(v, list) else v for k, v in criteria.items()}
+            DataDeletionRequest.objects.create(
+                **criteria,
+                team_id=original.team_id,
+                requires_approval=original.requires_approval,
+                notes=notes,
+                status=RequestStatus.DRAFT,
+                created_by=request.user,
+                created_by_staff=request.user.is_staff,
+            )
+            created += 1
+        messages.success(request, f"Duplicated {created} request(s) as new draft(s).")
+
     @admin.display(description="Count query (ready to paste)")
     def rendered_count_query(self, obj: DataDeletionRequest) -> str:
         """Show the fully-substituted ClickHouse COUNT query operators can copy/paste."""
@@ -574,6 +603,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.min_timestamp = None
             obj.max_timestamp = None
             obj.stats_calculated_at = None
+            # Rows cleaned under the old criteria are ordinary candidates for the new ones —
+            # a stale marker would make the copy pass skip them as "already cleaned".
+            obj.property_removal_marker = None
             if obj.status != RequestStatus.DRAFT:
                 obj.status = RequestStatus.DRAFT
                 messages.warning(request, "Deletion criteria were changed — status has been reset to draft.")

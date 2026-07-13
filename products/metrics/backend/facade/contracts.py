@@ -22,7 +22,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from .enums import AttributeScope, FilterOp, MetricAggregation
+from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
@@ -60,6 +60,8 @@ class MetricQueryClause:
     group_by: tuple[MetricGroupBy, ...] = ()
     # Required for QUANTILE / HISTOGRAM_QUANTILE; ignored otherwise.
     quantile: float | None = None
+    # Constrains rows to one metric type; None keeps all types (legacy).
+    metric_type: MetricType | None = None
 
     def __post_init__(self) -> None:
         if self.aggregation.needs_quantile:
@@ -102,10 +104,12 @@ class MetricQueryRequest:
 
 @dataclass(frozen=True, slots=True)
 class MetricPoint:
-    """One bucketed datapoint. `time` is the bucket start, ISO 8601."""
+    """One bucketed datapoint. `time` is the bucket start, ISO 8601.
+    `value` is None when the bucket's aggregate isn't representable (e.g.
+    a float overflow to inf) — consumers render a gap."""
 
     time: str
-    value: float
+    value: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,3 +161,145 @@ class MetricAnomalyReport:
     onset_time: str | None
     top_movers: tuple[MetricAnomalyDimension, ...]
     series: MetricSeries
+
+
+@dataclass(frozen=True, slots=True)
+class MetricEventSample:
+    """A single raw metric emission: one `metric_samples` row enriched with its
+    `metric_series` labels. Backs the Samples view and the metric->trace pivot.
+    Distinct from `MetricSeries`, which is aggregated at query time.
+    """
+
+    timestamp: str  # ISO 8601
+    metric_name: str
+    metric_type: str  # OTel type: gauge | sum | histogram | summary | exponential_histogram
+    value: float
+    # Observations behind this point: 1 for gauges/counters, the distribution
+    # count for histograms/summaries (value is then the sum; avg = value/count).
+    count: int
+    unit: str
+    aggregation_temporality: str  # "delta" | "cumulative" | "" (gauges)
+    is_monotonic: bool
+    service_name: str
+    trace_id: str
+    span_id: str
+    attributes: dict[str, str]
+    resource_attributes: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class CompanionMetric:
+    """A metric to check alongside the primary one to confirm or rule out a
+    cause. `role` is a short hint ('traffic', 'saturation', 'processing') shown
+    in the narrative. `aggregation`/`quantile` default by the metric's OTel type.
+    """
+
+    metric_name: str
+    role: str
+    aggregation: str | None = None
+    quantile: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompanionVerdict:
+    """How a companion metric behaved over the same window as the symptom — the
+    basis for 'it wasn't a traffic surge' / 'processing kept up' reasoning.
+    """
+
+    metric_name: str
+    role: str
+    aggregation: str
+    direction: str  # "up" | "down" | "flat"
+    change_ratio: float
+    # True when the companion moved materially in the symptom window (so it
+    # plausibly relates to the cause); False rules it out.
+    moved_with_symptom: bool
+    # Quantile the companion was aggregated at (histogram_quantile only); carried
+    # so a re-runnable chart spec can reproduce the same aggregation.
+    quantile: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InvestigationChartSpec:
+    """A metric query plus the frozen window to render it over. Re-runnable —
+    the report re-runs the same query over the same window for live data —
+    never baked, the opposite of snapshotting datapoints into constants.
+    """
+
+    title: str
+    metric_name: str
+    aggregation: str
+    anomaly_from: str  # ISO 8601
+    anomaly_to: str
+    filters: tuple[MetricFilter, ...] = ()
+    quantile: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TraceExemplar:
+    """A pointer from a metric sample into a concrete trace at the anomaly, for
+    the metric->trace pivot. Populated by the trace-pivot primitive once the
+    `metric_samples` table is live; empty until then.
+    """
+
+    trace_id: str
+    span_id: str
+    timestamp: str  # ISO 8601
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class InvestigationEvidence:
+    """Cross-signal pointers gathered around onset: trace exemplars to pivot
+    into, and a ready-to-run log filter for the implicated service/window.
+    `log_filter` is None when no service could be implicated.
+    """
+
+    service_name: str | None
+    trace_exemplars: tuple[TraceExemplar, ...] = ()
+    log_filter: dict[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InvestigationResult:
+    """The structured outcome of investigating a metric symptom. Produced once
+    by `investigate()` and consumed three ways: the agent narrates it, the
+    in-app explorer renders it interactively, and the incident report
+    serializes it. This shared shape is the seam between investigate and
+    display.
+    """
+
+    metric_name: str
+    symptom: MetricAnomalyReport
+    blast_radius: str  # "localized" | "shared" | "unknown"
+    companions: tuple[CompanionVerdict, ...]
+    chart_specs: tuple[InvestigationChartSpec, ...]
+    evidence: InvestigationEvidence
+    confidence: str  # "high" | "medium" | "low"
+    narrative: str
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentContext:
+    """Structured context from a fired alert (or a manual "this looks wrong"),
+    so an investigation never has to parse a timestamp out of prose. `fired_at`
+    must be timezone-aware and is normalized to UTC at construction; the
+    anomaly window is derived as [fired_at - lookback, fired_at + leadout],
+    and `service_name` scopes the investigation to the implicated service.
+    """
+
+    metric_name: str
+    fired_at: dt.datetime
+    lookback: dt.timedelta = dt.timedelta(minutes=15)
+    leadout: dt.timedelta = dt.timedelta(minutes=15)
+    service_name: str | None = None
+    companions: tuple[CompanionMetric, ...] = ()
+
+    def __post_init__(self) -> None:
+        # A naive datetime would be taken as UTC by the window math and
+        # silently mis-bucket a local-time fire; fail fast at construction.
+        # Aware non-UTC instants are fine — normalize them so downstream
+        # window math always operates on UTC.
+        if self.fired_at.tzinfo is None:
+            raise ValueError("fired_at must be timezone-aware")
+        object.__setattr__(self, "fired_at", self.fired_at.astimezone(dt.UTC))

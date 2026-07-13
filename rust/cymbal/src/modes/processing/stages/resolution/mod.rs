@@ -4,6 +4,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub mod exception;
 pub mod frame;
+pub mod legacy;
 pub mod properties;
 pub mod remote;
 
@@ -15,6 +16,7 @@ use crate::{
     stages::resolution::{
         exception::ExceptionResolver,
         frame::FrameResolver,
+        legacy::LegacyOrderResolver,
         properties::PropertiesResolver,
         remote::resolver::{resolve_batch, RemoteResolutionContext},
     },
@@ -78,6 +80,8 @@ impl Stage for ResolutionStage {
             // performed.
             return resolve_batch(batch, remote, self.clone())
                 .await?
+                .apply_operator(LegacyOrderResolver, self.clone())
+                .await?
                 .apply_operator(PropertiesResolver, self.clone())
                 .await;
         }
@@ -86,6 +90,8 @@ impl Stage for ResolutionStage {
             .apply_operator(ExceptionResolver, self.clone())
             .await?
             .apply_operator(FrameResolver, self.clone())
+            .await?
+            .apply_operator(LegacyOrderResolver, self.clone())
             .await?
             .apply_operator(PropertiesResolver, self.clone())
             .await

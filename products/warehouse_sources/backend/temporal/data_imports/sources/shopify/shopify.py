@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.ut
 )
 
 from .constants import (
+    SHOPIFY_ACCESS_SCOPES_URL,
     SHOPIFY_ACCESS_TOKEN_CHECK,
     SHOPIFY_ACCESS_TOKEN_GRANT,
     SHOPIFY_ACCESS_TOKEN_URL,
@@ -289,6 +290,9 @@ def normalize_store_id(raw: str) -> str:
         store_id = store_id.removeprefix("admin.shopify.com/store/")
     # Drop any path/query/fragment that rode along with a pasted URL.
     store_id = store_id.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    # A trailing dot (FQDN form, e.g. "my-store.myshopify.com.") otherwise defeats the suffix
+    # strip below and leaves a value the subdomain regex rejects.
+    store_id = store_id.rstrip(".")
     # Strip the domain suffix, looping to collapse an accidental double suffix.
     while store_id.endswith(".myshopify.com"):
         store_id = store_id.removesuffix(".myshopify.com")
@@ -305,12 +309,18 @@ def normalize_store_id(raw: str) -> str:
     # connect/read timeout) surfaces from `post` as requests ConnectionError/Timeout — SSLError
     # is a ConnectionError. A connection dropped mid-response surfaces as ChunkedEncodingError,
     # which is a RequestException rather than a ConnectionError, so it must be listed explicitly.
-    # The adapter's own urllib3 retries back off for only ~1.5s, too short to ride out a
-    # multi-second blip. Minting a token is idempotent, so reissue with backoff rather than failing
-    # the whole import. 4xx/5xx are raised as plain Exceptions below and so are untouched here —
-    # auth failures still fail fast.
+    # A 429/5xx returns a completed response and is raised as ShopifyRetryableError below, so it
+    # is listed here too. The adapter's own urllib3 retries back off for only ~1.5s, too short to
+    # ride out a multi-second blip. Minting a token is idempotent, so reissue with backoff rather
+    # than failing the whole import. 4xx auth failures are raised as plain Exceptions and so are
+    # untouched here — they still fail fast.
     retry=retry_if_exception_type(
-        (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError)
+        (
+            ShopifyRetryableError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+        )
     ),
     stop=stop_after_attempt(5),
     wait=_shopify_backoff,
@@ -328,11 +338,27 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
     if not access_res.ok:
         # A 4xx means the app credentials are invalid/revoked (e.g. the app was
         # uninstalled) — re-auth is the only fix, so surface a non-retryable message.
-        # 429 (rate limit) and 5xx are transient and stay retryable via the generic message.
         if 400 <= access_res.status_code < 500 and access_res.status_code != 429:
             raise Exception(f"{SHOPIFY_ACCESS_TOKEN_AUTH_ERROR} (HTTP {access_res.status_code})")
-        raise Exception(f"Failed to retrieve Shopify access token: {access_res}")
+        # 429 (rate limit) and 5xx (e.g. a 502 Bad Gateway from Shopify's edge) are transient —
+        # retry locally with backoff instead of failing the import, mirroring the GraphQL path.
+        raise ShopifyRetryableError(
+            f"Failed to retrieve Shopify access token: {access_res.status_code} {access_res.reason}"
+        )
     return access_res.json()["access_token"]
+
+
+def _get_granted_scopes(store_id: str, sess: requests.Session) -> set[str] | None:
+    """The token's granted scope handles, or None on any failure — best-effort so a blip degrades
+    the query rather than failing the sync."""
+    try:
+        res = sess.get(SHOPIFY_ACCESS_SCOPES_URL.format(store_id))
+        res.raise_for_status()
+        data = res.json()
+    except (requests.RequestException, ValueError):
+        return None
+    scopes = data.get("access_scopes", []) if isinstance(data, dict) else []
+    return {scope["handle"] for scope in scopes if isinstance(scope, dict) and "handle" in scope}
 
 
 def shopify_source(
@@ -358,6 +384,24 @@ def shopify_source(
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(schema_name)
         if not graphql_object:
             raise Exception(f"Shopify object does not exist: {schema_name}")
+
+        # Drop fields the token lacks the scope to read, so a partially scoped token imports the
+        # rest instead of hard-failing on "Access denied for <field>". Falls back to the minimal
+        # query when scopes can't be detected.
+        if graphql_object.protected_query_builder is not None:
+            granted_scopes = _get_granted_scopes(store_id, sess)
+            if granted_scopes is None:
+                granted_scopes = set()
+                logger.warning(
+                    f"Shopify: could not detect granted scopes for {schema_name}; syncing without protected fields"
+                )
+            graphql_object = ShopifyGraphQLObject(
+                name=graphql_object.name,
+                query=graphql_object.protected_query_builder(granted_scopes),
+                display_name=graphql_object.display_name,
+                permissions_query=graphql_object.permissions_query,
+                protected_query_builder=graphql_object.protected_query_builder,
+            )
 
         logger.debug(f"Shopify: reading from resource {schema_name}")
 

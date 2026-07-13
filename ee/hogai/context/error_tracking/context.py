@@ -5,7 +5,7 @@ from uuid import UUID
 from posthog.schema import DateRange, ErrorTrackingOrderBy, ErrorTrackingQuery
 
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from products.error_tracking.backend.facade import (
@@ -28,10 +28,12 @@ class ErrorTrackingIssueContext:
     def __init__(
         self,
         team: Team,
+        user: User,
         issue_id: str,
         issue_name: str | None = None,
     ):
         self._team = team
+        self._user = user
         self._issue_id = issue_id
         self._issue_name = issue_name
 
@@ -88,7 +90,7 @@ class ErrorTrackingIssueContext:
             withLastEvent=False,
         )
 
-        runner = get_query_runner(query, self._team)
+        runner = get_query_runner(query, self._team, user=self._user)
         result = runner.calculate()
 
         if result.results and len(result.results) > 0:

@@ -7,6 +7,7 @@ on:
     pull_request:
         paths:
             - .github/scripts/**
+            - .github/auto-assign-labels.json
             - .github/workflows/ci-scripts.yml
 
 concurrency:
@@ -34,13 +35,20 @@ jobs:
               with:
                   python-version-file: pyproject.toml
 
+            # defusedxml + opentelemetry are report_test_timings.py's script deps.
             - name: Install pytest
-              run: python -m pip install --quiet pytest
+              run: python -m pip install --quiet pytest defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
-            # pytest-django, which we don't install here).
+            # pytest-django, which we don't install here). `--noconftest` skips the
+            # root conftest.py, whose autouse fixtures import the posthog package
+            # (and thus Django) — not installed in this lightweight job. These tests
+            # are standalone and need no conftest fixtures beyond pytest's tmp_path.
             - name: Schema-usage scanner tests (Python)
-              run: python -m pytest .github/scripts/test_schema_usage_scan.py -v -c /dev/null -p no:cacheprovider
+              run: python -m pytest .github/scripts/test_schema_usage_scan.py -v -c /dev/null -p no:cacheprovider --noconftest
+
+            - name: Test-timings reporter tests (Python)
+              run: python -m pytest .github/scripts/test_report_test_timings.py -v -c /dev/null -p no:cacheprovider --noconftest
 
             # Shells out to schema_usage_scan.py via python3 (preinstalled on ubuntu).
             - name: Schema-impact tests (Node)
@@ -51,3 +59,6 @@ jobs:
 
             - name: Rate-limit monitor tests (Node)
               run: node --test .github/scripts/monitor-github-rate-limit.test.js
+
+            - name: PR title labeler tests (Node)
+              run: node --test .github/scripts/label-pr-from-title.test.js

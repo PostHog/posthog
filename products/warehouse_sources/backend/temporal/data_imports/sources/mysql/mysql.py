@@ -33,7 +33,10 @@ from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
-from posthog.exceptions_capture import capture_exception
+# Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
+# explain_query, fetch_average_row_size) deliberately do NOT report handled failures here;
+# their guard tests patch `mysql.capture_exception` to enforce that.
+from posthog.exceptions_capture import capture_exception  # noqa: F401
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -378,6 +381,27 @@ def _is_transient_connect_timeout(e: BaseException) -> bool:
     return "timed out" in " ".join(str(arg) for arg in e.args)
 
 
+# glibc's getaddrinfo returns EAI_AGAIN — "Temporary failure in name resolution" — when the DNS
+# resolver is momentarily unavailable (the nameserver couldn't be reached, returned SERVFAIL, or a
+# resolver-side blip prevented the lookup). pymysql wraps it as the 2003 connect failure, so without
+# this it falls through to the non-retryable "Can't connect to MySQL server on" classifier and the
+# sync gives up on a recoverable blip. EAI_AGAIN is a "try again later" condition — distinct from
+# EAI_NONAME ("Name or service not known"), where the host genuinely doesn't resolve and staying
+# non-retryable is correct. Match the stable, locale-independent gai_strerror text rather than the
+# platform-specific errno number.
+_DNS_TEMPORARY_FAILURE_TOKEN = "Temporary failure in name resolution"
+
+
+def _is_transient_connect_dns_failure(e: BaseException) -> bool:
+    """Return True if connect failed on a transient DNS-resolver blip — recoverable on retry."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _CANT_CONNECT_CODE:
+        return False
+    return _DNS_TEMPORARY_FAILURE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 # pymysql raises this `InternalError` from `_read_packet` when an incoming packet's
 # sequence number doesn't match the expected one (it `_force_close()`s the socket first).
 _PACKET_SEQUENCE_ERROR_PHRASE = "Packet sequence number wrong"
@@ -398,6 +422,27 @@ def _is_transient_packet_sequence_error(e: BaseException) -> bool:
     return any(_PACKET_SEQUENCE_ERROR_PHRASE in str(arg) for arg in e.args)
 
 
+# Vitess/PlanetScale vtgate surfaces a backend tablet it can't reach at connect time as pymysql
+# OperationalError(1815, 'internal connection error: dial tcp <addr>: connect: connection timed
+# out, after N attempts, reqid=...'): the vtgate handshake succeeds but dialing the tablet behind
+# it times out — a failover, a restart, or a momentary network blip that a fresh attempt recovers
+# from. 1815 is MySQL's generic ER_INTERNAL_ERROR, so key on the Go-network `dial tcp` +
+# `connection timed out` signature (no plain MySQL error carries the `dial tcp` token) rather than
+# the bare code; the volatile tablet address, attempt count, and reqid stay untouched. This is the
+# connect-time sibling of the `code = Unavailable` tablet-unavailable case, which instead lands on
+# the first query after connect (see `_is_transient_tablet_unavailable`).
+_VITESS_DIAL_TOKEN = "dial tcp"
+_VITESS_DIAL_TIMEOUT_TOKEN = "connection timed out"
+
+
+def _is_transient_vitess_dial_timeout(e: BaseException) -> bool:
+    """Return True if a Vitess vtgate timed out dialing its backend tablet — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    args_text = " ".join(str(arg) for arg in e.args)
+    return _VITESS_DIAL_TOKEN in args_text and _VITESS_DIAL_TIMEOUT_TOKEN in args_text
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
@@ -415,7 +460,9 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
             if attempt >= _MAX_CONNECT_ATTEMPTS or not (
                 _is_transient_connect_drop(e)
                 or _is_transient_connect_timeout(e)
+                or _is_transient_connect_dns_failure(e)
                 or _is_transient_packet_sequence_error(e)
+                or _is_transient_vitess_dial_timeout(e)
             ):
                 raise
             structlog.get_logger().warning(
@@ -450,6 +497,23 @@ def _is_transient_tablet_unavailable(e: BaseException) -> bool:
     return _GRPC_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
+# Vitess/PlanetScale also fails a query against a shard mid-failover with pymysql
+# OperationalError(1105) whose message carries "primary is not serving, there may be a
+# reparent operation in progress": a planned/emergency reparent is promoting a new primary,
+# so the old one briefly stops serving. Like the `code = Unavailable` case this is transient —
+# a fresh attempt after a short backoff lands on the newly promoted primary. Key on the stable
+# `reparent operation in progress` phrase: the target keyspace/shard/tablet-type prefix is
+# volatile, and this stays robust to the primary/master wording difference across Vitess versions.
+_VITESS_REPARENT_TOKEN = "reparent operation in progress"
+
+
+def _is_transient_vitess_reparent(e: BaseException) -> bool:
+    """Return True if a Vitess shard is mid-reparent and its primary is briefly not serving."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _VITESS_REPARENT_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 def _retry_on_transient_tablet_unavailable(
     operation: Callable[[], _T],
     logger: FilteringBoundLogger,
@@ -463,8 +527,8 @@ def _retry_on_transient_tablet_unavailable(
     handshake succeeds and only the first query hits an unavailable tablet, so retry the
     whole operation (which reopens the connection) with a bounded backoff instead of
     failing sync setup on the first blip and surfacing it as captured error-tracking
-    noise. Non-transient errors re-raise immediately because
-    `_is_transient_tablet_unavailable` only matches the gRPC `Unavailable` status.
+    noise. Non-transient errors re-raise immediately because the predicates only match
+    the gRPC `Unavailable` status or a mid-reparent primary — both self-healing.
     """
     attempt = 0
     while True:
@@ -472,7 +536,7 @@ def _retry_on_transient_tablet_unavailable(
             return operation()
         except pymysql.err.OperationalError as e:
             attempt += 1
-            if attempt >= max_attempts or not _is_transient_tablet_unavailable(e):
+            if attempt >= max_attempts or not (_is_transient_tablet_unavailable(e) or _is_transient_vitess_reparent(e)):
                 raise
             logger.warning(
                 "Transient MySQL tablet-unavailable error during metadata discovery; retrying",
@@ -1064,8 +1128,14 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             row_size_bytes = max(row[0] or 0, 1)
             return int(row_size_bytes)
         except Exception as e:
+            # Row-size sampling is a best-effort probe: on any failure the caller falls back to the
+            # default chunk size and the sync proceeds. A genuine problem (missing table, revoked
+            # permission) resurfaces in the real extraction query and is classified through the normal
+            # retryable/non-retryable path, while a transient connection drop here (e.g. pymysql's
+            # `InterfaceError(0, '')` when the socket was already closed) stays retryable there too.
+            # Capturing it would only flood error tracking with handled duplicates, so log at debug and
+            # fall back. Mirrors `get_partition_settings` and the Redshift source's `fetch_average_row_size`.
             logger.debug(f"fetch_average_row_size: Error: {e}.", exc_info=e)
-            capture_exception(e)
             return None
 
     def find_index_for_cursor(

@@ -8,6 +8,7 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -147,6 +148,13 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         results = response.json()["results"]
         assert len(results) == 1
         assert results[0]["content"][0]["github_login"] == "alice"
+
+    @parameterized.expand([("sig_praise",), ("bulk_download",), ("not-a-uuid",)])
+    def test_list_non_uuid_report_id_returns_404_not_500(self, report_id):
+        # Agents whose prompt only carries a signal_id pass it as report_id; it can never be a
+        # report UUID, so this must 404 rather than 500 from the ORM coercing it to a UUID.
+        response = self.client.get(self._list_url(report_id))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # --- GET retrieve ---
 
@@ -444,6 +452,59 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         # Original + two appended rows.
         assert self._reviewers_count(report) == 3
 
+    def test_put_reviewer_change_writes_activity_log_with_diff(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "bob"}, {"github_login": "carol"}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        log = ActivityLog.objects.get(team_id=self.team.id, scope="SignalReport")
+        assert log.activity == "suggested_reviewers_changed"
+        assert str(log.item_id) == str(report.id)
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "Test report"
+        (change,) = log.detail["changes"]
+        assert change["field"] == "suggested_reviewers"
+        assert change["before"] == ["alice"]
+        assert change["after"] == ["bob", "carol"]
+
+    def test_put_same_reviewer_set_writes_no_activity_log(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}, {"github_login": "bob"}])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "bob"}, {"github_login": "alice"}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
+
+    def test_put_task_attributed_reviewer_change_writes_no_activity_log(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+        task = Task.objects.create(
+            team=self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "bob"}]}),
+            content_type="application/json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
+
     def test_put_response_is_enriched_with_user(self):
         member = self._create_org_member("alice@example.com", github_login="alice")
         report = self._create_report()
@@ -653,6 +714,15 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert artefact.report_id == report.id
         assert artefact.team_id == self.team.id
         assert json.loads(artefact.content) == _CODE_REFERENCE_CONTENT
+
+    def test_post_non_uuid_report_id_returns_404_not_500(self):
+        # The create guard has its own report lookup, distinct from the read path's queryset.
+        response = self.client.post(
+            self._list_url("sig_praise"),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "x"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand(
         [

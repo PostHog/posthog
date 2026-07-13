@@ -131,19 +131,33 @@ class TestEngineActivities(BaseTest):
         [
             ("not_found",),
             ("disabled",),
-            ("no_delivery_flow",),
         ]
     )
     def test_validate_reasons(self, case: str) -> None:
         if case == "not_found":
             action_id = uuid.uuid4()
-        elif case == "disabled":
-            action_id = _action(self.team, name="off", enabled=False).id
         else:
-            action_id = _action(self.team, name="noflow").id
+            action_id = _action(self.team, name="off", enabled=False).id
         self.assertEqual(
             act._validate(ValidateVisionActionInputs(vision_action_id=action_id, team_id=self.team.id)), case
         )
+
+    @parameterized.expand(
+        [
+            ("with_delivery", True),
+            ("without_delivery", False),
+        ]
+    )
+    def test_validate_passes(self, _label: str, with_delivery: bool) -> None:
+        # Delivery is optional: the persisted run is the in-app artifact (scanner digest, run history),
+        # so an action without delivery_config must still synthesize. The gate also once checked the
+        # vestigial hog_flow_id (always null after the internal_destination rework), skipping everything.
+        action = _action(
+            self.team,
+            name=f"validates-{_label}",
+            delivery_config=[{"type": "slack", "integration_id": 1, "channel": "#general"}] if with_delivery else [],
+        )
+        self.assertIsNone(act._validate(ValidateVisionActionInputs(vision_action_id=action.id, team_id=self.team.id)))
 
     def test_update_run(self) -> None:
         action = _action(self.team)
@@ -159,7 +173,7 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(run.error, {"message": "x"})
 
     def test_emit_produces_internal_event(self) -> None:
-        action = _action(self.team)
+        action = _action(self.team, delivery_config=[{"type": "slack", "integration_id": 1, "channel": "#general"}])
         run = VisionActionRun(
             vision_action=action, team=self.team, idempotency_key="k", output={"slack": "hello *world*"}
         )
@@ -178,6 +192,17 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(event.uuid, str(run.id))
         self.assertEqual(event.properties["vision_action_id"], str(action.id))
         self.assertEqual(event.properties["slack_text"], "hello *world*")
+
+    def test_emit_noops_without_delivery(self) -> None:
+        # No destinations configured → nothing to emit; the run row itself is the in-app artifact.
+        action = _action(self.team)
+        run = VisionActionRun(vision_action=action, team=self.team, idempotency_key="k2", output={"slack": "x"})
+        run.save()
+
+        with patch.object(act, "produce_internal_event") as mock_emit:
+            act._emit(EmitActionReadyInputs(run_id=run.id, team_id=self.team.id))
+
+        mock_emit.assert_not_called()
 
 
 # --- workflow orchestration (activities mocked at the temporalio.workflow boundary) ---
@@ -274,14 +299,14 @@ async def test_process_skips_when_validate_returns_reason() -> None:
     mocks = _Mocks(
         results={
             act.create_vision_action_run_activity: uuid.uuid4(),
-            act.validate_vision_action_activity: "no_delivery_flow",
+            act.validate_vision_action_activity: "no_delivery",
         }
     )
     await _run_process(_process_inputs(), mocks)
 
     assert act.emit_action_ready_activity not in mocks.calls()
     assert _final_status(mocks) == VisionActionRunStatus.SKIPPED.value
-    assert _final_error(mocks) == {"skip_reason": "no_delivery_flow"}
+    assert _final_error(mocks) == {"skip_reason": "no_delivery"}
 
 
 @pytest.mark.asyncio

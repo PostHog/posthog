@@ -1,7 +1,9 @@
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 
 from django.conf import settings
+from django.core.cache import cache
 
 import requests
 import structlog
@@ -11,11 +13,61 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration
 
 logger = structlog.get_logger(__name__)
 
 MISSING_REQUIRED_PARAMS_ERROR = "owner, repository, code_sample, and file_name are required"
+
+# Circuit breaker for the shared public GitHub token's code-search path. Django-cache-backed so it
+# is shared across worker processes; best-effort so a cache outage never blocks the request path.
+_PUBLIC_TOKEN_CIRCUIT_OPEN_KEY = "error_tracking:github_public_token:circuit_open"
+_PUBLIC_TOKEN_UNAUTHORIZED_COUNT_KEY = "error_tracking:github_public_token:unauthorized_count"
+_UNAUTHORIZED_WINDOW_SECONDS = 600  # 10 min: consecutive 401s inside this window trip the breaker
+_CIRCUIT_OPEN_SECONDS = 900  # 15 min: skip the public token path while a dead PAT recovers
+_UNAUTHORIZED_THRESHOLD = 3
+
+
+class PublicGitHubTokenCircuit:
+    """Trips off the shared public GitHub token after repeated 401s so a dead PAT stops spamming
+    GitHub with unauthorized requests. While open, the resolver skips straight to the integration
+    path — identical behavior to the token being unset, so no user-visible change."""
+
+    def is_open(self) -> bool:
+        try:
+            return bool(cache.get(_PUBLIC_TOKEN_CIRCUIT_OPEN_KEY))
+        except Exception:
+            return False
+
+    def record_success(self) -> None:
+        # Any non-401 response breaks the consecutive-401 streak; clearing the open flag too means
+        # an in-flight success that races the trip closes the circuit immediately.
+        try:
+            cache.delete(_PUBLIC_TOKEN_UNAUTHORIZED_COUNT_KEY)
+            cache.delete(_PUBLIC_TOKEN_CIRCUIT_OPEN_KEY)
+        except Exception:
+            pass
+
+    def record_unauthorized(self) -> None:
+        try:
+            cache.add(_PUBLIC_TOKEN_UNAUTHORIZED_COUNT_KEY, 0, _UNAUTHORIZED_WINDOW_SECONDS)
+            count = cache.incr(_PUBLIC_TOKEN_UNAUTHORIZED_COUNT_KEY)
+            if count >= _UNAUTHORIZED_THRESHOLD:
+                cache.set(_PUBLIC_TOKEN_CIRCUIT_OPEN_KEY, True, _CIRCUIT_OPEN_SECONDS)
+                logger.error("github_public_token_circuit_opened", unauthorized_count=count)
+        except Exception:
+            pass
+
+
+@dataclass(frozen=True)
+class GitHubSearchOutcome:
+    """Result of one code-search request: ``url`` is the first match (or None), ``status_code`` is
+    the HTTP status the request returned (None when the request raised before a response)."""
+
+    url: str | None
+    status_code: int | None
 
 
 class GitProviderFileLinkResolveQuerySerializer(serializers.Serializer):
@@ -73,8 +125,22 @@ def prepare_gitlab_search_query(q: str | None) -> str:
     return " ".join("".join(result).split())
 
 
-def get_github_file_url(code_sample: str, token: str, owner: str, repository: str, file_name: str) -> str | None:
-    """Search GitHub code using the Code Search API. Returns URL to first match or None."""
+def search_github_file(
+    code_sample: str,
+    token: str,
+    owner: str,
+    repository: str,
+    file_name: str,
+    installation_id: str | None = None,
+    priority: Priority = Priority.CRITICAL,
+) -> GitHubSearchOutcome:
+    """Search GitHub code using the Code Search API. Returns the first match's URL and the request's
+    status code so callers can feed the public-token circuit breaker.
+
+    ``installation_id`` is set on the integration-token path (private repos) so the installation's
+    rate-limit gauges are recorded; the public PostHog-token path leaves it None (no installation).
+    ``priority`` lets the integration path yield to our egress limiter (NORMAL) instead of forcing
+    the call through (CRITICAL) — a shed search degrades to not-found, which the endpoint tolerates."""
     code_query = prepare_github_search_query(code_sample)
     search_query = f"{code_query} repo:{owner}/{repository} filename:{file_name}"
     encoded_query = urllib.parse.quote(search_query)
@@ -83,24 +149,55 @@ def get_github_file_url(code_sample: str, token: str, owner: str, repository: st
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.text-match+json",
-        "X-GitHub-Api-Version": "2022-11-28",
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-
+        response = github_request(
+            "GET",
+            url,
+            source="error_tracking",
+            headers=headers,
+            installation_id=installation_id,
+            priority=priority,
+            timeout=10,
+        )
         if response.status_code == 200:
-            data = response.json()
-            items = data.get("items", [])
-            if items:
-                return items[0].get("html_url")
-            return None
-
-        logger.warning("github_code_search_failed", status_code=response.status_code)
-        return None
+            # Body parsing stays inside the guard: a 200 with a malformed body must degrade to
+            # not-found like any other failure, not escape as a 500.
+            items = response.json().get("items", [])
+            return GitHubSearchOutcome(url=items[0].get("html_url") if items else None, status_code=200)
+        if response.status_code != 401 or installation_id is not None:
+            # The public-token path (no installation) logs its own distinct error for 401s — a
+            # second generic warning per request would double the noise without adding signal.
+            logger.warning("github_code_search_failed", status_code=response.status_code)
+        return GitHubSearchOutcome(url=None, status_code=response.status_code)
+    except GitHubEgressBudgetExhausted:
+        # Our own limiter shed the (sheddable) call before sending it — treat as not found.
+        return GitHubSearchOutcome(url=None, status_code=None)
     except Exception as error:
         logger.exception("github_code_search_request_failed", error=str(error))
-        return None
+        return GitHubSearchOutcome(url=None, status_code=None)
+
+
+def get_github_file_url(
+    code_sample: str,
+    token: str,
+    owner: str,
+    repository: str,
+    file_name: str,
+    installation_id: str | None = None,
+    priority: Priority = Priority.CRITICAL,
+) -> str | None:
+    """Thin wrapper over :func:`search_github_file` returning only the URL, for the integration path."""
+    return search_github_file(
+        code_sample=code_sample,
+        token=token,
+        owner=owner,
+        repository=repository,
+        file_name=file_name,
+        installation_id=installation_id,
+        priority=priority,
+    ).url
 
 
 def get_gitlab_file_url(
@@ -178,19 +275,27 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         code_sample = serializer.validated_data["code_sample"]
         file_name = serializer.validated_data["file_name"]
 
-        url = None
+        circuit = PublicGitHubTokenCircuit()
 
-        # Try with PostHog's token first (public repos).
-        if settings.GITHUB_TOKEN:
-            url = get_github_file_url(
+        # Try with PostHog's token first (public repos). Skip while the circuit is open — a dead PAT
+        # would otherwise keep spamming 401s. Skipping is identical to GITHUB_TOKEN being unset.
+        if settings.GITHUB_TOKEN and not circuit.is_open():
+            outcome = search_github_file(
                 code_sample=code_sample,
                 token=settings.GITHUB_TOKEN,
                 owner=owner,
                 repository=repository,
                 file_name=file_name,
             )
-            if url:
-                return Response({"found": True, "url": url})
+            if outcome.status_code == 401:
+                circuit.record_unauthorized()
+                logger.error("github_public_token_unauthorized", status_code=401)
+            elif outcome.status_code is not None:
+                # Any completed non-401 response breaks the streak — the breaker is for a dead PAT
+                # (consistent 401s), not for interleaved rate-limit or server errors.
+                circuit.record_success()
+            if outcome.url:
+                return Response({"found": True, "url": outcome.url})
 
         # Try with assigned GitHub integration (private repos).
         integration = Integration.objects.filter(team_id=self.team.id, kind="github").first()
@@ -209,6 +314,8 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     owner=owner,
                     repository=repository,
                     file_name=file_name,
+                    installation_id=github.github_installation_id,
+                    priority=Priority.NORMAL,
                 )
                 if url:
                     return Response({"found": True, "url": url})

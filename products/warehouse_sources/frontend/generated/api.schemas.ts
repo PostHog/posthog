@@ -116,6 +116,7 @@ export type ExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly supports_column_selection?: boolean
+    readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
 } | null
@@ -256,6 +257,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly supports_column_selection?: boolean
+    readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
 } | null
@@ -364,13 +366,16 @@ export interface PatchedExternalDataSchemaApi {
  * * `web` - web
  * * `api` - api
  * * `mcp` - mcp
+ * * `wizard` - wizard
  */
-export type CreatedViaEnumApi = (typeof CreatedViaEnumApi)[keyof typeof CreatedViaEnumApi]
+export type ExternalDataSourceSerializersCreatedViaEnumApi =
+    (typeof ExternalDataSourceSerializersCreatedViaEnumApi)[keyof typeof ExternalDataSourceSerializersCreatedViaEnumApi]
 
-export const CreatedViaEnumApi = {
+export const ExternalDataSourceSerializersCreatedViaEnumApi = {
     Web: 'web',
     Api: 'api',
     Mcp: 'mcp',
+    Wizard: 'wizard',
 } as const
 
 /**
@@ -722,6 +727,7 @@ export const CreatedViaEnumApi = {
  * * `InforNexus` - InforNexus
  * * `Insightful` - Insightful
  * * `Insightly` - Insightly
+ * * `Instantly` - Instantly
  * * `Instatus` - Instatus
  * * `Intruder` - Intruder
  * * `Invoiced` - Invoiced
@@ -1023,6 +1029,117 @@ export const CreatedViaEnumApi = {
  * * `NextdoorAds` - NextdoorAds
  * * `AppLovin` - AppLovin
  * * `Baserow` - Baserow
+ * * `Plunk` - Plunk
+ * * `Dub` - Dub
+ * * `AirOps` - AirOps
+ * * `Podium` - Podium
+ * * `Loops` - Loops
+ * * `Redis` - Redis
+ * * `Mercury` - Mercury
+ * * `Gojiberry` - Gojiberry
+ * * `Teachable` - Teachable
+ * * `PeecAI` - PeecAI
+ * * `Healthchecks` - Healthchecks
+ * * `Impact` - Impact
+ * * `AikidoSecurity` - AikidoSecurity
+ * * `Alguna` - Alguna
+ * * `Anthropic` - Anthropic
+ * * `Appwrite` - Appwrite
+ * * `BlandAI` - BlandAI
+ * * `BrowseAI` - BrowseAI
+ * * `BrowserUse` - BrowserUse
+ * * `ChartHop` - ChartHop
+ * * `Cody` - Cody
+ * * `Cursor` - Cursor
+ * * `Decagon` - Decagon
+ * * `Deepgram` - Deepgram
+ * * `ElevenLabs` - ElevenLabs
+ * * `Harvey` - Harvey
+ * * `Hyperspell` - Hyperspell
+ * * `Langfuse` - Langfuse
+ * * `LingoDev` - LingoDev
+ * * `M3ter` - M3ter
+ * * `Maxio` - Maxio
+ * * `Metorial` - Metorial
+ * * `OpenRouter` - OpenRouter
+ * * `TogetherAI` - TogetherAI
+ * * `Vapi` - Vapi
+ * * `Vespa` - Vespa
+ * * `Writesonic` - Writesonic
+ * * `Aiven` - Aiven
+ * * `Aviator` - Aviator
+ * * `Backblaze` - Backblaze
+ * * `Baseten` - Baseten
+ * * `Browserbase` - Browserbase
+ * * `Cohere` - Cohere
+ * * `DenoDeploy` - DenoDeploy
+ * * `DigitalOcean` - DigitalOcean
+ * * `E2B` - E2B
+ * * `Fintoc` - Fintoc
+ * * `Firecrawl` - Firecrawl
+ * * `FireworksAI` - FireworksAI
+ * * `FlyIo` - FlyIo
+ * * `Groq` - Groq
+ * * `GrowthBook` - GrowthBook
+ * * `Gumloop` - Gumloop
+ * * `Hatchet` - Hatchet
+ * * `Helicone` - Helicone
+ * * `Heroku` - Heroku
+ * * `Hetzner` - Hetzner
+ * * `HeyGen` - HeyGen
+ * * `Infisical` - Infisical
+ * * `Inngest` - Inngest
+ * * `KapaAI` - KapaAI
+ * * `Kernel` - Kernel
+ * * `Koyeb` - Koyeb
+ * * `LambdaLabs` - LambdaLabs
+ * * `LangSmith` - LangSmith
+ * * `Linode` - Linode
+ * * `LlamaCloud` - LlamaCloud
+ * * `Mem0` - Mem0
+ * * `Metriport` - Metriport
+ * * `Mintlify` - Mintlify
+ * * `MistralAI` - MistralAI
+ * * `Mono` - Mono
+ * * `Netlify` - Netlify
+ * * `Northflank` - Northflank
+ * * `OpenAI` - OpenAI
+ * * `Pinecone` - Pinecone
+ * * `PlatformSh` - PlatformSh
+ * * `PromptingCompany` - PromptingCompany
+ * * `Qdrant` - Qdrant
+ * * `Render` - Render
+ * * `Replicate` - Replicate
+ * * `RetellAI` - RetellAI
+ * * `Roark` - Roark
+ * * `RunPod` - RunPod
+ * * `ScaleAI` - ScaleAI
+ * * `Scaleway` - Scaleway
+ * * `SigNoz` - SigNoz
+ * * `Sim` - Sim
+ * * `Skyvern` - Skyvern
+ * * `Slash` - Slash
+ * * `Synthesia` - Synthesia
+ * * `Telli` - Telli
+ * * `TerraApi` - TerraApi
+ * * `TriggerDev` - TriggerDev
+ * * `Turso` - Turso
+ * * `Singular` - Singular
+ * * `Swonkie` - Swonkie
+ * * `TwelveLabs` - TwelveLabs
+ * * `Twenty` - Twenty
+ * * `Unstructured` - Unstructured
+ * * `Upstash` - Upstash
+ * * `Vellum` - Vellum
+ * * `Vultr` - Vultr
+ * * `Windmill` - Windmill
+ * * `Zep` - Zep
+ * * `Hex` - Hex
+ * * `Sumsub` - Sumsub
+ * * `GoogleChat` - GoogleChat
+ * * `Kickscale` - Kickscale
+ * * `Zellify` - Zellify
+ * * `RudderStack` - RudderStack
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1376,6 +1493,7 @@ export const ExternalDataSourceTypeEnumApi = {
     InforNexus: 'InforNexus',
     Insightful: 'Insightful',
     Insightly: 'Insightly',
+    Instantly: 'Instantly',
     Instatus: 'Instatus',
     Intruder: 'Intruder',
     Invoiced: 'Invoiced',
@@ -1677,6 +1795,117 @@ export const ExternalDataSourceTypeEnumApi = {
     NextdoorAds: 'NextdoorAds',
     AppLovin: 'AppLovin',
     Baserow: 'Baserow',
+    Plunk: 'Plunk',
+    Dub: 'Dub',
+    AirOps: 'AirOps',
+    Podium: 'Podium',
+    Loops: 'Loops',
+    Redis: 'Redis',
+    Mercury: 'Mercury',
+    Gojiberry: 'Gojiberry',
+    Teachable: 'Teachable',
+    PeecAI: 'PeecAI',
+    Healthchecks: 'Healthchecks',
+    Impact: 'Impact',
+    AikidoSecurity: 'AikidoSecurity',
+    Alguna: 'Alguna',
+    Anthropic: 'Anthropic',
+    Appwrite: 'Appwrite',
+    BlandAI: 'BlandAI',
+    BrowseAI: 'BrowseAI',
+    BrowserUse: 'BrowserUse',
+    ChartHop: 'ChartHop',
+    Cody: 'Cody',
+    Cursor: 'Cursor',
+    Decagon: 'Decagon',
+    Deepgram: 'Deepgram',
+    ElevenLabs: 'ElevenLabs',
+    Harvey: 'Harvey',
+    Hyperspell: 'Hyperspell',
+    Langfuse: 'Langfuse',
+    LingoDev: 'LingoDev',
+    M3ter: 'M3ter',
+    Maxio: 'Maxio',
+    Metorial: 'Metorial',
+    OpenRouter: 'OpenRouter',
+    TogetherAI: 'TogetherAI',
+    Vapi: 'Vapi',
+    Vespa: 'Vespa',
+    Writesonic: 'Writesonic',
+    Aiven: 'Aiven',
+    Aviator: 'Aviator',
+    Backblaze: 'Backblaze',
+    Baseten: 'Baseten',
+    Browserbase: 'Browserbase',
+    Cohere: 'Cohere',
+    DenoDeploy: 'DenoDeploy',
+    DigitalOcean: 'DigitalOcean',
+    E2b: 'E2B',
+    Fintoc: 'Fintoc',
+    Firecrawl: 'Firecrawl',
+    FireworksAI: 'FireworksAI',
+    FlyIo: 'FlyIo',
+    Groq: 'Groq',
+    GrowthBook: 'GrowthBook',
+    Gumloop: 'Gumloop',
+    Hatchet: 'Hatchet',
+    Helicone: 'Helicone',
+    Heroku: 'Heroku',
+    Hetzner: 'Hetzner',
+    HeyGen: 'HeyGen',
+    Infisical: 'Infisical',
+    Inngest: 'Inngest',
+    KapaAI: 'KapaAI',
+    Kernel: 'Kernel',
+    Koyeb: 'Koyeb',
+    LambdaLabs: 'LambdaLabs',
+    LangSmith: 'LangSmith',
+    Linode: 'Linode',
+    LlamaCloud: 'LlamaCloud',
+    Mem0: 'Mem0',
+    Metriport: 'Metriport',
+    Mintlify: 'Mintlify',
+    MistralAI: 'MistralAI',
+    Mono: 'Mono',
+    Netlify: 'Netlify',
+    Northflank: 'Northflank',
+    OpenAI: 'OpenAI',
+    Pinecone: 'Pinecone',
+    PlatformSh: 'PlatformSh',
+    PromptingCompany: 'PromptingCompany',
+    Qdrant: 'Qdrant',
+    Render: 'Render',
+    Replicate: 'Replicate',
+    RetellAI: 'RetellAI',
+    Roark: 'Roark',
+    RunPod: 'RunPod',
+    ScaleAI: 'ScaleAI',
+    Scaleway: 'Scaleway',
+    SigNoz: 'SigNoz',
+    Sim: 'Sim',
+    Skyvern: 'Skyvern',
+    Slash: 'Slash',
+    Synthesia: 'Synthesia',
+    Telli: 'Telli',
+    TerraApi: 'TerraApi',
+    TriggerDev: 'TriggerDev',
+    Turso: 'Turso',
+    Singular: 'Singular',
+    Swonkie: 'Swonkie',
+    TwelveLabs: 'TwelveLabs',
+    Twenty: 'Twenty',
+    Unstructured: 'Unstructured',
+    Upstash: 'Upstash',
+    Vellum: 'Vellum',
+    Vultr: 'Vultr',
+    Windmill: 'Windmill',
+    Zep: 'Zep',
+    Hex: 'Hex',
+    Sumsub: 'Sumsub',
+    GoogleChat: 'GoogleChat',
+    Kickscale: 'Kickscale',
+    Zellify: 'Zellify',
+    RudderStack: 'RudderStack',
 } as const
 
 /**
@@ -1694,6 +1923,8 @@ export const AccessMethodEnumApi = {
  * * `duckdb` - duckdb
  * * `postgres` - postgres
  * * `mysql` - mysql
+ * * `snowflake` - snowflake
+ * * `redshift` - redshift
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -1701,6 +1932,8 @@ export const EngineEnumApi = {
     Duckdb: 'duckdb',
     Postgres: 'postgres',
     Mysql: 'mysql',
+    Snowflake: 'snowflake',
+    Redshift: 'redshift',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -1718,12 +1951,13 @@ export interface ExternalDataSourceSerializersApi {
     readonly created_at: string
     /** @nullable */
     readonly created_by: string | null
-    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
      *
      * * `web` - web
      * * `api` - api
-     * * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi | null
+     * * `mcp` - mcp
+     * * `wizard` - wizard */
+    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
     readonly status: string
     client_secret: string
     account_id: string
@@ -1747,7 +1981,9 @@ export interface ExternalDataSourceSerializersApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake
+     * * `redshift` - redshift */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -1777,6 +2013,20 @@ export interface PaginatedExternalDataSourceSerializersListApi {
  * Connection credentials and a 'schemas' array. Keys depend on source_type.
  */
 export type ExternalDataSourceCreateApiPayload = { [key: string]: unknown }
+
+/**
+ * * `web` - web
+ * * `api` - api
+ * * `mcp` - mcp
+ */
+export type ExternalDataSourceCreateCreatedViaEnumApi =
+    (typeof ExternalDataSourceCreateCreatedViaEnumApi)[keyof typeof ExternalDataSourceCreateCreatedViaEnumApi]
+
+export const ExternalDataSourceCreateCreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+} as const
 
 export interface ExternalDataSourceCreateApi {
     /** The source type (e.g. 'Postgres', 'Stripe').
@@ -2129,6 +2379,7 @@ export interface ExternalDataSourceCreateApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -2429,7 +2680,118 @@ export interface ExternalDataSourceCreateApi {
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow */
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic
+     * * `Aiven` - Aiven
+     * * `Aviator` - Aviator
+     * * `Backblaze` - Backblaze
+     * * `Baseten` - Baseten
+     * * `Browserbase` - Browserbase
+     * * `Cohere` - Cohere
+     * * `DenoDeploy` - DenoDeploy
+     * * `DigitalOcean` - DigitalOcean
+     * * `E2B` - E2B
+     * * `Fintoc` - Fintoc
+     * * `Firecrawl` - Firecrawl
+     * * `FireworksAI` - FireworksAI
+     * * `FlyIo` - FlyIo
+     * * `Groq` - Groq
+     * * `GrowthBook` - GrowthBook
+     * * `Gumloop` - Gumloop
+     * * `Hatchet` - Hatchet
+     * * `Helicone` - Helicone
+     * * `Heroku` - Heroku
+     * * `Hetzner` - Hetzner
+     * * `HeyGen` - HeyGen
+     * * `Infisical` - Infisical
+     * * `Inngest` - Inngest
+     * * `KapaAI` - KapaAI
+     * * `Kernel` - Kernel
+     * * `Koyeb` - Koyeb
+     * * `LambdaLabs` - LambdaLabs
+     * * `LangSmith` - LangSmith
+     * * `Linode` - Linode
+     * * `LlamaCloud` - LlamaCloud
+     * * `Mem0` - Mem0
+     * * `Metriport` - Metriport
+     * * `Mintlify` - Mintlify
+     * * `MistralAI` - MistralAI
+     * * `Mono` - Mono
+     * * `Netlify` - Netlify
+     * * `Northflank` - Northflank
+     * * `OpenAI` - OpenAI
+     * * `Pinecone` - Pinecone
+     * * `PlatformSh` - PlatformSh
+     * * `PromptingCompany` - PromptingCompany
+     * * `Qdrant` - Qdrant
+     * * `Render` - Render
+     * * `Replicate` - Replicate
+     * * `RetellAI` - RetellAI
+     * * `Roark` - Roark
+     * * `RunPod` - RunPod
+     * * `ScaleAI` - ScaleAI
+     * * `Scaleway` - Scaleway
+     * * `SigNoz` - SigNoz
+     * * `Sim` - Sim
+     * * `Skyvern` - Skyvern
+     * * `Slash` - Slash
+     * * `Synthesia` - Synthesia
+     * * `Telli` - Telli
+     * * `TerraApi` - TerraApi
+     * * `TriggerDev` - TriggerDev
+     * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
+     * * `TwelveLabs` - TwelveLabs
+     * * `Twenty` - Twenty
+     * * `Unstructured` - Unstructured
+     * * `Upstash` - Upstash
+     * * `Vellum` - Vellum
+     * * `Vultr` - Vultr
+     * * `Windmill` - Windmill
+     * * `Zep` - Zep
+     * * `Hex` - Hex
+     * * `Sumsub` - Sumsub
+     * * `GoogleChat` - GoogleChat
+     * * `Kickscale` - Kickscale
+     * * `Zellify` - Zellify
+     * * `RudderStack` - RudderStack */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -2450,12 +2812,12 @@ export interface ExternalDataSourceCreateApi {
      * * `warehouse` - warehouse
      * * `direct` - direct */
     access_method?: AccessMethodEnumApi
-    /** Where the request came from
+    /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
      *
      * * `web` - web
      * * `api` - api
      * * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi
+    created_via?: ExternalDataSourceCreateCreatedViaEnumApi
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
 }
@@ -2470,12 +2832,13 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: string | null
-    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
      *
      * * `web` - web
      * * `api` - api
-     * * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi | null
+     * * `mcp` - mcp
+     * * `wizard` - wizard */
+    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
     account_id?: string
@@ -2499,7 +2862,9 @@ export interface PatchedExternalDataSourceSerializersApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake
+     * * `redshift` - redshift */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -2614,7 +2979,9 @@ export interface ExternalDataSourceConnectionOptionApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake
+     * * `redshift` - redshift */
     readonly engine: EngineEnumApi | null
 }
 
@@ -2992,6 +3359,7 @@ export interface DatabaseSchemaRequestApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -3292,7 +3660,118 @@ export interface DatabaseSchemaRequestApi {
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow */
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic
+     * * `Aiven` - Aiven
+     * * `Aviator` - Aviator
+     * * `Backblaze` - Backblaze
+     * * `Baseten` - Baseten
+     * * `Browserbase` - Browserbase
+     * * `Cohere` - Cohere
+     * * `DenoDeploy` - DenoDeploy
+     * * `DigitalOcean` - DigitalOcean
+     * * `E2B` - E2B
+     * * `Fintoc` - Fintoc
+     * * `Firecrawl` - Firecrawl
+     * * `FireworksAI` - FireworksAI
+     * * `FlyIo` - FlyIo
+     * * `Groq` - Groq
+     * * `GrowthBook` - GrowthBook
+     * * `Gumloop` - Gumloop
+     * * `Hatchet` - Hatchet
+     * * `Helicone` - Helicone
+     * * `Heroku` - Heroku
+     * * `Hetzner` - Hetzner
+     * * `HeyGen` - HeyGen
+     * * `Infisical` - Infisical
+     * * `Inngest` - Inngest
+     * * `KapaAI` - KapaAI
+     * * `Kernel` - Kernel
+     * * `Koyeb` - Koyeb
+     * * `LambdaLabs` - LambdaLabs
+     * * `LangSmith` - LangSmith
+     * * `Linode` - Linode
+     * * `LlamaCloud` - LlamaCloud
+     * * `Mem0` - Mem0
+     * * `Metriport` - Metriport
+     * * `Mintlify` - Mintlify
+     * * `MistralAI` - MistralAI
+     * * `Mono` - Mono
+     * * `Netlify` - Netlify
+     * * `Northflank` - Northflank
+     * * `OpenAI` - OpenAI
+     * * `Pinecone` - Pinecone
+     * * `PlatformSh` - PlatformSh
+     * * `PromptingCompany` - PromptingCompany
+     * * `Qdrant` - Qdrant
+     * * `Render` - Render
+     * * `Replicate` - Replicate
+     * * `RetellAI` - RetellAI
+     * * `Roark` - Roark
+     * * `RunPod` - RunPod
+     * * `ScaleAI` - ScaleAI
+     * * `Scaleway` - Scaleway
+     * * `SigNoz` - SigNoz
+     * * `Sim` - Sim
+     * * `Skyvern` - Skyvern
+     * * `Slash` - Slash
+     * * `Synthesia` - Synthesia
+     * * `Telli` - Telli
+     * * `TerraApi` - TerraApi
+     * * `TriggerDev` - TriggerDev
+     * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
+     * * `TwelveLabs` - TwelveLabs
+     * * `Twenty` - Twenty
+     * * `Unstructured` - Unstructured
+     * * `Upstash` - Upstash
+     * * `Vellum` - Vellum
+     * * `Vultr` - Vultr
+     * * `Windmill` - Windmill
+     * * `Zep` - Zep
+     * * `Hex` - Hex
+     * * `Sumsub` - Sumsub
+     * * `GoogleChat` - GoogleChat
+     * * `Kickscale` - Kickscale
+     * * `Zellify` - Zellify
+     * * `RudderStack` - RudderStack */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -3339,6 +3818,37 @@ export interface DraftCustomManifestResponseApi {
      * @nullable
      */
     error: string | null
+}
+
+/**
+ * A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+ * platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+ * and one frontend selector work across all platforms.
+ */
+export interface IntegrationAccountApi {
+    /** The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.). */
+    value: string
+    /** Primary human-readable label for the account. */
+    display_name: string
+    /** True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first. */
+    is_primary: boolean
+    /** Short status chips for the account, e.g. ['Active'] or ['Pause']. */
+    badges: string[]
+    /**
+     * Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).
+     * @nullable
+     */
+    group: string | null
+    /**
+     * Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.
+     * @nullable
+     */
+    secondary_text: string | null
+}
+
+export interface IntegrationAccountsResponseApi {
+    /** All accounts the connected integration can access. */
+    accounts: IntegrationAccountApi[]
 }
 
 /**
@@ -3697,6 +4207,7 @@ export interface SourcePreviewRequestApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -3997,7 +4508,118 @@ export interface SourcePreviewRequestApi {
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow */
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic
+     * * `Aiven` - Aiven
+     * * `Aviator` - Aviator
+     * * `Backblaze` - Backblaze
+     * * `Baseten` - Baseten
+     * * `Browserbase` - Browserbase
+     * * `Cohere` - Cohere
+     * * `DenoDeploy` - DenoDeploy
+     * * `DigitalOcean` - DigitalOcean
+     * * `E2B` - E2B
+     * * `Fintoc` - Fintoc
+     * * `Firecrawl` - Firecrawl
+     * * `FireworksAI` - FireworksAI
+     * * `FlyIo` - FlyIo
+     * * `Groq` - Groq
+     * * `GrowthBook` - GrowthBook
+     * * `Gumloop` - Gumloop
+     * * `Hatchet` - Hatchet
+     * * `Helicone` - Helicone
+     * * `Heroku` - Heroku
+     * * `Hetzner` - Hetzner
+     * * `HeyGen` - HeyGen
+     * * `Infisical` - Infisical
+     * * `Inngest` - Inngest
+     * * `KapaAI` - KapaAI
+     * * `Kernel` - Kernel
+     * * `Koyeb` - Koyeb
+     * * `LambdaLabs` - LambdaLabs
+     * * `LangSmith` - LangSmith
+     * * `Linode` - Linode
+     * * `LlamaCloud` - LlamaCloud
+     * * `Mem0` - Mem0
+     * * `Metriport` - Metriport
+     * * `Mintlify` - Mintlify
+     * * `MistralAI` - MistralAI
+     * * `Mono` - Mono
+     * * `Netlify` - Netlify
+     * * `Northflank` - Northflank
+     * * `OpenAI` - OpenAI
+     * * `Pinecone` - Pinecone
+     * * `PlatformSh` - PlatformSh
+     * * `PromptingCompany` - PromptingCompany
+     * * `Qdrant` - Qdrant
+     * * `Render` - Render
+     * * `Replicate` - Replicate
+     * * `RetellAI` - RetellAI
+     * * `Roark` - Roark
+     * * `RunPod` - RunPod
+     * * `ScaleAI` - ScaleAI
+     * * `Scaleway` - Scaleway
+     * * `SigNoz` - SigNoz
+     * * `Sim` - Sim
+     * * `Skyvern` - Skyvern
+     * * `Slash` - Slash
+     * * `Synthesia` - Synthesia
+     * * `Telli` - Telli
+     * * `TerraApi` - TerraApi
+     * * `TriggerDev` - TriggerDev
+     * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
+     * * `TwelveLabs` - TwelveLabs
+     * * `Twenty` - Twenty
+     * * `Unstructured` - Unstructured
+     * * `Upstash` - Upstash
+     * * `Vellum` - Vellum
+     * * `Vultr` - Vultr
+     * * `Windmill` - Windmill
+     * * `Zep` - Zep
+     * * `Hex` - Hex
+     * * `Sumsub` - Sumsub
+     * * `GoogleChat` - GoogleChat
+     * * `Kickscale` - Kickscale
+     * * `Zellify` - Zellify
+     * * `RudderStack` - RudderStack */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -4390,6 +5012,7 @@ export interface SourceSetupApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -4690,7 +5313,118 @@ export interface SourceSetupApi {
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow */
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic
+     * * `Aiven` - Aiven
+     * * `Aviator` - Aviator
+     * * `Backblaze` - Backblaze
+     * * `Baseten` - Baseten
+     * * `Browserbase` - Browserbase
+     * * `Cohere` - Cohere
+     * * `DenoDeploy` - DenoDeploy
+     * * `DigitalOcean` - DigitalOcean
+     * * `E2B` - E2B
+     * * `Fintoc` - Fintoc
+     * * `Firecrawl` - Firecrawl
+     * * `FireworksAI` - FireworksAI
+     * * `FlyIo` - FlyIo
+     * * `Groq` - Groq
+     * * `GrowthBook` - GrowthBook
+     * * `Gumloop` - Gumloop
+     * * `Hatchet` - Hatchet
+     * * `Helicone` - Helicone
+     * * `Heroku` - Heroku
+     * * `Hetzner` - Hetzner
+     * * `HeyGen` - HeyGen
+     * * `Infisical` - Infisical
+     * * `Inngest` - Inngest
+     * * `KapaAI` - KapaAI
+     * * `Kernel` - Kernel
+     * * `Koyeb` - Koyeb
+     * * `LambdaLabs` - LambdaLabs
+     * * `LangSmith` - LangSmith
+     * * `Linode` - Linode
+     * * `LlamaCloud` - LlamaCloud
+     * * `Mem0` - Mem0
+     * * `Metriport` - Metriport
+     * * `Mintlify` - Mintlify
+     * * `MistralAI` - MistralAI
+     * * `Mono` - Mono
+     * * `Netlify` - Netlify
+     * * `Northflank` - Northflank
+     * * `OpenAI` - OpenAI
+     * * `Pinecone` - Pinecone
+     * * `PlatformSh` - PlatformSh
+     * * `PromptingCompany` - PromptingCompany
+     * * `Qdrant` - Qdrant
+     * * `Render` - Render
+     * * `Replicate` - Replicate
+     * * `RetellAI` - RetellAI
+     * * `Roark` - Roark
+     * * `RunPod` - RunPod
+     * * `ScaleAI` - ScaleAI
+     * * `Scaleway` - Scaleway
+     * * `SigNoz` - SigNoz
+     * * `Sim` - Sim
+     * * `Skyvern` - Skyvern
+     * * `Slash` - Slash
+     * * `Synthesia` - Synthesia
+     * * `Telli` - Telli
+     * * `TerraApi` - TerraApi
+     * * `TriggerDev` - TriggerDev
+     * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
+     * * `TwelveLabs` - TwelveLabs
+     * * `Twenty` - Twenty
+     * * `Unstructured` - Unstructured
+     * * `Upstash` - Upstash
+     * * `Vellum` - Vellum
+     * * `Vultr` - Vultr
+     * * `Windmill` - Windmill
+     * * `Zep` - Zep
+     * * `Hex` - Hex
+     * * `Sumsub` - Sumsub
+     * * `GoogleChat` - GoogleChat
+     * * `Kickscale` - Kickscale
+     * * `Zellify` - Zellify
+     * * `RudderStack` - RudderStack */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -5090,6 +5824,7 @@ export interface SourceCredentialCreateApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -5390,7 +6125,118 @@ export interface SourceCredentialCreateApi {
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow */
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic
+     * * `Aiven` - Aiven
+     * * `Aviator` - Aviator
+     * * `Backblaze` - Backblaze
+     * * `Baseten` - Baseten
+     * * `Browserbase` - Browserbase
+     * * `Cohere` - Cohere
+     * * `DenoDeploy` - DenoDeploy
+     * * `DigitalOcean` - DigitalOcean
+     * * `E2B` - E2B
+     * * `Fintoc` - Fintoc
+     * * `Firecrawl` - Firecrawl
+     * * `FireworksAI` - FireworksAI
+     * * `FlyIo` - FlyIo
+     * * `Groq` - Groq
+     * * `GrowthBook` - GrowthBook
+     * * `Gumloop` - Gumloop
+     * * `Hatchet` - Hatchet
+     * * `Helicone` - Helicone
+     * * `Heroku` - Heroku
+     * * `Hetzner` - Hetzner
+     * * `HeyGen` - HeyGen
+     * * `Infisical` - Infisical
+     * * `Inngest` - Inngest
+     * * `KapaAI` - KapaAI
+     * * `Kernel` - Kernel
+     * * `Koyeb` - Koyeb
+     * * `LambdaLabs` - LambdaLabs
+     * * `LangSmith` - LangSmith
+     * * `Linode` - Linode
+     * * `LlamaCloud` - LlamaCloud
+     * * `Mem0` - Mem0
+     * * `Metriport` - Metriport
+     * * `Mintlify` - Mintlify
+     * * `MistralAI` - MistralAI
+     * * `Mono` - Mono
+     * * `Netlify` - Netlify
+     * * `Northflank` - Northflank
+     * * `OpenAI` - OpenAI
+     * * `Pinecone` - Pinecone
+     * * `PlatformSh` - PlatformSh
+     * * `PromptingCompany` - PromptingCompany
+     * * `Qdrant` - Qdrant
+     * * `Render` - Render
+     * * `Replicate` - Replicate
+     * * `RetellAI` - RetellAI
+     * * `Roark` - Roark
+     * * `RunPod` - RunPod
+     * * `ScaleAI` - ScaleAI
+     * * `Scaleway` - Scaleway
+     * * `SigNoz` - SigNoz
+     * * `Sim` - Sim
+     * * `Skyvern` - Skyvern
+     * * `Slash` - Slash
+     * * `Synthesia` - Synthesia
+     * * `Telli` - Telli
+     * * `TerraApi` - TerraApi
+     * * `TriggerDev` - TriggerDev
+     * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
+     * * `TwelveLabs` - TwelveLabs
+     * * `Twenty` - Twenty
+     * * `Unstructured` - Unstructured
+     * * `Upstash` - Upstash
+     * * `Vellum` - Vellum
+     * * `Vultr` - Vultr
+     * * `Windmill` - Windmill
+     * * `Zep` - Zep
+     * * `Hex` - Hex
+     * * `Sumsub` - Sumsub
+     * * `GoogleChat` - GoogleChat
+     * * `Kickscale` - Kickscale
+     * * `Zellify` - Zellify
+     * * `RudderStack` - RudderStack */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -5484,6 +6330,11 @@ export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
     search?: string
 }
 
+export type ExternalDataSourcesRepairCdcCreate200 = {
+    success?: boolean
+    schemas_reset?: number
+}
+
 export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
     valid?: boolean
     errors?: string[]
@@ -5511,6 +6362,17 @@ export type ExternalDataSourcesConnectionsListParams = {
     search?: string
 }
 
+export type ExternalDataSourcesOauthAccountsRetrieveParams = {
+    /**
+     * The OAuth integration id whose accounts should be listed.
+     */
+    integration_id: number
+    /**
+     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
+     */
+    source_type: string
+}
+
 export type ExternalDataSourcesStoredCredentialsListParams = {
     /**
      * A search term.
@@ -5518,6 +6380,13 @@ export type ExternalDataSourcesStoredCredentialsListParams = {
     search?: string
     /**
      * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string
+}
+
+export type ExternalDataSourcesWizardRetrieveParams = {
+    /**
+     * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
      */
     source_type?: string
 }

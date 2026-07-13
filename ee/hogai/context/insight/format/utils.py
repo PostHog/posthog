@@ -2,13 +2,6 @@ import datetime
 from math import floor
 from typing import Any, Optional, Union
 
-from posthog.hogql_queries.insights.utils.breakdowns import (
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_DISPLAY,
-    BREAKDOWN_OTHER_STRING_LABEL,
-)
-
 
 def format_matrix(matrix: list[list[Any]]) -> str:
     # Coerce cells: a None (or non-str) cell would make "|".join raise and crash the build.
@@ -108,9 +101,3 @@ def format_date(date: datetime.date) -> str:
 
 def strip_datetime_seconds(date: str) -> str:
     return datetime.datetime.fromisoformat(date).strftime("%Y-%m-%d %H:%M" if ":" in date else "%Y-%m-%d")
-
-
-def replace_breakdown_labels(name: str) -> str:
-    return name.replace(BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_DISPLAY).replace(
-        BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_NULL_DISPLAY
-    )

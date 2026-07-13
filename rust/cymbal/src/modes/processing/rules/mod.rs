@@ -3,6 +3,7 @@
 //! together by `crate::modes::processing::teams::TeamManager`.
 
 pub mod assignment;
+pub mod bypass;
 pub mod grouping;
 pub mod rate_limit;
 pub mod spike;

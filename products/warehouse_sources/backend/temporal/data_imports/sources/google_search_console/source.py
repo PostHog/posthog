@@ -8,8 +8,7 @@ from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
 )
 
@@ -20,6 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -57,12 +60,54 @@ class GoogleSearchConsoleSource(
             "401 Client Error": "Your Google Search Console connection is invalid or expired. Please reconnect your account.",
             "403 Client Error": "PostHog is not authorized to read this Search Console property. Please make sure the connected Google account has access to the property.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Search Console account with the required scopes.",
+            # `Integration.DoesNotExist` is raised by `_get_integration` when the source config still
+            # references an OAuth integration row that has since been deleted (account disconnected).
+            # No retry can recreate the row, so stop and ask the user to reconnect.
+            "Integration matching query does not exist": "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",
             # `RefreshError: invalid_grant` is raised while AuthorizedSession refreshes the OAuth
             # access token — the stored refresh token has been revoked, expired, or invalidated
             # (app access revoked, password change, long inactivity). It never recovers on retry,
             # so stop the sync and ask the user to reconnect rather than burning activity retries.
             "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
+
+    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+        try:
+            session = google_search_console_session(integration_id, team_id)
+        except Integration.DoesNotExist:
+            raise IntegrationAccountListingError(
+                "The Google Search Console connection for this source no longer exists. "
+                "Please reconnect your Google account."
+            )
+        try:
+            sites = list_sites(session)
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status in (401, 403):
+                # The token refreshed fine but the connected Google account isn't authorized to read
+                # Search Console — a customer-side connection issue. Surface an actionable message the
+                # endpoint turns into a 400 rather than an unhandled 500.
+                raise IntegrationAccountListingError(
+                    "Google Search Console rejected the credentials. Please reconnect your account "
+                    "and ensure it has read access to the property."
+                )
+            raise
+        except RefreshError:
+            # The stored OAuth token is revoked/expired/missing scopes — raised while AuthorizedSession
+            # refreshes it. Not a server bug, so surface an actionable reconnect message (400) rather
+            # than letting the raw RefreshError escape as a 500.
+            raise IntegrationAccountListingError(
+                "Could not authenticate with Google Search Console. Please reconnect the integration."
+            )
+        # GSC has no name distinct from the site url, so value and display_name are the same.
+        return [
+            IntegrationAccount(
+                value=site["siteUrl"],
+                display_name=site["siteUrl"],
+                badges=(site["permissionLevel"],) if site.get("permissionLevel") else (),
+            )
+            for site in sites
+        ]
 
     def get_schemas(
         self,
@@ -205,17 +250,17 @@ class GoogleSearchConsoleSource(
                         required=True,
                         kind="google-search-console",
                     ),
-                    SourceFieldInputConfig(
+                    SourceFieldOauthAccountSelectConfig(
                         name="site_url",
                         label="Property URL",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
+                        integrationField="google_search_console_integration_id",
+                        integrationKind="google-search-console",
                         placeholder="https://example.com/ or sc-domain:example.com",
                         caption=(
                             "The exact verified property URL as it appears in Google Search Console. "
                             "Use the trailing slash for URL prefix properties or the `sc-domain:` prefix for domain properties."
                         ),
-                        secret=False,
+                        required=True,
                     ),
                 ],
             ),

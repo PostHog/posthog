@@ -1,6 +1,7 @@
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 from parameterized import parameterized
@@ -10,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _apply_partitioning,
     _get_write_type,
     _promote_staged_cursor,
+    process_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 
@@ -160,3 +162,101 @@ class TestPromoteStagedCursor:
         mock_objects.get.side_effect = ExternalDataSchema.DoesNotExist()
         signal = self._make_signal()
         _promote_staged_cursor(signal)
+
+
+class _LeaseLost(Exception):
+    pass
+
+
+def _message(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "team_id": 1,
+        "job_id": "job-1",
+        "schema_id": "schema-1",
+        "source_id": "source-1",
+        "resource_name": "res",
+        "run_uuid": "run-1",
+        "batch_index": 1,
+        "s3_path": "s3://bucket/path",
+        "row_count": 1,
+        "byte_size": 1,
+        "is_final_batch": False,
+        "total_batches": None,
+        "total_rows": None,
+        "sync_type": "incremental",
+        "data_folder": None,
+        "schema_path": None,
+        "primary_keys": ["id"],
+    }
+    base.update(overrides)
+    return base
+
+
+_PROCESSOR = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
+
+
+class TestProcessMessageOwnershipGate:
+    # If the check is dropped or moved after the side effect, a taken-over loader
+    # would still commit to Delta or mark the job COMPLETED.
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_lost_ownership_blocks_delta_write(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        _already: MagicMock,
+        _read: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=None)
+        helper.write_to_deltalake = AsyncMock()
+        helper.write_scd2_to_deltalake = AsyncMock()
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        def verify_ownership() -> None:
+            raise _LeaseLost()
+
+        with pytest.raises(_LeaseLost):
+            process_message(_message(), verify_ownership=verify_ownership)
+
+        helper.write_to_deltalake.assert_not_called()
+        helper.write_scd2_to_deltalake.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
+    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_lost_ownership_blocks_final_batch_completion(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        _already: MagicMock,
+        mock_post_load: MagicMock,
+        mock_mark_completed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        def verify_ownership() -> None:
+            raise _LeaseLost()
+
+        with pytest.raises(_LeaseLost):
+            process_message(_message(is_final_batch=True), verify_ownership=verify_ownership)
+
+        mock_post_load.assert_not_called()
+        mock_mark_completed.assert_not_called()

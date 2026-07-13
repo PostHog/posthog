@@ -1,9 +1,29 @@
-import { useMemo, useState } from 'react'
+import { ReactNode, useMemo, useState } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+
+/**
+ * A suggestion is either a plain string (shown verbatim, and copied into `value` on click) or a
+ * rich entry where the value stored differs from what's displayed — e.g. show "Account name (id)"
+ * but store just the id. `searchText` is what the filter matches against (defaults to `value`).
+ */
+export type InputSuggestion = string | { value: string; label: ReactNode; searchText?: string }
+
+interface NormalizedSuggestion {
+    value: string
+    label: ReactNode
+    searchText: string
+}
+
+function normalizeSuggestion(suggestion: InputSuggestion): NormalizedSuggestion {
+    if (typeof suggestion === 'string') {
+        return { value: suggestion, label: suggestion, searchText: suggestion }
+    }
+    return { value: suggestion.value, label: suggestion.label, searchText: suggestion.searchText ?? suggestion.value }
+}
 
 export interface InputWithSuggestionsDropdownProps {
     /** Current value of the input. Free text — user can type anything, suggestions are only hints. */
@@ -11,8 +31,9 @@ export interface InputWithSuggestionsDropdownProps {
     onChange: (next: string) => void
     placeholder?: string
     'data-attr'?: string
-    /** Suggestions to surface in the popover. Each value is shown verbatim and copied into `value` on click. */
-    suggestions: string[]
+    /** Suggestions to surface in the popover. Plain strings, or `{ value, label, searchText }` when the
+     * stored value differs from the displayed label. Clicking one copies its `value` into the input. */
+    suggestions: InputSuggestion[]
     suggestionsLoading?: boolean
     /** Search input placeholder inside the popover. */
     searchPlaceholder?: string
@@ -50,13 +71,15 @@ export function InputWithSuggestionsDropdown({
     const [open, setOpen] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')
 
+    const normalized = useMemo(() => suggestions.map(normalizeSuggestion), [suggestions])
+
     const filtered = useMemo(() => {
         const needle = searchTerm.trim().toLowerCase()
         if (!needle) {
-            return suggestions
+            return normalized
         }
-        return suggestions.filter((suggestion) => suggestion.toLowerCase().includes(needle))
-    }, [suggestions, searchTerm])
+        return normalized.filter((suggestion) => suggestion.searchText.toLowerCase().includes(needle))
+    }, [normalized, searchTerm])
 
     return (
         <Popover
@@ -87,21 +110,21 @@ export function InputWithSuggestionsDropdown({
                     ) : (
                         <div className="flex flex-col max-h-64 overflow-y-auto">
                             {filtered.map((suggestion) => {
-                                const isCurrent = suggestion === value
+                                const isCurrent = suggestion.value === value
                                 return (
                                     <LemonButton
-                                        key={suggestion}
+                                        key={suggestion.value}
                                         size="small"
                                         fullWidth
                                         active={isCurrent}
                                         icon={isCurrent ? <IconCheck /> : undefined}
                                         onClick={() => {
-                                            onChange(suggestion)
+                                            onChange(suggestion.value)
                                             setSearchTerm('')
                                             setOpen(false)
                                         }}
                                     >
-                                        {suggestion}
+                                        {suggestion.label}
                                     </LemonButton>
                                 )
                             })}
