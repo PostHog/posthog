@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonInputSelect,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -115,7 +124,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         clearObservationFilters,
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
-    const tagFilterOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
+    const tagFilterOptions = availableTags.map((tag) => ({ key: tag, label: tag, value: tag }))
 
     const columns: LemonTableColumns<ReplayObservationApi> = [
         {
@@ -272,13 +281,18 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     />
                                 )}
                                 {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
-                                    <FilterPill<string>
-                                        label="Tag"
+                                    <LemonInputSelect
+                                        mode="multiple"
+                                        size="small"
+                                        placeholder="Tag"
                                         options={tagFilterOptions}
                                         value={observationTagFilter}
                                         onChange={setObservationTagFilter}
-                                        searchable
-                                        searchPlaceholder="Search tags"
+                                        displayMode="count"
+                                        bulkActions="clear-all"
+                                        className="w-40"
+                                        popoverClassName="max-h-80 overflow-y-auto"
+                                        data-attr="vision-observations-tag-filter"
                                     />
                                 )}
                                 <LemonButton
