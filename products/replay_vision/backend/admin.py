@@ -41,6 +41,7 @@ class ReplayObservationAdmin(admin.ModelAdmin):
         "workflow_id",
         "started_at",
         "completed_at",
+        "event_emitted_at",
         "created_at",
     )
 

@@ -82,6 +82,11 @@ class ReplayObservation(UUIDModel):
 
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    event_emitted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the `$recording_observed` event was captured into the events table. Null on a succeeded row means emission never landed; the reconciler backfills those.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -112,6 +117,13 @@ class ReplayObservation(UUIDModel):
                 fields=["team", "scanner"],
                 name="rlo_team_in_flight_idx",
                 condition=models.Q(status__in=("pending", "running")),
+            ),
+            # Serves the reconciler's backfill query for succeeded rows whose `$recording_observed` event never
+            # landed. Partial on that tiny subset so the sweep stays cheap once the backlog drains.
+            models.Index(
+                fields=["completed_at"],
+                name="rlo_event_backfill_idx",
+                condition=models.Q(status="succeeded", event_emitted_at__isnull=True),
             ),
         ]
 

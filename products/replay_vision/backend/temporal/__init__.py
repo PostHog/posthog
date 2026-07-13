@@ -3,6 +3,7 @@ from typing import Any
 
 from products.replay_vision.backend.temporal.activities import (
     advance_scanner_watermark_activity,
+    backfill_observation_events_activity,
     call_scanner_provider_activity,
     cleanup_gemini_file_activity,
     count_in_flight_applies_activity,
@@ -90,6 +91,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     list_stale_scanner_estimates_activity,
     refresh_scanner_estimate_activity,
     reap_orphaned_observations_activity,
+    backfill_observation_events_activity,
     sweep_gemini_files_activity,
     evaluate_due_vision_actions_activity,
     create_vision_action_run_activity,
@@ -116,6 +118,7 @@ __all__ = [
     "update_vision_action_run_activity",
     "validate_vision_action_activity",
     "advance_scanner_watermark_activity",
+    "backfill_observation_events_activity",
     "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
     "cleanup_gemini_file_activity",
