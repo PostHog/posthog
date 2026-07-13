@@ -76,11 +76,13 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     name = models.CharField(max_length=200)
     url = models.URLField(max_length=2048, unique=True)
-    docs_url = models.URLField(max_length=2048, blank=True, default="")
+    # db_default keeps a real Postgres DEFAULT so inserts and backfills from code
+    # predating these columns don't hit the NOT NULL (see the scope field below).
+    docs_url = models.URLField(max_length=2048, blank=True, default="", db_default="")
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
     icon_key = models.CharField(max_length=100, blank=True, default="")
-    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="dev")
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="dev", db_default="dev")
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)

@@ -1,1 +1,1 @@
-0012_alter_mcpserverinstallation_unique_together_and_more
+0013_mcpservertemplate_category_docs_url_db_default
