@@ -241,6 +241,17 @@ impl RawNativeFrame {
         Ok(frames)
     }
 
+    // Clients classify in_app at capture time from symbol names alone (stripped
+    // release binaries carry no file paths, so the SDK's path rules never fire),
+    // which leaves crates outside the SDK's small denylist marked in-app. Inline
+    // expansion then smears one physical frame's flag across every logical
+    // layer. Post-resolution we know each layer's real DWARF source path, so
+    // demote frames that are clearly registry/stdlib/vendored code; we never
+    // promote, so explicit client config (in_app_exclude) still wins.
+    fn in_app_for(&self, source_path: Option<&str>) -> bool {
+        self.meta.in_app && !source_path.is_some_and(is_library_source_path)
+    }
+
     fn build_resolved_frame(&self, symbol_info: &SymbolInfo) -> Frame {
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
@@ -252,7 +263,7 @@ impl RawNativeFrame {
             },
             column: None,
             source: symbol_info.filename.clone(),
-            in_app: self.meta.in_app,
+            in_app: self.in_app_for(symbol_info.full_path.as_deref()),
             resolved_name: Some(symbol_info.display_name.clone()),
             lang: self.lang_for(symbol_info.filename.as_deref()),
             resolved: true,
@@ -303,7 +314,7 @@ impl RawNativeFrame {
             line: self.lineno,
             column: self.colno,
             source,
-            in_app: self.meta.in_app,
+            in_app: self.in_app_for(self.filename.as_deref()),
             resolved_name,
             lang: self.lang_for(self.filename.as_deref()),
             resolved: false,
@@ -390,6 +401,53 @@ impl RawNativeFrame {
     }
 }
 
+/// Whether a source path unambiguously points at dependency or toolchain code:
+/// the cargo registry / git checkouts, or the standard library
+/// (`/rustc/<commit-hash>/...`, the rustup rust-src layout, or the remapped
+/// relative `library/<crate>/src/` form). Every pattern is anchored to a
+/// directory shape only build tooling produces — a user directory that merely
+/// ends in `cargo` or contains `mylibrary/std/src/` must not match, since
+/// demoting real app frames degrades fingerprinting for every customer. Paths
+/// outside these locations stay whatever the client said — application source
+/// layouts vary too much to classify positively. Demote-only means a miss
+/// (e.g. an exotic CARGO_HOME name) is safe: the frame just stays in-app.
+fn is_library_source_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    // `<CARGO_HOME>/registry/src/<registry-host>-<hash>/`, anchored either on
+    // the conventional cargo home directory name or on the crates.io host
+    // segment (which covers custom CARGO_HOME locations).
+    normalized.contains("/cargo/registry/src/")
+        || normalized.contains(".cargo/registry/src/")
+        || normalized.contains("/registry/src/index.crates.io-")
+        || normalized.contains("/cargo/git/checkouts/")
+        || normalized.contains(".cargo/git/checkouts/")
+        || has_rustc_hash_segment(&normalized)
+        // rust-src component layout, used when debug info points at the
+        // rustup-installed standard library sources.
+        || normalized.contains("/rustlib/src/rust/library/")
+        || is_relative_stdlib_path(&normalized)
+}
+
+/// Matches the rustc source remapping prefix `/rustc/<commit-hash>/` used for
+/// standard-library paths in official toolchains. Requiring the hex hash
+/// segment keeps user paths that merely contain a `rustc` directory (e.g.
+/// `/home/rustc/app/src/main.rs`) classified as app code.
+fn has_rustc_hash_segment(normalized: &str) -> bool {
+    normalized.split("/rustc/").skip(1).any(|rest| {
+        let segment = rest.split('/').next().unwrap_or_default();
+        segment.len() >= 7 && segment.chars().all(|c| c.is_ascii_hexdigit())
+    })
+}
+
+/// Stdlib paths sometimes surface relative (`library/std/src/...`) once the
+/// `/rustc/<hash>/` remap prefix has been stripped. Anchor at the very start
+/// of the path so `/home/user/mylibrary/std/src/main.rs` never matches.
+fn is_relative_stdlib_path(normalized: &str) -> bool {
+    ["std", "core", "alloc", "proc_macro", "test"]
+        .iter()
+        .any(|krate| normalized.starts_with(&format!("library/{krate}/src/")))
+}
+
 impl From<&RawNativeFrame> for Frame {
     fn from(raw: &RawNativeFrame) -> Self {
         let mut f = Frame {
@@ -398,7 +456,7 @@ impl From<&RawNativeFrame> for Frame {
             line: raw.lineno,
             column: raw.colno,
             source: raw.filename.clone(),
-            in_app: raw.meta.in_app,
+            in_app: raw.in_app_for(raw.filename.as_deref()),
             resolved_name: raw.function.clone(),
             lang: raw.lang_for(raw.filename.as_deref()),
             resolved: raw.function.is_some(),
@@ -704,6 +762,79 @@ mod test {
         // Unknown / extension-less falls back to the SDK-provided lang hint
         assert_eq!(frame.lang_for(Some("README")), "rust");
         assert_eq!(frame.lang_for(None), "rust");
+    }
+
+    fn symbol_info_at(full_path: Option<&str>) -> SymbolInfo {
+        SymbolInfo {
+            display_name: "some::function".to_string(),
+            full_name: "some::function".to_string(),
+            filename: None,
+            full_path: full_path.map(|p| p.to_string()),
+            line: 1,
+        }
+    }
+
+    #[test]
+    fn resolved_library_frames_are_demoted_from_in_app() {
+        let library_paths = [
+            "/usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-1.40.0/src/runtime/task/core.rs",
+            "/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-1.4.1/src/proto/h1/dispatch.rs",
+            "/home/user/.cargo/git/checkouts/some-fork-abc123/def456/src/lib.rs",
+            "/rustc/f6e511eec7342f59a25f7c0534f1dbea00d01b14/library/std/src/panicking.rs",
+            // Stdlib submodules under the remap prefix aren't in the
+            // library/<crate>/src/ enumeration; the /rustc/<hash>/ anchor
+            // must catch them.
+            "/rustc/f6e511eec7342f59a25f7c0534f1dbea00d01b14/library/panic_unwind/src/lib.rs",
+            "library/core/src/ops/function.rs",
+            "/Users/dev/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/thread/mod.rs",
+            // Custom CARGO_HOME name: caught by the crates.io host anchor.
+            "/opt/cargo-home/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.219/src/lib.rs",
+        ];
+        // Only directory shapes build tooling produces may demote: user
+        // checkouts that merely contain a `vendor`, `rustc`, or
+        // `<something>library/std/src` path fragment must keep their client
+        // classification.
+        let app_paths = [
+            "/app/src/modes/processing/router/event.rs",
+            "src/main.rs",
+            "C:\\projects\\my_service\\src\\handler.rs",
+            "/home/ci/vendor/customer-service/src/main.rs",
+            "/home/rustc/app/src/main.rs",
+            "/rustc/not-a-hash/src/main.rs",
+            "/home/user/mylibrary/std/src/main.rs",
+            "/home/user/mycargo/registry/src/main.rs",
+        ];
+
+        let mut frame = native_frame_at(0x1000, 0x1000);
+        frame.meta.in_app = true;
+
+        for path in library_paths {
+            assert!(
+                !frame
+                    .build_resolved_frame(&symbol_info_at(Some(path)))
+                    .in_app,
+                "expected library path to demote in_app: {path}"
+            );
+        }
+        for path in app_paths {
+            assert!(
+                frame
+                    .build_resolved_frame(&symbol_info_at(Some(path)))
+                    .in_app,
+                "expected app path to keep in_app: {path}"
+            );
+        }
+        // No path information: keep the client's classification.
+        assert!(frame.build_resolved_frame(&symbol_info_at(None)).in_app);
+
+        // Never promote: a frame the client excluded stays excluded even when
+        // it resolves to an app-looking path.
+        frame.meta.in_app = false;
+        assert!(
+            !frame
+                .build_resolved_frame(&symbol_info_at(Some(app_paths[0])))
+                .in_app
+        );
     }
 
     fn debug_image_at(debug_id: &str, image_addr: u64) -> DebugImage {

@@ -14687,20 +14687,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `web` - web
-     * * `api` - api
-     * * `mcp` - mcp
-     */
-    export type CreatedViaEnum = typeof CreatedViaEnum[keyof typeof CreatedViaEnum];
-
-
-    export const CreatedViaEnum = {
-      Web: 'web',
-      Api: 'api',
-      Mcp: 'mcp',
-    } as const;
-
-    /**
      * * `default` - Default
      * * `template` - Template
      * * `duplicate` - Duplicate
@@ -15575,13 +15561,18 @@ export namespace Schemas {
       readonly referenced_table_names: unknown;
       /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
       readonly status: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+      readonly is_drifted: boolean;
       /** @nullable */
       readonly approved_at: string | null;
+      /** User who approved this metric as canonical, or null. */
+      readonly approved_by: UserBasic | null;
       /**
-         * Short ID of the insight this metric was created from, for drift detection.
+         * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+         * @maxLength 12
          * @nullable
          */
-      readonly source_insight_short_id: string | null;
+      source_insight_short_id?: string | null;
       /**
          * When the metric was last run (30-minute throttle).
          * @nullable
@@ -17080,6 +17071,11 @@ export namespace Schemas {
      * * `Windmill` - Windmill
      * * `Zep` - Zep
      * * `Hex` - Hex
+     * * `Sumsub` - Sumsub
+     * * `GoogleChat` - GoogleChat
+     * * `Kickscale` - Kickscale
+     * * `Zellify` - Zellify
+     * * `RudderStack` - RudderStack
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -17841,6 +17837,11 @@ export namespace Schemas {
       Windmill: 'Windmill',
       Zep: 'Zep',
       Hex: 'Hex',
+      Sumsub: 'Sumsub',
+      GoogleChat: 'GoogleChat',
+      Kickscale: 'Kickscale',
+      Zellify: 'Zellify',
+      RudderStack: 'RudderStack',
     } as const;
 
     /**
@@ -18615,7 +18616,12 @@ export namespace Schemas {
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
        * * `Zep` - Zep
-       * * `Hex` - Hex */
+       * * `Hex` - Hex
+       * * `Sumsub` - Sumsub
+       * * `GoogleChat` - GoogleChat
+       * * `Kickscale` - Kickscale
+       * * `Zellify` - Zellify
+       * * `RudderStack` - RudderStack */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -24317,6 +24323,20 @@ export namespace Schemas {
      */
     export type ExternalDataSourceCreatePayload = { [key: string]: unknown };
 
+    /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     */
+    export type ExternalDataSourceCreateCreatedViaEnum = typeof ExternalDataSourceCreateCreatedViaEnum[keyof typeof ExternalDataSourceCreateCreatedViaEnum];
+
+
+    export const ExternalDataSourceCreateCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+    } as const;
+
     export interface ExternalDataSourceCreate {
       /** The source type (e.g. 'Postgres', 'Stripe').
        *
@@ -25075,7 +25095,12 @@ export namespace Schemas {
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
        * * `Zep` - Zep
-       * * `Hex` - Hex */
+       * * `Hex` - Hex
+       * * `Sumsub` - Sumsub
+       * * `GoogleChat` - GoogleChat
+       * * `Kickscale` - Kickscale
+       * * `Zellify` - Zellify
+       * * `RudderStack` - RudderStack */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -25096,12 +25121,12 @@ export namespace Schemas {
        * * `warehouse` - warehouse
        * * `direct` - direct */
       access_method?: AccessMethodEnum;
-      /** Where the request came from
+      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp */
-      created_via?: CreatedViaEnum;
+      created_via?: ExternalDataSourceCreateCreatedViaEnum;
       /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
     }
@@ -25141,6 +25166,22 @@ export namespace Schemas {
     export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
     /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     */
+    export type ExternalDataSourceSerializersCreatedViaEnum = typeof ExternalDataSourceSerializersCreatedViaEnum[keyof typeof ExternalDataSourceSerializersCreatedViaEnum];
+
+
+    export const ExternalDataSourceSerializersCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+      Wizard: 'wizard',
+    } as const;
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface ExternalDataSourceSerializers {
@@ -25148,12 +25189,13 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
-       * * `mcp` - mcp */
-      created_via?: CreatedViaEnum | null;
+       * * `mcp` - mcp
+       * * `wizard` - wizard */
+      created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -32795,6 +32837,8 @@ export namespace Schemas {
       read: boolean;
       /** @nullable */
       read_at: string | null;
+      /** Whether this notification opted in to being archived (dismissed) by the recipient. When false, the notification only supports read/unread. */
+      archivable: boolean;
       target_type: string;
       target_id: string;
       /** @nullable */
@@ -33306,50 +33350,12 @@ export namespace Schemas {
       sso_enforcement?: string;
       /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
       readonly has_saml: boolean;
-      /**
-         * SAML IdP entity ID (issuer).
-         * @maxLength 512
-         * @nullable
-         */
-      saml_entity_id?: string | null;
-      /**
-         * SAML single sign-on (ACS) URL.
-         * @maxLength 512
-         * @nullable
-         */
-      saml_acs_url?: string | null;
-      /**
-         * SAML IdP X.509 signing certificate (PEM).
-         * @nullable
-         */
-      saml_x509_cert?: string | null;
       /** Returns whether SCIM is configured and enabled for this domain. */
       readonly has_scim: boolean;
-      /** Whether SCIM provisioning is enabled for this domain. */
-      scim_enabled?: boolean;
       /** @nullable */
       readonly scim_base_url: string | null;
-      /** @nullable */
-      readonly scim_bearer_token: string | null;
       /** Returns whether ID-JAG (XAA) is configured for this domain. */
       readonly has_id_jag: boolean;
-      /**
-         * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-         * @maxLength 512
-         * @nullable
-         */
-      id_jag_issuer_url?: string | null;
-      /**
-         * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-         * @maxLength 512
-         * @nullable
-         */
-      id_jag_jwks_url?: string | null;
-      /**
-         * Allowed ID-JAG client IDs. Empty list allows any client_id.
-         * @items.maxLength 256
-         */
-      id_jag_allowed_clients?: string[];
       /**
          * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
          * @nullable
@@ -39538,13 +39544,18 @@ export namespace Schemas {
       readonly referenced_table_names?: unknown;
       /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
       readonly status?: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+      readonly is_drifted?: boolean;
       /** @nullable */
       readonly approved_at?: string | null;
+      /** User who approved this metric as canonical, or null. */
+      readonly approved_by?: UserBasic | null;
       /**
-         * Short ID of the insight this metric was created from, for drift detection.
+         * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+         * @maxLength 12
          * @nullable
          */
-      readonly source_insight_short_id?: string | null;
+      source_insight_short_id?: string | null;
       /**
          * When the metric was last run (30-minute throttle).
          * @nullable
@@ -40735,12 +40746,13 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
-       * * `mcp` - mcp */
-      created_via?: CreatedViaEnum | null;
+       * * `mcp` - mcp
+       * * `wizard` - wizard */
+      created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
@@ -42102,50 +42114,12 @@ export namespace Schemas {
       sso_enforcement?: string;
       /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
       readonly has_saml?: boolean;
-      /**
-         * SAML IdP entity ID (issuer).
-         * @maxLength 512
-         * @nullable
-         */
-      saml_entity_id?: string | null;
-      /**
-         * SAML single sign-on (ACS) URL.
-         * @maxLength 512
-         * @nullable
-         */
-      saml_acs_url?: string | null;
-      /**
-         * SAML IdP X.509 signing certificate (PEM).
-         * @nullable
-         */
-      saml_x509_cert?: string | null;
       /** Returns whether SCIM is configured and enabled for this domain. */
       readonly has_scim?: boolean;
-      /** Whether SCIM provisioning is enabled for this domain. */
-      scim_enabled?: boolean;
       /** @nullable */
       readonly scim_base_url?: string | null;
-      /** @nullable */
-      readonly scim_bearer_token?: string | null;
       /** Returns whether ID-JAG (XAA) is configured for this domain. */
       readonly has_id_jag?: boolean;
-      /**
-         * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-         * @maxLength 512
-         * @nullable
-         */
-      id_jag_issuer_url?: string | null;
-      /**
-         * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-         * @maxLength 512
-         * @nullable
-         */
-      id_jag_jwks_url?: string | null;
-      /**
-         * Allowed ID-JAG client IDs. Empty list allows any client_id.
-         * @items.maxLength 256
-         */
-      id_jag_allowed_clients?: string[];
       /**
          * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
          * @nullable
@@ -53395,7 +53369,12 @@ export namespace Schemas {
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
        * * `Zep` - Zep
-       * * `Hex` - Hex */
+       * * `Hex` - Hex
+       * * `Sumsub` - Sumsub
+       * * `GoogleChat` - GoogleChat
+       * * `Kickscale` - Kickscale
+       * * `Zellify` - Zellify
+       * * `RudderStack` - RudderStack */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -54196,7 +54175,12 @@ export namespace Schemas {
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
        * * `Zep` - Zep
-       * * `Hex` - Hex */
+       * * `Hex` - Hex
+       * * `Sumsub` - Sumsub
+       * * `GoogleChat` - GoogleChat
+       * * `Kickscale` - Kickscale
+       * * `Zellify` - Zellify
+       * * `RudderStack` - RudderStack */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -54989,7 +54973,12 @@ export namespace Schemas {
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
        * * `Zep` - Zep
-       * * `Hex` - Hex */
+       * * `Hex` - Hex
+       * * `Sumsub` - Sumsub
+       * * `GoogleChat` - GoogleChat
+       * * `Kickscale` - Kickscale
+       * * `Zellify` - Zellify
+       * * `RudderStack` - RudderStack */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -63762,6 +63751,10 @@ export namespace Schemas {
 
     export type EnvironmentsNotificationsListParams = {
     /**
+     * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
+     */
+    archived?: boolean;
+    /**
      * ISO 8601 timestamp; only events at or after this time
      */
     created_after?: string;
@@ -65601,6 +65594,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
      * * `UserGroup` - UserGroup
@@ -65686,6 +65680,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
       UserGroup: 'UserGroup',
@@ -65757,6 +65752,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
      * * `UserGroup` - UserGroup
@@ -65830,6 +65826,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
       UserGroup: 'UserGroup',
@@ -71221,6 +71218,10 @@ export namespace Schemas {
     };
 
     export type NotificationsListParams = {
+    /**
+     * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
+     */
+    archived?: boolean;
     /**
      * ISO 8601 timestamp; only events at or after this time
      */

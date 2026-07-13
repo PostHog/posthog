@@ -29,6 +29,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         WEB = "web", "web"
         API = "api", "api"
         MCP = "mcp", "mcp"
+        WIZARD = "wizard", "wizard"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
