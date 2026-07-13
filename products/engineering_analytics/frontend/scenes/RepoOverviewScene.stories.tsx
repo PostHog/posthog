@@ -258,3 +258,21 @@ export const RepoOverview: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalytics() },
 }
+
+// The red verdict: failing workflows drive the danger styling, the names subline, and the jump link.
+export const RepoOverviewFailing: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics() },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/current_branch_health/': {
+                    default_branch: 'master',
+                    settled_workflows: WORKFLOW_HEALTH.length,
+                    failing_workflows: 2,
+                    failing_workflow_names: ['Backend CI', 'E2E - Playwright'],
+                },
+            },
+        }),
+    ],
+}

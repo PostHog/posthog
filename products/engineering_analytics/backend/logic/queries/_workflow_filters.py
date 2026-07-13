@@ -15,6 +15,11 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowHeal
 # answers "how long until CI stopped", not "how long does CI take to pass".
 DURATION_PERCENTILE_CONDITION = "status = 'completed' AND conclusion = 'success'"
 
+# The one "failing right now" signal, per workflow: did the latest completed run fail?
+# argMaxIf defaults to 0 (false) over zero matching rows, so consumers must pair it with a
+# completed-run count to tell "latest run passed" apart from "no completed run yet".
+LATEST_COMPLETED_RUN_FAILED = "argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed')"
+
 
 def branch_filter_clause(
     branch: str | None, placeholders: dict[str, ast.Expr], *, column: str = "r.head_branch"

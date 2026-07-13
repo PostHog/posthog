@@ -6,16 +6,17 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import CurrentBranchHealth
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import LATEST_COMPLETED_RUN_FAILED
 
 _FAILING_NAME_LIMIT = 20
 
-_SELECT = """
+_SELECT = f"""
     SELECT
         workflow_name,
         countIf(status = 'completed') AS completed_count,
-        argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed
+        {LATEST_COMPLETED_RUN_FAILED} AS latest_failed
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {date_from} AND head_branch = {branch}
+    WHERE run_started_at >= {{date_from}} AND head_branch = {{branch}}
     GROUP BY workflow_name
 """
 
@@ -35,6 +36,7 @@ def query_current_branch_health(
     settled_workflows = 0
     failing_workflow_names: list[str] = []
     for workflow_name, completed_count, latest_failed in response.results or []:
+        # Nothing completed yet: not settled, and LATEST_COMPLETED_RUN_FAILED's 0 default would read as passing.
         if not completed_count:
             continue
         settled_workflows += 1
