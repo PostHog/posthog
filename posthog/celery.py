@@ -1,6 +1,7 @@
 import os
 import time
 import errno
+from typing import Literal
 
 from django.dispatch import receiver
 
@@ -183,7 +184,7 @@ def _celery_team_id_prerun_receiver(task_id=None, task=None, args=None, kwargs=N
     _tag_celery_span_with_team_id(kwargs)
 
 
-def _build_schema_models_or_exit(process_kind: str) -> None:
+def _build_schema_models_or_exit(process_kind: Literal["worker", "beat"]) -> None:
     # See build_all_schema_models's docstring for why celery builds eagerly. This module
     # is imported by every Django process (via posthog/__init__.py), so the build must
     # hang off worker/beat-only signals here rather than at module level — an import-time
