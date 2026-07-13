@@ -30,6 +30,7 @@ from products.conversations.backend.support_slack_channels import (
     list_support_bot_channels,
 )
 from products.customer_analytics.backend.models import Account, Announcement, AnnouncementDelivery
+from products.customer_analytics.backend.tasks import send_announcement
 
 logger = structlog.get_logger(__name__)
 
@@ -190,7 +191,10 @@ class AnnouncementViewSet(
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         announcement = serializer.save()
-        # Async delivery is wired in a follow-up PR; rows persist as pending until then.
+        # Dispatch only after the rows commit — the task reads them, and CLAUDE.md forbids
+        # enqueueing Celery inside an atomic block (a rollback would leave a phantom task).
+        team_id = self.team_id
+        transaction.on_commit(lambda: send_announcement.delay(str(announcement.id), team_id))
         report_user_action(
             self.request.user,
             "customer analytics announcement created",

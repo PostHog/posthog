@@ -44,6 +44,17 @@ class TestAnnouncementAPI(APIBaseTest):
         announcement = Announcement.all_teams.get(id=data["id"])
         assert AnnouncementDelivery.all_teams.filter(announcement=announcement).count() == 2
 
+    @patch("products.customer_analytics.backend.presentation.views.announcements.send_announcement")
+    @patch(HELPER)
+    def test_create_enqueues_send_task_after_commit(self, mock_channels, mock_task):
+        mock_channels.return_value = self._member_channels()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.base_url, {"message": "hi", "channels": ["C1"]}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_task.delay.assert_called_once_with(response.json()["id"], self.team.pk)
+
     @patch(HELPER)
     def test_create_rejects_non_member_channel_and_creates_no_rows(self, mock_channels):
         # Pentest fix: a caller crafting a channel ID the bot isn't in (a DM, private channel,
