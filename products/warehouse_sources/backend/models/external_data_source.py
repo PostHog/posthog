@@ -29,6 +29,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         WEB = "web", "web"
         API = "api", "api"
         MCP = "mcp", "mcp"
+        WIZARD = "wizard", "wizard"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
@@ -92,6 +93,10 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_direct_snowflake(self) -> bool:
         return self.is_direct_query and self.source_type == ExternalDataSourceType.SNOWFLAKE
+
+    @property
+    def is_direct_redshift(self) -> bool:
+        return self.is_direct_query and self.source_type == ExternalDataSourceType.REDSHIFT
 
     @property
     def direct_engine(self) -> str | None:

@@ -43,7 +43,7 @@ from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.permissions import (
@@ -79,6 +79,7 @@ from products.data_warehouse.backend.facade.api import (
     get_mysql_source_location,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
+    get_redshift_source_location,
     get_webhook_url,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
@@ -87,6 +88,7 @@ from products.data_warehouse.backend.facade.api import (
     is_xmin_enabled_for_team,
     reconcile_mysql_schemas,
     reconcile_postgres_schemas,
+    reconcile_redshift_schemas,
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
     reconcile_snowflake_schemas,
     source_namespace_is_blank,
@@ -96,6 +98,7 @@ from products.data_warehouse.backend.facade.api import (
     trigger_external_data_source_workflow,
     upsert_direct_mysql_table,
     upsert_direct_postgres_table,
+    upsert_direct_redshift_table,
     upsert_direct_snowflake_table,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
@@ -482,12 +485,31 @@ def get_snowflake_source_table_location(
     return catalog, normalized_default_schema or "", schema_name
 
 
+def get_redshift_source_table_location(
+    *,
+    schema_name: str,
+    source_schema: SourceSchema | None,
+    default_schema: str | None,
+    default_catalog: str | None = None,
+) -> tuple[str | None, str, str]:
+    return get_redshift_source_location(
+        schema_name=schema_name,
+        schema_metadata={
+            "source_catalog": source_schema.source_catalog if source_schema else None,
+            "source_schema": source_schema.source_schema if source_schema else None,
+            "source_table_name": source_schema.source_table_name if source_schema else None,
+        },
+        default_catalog=default_catalog,
+        default_schema=default_schema,
+    )
+
+
 CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
 DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
-    "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."
+    "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
 )
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake"]
+DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift"]
 
 
 def count_active_custom_sources(team_id: int) -> int:
@@ -730,7 +752,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         allow_null=True,
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
-            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. "
+            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, "
+            "`wizard` for the setup wizard (derived server-side from the wizard's user agent). "
             "Ignored on update."
         ),
     )
@@ -1183,6 +1206,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                         source_schemas=discovered_schemas,
                         team_id=instance.team_id,
                     )
+                elif updated_source.source_type == ExternalDataSourceType.REDSHIFT:
+                    reconcile_redshift_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
                 else:
                     reconcile_mysql_schemas(
                         source=updated_source,
@@ -1230,10 +1259,21 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        choices=ExternalDataSource.CreatedVia.values,
+        # `wizard` is intentionally omitted: it is never accepted from a caller (that would let any
+        # client self-label as wizard-created). It is derived server-side by upgrading a
+        # machine-injected `mcp` value when the request comes from the wizard transport.
+        choices=[
+            ExternalDataSource.CreatedVia.WEB,
+            ExternalDataSource.CreatedVia.API,
+            ExternalDataSource.CreatedVia.MCP,
+        ],
         required=False,
         default=ExternalDataSource.CreatedVia.API,
-        help_text="Where the request came from",
+        help_text=(
+            "Where the request came from: `web` for the in-app UI, `api` for direct API callers, "
+            "`mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived "
+            "server-side for wizard-driven MCP calls. Defaults to `api`."
+        ),
     )
     direct_query_enabled = serializers.BooleanField(
         required=False,
@@ -1831,9 +1871,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # full config + credential gate (including the SSRF host check) before discovering schemas.
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
+
+        # The setup wizard drives creation through the MCP tools, which inject `created_via=mcp`
+        # before the request reaches us — the agent can't set the field itself. Upgrade that
+        # machine-injected value to `wizard` when the transport identifies the wizard, so wizard
+        # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
+        if created_via == ExternalDataSource.CreatedVia.MCP and get_event_source(request) == EventSource.WIZARD:
+            created_via = ExternalDataSource.CreatedVia.WIZARD
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
         is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
+        is_direct_redshift = is_direct_query and source_type == ExternalDataSourceType.REDSHIFT
 
         if is_direct_query and source_type not in direct_capable_source_types():
             return Response(
@@ -1945,7 +1993,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         source_schemas_by_name = {schema.name: schema for schema in source_schemas}
         schema_names = [schema.name for schema in source_schemas]
-        default_source_schema = source_config.to_dict().get("schema")
+        source_config_dict = source_config.to_dict()
+        default_source_schema = source_config_dict.get("schema")
+        default_source_catalog = source_config_dict.get("database")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
@@ -2135,7 +2185,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         schema_name=schema_name,
                         source_schema=source_schema,
                         default_schema=default_source_schema,
-                        default_catalog=source_config.to_dict().get("database"),
+                        default_catalog=default_source_catalog,
+                    )
+                )
+            elif is_direct_redshift:
+                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
+                    get_redshift_source_table_location(
+                        schema_name=schema_name,
+                        source_schema=source_schema,
+                        default_schema=default_source_schema,
+                        default_catalog=default_source_catalog,
                     )
                 )
             else:
@@ -2333,6 +2392,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_table_name=cast(str, metadata_source_table_name),
                 )
                 schema_model.save(update_fields=["table"])
+            elif new_source_model.is_direct_redshift and should_sync:
+                schema_model.table = upsert_direct_redshift_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=filter_dwh_columns_by_enabled_columns(
+                        # Redshift information_schema types are Postgres-style, so reuse the Postgres mapper.
+                        postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        enabled_columns,
+                        source_schema.detected_primary_keys if source_schema else None,
+                        incremental_field,
+                        # Direct-redshift columns are keyed by raw source names.
+                        normalize=False,
+                    ),
+                    source_catalog=metadata_source_catalog,
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
+                )
+                schema_model.save(update_fields=["table"])
 
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
@@ -2383,9 +2461,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             managed_viewset.sync_views()
             ensure_person_join(self.team.pk, new_source_model.prefix)
 
-        # `source` (web/api/mcp) is derived from the request by report_user_action; `created_via`
-        # is the caller's explicit intent. They usually agree but are kept separate so a transport
-        # change (e.g. a new wrapper UA) doesn't silently rewrite historical attribution.
+        # `source` (web/api/mcp/wizard) is derived from the request by report_user_action; `created_via`
+        # is the caller's explicit intent (with one exception: the machine-injected `mcp` is upgraded
+        # to `wizard` above when the transport identifies the wizard). They usually agree but are kept
+        # separate so a transport change (e.g. a new wrapper UA) doesn't silently rewrite historical
+        # attribution.
         report_user_action(
             cast(User, request.user),
             "data warehouse source created",
@@ -2729,6 +2809,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
             elif instance.source_type == ExternalDataSourceType.SNOWFLAKE:
                 reconciled_deleted_schemas = reconcile_snowflake_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif instance.source_type == ExternalDataSourceType.REDSHIFT:
+                reconciled_deleted_schemas = reconcile_redshift_schemas(
                     source=instance,
                     source_schemas=schemas,
                     team_id=self.team_id,

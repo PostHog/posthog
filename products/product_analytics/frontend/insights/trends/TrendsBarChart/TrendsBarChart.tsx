@@ -53,6 +53,7 @@ import {
     buildTrendsBarAggregatedSeries,
     buildTrendsBarTimeSeries,
     buildTrendsBarTimeSeriesConfig,
+    pickAggregatedTooltipSeriesData,
 } from './trendsBarChartTransforms'
 
 interface TrendsBarChartProps {
@@ -419,11 +420,10 @@ export function TrendsBarChart({
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            // BarTooltip already put the cursor-visible segment at seriesData[0] — keep just that.
             const tooltipCtx: TooltipContext<TrendsSeriesMeta> = isAggregated
                 ? {
                       ...ctx,
-                      seriesData: ctx.seriesData.slice(0, 1),
+                      seriesData: pickAggregatedTooltipSeriesData(ctx),
                   }
                 : ctx
             const onRowClick = canHandleClick

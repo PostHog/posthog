@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
+import { IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -130,8 +130,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         unhealthyProviderKeysUsedByEvaluations,
         canEnableEvaluation,
     } = useValues(evaluationsLogic)
-    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
-        useActions(evaluationsLogic)
+    const { setEvaluationsFilter, toggleEvaluationEnabled, loadEvaluations, setDates } = useActions(evaluationsLogic)
     const { evaluationsWithMetrics } = useValues(metricsLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -317,17 +316,6 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                             type="secondary"
                             icon={<IconPencil />}
                             onClick={() => push(evaluationUrl(evaluation.id))}
-                        />
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconCopy />}
-                            onClick={() => duplicateEvaluation(evaluation.id)}
                         />
                     </AccessControlAction>
                     <AccessControlAction
