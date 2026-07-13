@@ -35,6 +35,15 @@ def _seed_compactable(team, user) -> Conversation:
     return conversation
 
 
+@sync_to_async
+def _checkpoint_namespaces(conversation_id: str) -> list[str]:
+    return list(
+        ConversationCheckpoint.objects.filter(thread_id=conversation_id)
+        .order_by("checkpoint_ns")
+        .values_list("checkpoint_ns", flat=True)
+    )
+
+
 async def test_select_then_compact_activities_end_to_end(ateam, auser, activity_environment):
     conversation = await sync_to_async(_seed_compactable)(ateam, auser)
 
@@ -49,11 +58,7 @@ async def test_select_then_compact_activities_end_to_end(ateam, auser, activity_
     assert result.conversations_compacted == 1
     assert result.checkpoints_deleted == 4
 
-    remaining_namespaces = await sync_to_async(list)(
-        ConversationCheckpoint.objects.filter(thread_id=conversation.id)
-        .order_by("checkpoint_ns")
-        .values_list("checkpoint_ns", flat=True)
-    )
+    remaining_namespaces = await _checkpoint_namespaces(str(conversation.id))
     assert remaining_namespaces == ["", "tools"]
 
 
