@@ -290,6 +290,18 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
+// AI-suggested queries sometimes arrive wrapped in a markdown code fence (```hogql … ```).
+// Running that verbatim fails to parse and creates error-tracking noise, so strip a single
+// surrounding fence (with an optional language tag) before the query reaches the editor.
+export function stripMarkdownCodeFences(query: string): string {
+    const trimmed = query.trim()
+    if (!trimmed.startsWith('```')) {
+        return query
+    }
+    const withoutFences = trimmed.replace(/^```[^\n]*\r?\n?/, '').replace(/\r?\n?```$/, '')
+    return withoutFences.trim()
+}
+
 function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
     const { connectionId: _ignoredConnectionId, ...sanitizedSourceQuery } = sourceQuery as LegacyDataVisualizationNode
 
@@ -582,7 +594,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             payload,
         }),
         setSuggestedQueryInput: (suggestedQueryInput: string, source?: SuggestionPayload['source']) => ({
-            suggestedQueryInput,
+            suggestedQueryInput: stripMarkdownCodeFences(suggestedQueryInput),
             source,
         }),
         onAcceptSuggestedQueryInput: (shouldRunQuery?: boolean) => ({

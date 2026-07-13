@@ -24,7 +24,12 @@ import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/type
 
 import { editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
-import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import {
+    activeTabMatchesUrlTarget,
+    getDisplayTypeToSaveInsight,
+    sqlEditorLogic,
+    stripMarkdownCodeFences,
+} from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -615,6 +620,22 @@ describe('sqlEditorLogic', () => {
             expect(getDisplayTypeToSaveInsight(outputTab, sourceQueryDisplay, effectiveVisualizationType)).toEqual(
                 expected
             )
+        })
+    })
+
+    describe('stripMarkdownCodeFences', () => {
+        it.each([
+            ['strips a fence with a hogql language tag', '```hogql\nSELECT 1\n```', 'SELECT 1'],
+            ['strips a fence with a hogQL language tag (mixed case)', '```hogQL\nSELECT 1\n```', 'SELECT 1'],
+            ['strips a fence with a sql language tag', '```sql\nSELECT 1\n```', 'SELECT 1'],
+            ['strips a fence with no language tag', '```\nSELECT 1\n```', 'SELECT 1'],
+            ['strips surrounding whitespace around the fence', '  ```hogql\nSELECT 1\n```  ', 'SELECT 1'],
+            ['keeps a multi-line body intact', '```hogql\nSELECT 1\nFROM events\n```', 'SELECT 1\nFROM events'],
+            ['leaves an unfenced query untouched', 'SELECT 1', 'SELECT 1'],
+            ['leaves inline backticks in an unfenced query untouched', 'SELECT `col` FROM t', 'SELECT `col` FROM t'],
+            ['leaves an empty string untouched', '', ''],
+        ])('%s', (_, input, expected) => {
+            expect(stripMarkdownCodeFences(input)).toEqual(expected)
         })
     })
 
