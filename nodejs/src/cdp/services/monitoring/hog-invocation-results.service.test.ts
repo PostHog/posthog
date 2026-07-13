@@ -227,11 +227,7 @@ describe('HogInvocationResultsService', () => {
             expect(rows).toHaveLength(1)
             expect(rows[0].status).toBe('failed')
             expect(rows[0].error_kind).toBe('timeout')
-            // Exact match: only the message is persisted, never the stack.
-            // App-level executors assign the whole Error to result.error, so a
-            // regression to `error.stack` would make this the multi-line
-            // "Error: ...\n    at ..." string and leak Node internals into the
-            // Invocations tab.
+            // Exact match: the message only, never the stack trace.
             expect(rows[0].error_message).toBe('Request timed out after 30s')
         })
 

@@ -111,16 +111,9 @@ const truncate = (value: string, max: number): string => {
 }
 
 // Best-effort error classification — keeps `error_kind` low-cardinality so the
-// status_idx skipping index stays small.
-//
-// Only the error *message* lands in `error_message` — never the stack trace.
-// App-level executors (native destinations, legacy plugins, segment) assign the
-// whole caught `Error` to `result.error`, so a naive `error.stack` here would
-// persist Node internals (file paths, line numbers, interpolated values) to
-// ClickHouse for 30 days and render them unredacted in the Invocations tab.
-// This matches the message-only convention already used for `log_entries`
-// (`addLog('error', ...e.message)`). Errors thrown by the hog VM itself already
-// reach us as a message string, so their detail is preserved.
+// status_idx skipping index stays small. Only the message lands in
+// `error_message`, never the stack trace — app-level executors pass the whole
+// `Error` here, and its stack would otherwise leak into the Invocations tab.
 const classifyError = (error: unknown): { kind: string; message: string } => {
     if (!error) {
         return { kind: '', message: '' }
