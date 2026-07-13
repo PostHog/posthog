@@ -272,7 +272,7 @@ function ImpersonationNoticeContent(): JSX.Element {
 }
 
 export function ImpersonationNotice(): JSX.Element | null {
-    const { user } = useValues(userLogic)
+    const { user, isImpersonationDowngradeInProgress } = useValues(userLogic)
 
     const {
         isMinimized,
@@ -367,6 +367,11 @@ export function ImpersonationNotice(): JSX.Element | null {
                                                   // Downgrading is a safety-increasing action with no
                                                   // meaningful reason, so switch straight away.
                                                   label: 'Downgrade to read-only',
+                                                  // Guard against a double click: the second POST would
+                                                  // land after the session is already read-only and 404.
+                                                  disabledReason: isImpersonationDowngradeInProgress
+                                                      ? 'Downgrading…'
+                                                      : undefined,
                                                   onClick: () => downgradeImpersonation('–'),
                                               },
                                     ]}
