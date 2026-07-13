@@ -737,6 +737,37 @@ class TestDiagnosticScopes:
         assert "DATA ACCESS" not in prompt
         assert "connectionId" not in prompt
 
+    @parameterized.expand(
+        [
+            # BASE_DRAFT_SCOPES grants flag/experiment/survey/dashboard config reads, but the prompt
+            # only advertises them on human-reviewed replies. Auto-sent replies stay doc/BK-only so
+            # config/aggregate project data can't reach an untrusted author (same invariant as the
+            # customer-data tools).
+            ("private_note_opted_in", True, False, True),
+            ("not_opted_in", False, False, True),
+            ("auto_publishable", True, True, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_config_tools_gated_on_auto_publishable(
+        self, _name, diagnostics_allowed, auto_publishable, expected_present
+    ):
+        prompt, _ = await self._run_draft(
+            diagnostics_allowed=diagnostics_allowed, auto_publishable=auto_publishable, ticket_type="how_to"
+        )
+        for tool in ("feature-flag tools:", "experiment tools:", "survey tools:", "dashboard tools:"):
+            assert (tool in prompt) is expected_present
+
+    @pytest.mark.asyncio
+    async def test_per_user_reads_gated_on_customer_data_scopes(self):
+        # Row-level reads (individual survey responses, per-user flag evaluations) may only be
+        # advertised when customer-data scopes are granted — never on an auto-sent reply.
+        granted, _ = await self._run_draft(diagnostics_allowed=True, auto_publishable=False, ticket_type="diagnostic")
+        assert "PER-USER READS" in granted
+
+        withheld, _ = await self._run_draft(diagnostics_allowed=True, auto_publishable=True, ticket_type="how_to")
+        assert "PER-USER READS" not in withheld
+
     @pytest.mark.asyncio
     async def test_always_on_context_is_authoritative(self):
         captured: dict[str, Any] = {}
