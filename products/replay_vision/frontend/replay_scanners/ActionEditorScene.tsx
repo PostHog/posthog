@@ -482,8 +482,8 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
             ) : null}
             <span className="text-xs text-muted">
                 {everyMatch
-                    ? 'Checked about every hour; each notification covers the new matches since the last check.'
-                    : "Checked about every hour over a rolling window; you're notified when the condition starts being met, and again only after it clears first."}
+                    ? 'Checked every few minutes; each notification covers the new matches since the last check.'
+                    : "Checked every few minutes over a rolling window; you're notified when the condition starts being met, and again only after it clears first."}
             </span>
         </div>
     )

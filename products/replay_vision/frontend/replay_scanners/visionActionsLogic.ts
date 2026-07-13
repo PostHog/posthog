@@ -91,8 +91,8 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
         name: form.name.trim(),
         scanner: scannerId,
         mode: form.mode,
-        // Alerts have no user-facing schedule: they check on a fixed hourly cadence (each check
-        // evaluates the rolling window), while summaries run on the picked days/time.
+        // Alerts have no user-facing schedule: the engine checks them on every scanner sweep and
+        // ignores this rrule (kept so the trigger stays well-formed); summaries run on the picked days/time.
         trigger_config: isAlert
             ? { rrule: 'FREQ=HOURLY', timezone: form.timezone }
             : { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },

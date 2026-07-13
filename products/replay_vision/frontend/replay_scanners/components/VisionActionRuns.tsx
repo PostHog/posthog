@@ -54,13 +54,17 @@ function RunStats(): JSX.Element {
                         'Never'
                     )
                 }
-                description={isAlert ? 'checks run about every hour' : undefined}
+                description={isAlert ? 'checked every few minutes' : undefined}
             />
             <StatCell
                 title={isAlert ? 'Next check' : 'Next run'}
                 value={
                     disabled ? (
                         'N/A'
+                    ) : isAlert ? (
+                        // The engine checks alerts on every scanner sweep; next_run_at is a vestigial
+                        // rrule cursor for alerts, so showing it would overstate the gap between checks.
+                        'Within minutes'
                     ) : action?.next_run_at ? (
                         <TZLabel time={action.next_run_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />
                     ) : (
@@ -82,7 +86,7 @@ function EmptyRuns(): JSX.Element {
             <h3 className="m-0">{isAlert ? 'Your alert is live' : 'Your action is live'}</h3>
             <p className="text-muted max-w-md">
                 {isAlert
-                    ? 'Checks run about every hour. When the condition is met, the alert and its matching observations show up here.'
+                    ? 'Checks run every few minutes. When the condition is met, the alert and its matching observations show up here.'
                     : "Results will show up after its next scheduled run. Once it runs, you'll see the summaries here — check back soon."}
             </p>
         </div>

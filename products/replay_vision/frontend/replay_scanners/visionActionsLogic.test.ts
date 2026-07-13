@@ -176,7 +176,8 @@ describe('visionActionsLogic', () => {
             window_days: 1,
         })
         expect(body.selection).toEqual({ tags: ['rage-click'] })
-        // Alerts check on a fixed hourly cadence; there is no user-facing schedule.
+        // Alerts have no user-facing schedule; the stored rrule keeps the trigger well-formed while
+        // the engine checks them on every sweep.
         expect(body.trigger_config).toEqual({ rrule: 'FREQ=HOURLY', timezone: 'UTC' })
         // Alerts never synthesize, so a stale guide from a mode switch must not persist.
         expect(body.synthesis_config).toEqual({ prompt_guide: '' })

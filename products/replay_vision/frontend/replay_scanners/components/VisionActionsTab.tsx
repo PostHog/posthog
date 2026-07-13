@@ -31,7 +31,7 @@ function humanizeSchedule(action: VisionActionApi): string {
     // raw rrule instead of a fabricated "Daily".
     const freq = /FREQ=([A-Z]+)/.exec(rrule)?.[1]
     if (freq === 'HOURLY') {
-        return 'Continuous (hourly checks)'
+        return 'Continuous (checked every few minutes)'
     }
     if (freq !== 'DAILY' && freq !== 'WEEKLY') {
         return rrule

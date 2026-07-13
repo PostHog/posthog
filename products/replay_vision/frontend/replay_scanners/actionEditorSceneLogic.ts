@@ -152,7 +152,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 name: !name?.trim() ? 'Give this summary a name' : undefined,
                 // kea-forms can't carry a string error on the weekdays array, so hang it on `hour` to
                 // mark the form invalid and block Enter-to-submit; the visible copy is the inline text.
-                // Alerts have no schedule UI (fixed hourly checks), so weekdays don't apply.
+                // Alerts have no schedule UI (checked continuously on every sweep), so weekdays don't apply.
                 cadence:
                     mode !== VisionActionModeEnumApi.Alert && cadence.weekdays.length === 0
                         ? { hour: 'Pick at least one day' }

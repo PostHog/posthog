@@ -46,7 +46,7 @@ function ActionOverview({
                 name={action.name}
                 description={
                     isAlert
-                        ? 'Checked about every hour; each alert covers the new matches since the last check'
+                        ? 'Checked every few minutes; each alert covers the new matches since the last check'
                         : scheduleLabel
                           ? `Runs ${scheduleLabel.toLowerCase()}`
                           : undefined
