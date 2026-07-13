@@ -628,6 +628,13 @@ class TestListGitHubSources(BaseTest):
         source = self._source(prefix="noinputs")
         assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="noinputs")]
 
+    def test_repo_is_blank_when_job_inputs_is_not_a_dict(self) -> None:
+        # job_inputs is an EncryptedJSONField that can hold any JSON value; a non-dict must not crash
+        # the shared repository read (it backs every endpoint via resolve_github_tables), just yield "".
+        source = self._source(prefix="weird")
+        ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=["not", "a", "dict"])
+        assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="weird")]
+
     def test_excludes_non_github_and_soft_deleted_sources(self) -> None:
         self._source(prefix="stripe", source_type=ExternalDataSourceType.STRIPE)
         deleted = self._source(prefix="gone", repository="PostHog/posthog")

@@ -60,7 +60,7 @@ _SELECT = """
         FROM posthog.trace_spans
         WHERE service_name = {service_name}
             AND attributes['test.outcome'] IN {signal_outcomes}
-            __REPOSITORY__
+            AND lower(resource_attributes['ci.repository']) = lower({repository})
             AND timestamp >= {date_from} __DATE_TO__
     )
     GROUP BY nodeid
@@ -99,25 +99,29 @@ def query_flaky_tests(
     min_failed_prs: int,
     limit: int,
 ) -> FlakyTestList:
-    date_to_clause = "AND timestamp <= {date_to}" if date_to is not None else ""
     repository = curated.repository
-    repository_clause = "AND lower(resource_attributes['ci.repository']) = lower({repository})" if repository else ""
+    # Fail closed: the spans are scoped to the source's repository. Without a repository identity we
+    # cannot tell one connected repo's spans from another, so return nothing rather than leak every
+    # repository's flaky signals into the selected source's leaderboard.
+    if not repository:
+        return FlakyTestList(items=[], truncated=False, limit=limit)
+
+    date_to_clause = "AND timestamp <= {date_to}" if date_to is not None else ""
     placeholders: dict[str, ast.Expr] = {
         "service_name": ast.Constant(value=_CI_SERVICE_NAME),
         "signal_outcomes": ast.Constant(value=_SIGNAL_OUTCOMES),
+        "repository": ast.Constant(value=repository),
         "date_from": ast.Constant(value=date_from),
         "min_rerun_passes": ast.Constant(value=min_rerun_passes),
         "min_failed_prs": ast.Constant(value=min_failed_prs),
         # +1 so a full page tells us more tests qualified than returned.
         "limit_plus_one": ast.Constant(value=limit + 1),
     }
-    if repository:
-        placeholders["repository"] = ast.Constant(value=repository)
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
 
     response = curated.run(
-        _SELECT.replace("__REPOSITORY__", repository_clause).replace("__DATE_TO__", date_to_clause),
+        _SELECT.replace("__DATE_TO__", date_to_clause),
         query_type="engineering_analytics.flaky_tests",
         placeholders=placeholders,
         # trace_spans lives on the LOGS ClickHouse cluster, not the warehouse default.

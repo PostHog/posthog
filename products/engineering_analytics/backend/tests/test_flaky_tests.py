@@ -11,6 +11,7 @@ from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, T
 
 from products.engineering_analytics.backend.logic.queries.flaky_tests import _selector_from_nodeid
 from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 T_PRS = "posthog/api/test/test_prs/TestPRs::test_flaky_on_prs"
 T_RERUN = "posthog/api/test/test_rerun/TestRerun::test_pass_on_retry"
@@ -169,6 +170,15 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_wider_window_includes_older_signal(self):
         data = self._get(date_from="-30d")
         assert T_OLD in [item["nodeid"] for item in data["items"]]
+
+    def test_source_without_repository_fails_closed(self):
+        # A source with no repository identity can't be scoped, so the leaderboard must be empty
+        # rather than leak every connected repository's flaky spans (the qualifying rows are still
+        # seeded, so a fail-open regression would return them).
+        ExternalDataSource.objects.filter(team_id=self.team.id).update(job_inputs={})
+        data = self._get()
+        assert data["items"] == []
+        assert data["truncated"] is False
 
     def test_limit_caps_and_flags_truncation(self):
         data = self._get(limit="1")
