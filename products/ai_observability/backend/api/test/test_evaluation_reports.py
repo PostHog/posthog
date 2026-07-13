@@ -1,9 +1,11 @@
+import uuid
 import datetime as dt
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,8 +15,47 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.ai_observability.backend.api.evaluation_reports import EvaluationReportRunSerializer
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
+
+
+class TestEvaluationReportRunSerializer(SimpleTestCase):
+    def test_normalizes_legacy_metrics_without_backfilling_stored_json(self) -> None:
+        legacy_metrics = {
+            "total_runs": 10,
+            "pass_count": 7,
+            "fail_count": 2,
+            "na_count": 1,
+            "pass_rate": 77.78,
+        }
+        content = {
+            "title": "Legacy report",
+            "metrics": legacy_metrics,
+            "legacy_extension": "preserved",
+        }
+        now = timezone.now()
+        run = EvaluationReportRun(
+            report_id=uuid.uuid4(),
+            content=content,
+            metadata=legacy_metrics,
+            period_start=now - dt.timedelta(hours=1),
+            period_end=now,
+            delivery_errors=["Email delivery failed"],
+            created_at=now,
+        )
+
+        serialized = EvaluationReportRunSerializer(run).data
+
+        expected_counts = {"pass": 7, "fail": 2, "na": 1}
+        self.assertEqual(serialized["content"]["metrics"]["result_counts"], expected_counts)
+        self.assertEqual(serialized["metadata"]["result_counts"], expected_counts)
+        self.assertEqual(serialized["content"]["legacy_extension"], "preserved")
+        for legacy_field in ("pass_count", "fail_count", "na_count"):
+            self.assertNotIn(legacy_field, serialized["content"]["metrics"])
+            self.assertNotIn(legacy_field, serialized["metadata"])
+        self.assertEqual(run.content, content)
+        self.assertEqual(serialized["delivery_errors"], ["Email delivery failed"])
 
 
 class TestEvaluationReportApi(APIBaseTest):
@@ -80,6 +121,12 @@ class TestEvaluationReportApi(APIBaseTest):
             created_by=self.user,
             conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
         )
+
+    def _create_unsupported_output_evaluation(self) -> Evaluation:
+        evaluation = self._create_boolean_evaluation(name="Unsupported output Eval")
+        Evaluation.objects.filter(id=evaluation.id).update(output_type="unsupported")
+        evaluation.refresh_from_db()
+        return evaluation
 
     def _create_trace_evaluation(self) -> Evaluation:
         return Evaluation.objects.create(
@@ -204,7 +251,7 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO,FR")
         self.assertEqual(report.delivery_targets, [{"type": "email", "value": "updated@example.com"}])
 
-    def test_create_rejects_sentiment_evaluation(self):
+    def test_create_accepts_sentiment_evaluation(self):
         sentiment_evaluation = self._create_sentiment_evaluation()
         response = self.client.post(
             self.base_url,
@@ -217,15 +264,21 @@ class TestEvaluationReportApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "evaluation")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        report = EvaluationReport.objects.get(evaluation=sentiment_evaluation)
+        self.assertEqual(response.json()["id"], str(report.id))
 
-    def test_create_rejects_trace_target_evaluation(self):
-        trace_evaluation = self._create_trace_evaluation()
+    @parameterized.expand([("trace_target", "trace"), ("unsupported_output", "unsupported")])
+    def test_create_rejects_unreportable_evaluation(self, _name: str, evaluation_kind: str) -> None:
+        evaluation = (
+            self._create_trace_evaluation()
+            if evaluation_kind == "trace"
+            else self._create_unsupported_output_evaluation()
+        )
         response = self.client.post(
             self.base_url,
             {
-                "evaluation": str(trace_evaluation.id),
+                "evaluation": str(evaluation.id),
                 "frequency": "every_n",
                 "trigger_threshold": 100,
                 "delivery_targets": [],
@@ -236,36 +289,45 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("attr"), "evaluation")
 
-    def test_deliverable_excludes_trace_target_reports(self):
-        # A report directly attached to a trace eval (e.g. created before the eval switched targets,
-        # bypassing the serializer) must not enter the delivery pipeline.
-        gen_report = self._create_report()
+    def test_deliverable_includes_reportable_generation_evaluations_only(self):
+        boolean_report = self._create_report()
+        sentiment_report = self._create_report(evaluation=self._create_sentiment_evaluation())
         trace_report = self._create_report(evaluation=self._create_trace_evaluation())
+        unsupported_report = self._create_report(evaluation=self._create_unsupported_output_evaluation())
 
         deliverable_ids = set(EvaluationReport.objects.deliverable().values_list("id", flat=True))
 
-        self.assertIn(gen_report.id, deliverable_ids)
+        self.assertEqual(deliverable_ids, {boolean_report.id, sentiment_report.id})
         self.assertNotIn(trace_report.id, deliverable_ids)
+        self.assertNotIn(unsupported_report.id, deliverable_ids)
 
-    def test_generate_rejects_trace_target_evaluation(self):
-        report = self._create_report(evaluation=self._create_trace_evaluation())
+    @parameterized.expand([("trace_target", "trace"), ("unsupported_output", "unsupported")])
+    def test_generate_rejects_unreportable_evaluation(self, _name: str, evaluation_kind: str) -> None:
+        evaluation = (
+            self._create_trace_evaluation()
+            if evaluation_kind == "trace"
+            else self._create_unsupported_output_evaluation()
+        )
+        report = self._create_report(evaluation=evaluation)
         response = self.client.post(f"{self.base_url}{report.id}/generate/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_list_excludes_sentiment_reports(self):
+    def test_list_includes_sentiment_and_excludes_unreportable_reports(self):
         sentiment_evaluation = self._create_sentiment_evaluation()
-        EvaluationReport.objects.create(
+        sentiment_report = EvaluationReport.objects.create(
             team=self.team,
             evaluation=sentiment_evaluation,
             frequency=EvaluationReport.Frequency.EVERY_N,
             trigger_threshold=100,
             delivery_targets=[],
         )
+        self._create_report(evaluation=self._create_trace_evaluation())
+        self._create_report(evaluation=self._create_unsupported_output_evaluation())
 
         response = self.client.get(self.base_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 0)
+        self.assertEqual([result["id"] for result in response.json()["results"]], [str(sentiment_report.id)])
 
     def test_create_scheduled_sets_next_delivery_date(self):
         response = self.client.post(self.base_url, self._scheduled_payload(rrule="FREQ=WEEKLY;BYDAY=MO"), format="json")

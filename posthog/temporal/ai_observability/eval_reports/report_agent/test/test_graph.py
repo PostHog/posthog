@@ -12,7 +12,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.graph import (
     _fallback_content,
     _validate_agent_output,
 )
-from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import EVAL_REPORT_SYSTEM_PROMPT
+from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
@@ -23,46 +23,64 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 
 
 class TestSystemPromptFormat(SimpleTestCase):
-    """Sanity: prompt format slots match the kwargs passed by run_eval_report_agent."""
-
-    def test_format_with_all_expected_args(self):
-        formatted = EVAL_REPORT_SYSTEM_PROMPT.format(
+    def _build_prompt(self, output_type: str = "boolean", guidance: str = "") -> str:
+        return build_eval_report_system_prompt(
             evaluation_name="Test Eval",
-            evaluation_description_section="Description: foo\n",
+            evaluation_description="foo",
             evaluation_type="llm_judge",
-            evaluation_prompt_section="Prompt:\ncriteria\n",
+            evaluation_prompt="criteria",
+            output_type=output_type,
             period_start="2026-04-08T14:00:00+00:00",
             period_end="2026-04-08T15:00:00+00:00",
-            report_prompt_guidance_section="",
-            max_sections=MAX_REPORT_SECTIONS,
+            report_prompt_guidance=guidance,
         )
+
+    def test_format_with_all_expected_args(self):
+        formatted = self._build_prompt()
         self.assertIn("Test Eval", formatted)
         self.assertIn("llm_judge", formatted)
         self.assertIn(str(MAX_REPORT_SECTIONS), formatted)
         self.assertNotIn("{", formatted.split("```")[0])  # No unfilled placeholders
 
     def test_format_with_guidance_section(self):
-        guidance_section = "\n## User guidance\n\n```\nFocus on cost regressions\n```\n"
-        formatted = EVAL_REPORT_SYSTEM_PROMPT.format(
-            evaluation_name="X",
-            evaluation_description_section="",
-            evaluation_type="hog",
-            evaluation_prompt_section="",
-            period_start="",
-            period_end="",
-            report_prompt_guidance_section=guidance_section,
-            max_sections=MAX_REPORT_SECTIONS,
-        )
+        formatted = self._build_prompt(guidance="Focus on cost regressions")
         self.assertIn("Focus on cost regressions", formatted)
+
+    def test_sentiment_prompt_explains_semantics_without_pass_rate_framing(self):
+        formatted = self._build_prompt(output_type="sentiment")
+
+        self.assertIn("classify the user messages", formatted)
+        self.assertIn("not response quality", formatted)
+        self.assertIn('outcome="all"|"positive"|"neutral"|"negative"', formatted)
+        self.assertNotIn("pass rate", formatted.lower())
+
+
+class TestComputeMetrics(SimpleTestCase):
+    @patch.object(graph, "_fetch_period_summary")
+    def test_computes_sentiment_rates_from_all_known_labels(self, mock_fetch):
+        mock_fetch.side_effect = [
+            ({"positive": 2, "neutral": 1, "negative": 1}, 4),
+            ({"positive": 1, "neutral": 1, "negative": 0}, 2),
+        ]
+
+        metrics = graph._compute_metrics(
+            team_id=1,
+            evaluation_id="eval-id",
+            period_start="2026-04-08T14:00:00+00:00",
+            period_end="2026-04-08T15:00:00+00:00",
+            previous_period_start="2026-04-08T13:00:00+00:00",
+            output_type="sentiment",
+        )
+
+        self.assertEqual(metrics.result_rates, {"positive": 50.0, "neutral": 25.0, "negative": 25.0})
+        self.assertEqual(metrics.previous_result_rates, {"positive": 50.0, "neutral": 50.0, "negative": 0.0})
 
 
 class TestFallbackContent(SimpleTestCase):
     def test_zero_runs_produces_no_runs_message(self):
         metrics = EvalReportMetrics(
             total_runs=0,
-            pass_count=0,
-            fail_count=0,
-            pass_rate=0.0,
+            result_counts={"pass": 0, "fail": 0, "na": 0},
             period_start="2026-04-08T14:00:00+00:00",
             period_end="2026-04-08T15:00:00+00:00",
         )
@@ -76,10 +94,7 @@ class TestFallbackContent(SimpleTestCase):
     def test_populated_metrics_stable_trend(self):
         metrics = EvalReportMetrics(
             total_runs=100,
-            pass_count=80,
-            fail_count=20,
-            na_count=0,
-            pass_rate=80.0,
+            result_counts={"pass": 80, "fail": 20, "na": 0},
             previous_pass_rate=80.0,
         )
         content = _fallback_content("Helpfulness", metrics, "validation failed")
@@ -97,16 +112,18 @@ class TestFallbackContent(SimpleTestCase):
     def test_populated_metrics_trend(self, _name, pass_rate, previous_pass_rate, expected_phrase):
         metrics = EvalReportMetrics(
             total_runs=10,
-            pass_count=int(pass_rate / 10),
-            fail_count=10 - int(pass_rate / 10),
-            pass_rate=pass_rate,
+            result_counts={
+                "pass": int(pass_rate / 10),
+                "fail": 10 - int(pass_rate / 10),
+                "na": 0,
+            },
             previous_pass_rate=previous_pass_rate,
         )
         content = _fallback_content("X", metrics, "why")
         self.assertIn(expected_phrase, content.sections[0].content)
 
     def test_includes_fallback_note(self):
-        metrics = EvalReportMetrics(total_runs=1, pass_count=1, pass_rate=100.0)
+        metrics = EvalReportMetrics(total_runs=1, result_counts={"pass": 1, "fail": 0, "na": 0})
         content = _fallback_content("X", metrics, "custom reason here")
         self.assertIn("custom reason here", content.sections[0].content)
         self.assertIn("fallback", content.sections[0].content.lower())
@@ -115,6 +132,22 @@ class TestFallbackContent(SimpleTestCase):
         metrics = EvalReportMetrics(total_runs=0)
         content = _fallback_content("X", metrics, "reason")
         self.assertEqual(content.citations, [])
+
+    def test_sentiment_fallback_reports_distribution_without_pass_rate_framing(self):
+        metrics = EvalReportMetrics(
+            output_type="sentiment",
+            total_runs=4,
+            result_counts={"positive": 2, "neutral": 1, "negative": 1},
+            previous_result_counts={"positive": 1, "neutral": 1, "negative": 0},
+        )
+
+        content = _fallback_content("Tone", metrics, "agent timed out")
+        body = content.sections[0].content
+
+        self.assertIn("Positive 50.0%", body)
+        self.assertIn("Neutral 25.0%", body)
+        self.assertIn("Negative 25.0%", body)
+        self.assertNotIn("pass rate", body.lower())
 
 
 class TestValidateAgentOutput(SimpleTestCase):

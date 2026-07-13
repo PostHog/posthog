@@ -26,7 +26,7 @@ import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import {
     evaluationCanResolveModel,
     evaluationSupportsReports,
-    evaluationTypeDefaultsToBooleanOutput,
+    evaluationSupportsRunSummary,
     isBooleanEvaluationOutput,
     isLLMJudgeEvaluation,
 } from './evaluationCapabilities'
@@ -261,7 +261,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     if (!teamId || !props.evaluationId || props.evaluationId === 'new') {
                         return null
                     }
-                    if (!evaluationSupportsReports(values.evaluation)) {
+                    if (!evaluationSupportsRunSummary(values.evaluation)) {
                         return null
                     }
 
@@ -751,8 +751,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 })
             }
         },
-        setEvaluationType: ({ evaluationType }) => {
-            if (!evaluationTypeDefaultsToBooleanOutput(evaluationType) && values.activeTab === 'reports') {
+        setEvaluationType: () => {
+            if (!evaluationSupportsReports(values.evaluation) && values.activeTab === 'reports') {
                 actions.setActiveTab('configuration')
             }
         },
