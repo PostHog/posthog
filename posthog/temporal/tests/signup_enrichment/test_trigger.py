@@ -77,6 +77,19 @@ def test_personal_email_records_work_email_false_without_provider_dispatch():
     record_mock.assert_called_once_with(organization_id="org-1", work_email=False)
 
 
+@override_settings(
+    GROWTH_SIGNUP_ENRICHMENT_ENABLED=True,
+    HARMONIC_API_KEY="key",
+    SIGNUP_ENRICHMENT_TASK_QUEUE="signup-enrichment-task-queue",
+)
+def test_dispatch_uses_configured_signup_enrichment_task_queue():
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    with on_commit, connect as connect_mock, run, region, record:
+        start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
+    _, kwargs = connect_mock.return_value.start_workflow.call_args
+    assert kwargs["task_queue"] == "signup-enrichment-task-queue"
+
+
 @override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
 def test_invalid_email_never_dispatches_or_writes():
     on_commit, connect, run, region, record = _dispatch_mocks()
