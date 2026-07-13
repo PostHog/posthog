@@ -58,12 +58,7 @@ const scanner = {
     feedback_themes: null,
 } satisfies ReplayScannerApi
 
-const observation = (
-    id: string,
-    subject: string,
-    tags: string[],
-    createdAt: string
-): ReplayObservationApi => ({
+const observation = (id: string, subject: string, tags: string[], createdAt: string): ReplayObservationApi => ({
     id,
     scanner_id: SCANNER_ID,
     session_id: id,
