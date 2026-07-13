@@ -23,6 +23,7 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     DIAGNOSTIC_SCOPES_PRESET,
     LLM_REQUEST_TIMEOUT_SECONDS,
     MAX_ATTEMPTS,
+    PUBLISHABLE_DRAFT_SCOPES,
 )
 from products.conversations.backend.temporal.ai_reply.llms import (
     create_message as _create_message,
@@ -660,12 +661,13 @@ class TestDiagnosticScopes:
         assert scopes == DIAGNOSTIC_SCOPES_PRESET
 
     @pytest.mark.asyncio
-    async def test_auto_publishable_reply_never_gets_data_scopes_even_when_opted_in(self):
-        # Security: a reply that will auto-send (bot_reply) must stay doc/BK-only, else a
-        # how-to-shaped question could pull project data the review gate passes as an aggregate
-        # and auto-send it to an untrusted author.
+    async def test_auto_publishable_reply_gets_docs_bk_only_scopes_even_when_opted_in(self):
+        # Security: a reply that will auto-send (bot_reply) must stay doc/BK-only at the TOKEN
+        # level, not just in the prompt -- the MCP runtime exposes tools by granted scope, so
+        # BASE's flag/experiment/survey/dashboard reads would let the agent fold project data
+        # into an auto-sent reply to an untrusted author.
         prompt, scopes = await self._run_draft(diagnostics_allowed=True, auto_publishable=True, ticket_type="how_to")
-        assert scopes == BASE_DRAFT_SCOPES
+        assert scopes == PUBLISHABLE_DRAFT_SCOPES
         assert "DATA ACCESS" not in prompt
         assert "connectionId" not in prompt
 
@@ -676,7 +678,7 @@ class TestDiagnosticScopes:
         _, scopes = await self._run_draft(
             needs_diagnostics=True, diagnostics_allowed=True, auto_publishable=True, ticket_type="how_to"
         )
-        assert scopes == BASE_DRAFT_SCOPES
+        assert scopes == PUBLISHABLE_DRAFT_SCOPES
 
     @pytest.mark.asyncio
     async def test_non_opted_in_org_stays_base_scopes(self):

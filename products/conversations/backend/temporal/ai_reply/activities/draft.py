@@ -22,6 +22,7 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     MAX_EXCERPT_CHARS,
     MAX_SAFETY_REVIEWED_CHARS,
     MAX_SOURCES,
+    PUBLISHABLE_DRAFT_SCOPES,
     TICKET_TYPE_HINTS,
 )
 from products.conversations.backend.temporal.ai_reply.schemas import DraftInput, DraftOutput, SupportReplyDraft
@@ -92,16 +93,25 @@ async def _draft_async(
     user_id = await database_sync_to_async(resolve_user_id_for_support, thread_sensitive=False)(team_id)
     env_id = await database_sync_to_async(get_or_create_support_sandbox_env, thread_sensitive=False)(team_id)
 
-    # Customer-data read tools (execute-sql, session recordings, logs, persons, error tracking)
-    # are granted only when the org opted in AND this reply won't be auto-sent to the author.
-    # `auto_publishable` mirrors persist_reply's publish gate (publishable type + channel mode ==
-    # bot_reply); a reply that resolves to a private note is human-reviewed before sending, so
-    # data access is safe there (incl. how_to set to private_note). An auto-sent reply stays
-    # doc/BK-only so project data the review gate passes as an "aggregate" can't reach an
-    # untrusted author. Keyed off the actual publish decision, not the classifier's
-    # needs_diagnostics (LLM-controlled) or the ticket type alone.
+    # Scope tiers, keyed off the actual publish decision (not the classifier's needs_diagnostics,
+    # which is LLM-controlled, nor the ticket type alone):
+    #  - auto_publishable: the reply may be auto-sent to the (untrusted) author, so restrict the
+    #    TOKEN to docs + BK (PUBLISHABLE_DRAFT_SCOPES). Prompt gating alone isn't enough -- the MCP
+    #    runtime exposes tools by granted scope, so an agent (or an injected ticket instruction)
+    #    could otherwise call project-config tools BASE grants and fold project data into an
+    #    auto-sent reply.
+    #  - grants_customer_data (opted in AND human-reviewed): full read_only preset, incl.
+    #    execute-sql, recordings, logs, error tracking. A private-note reply (incl. how_to left as
+    #    private_note) is human-reviewed before sending, so data access is safe.
+    #  - otherwise (human-reviewed, not opted in): BASE_DRAFT_SCOPES config/metadata reads.
     grants_customer_data = diagnostics_allowed and not auto_publishable
-    mcp_scopes: PosthogMcpScopes = DIAGNOSTIC_SCOPES_PRESET if grants_customer_data else list(BASE_DRAFT_SCOPES)
+    mcp_scopes: PosthogMcpScopes
+    if grants_customer_data:
+        mcp_scopes = DIAGNOSTIC_SCOPES_PRESET
+    elif auto_publishable:
+        mcp_scopes = list(PUBLISHABLE_DRAFT_SCOPES)
+    else:
+        mcp_scopes = list(BASE_DRAFT_SCOPES)
 
     context = CustomPromptSandboxContext(
         team_id=team_id,
