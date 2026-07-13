@@ -118,9 +118,12 @@ def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_
     """Track a consecutive refresh failure on the integration's config; caller saves.
 
     Schedules the next attempt with capped exponential backoff. `invalid_grant` means the grant
-    itself is dead and only a customer re-auth can fix it, so after enough consecutive ones the
-    integration goes terminal and the sweep stops retrying entirely. Other reasons (invalid_client,
-    5xx, network) never go terminal - a platform-side credential fix must let the fleet self-recover.
+    itself is dead and only a customer re-auth can fix it, so after an unbroken streak of them the
+    integration goes terminal and the sweep stops retrying entirely. The streak is tracked
+    separately from the total failure count and resets on any other reason, so one transient
+    invalid_grant amid e.g. a 5xx outage can't brick the integration. Other reasons
+    (invalid_client, 5xx, network) never go terminal - a platform-side credential fix must let
+    the fleet self-recover.
 
     Returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
     connections are newly breaking, regardless of retry noise.
@@ -132,13 +135,18 @@ def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_
     integration.config["refresh_next_attempt_at"] = int(time.time()) + min(
         REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS
     )
-    if reason == REFRESH_FAILURE_REASON_INVALID_GRANT and count >= REFRESH_TERMINAL_FAILURE_COUNT:
-        integration.config["refresh_terminal"] = True
+    if reason == REFRESH_FAILURE_REASON_INVALID_GRANT:
+        grant_streak = int(integration.config.get("refresh_invalid_grant_count") or 0) + 1
+        integration.config["refresh_invalid_grant_count"] = grant_streak
+        if grant_streak >= REFRESH_TERMINAL_FAILURE_COUNT:
+            integration.config["refresh_terminal"] = True
+    else:
+        integration.config.pop("refresh_invalid_grant_count", None)
     return attempt
 
 
 def record_refresh_success(integration: "Integration") -> None:
-    for key in ("refresh_failure_count", "refresh_next_attempt_at", "refresh_terminal"):
+    for key in ("refresh_failure_count", "refresh_invalid_grant_count", "refresh_next_attempt_at", "refresh_terminal"):
         integration.config.pop(key, None)
 
 

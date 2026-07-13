@@ -588,28 +588,51 @@ class TestOauthIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
-            ("invalid_grant_below_threshold", "invalid_grant", 3, False),
-            ("invalid_grant_at_threshold", "invalid_grant", 4, True),
-            ("invalid_client_never_terminal", "invalid_client", 10, False),
+            # (error, prior total failures, prior invalid_grant streak, expect terminal)
+            ("invalid_grant_below_threshold", "invalid_grant", 3, 3, False),
+            ("invalid_grant_at_threshold", "invalid_grant", 4, 4, True),
+            ("invalid_client_never_terminal", "invalid_client", 10, 0, False),
+            # A single invalid_grant after a run of other failures must not go terminal - the
+            # streak has to be invalid_grant all the way through
+            ("mixed_failures_not_terminal", "invalid_grant", 4, 0, False),
         ]
     )
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
     def test_refresh_failure_terminal_state(
-        self, _name, error, prior_failures, expected_terminal, mock_post, mock_reload
+        self, _name, error, prior_failures, prior_grant_streak, expected_terminal, mock_post, mock_reload
     ):
         mock_post.return_value.status_code = 400
         mock_post.return_value.json.return_value = {"error": error}
 
-        integration = self.create_integration(
-            kind="hubspot", config={"expires_in": 1000, "refresh_failure_count": prior_failures}
-        )
+        config: dict = {"expires_in": 1000, "refresh_failure_count": prior_failures}
+        if prior_grant_streak:
+            config["refresh_invalid_grant_count"] = prior_grant_streak
+        integration = self.create_integration(kind="hubspot", config=config)
 
         with self.settings(**self.mock_settings):
             OauthIntegration(integration).refresh_access_token()
 
         integration.refresh_from_db()
         assert bool(integration.config.get("refresh_terminal")) is expected_terminal
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_non_invalid_grant_failure_resets_grant_streak(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 503
+        mock_post.return_value.json.return_value = {"error": "server_error"}
+
+        integration = self.create_integration(
+            kind="hubspot",
+            config={"expires_in": 1000, "refresh_failure_count": 4, "refresh_invalid_grant_count": 4},
+        )
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert "refresh_invalid_grant_count" not in integration.config
+        assert "refresh_terminal" not in integration.config
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -622,6 +645,7 @@ class TestOauthIntegrationModel(BaseTest):
             config={
                 "expires_in": 1000,
                 "refresh_failure_count": 5,
+                "refresh_invalid_grant_count": 5,
                 "refresh_next_attempt_at": 1704117600,
                 "refresh_terminal": True,
             },
@@ -632,6 +656,7 @@ class TestOauthIntegrationModel(BaseTest):
 
         integration.refresh_from_db()
         assert "refresh_failure_count" not in integration.config
+        assert "refresh_invalid_grant_count" not in integration.config
         assert "refresh_next_attempt_at" not in integration.config
         assert "refresh_terminal" not in integration.config
 
