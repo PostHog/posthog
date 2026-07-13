@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest import mock
 
 from django.test import SimpleTestCase, override_settings
@@ -69,18 +70,21 @@ class TestOtelMetrics(SimpleTestCase):
             factory.histogram("test_histogram_seconds", boundaries=(1, 5)).record(0.1)
             factory.gauge("test_gauge").set(3)
 
-            # Twins derive their name from the prom instrument; the counter must get the
-            # _total suffix back that prometheus_client strips internally.
+            # Twins derive their identity from the prom instrument: the counter must get the
+            # _total suffix back that prometheus_client strips internally, and the histogram
+            # must inherit the prom bucket ladder so the two sinks stay 1:1.
             registry = CollectorRegistry()
             factory.record_counter_twin(PromCounter("twin_probe_total", "d", registry=registry), 3, {"a": "b"})
-            factory.record_histogram_twin(PromHistogram("twin_probe_seconds", "d", registry=registry), 0.2, {})
+            factory.record_histogram_twin(
+                PromHistogram("twin_probe_seconds", "d", registry=registry, buckets=(0.5, 1, 5)), 0.2, {}
+            )
 
         # Shutdown performs the final collect + export into the capturing exporter.
         reset_otel_metrics_for_tests()
 
         assert len(exporters) == 1
-        names = {
-            metric.name
+        exported = {
+            metric.name: metric
             for metrics_data in exporters[0].exported
             for resource_metrics in metrics_data.resource_metrics
             for scope_metrics in resource_metrics.scope_metrics
@@ -92,4 +96,17 @@ class TestOtelMetrics(SimpleTestCase):
             "test_gauge",
             "twin_probe_total",
             "twin_probe_seconds",
-        } <= names
+        } <= exported.keys()
+        twin_histogram_points = exported["twin_probe_seconds"].data.data_points
+        assert [list(point.explicit_bounds) for point in twin_histogram_points] == [[0.5, 1, 5]]
+
+    def test_timed_histogram_twin_observes_prom_and_propagates_exceptions(self) -> None:
+        registry = CollectorRegistry()
+        histogram = PromHistogram("timed_probe_seconds", "d", ["stage"], registry=registry)
+        factory = OtelInstrumentFactory("test")
+
+        with pytest.raises(ValueError):
+            with factory.timed_histogram_twin(histogram, {"stage": "fetch"}):
+                raise ValueError("boom")
+
+        assert registry.get_sample_value("timed_probe_seconds_count", {"stage": "fetch"}) == 1

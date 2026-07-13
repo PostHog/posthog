@@ -189,18 +189,6 @@ SESSION_RECORDING_THROTTLED = Counter(
 _OTEL_PLAYBACK = OtelInstrumentFactory("session-replay-playback")
 
 
-@contextmanager
-def _timed_snapshot_stage(histogram: Histogram, attributes: dict[str, str]) -> Generator[None]:
-    """Times the block into the prom histogram and an OTLP twin in the PostHog Metrics product."""
-    started = time.perf_counter()
-    try:
-        yield
-    finally:
-        seconds = time.perf_counter() - started
-        histogram.labels(**attributes).observe(seconds)
-        _OTEL_PLAYBACK.record_histogram_twin(histogram, seconds, attributes)
-
-
 def _count_session_recording_throttled(location: str, auth_type: str) -> None:
     SESSION_RECORDING_THROTTLED.labels(location=location, auth_type=auth_type).inc()
     _OTEL_PLAYBACK.record_counter_twin(SESSION_RECORDING_THROTTLED, 1, {"location": location, "auth_type": auth_type})
@@ -1567,7 +1555,7 @@ class SessionRecordingViewSet(
     ) -> Response:
         sources: list[dict] = []
 
-        with _timed_snapshot_stage(GATHER_RECORDING_SOURCES_HISTOGRAM, {"blob_version": "v2"}):
+        with _OTEL_PLAYBACK.timed_histogram_twin(GATHER_RECORDING_SOURCES_HISTOGRAM, {"blob_version": "v2"}):
             if recording.full_recording_v2_path:
                 # Parse S3 URL to extract prefix (path without query parameters)
                 # Example: s3://bucket/path?range=bytes=0-1372588 -> path
@@ -1787,7 +1775,7 @@ class SessionRecordingViewSet(
         blob_key: str,
         decompress: bool = True,
     ) -> HttpResponse:
-        with _timed_snapshot_stage(
+        with _OTEL_PLAYBACK.timed_histogram_twin(
             STREAM_RESPONSE_TO_CLIENT_HISTOGRAM, {"blob_version": "v2", "decompress": str(decompress)}
         ):
             with (
@@ -1914,7 +1902,7 @@ class SessionRecordingViewSet(
         span_name = f"fetch_{compress_label}_blocks"
 
         async with recording_api_client() as storage:
-            with _timed_snapshot_stage(FETCH_BLOCKS_HISTOGRAM, {"decompress": str(decompress)}):
+            with _OTEL_PLAYBACK.timed_histogram_twin(FETCH_BLOCKS_HISTOGRAM, {"decompress": str(decompress)}):
                 with timer(span_name), tracer.start_as_current_span(span_name):
                     return await self._fetch_blocks_parallel(
                         blocks, min_blob_key, max_blob_key, recording, storage, decompress
@@ -1930,7 +1918,7 @@ class SessionRecordingViewSet(
         decompress: bool = True,
     ) -> HttpResponse:
         async def _run() -> HttpResponse:
-            with _timed_snapshot_stage(
+            with _OTEL_PLAYBACK.timed_histogram_twin(
                 STREAM_RESPONSE_TO_CLIENT_HISTOGRAM, {"blob_version": "v2", "decompress": str(decompress)}
             ):
                 blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)

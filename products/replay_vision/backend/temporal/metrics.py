@@ -116,13 +116,13 @@ def record_ineligible_kind(kind: str) -> None:
 def record_activity_duration(activity: str, status: str, seconds: float) -> None:
     labels = {"activity": activity, "status": status}
     REPLAY_VISION_ACTIVITY_DURATION.labels(**labels).observe(seconds)
-    _otel.record_histogram_twin(REPLAY_VISION_ACTIVITY_DURATION, seconds, labels, boundaries=_ACTIVITY_DURATION_BUCKETS)
+    _otel.record_histogram_twin(REPLAY_VISION_ACTIVITY_DURATION, seconds, labels)
 
 
 def record_provider_call(provider: str, model: str, scanner_type: str, outcome: str, seconds: float) -> None:
     labels = {"provider": provider, "model": model, "scanner_type": scanner_type, "outcome": outcome}
     REPLAY_VISION_PROVIDER_CALL.labels(**labels).observe(seconds)
-    _otel.record_histogram_twin(REPLAY_VISION_PROVIDER_CALL, seconds, labels, boundaries=_PROVIDER_CALL_BUCKETS)
+    _otel.record_histogram_twin(REPLAY_VISION_PROVIDER_CALL, seconds, labels)
 
 
 def record_quota_exhausted_skip(scanner_type: str) -> None:
@@ -147,7 +147,7 @@ def record_sweep_outcome(outcome: str, candidates: int = 0) -> None:
 def record_observation_e2e(scanner_type: str, seconds: float) -> None:
     labels = {"scanner_type": scanner_type}
     REPLAY_VISION_OBSERVATION_E2E.labels(**labels).observe(seconds)
-    _otel.record_histogram_twin(REPLAY_VISION_OBSERVATION_E2E, seconds, labels, boundaries=_E2E_BUCKETS)
+    _otel.record_histogram_twin(REPLAY_VISION_OBSERVATION_E2E, seconds, labels)
 
 
 def record_side_effect_failure(effect: str) -> None:

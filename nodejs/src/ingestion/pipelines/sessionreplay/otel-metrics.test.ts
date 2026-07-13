@@ -109,15 +109,14 @@ describe('sessionreplay otel-metrics', () => {
         expect(dataPointsFor('recording_blob_ingestion_v2_events_rate_limited_total')).toHaveLength(0)
     })
 
-    it('records e2e lag with the prom bucket ladder, clamping clock-skewed negatives to zero', async () => {
+    it('records e2e lag with the prom bucket ladder', async () => {
         recordE2eLag(42.5)
-        recordE2eLag(-3)
 
         await reader.forceFlush()
 
         const points = dataPointsFor<HistogramDataPointValue>('recording_blob_ingestion_v2_e2e_lag_seconds')
         expect(points).toHaveLength(1)
-        expect(points[0].value.count).toEqual(2)
+        expect(points[0].value.count).toEqual(1)
         expect(points[0].value.sum).toBeCloseTo(42.5)
         // Bucket parity with the prom histogram, so dashboards translate 1:1 between the two sinks.
         expect(points[0].value.buckets.boundaries).toEqual(E2E_LAG_BOUNDARIES)

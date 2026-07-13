@@ -1,10 +1,8 @@
 import { Counter, Histogram, metrics as metricsApi } from '@opentelemetry/api'
-import { resourceFromAttributes } from '@opentelemetry/resources'
-import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
-import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions'
-import { hostname } from 'os'
+import { MeterProvider } from '@opentelemetry/sdk-metrics'
 
-import { OtlpJsonMetricExporter } from '~/common/metrics/otlp-json-exporter'
+import { createCounterWithExemplars, createHistogramWithExemplars, swallowing } from '~/common/metrics/instruments'
+import { createOtlpMeterProvider } from '~/common/metrics/otlp-provider'
 
 /**
  * OTLP-pushed twins of the rasterizer's headline prom metrics. The prom side keeps feeding
@@ -12,7 +10,8 @@ import { OtlpJsonMetricExporter } from '~/common/metrics/otlp-json-exporter'
  *
  * The rasterizer has its own initMetrics rather than reusing common/metrics/otel-metrics:
  * that module evaluates defaultConfig at import, which throws without Postgres env vars
- * the rasterizer deployment doesn't have. This one reads the same env names directly.
+ * the rasterizer deployment doesn't have. This one reads the same env names directly and
+ * builds the provider through the shared createOtlpMeterProvider.
  *
  * Names and label sets deliberately match the prom metrics so dashboards translate 1:1
  * (the prom activity duration is a Summary; the OTLP twin is a histogram).
@@ -35,19 +34,11 @@ export const initMetrics = (): void => {
         return
     }
 
-    provider = new MeterProvider({
-        resource: resourceFromAttributes({
-            [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? 'recording-rasterizer',
-            [ATTR_SERVICE_VERSION]: process.env.COMMIT_SHA ?? 'dev',
-            // Per-replica identity, matching common/metrics/otel-metrics.ts.
-            'service.instance.id': hostname(),
-        }),
-        readers: [
-            new PeriodicExportingMetricReader({
-                exporter: new OtlpJsonMetricExporter({ url, headers: { Authorization: `Bearer ${token}` } }),
-                exportIntervalMillis: parseInt(process.env.OTEL_METRICS_EXPORT_INTERVAL_MS ?? '60000', 10),
-            }),
-        ],
+    provider = createOtlpMeterProvider({
+        url,
+        token,
+        serviceName: process.env.OTEL_SERVICE_NAME ?? 'recording-rasterizer',
+        exportIntervalMillis: parseInt(process.env.OTEL_METRICS_EXPORT_INTERVAL_MS ?? '60000', 10),
     })
     metricsApi.setGlobalMeterProvider(provider)
 }
@@ -72,31 +63,20 @@ function getInstruments(): RasterizerInstruments {
     if (instruments === null) {
         const meter = metricsApi.getMeter('recording-rasterizer')
         instruments = {
-            activitiesTotal: meter.createCounter('recording_rasterizer_activities_total', {
+            activitiesTotal: createCounterWithExemplars(meter, 'recording_rasterizer_activities_total', {
                 description: 'Number of rasterization activities completed',
             }),
-            activityDuration: meter.createHistogram('recording_rasterizer_activity_duration_seconds', {
+            activityDuration: createHistogramWithExemplars(meter, 'recording_rasterizer_activity_duration_seconds', {
                 description: 'Total time for the rasterization activity',
                 unit: 's',
                 advice: { explicitBucketBoundaries: ACTIVITY_DURATION_BOUNDARIES },
             }),
-            errorsTotal: meter.createCounter('recording_rasterizer_errors_total', {
+            errorsTotal: createCounterWithExemplars(meter, 'recording_rasterizer_errors_total', {
                 description: 'Rasterization errors by code',
             }),
         }
     }
     return instruments
-}
-
-/** Recording runs in activity error handlers; a throw here would mask the real error. */
-function swallowing<Args extends unknown[]>(record: (...args: Args) => void): (...args: Args) => void {
-    return (...args: Args): void => {
-        try {
-            record(...args)
-        } catch {
-            // never let telemetry break rasterization
-        }
-    }
 }
 
 export const recordActivity = swallowing((result: 'success' | 'error', seconds: number): void => {

@@ -395,9 +395,10 @@ export class SessionBatchRecorder {
             for (const block of blockMetadata) {
                 const endMillis = block.endDateTime.toMillis()
                 // endDateTime falls back to epoch 0 when a block somehow has no timestamped
-                // events; skip those rather than record a nonsense multi-year lag.
+                // events; skip those rather than record a nonsense multi-year lag. Clock skew
+                // can put an event timestamp slightly in the future, hence the clamp.
                 if (endMillis > 0) {
-                    SessionBatchMetrics.observeE2eLag((flushedAtMillis - endMillis) / 1000)
+                    SessionBatchMetrics.observeE2eLag(Math.max(0, (flushedAtMillis - endMillis) / 1000))
                 }
             }
 

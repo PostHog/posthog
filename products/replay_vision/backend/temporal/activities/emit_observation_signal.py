@@ -72,6 +72,7 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
             base_extra["recording_active_seconds"] = meta.active_seconds
 
         emitted = 0
+        any_failed = False
         for index, signal in enumerate(inputs.signals):
             if signal.confidence < MIN_SIGNAL_CONFIDENCE:
                 continue
@@ -96,12 +97,15 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
                 emitted += 1
             except Exception:
                 # One bad finding never blocks the rest; signals are advisory.
-                record_side_effect_failure("signal")
+                any_failed = True
                 logger.exception(
                     "replay_vision.signal_emission_failed",
                     observation_id=str(inputs.observation_id),
                     finding_index=index,
                 )
+        if any_failed:
+            # Per activity, not per finding, so the counter is comparable to the other effects.
+            record_side_effect_failure("signal")
         return emitted
     except Exception:
         # Never fail the observation over emission. Counted here because the swallow means

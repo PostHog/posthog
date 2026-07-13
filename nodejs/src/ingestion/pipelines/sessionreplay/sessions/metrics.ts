@@ -258,7 +258,7 @@ export class SessionBatchMetrics {
     }
 
     public static observeE2eLag(seconds: number): void {
-        this.e2eLag.observe(Math.max(0, seconds))
+        this.e2eLag.observe(seconds)
         recordE2eLag(seconds)
     }
 

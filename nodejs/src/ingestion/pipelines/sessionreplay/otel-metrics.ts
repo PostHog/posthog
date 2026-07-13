@@ -1,6 +1,6 @@
-import { Attributes, Counter, Histogram, Meter, MetricOptions, metrics as metricsApi } from '@opentelemetry/api'
+import { Attributes, Counter, Histogram, metrics as metricsApi } from '@opentelemetry/api'
 
-import { counterWithExemplars, histogramWithExemplars } from '~/common/metrics/exemplars'
+import { createCounterWithExemplars, createHistogramWithExemplars, swallowing } from '~/common/metrics/instruments'
 
 /**
  * OTLP-pushed twins of the core session replay ingestion prom counters. The prom side keeps
@@ -38,63 +38,74 @@ export const E2E_LAG_BOUNDARIES = [5, 15, 30, 60, 120, 300, 600, 1200, 1800, 360
 
 let instruments: ReplayIngestionInstruments | null = null
 
-const createCounter = (meter: Meter, name: string, options?: MetricOptions): Counter =>
-    counterWithExemplars(name, meter.createCounter(name, options))
-const createHistogram = (meter: Meter, name: string, options?: MetricOptions): Histogram =>
-    histogramWithExemplars(name, meter.createHistogram(name, options))
-
 function getInstruments(): ReplayIngestionInstruments {
     if (instruments === null) {
         const meter = metricsApi.getMeter('session-replay-ingestion')
         instruments = {
-            sessionsFlushed: createCounter(meter, 'recording_blob_ingestion_v2_sessions_flushed_total', {
+            sessionsFlushed: createCounterWithExemplars(meter, 'recording_blob_ingestion_v2_sessions_flushed_total', {
                 description: 'Number of individual sessions that have been flushed',
             }),
-            eventsFlushed: createCounter(meter, 'recording_blob_ingestion_v2_events_flushed_total', {
+            eventsFlushed: createCounterWithExemplars(meter, 'recording_blob_ingestion_v2_events_flushed_total', {
                 description: 'Number of individual events that have been flushed',
             }),
-            bytesWritten: createCounter(meter, 'recording_blob_ingestion_v2_bytes_written_total', {
+            bytesWritten: createCounterWithExemplars(meter, 'recording_blob_ingestion_v2_bytes_written_total', {
                 description: 'Number of bytes written to storage',
                 unit: 'By',
             }),
-            sessionsDroppedMissingRetention: createCounter(
+            sessionsDroppedMissingRetention: createCounterWithExemplars(
                 meter,
                 'recording_blob_ingestion_v2_sessions_dropped_missing_retention_total',
                 {
                     description: 'Number of sessions dropped before recording because retention could not be resolved',
                 }
             ),
-            messagesDroppedByRestrictions: createCounter(
+            messagesDroppedByRestrictions: createCounterWithExemplars(
                 meter,
                 'recording_blob_ingestion_v2_messages_dropped_by_restrictions',
                 { description: 'The number of messages dropped due to event ingestion restrictions' }
             ),
-            sessionsRateLimited: createCounter(meter, 'recording_blob_ingestion_v2_sessions_rate_limited_total', {
-                description: 'Number of sessions that were rate limited',
-            }),
-            eventsRateLimited: createCounter(meter, 'recording_blob_ingestion_v2_events_rate_limited_total', {
-                description: 'Number of events that were rate limited',
-            }),
-            sessionsBlocked: createCounter(meter, 'recording_blob_ingestion_v2_sessions_blocked_total', {
+            sessionsRateLimited: createCounterWithExemplars(
+                meter,
+                'recording_blob_ingestion_v2_sessions_rate_limited_total',
+                {
+                    description: 'Number of sessions that were rate limited',
+                }
+            ),
+            eventsRateLimited: createCounterWithExemplars(
+                meter,
+                'recording_blob_ingestion_v2_events_rate_limited_total',
+                {
+                    description: 'Number of events that were rate limited',
+                }
+            ),
+            sessionsBlocked: createCounterWithExemplars(meter, 'recording_blob_ingestion_v2_sessions_blocked_total', {
                 description: 'Number of sessions dropped by the session filter blocklist',
             }),
-            newSessionsRateLimited: createCounter(
+            newSessionsRateLimited: createCounterWithExemplars(
                 meter,
                 'recording_blob_ingestion_v2_new_sessions_rate_limited_total',
                 { description: 'Number of new sessions dropped by the per-team new-session rate limiter' }
             ),
-            s3UploadErrors: createCounter(meter, 'recording_blob_ingestion_v2_s3_upload_errors_total', {
+            s3UploadErrors: createCounterWithExemplars(meter, 'recording_blob_ingestion_v2_s3_upload_errors_total', {
                 description: 'Number of S3 upload errors',
             }),
-            s3UploadTimeouts: createCounter(meter, 'recording_blob_ingestion_v2_s3_upload_timeouts_total', {
-                description: 'Number of S3 upload timeouts',
-            }),
-            s3UploadLatency: createHistogram(meter, 'recording_blob_ingestion_v2_s3_upload_latency_seconds', {
-                description: 'Time taken to upload batches to S3 in seconds',
-                unit: 's',
-                advice: { explicitBucketBoundaries: S3_UPLOAD_LATENCY_BOUNDARIES },
-            }),
-            e2eLag: createHistogram(meter, 'recording_blob_ingestion_v2_e2e_lag_seconds', {
+            s3UploadTimeouts: createCounterWithExemplars(
+                meter,
+                'recording_blob_ingestion_v2_s3_upload_timeouts_total',
+                {
+                    description: 'Number of S3 upload timeouts',
+                }
+            ),
+            s3UploadLatency: createHistogramWithExemplars(
+                meter,
+                'recording_blob_ingestion_v2_s3_upload_latency_seconds',
+                {
+                    description: 'Time taken to upload batches to S3 in seconds',
+                    unit: 's',
+                    advice: { explicitBucketBoundaries: S3_UPLOAD_LATENCY_BOUNDARIES },
+                }
+            ),
+            e2eLag: createHistogramWithExemplars(meter, 'recording_blob_ingestion_v2_e2e_lag_seconds', {
                 description: 'Per-session staleness at flush: wall clock minus the newest flushed event timestamp',
                 unit: 's',
                 advice: { explicitBucketBoundaries: E2E_LAG_BOUNDARIES },
@@ -107,20 +118,6 @@ function getInstruments(): ReplayIngestionInstruments {
 function addPositive(counter: Counter, value: number, attributes?: Attributes): void {
     if (value > 0) {
         counter.add(value, attributes)
-    }
-}
-
-/**
- * These run in the ingestion hot path and in error handlers. A throw here would mask the
- * real processing error, so recording failures are swallowed.
- */
-function swallowing<Args extends unknown[]>(record: (...args: Args) => void): (...args: Args) => void {
-    return (...args: Args): void => {
-        try {
-            record(...args)
-        } catch {
-            // never let telemetry break ingestion
-        }
     }
 }
 
@@ -173,7 +170,7 @@ export const recordS3UploadLatency = swallowing((seconds: number): void => {
 })
 
 export const recordE2eLag = swallowing((seconds: number): void => {
-    getInstruments().e2eLag.record(Math.max(0, seconds))
+    getInstruments().e2eLag.record(seconds)
 })
 
 /** Test seam: forget cached instruments so a test-installed provider is picked up. */
