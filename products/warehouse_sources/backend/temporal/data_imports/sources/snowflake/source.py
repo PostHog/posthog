@@ -42,9 +42,10 @@ _MALFORMED_PEM_MESSAGE = (
     "then {action}"
 )
 
-# cryptography raises ValueError("Incorrect password, could not decrypt key") from
-# `load_pem_private_key` when the private key is encrypted but the passphrase is missing or wrong.
-# Same `{action}` placeholder convention as `_MALFORMED_PEM_MESSAGE`.
+# `load_pem_private_key` rejects an encrypted key-pair private key with a wrong passphrase
+# (ValueError "Incorrect password, could not decrypt key") or no passphrase at all
+# (TypeError "Password was not given but private key is encrypted"). Same `{action}` placeholder
+# convention as `_MALFORMED_PEM_MESSAGE`.
 _WRONG_KEY_PASSPHRASE_MESSAGE = (
     "Your Snowflake key-pair private key is encrypted, but the passphrase is missing or incorrect. "
     "Enter the passphrase that decrypts your private key (or paste an unencrypted key), then {action}"
