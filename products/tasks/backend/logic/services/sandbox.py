@@ -167,6 +167,7 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    initial_permission_mode: str | None = None,
     event_ingest_token: str | None = None,
     event_ingest_url: str | None = None,
     event_ingest_keep_stream_open: bool = False,
@@ -178,6 +179,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        "POSTHOG_CODE_INITIAL_PERMISSION_MODE": initial_permission_mode,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
         "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": "true" if event_ingest_keep_stream_open else None,
@@ -224,6 +226,18 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
+
+    def stop_agent_server(self) -> ExecutionResult:
+        """Stop the agent server gracefully so it can flush terminal events."""
+        return self.execute(
+            "pkill -TERM -f '[a]gent-server' 2>/dev/null || true; "
+            "for _ in $(seq 1 80); do "
+            "pgrep -f '[a]gent-server' >/dev/null || exit 0; "
+            "sleep 0.5; "
+            "done; "
+            "exit 1",
+            timeout_seconds=45,
+        )
 
     def agent_server_supports_auto_publish(self) -> bool:
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
@@ -298,6 +312,7 @@ class SandboxBase(ABC):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,

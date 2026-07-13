@@ -45,6 +45,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
+    MetricsQuery,
     Node,
     NodeKind,
     NonIntegratedConversionsTableQuery,
@@ -251,6 +252,10 @@ export function isRevenueAnalyticsTopCustomersQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsTopCustomersQuery {
     return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
+}
+
+export function isMetricsQuery(node?: Record<string, any> | null): node is MetricsQuery {
+    return node?.kind === NodeKind.MetricsQuery
 }
 
 export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {

@@ -1,7 +1,13 @@
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { TemplateTester } from '../../test/test-helpers'
 import { template as getAccountTemplate } from './posthog-get-account.template'
+import { template as tagAccountTemplate } from './posthog-tag-account.template'
 import { template as updateAccountPropertyTemplate } from './posthog-update-account-property.template'
+import { template as updateAccountRelationshipsTemplate } from './posthog-update-account-relationships.template'
 import { template as updateAccountTemplate } from './posthog-update-account.template'
+
+const REL_UUID = '0197f9f0-1111-0000-0000-000000000000'
 
 describe('posthog customer analytics account templates', () => {
     const cases = [
@@ -25,6 +31,20 @@ describe('posthog customer analytics account templates', () => {
             inputs: { external_id: 'acme-1', properties: { '0197f9f0-0000-0000-0000-000000000000': 42 } },
             failurePrefix: 'Failed to update account properties (400):',
             successLog: 'Updated custom properties on account acme-1',
+        },
+        {
+            name: 'tag account',
+            template: tagAccountTemplate,
+            inputs: { external_id: 'acme-1', tags: ['vip'], tags_mode: 'add' },
+            failurePrefix: 'Failed to tag account (400):',
+            successLog: 'Tagged account acme-1',
+        },
+        {
+            name: 'update account relationships',
+            template: updateAccountRelationshipsTemplate,
+            inputs: { external_id: 'acme-1', relationships: { [REL_UUID]: { type: 'user', id: 42 } } },
+            failurePrefix: 'Failed to update account relationships (400):',
+            successLog: 'Updated relationships on account acme-1',
         },
     ]
 
@@ -84,6 +104,27 @@ describe('posthog customer analytics account templates', () => {
             response = await tester.invokeFetchResponse(response.invocation, { status, body })
 
             expect(response.error).toEqual(expected)
+        })
+    })
+
+    describe('update account relationships queued fetch body', () => {
+        const tester = new TemplateTester(updateAccountRelationshipsTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+        })
+
+        it('sends relationship assignments keyed by UUID in the request body', async () => {
+            const response = await tester.invoke({
+                external_id: 'acme-1',
+                relationships: { [REL_UUID]: { type: 'user', id: 42 } },
+            })
+
+            expect(response.error).toBeUndefined()
+            expect(response.finished).toBe(false)
+
+            const body = parseJSON((response.invocation.queueParameters as any).body)
+            expect(body.relationships).toEqual({ [REL_UUID]: { type: 'user', id: 42 } })
         })
     })
 })

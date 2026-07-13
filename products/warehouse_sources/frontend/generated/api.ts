@@ -22,9 +22,11 @@ import type {
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
+    ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
+    IntegrationAccountsResponseApi,
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceConnectionOptionListApi,
     PaginatedExternalDataSourceSerializersListApi,
@@ -925,6 +927,44 @@ export const externalDataSourcesDraftCustomManifestCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(draftCustomManifestRequestApi),
     })
+}
+
+export const getExternalDataSourcesOauthAccountsRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataSourcesOauthAccountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/oauth_accounts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/oauth_accounts/`
+}
+
+/**
+ * List the accounts/properties a connected OAuth integration exposes, in the shared
+ * IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
+ * this endpoint just routes by source type and serializes the result.
+ */
+export const externalDataSourcesOauthAccountsRetrieve = async (
+    projectId: string,
+    params: ExternalDataSourcesOauthAccountsRetrieveParams,
+    options?: RequestInit
+): Promise<IntegrationAccountsResponseApi> => {
+    return apiMutator<IntegrationAccountsResponseApi>(
+        getExternalDataSourcesOauthAccountsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataSourcesPreviewResourceCreateUrl = (projectId: string) => {

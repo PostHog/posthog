@@ -14,6 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.schemas import BingAdsResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+)
 
 
 def _make_webfault(faultstring: str, detail: object | None) -> WebFault:
@@ -99,6 +102,62 @@ class TestBingAdsClient:
         assert result == self.customer_id
         assert client._customer_id == self.customer_id
         mock_client_instance.GetUser.assert_called_once_with(UserId=None)
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_list_accounts_across_customers_flags_primary(self, mock_service_client):
+        instance = mock_service_client.return_value
+        instance.GetUser.return_value = mock.MagicMock(User=mock.MagicMock(CustomerId=111))
+        instance.GetCustomersInfo.return_value = mock.MagicMock(
+            CustomerInfo=[
+                mock.MagicMock(Id=111, Name="Primary Co"),
+                mock.MagicMock(Id=222, Name="Other Co"),
+            ]
+        )
+
+        def accounts_for(CustomerId, OnlyParentAccounts):
+            if CustomerId == 111:
+                account = mock.MagicMock(Id=1, Number="A1", Name="Acc 1", AccountLifeCycleStatus="Active")
+            else:
+                # A missing status falls back to "Unknown" rather than the literal string "None".
+                account = mock.MagicMock(Id=2, Number="B2", Name="Acc 2", AccountLifeCycleStatus=None)
+            return mock.MagicMock(AccountInfo=[account])
+
+        instance.GetAccountsInfo.side_effect = accounts_for
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        result = client.list_accounts()
+
+        assert result == [
+            IntegrationAccount(
+                value="1",
+                display_name="Acc 1",
+                is_primary=True,
+                badges=("Active",),
+                group="Primary Co",
+                secondary_text="A1",
+            ),
+            # A missing status falls back to "Unknown" rather than the literal string "None".
+            IntegrationAccount(
+                value="2",
+                display_name="Acc 2",
+                is_primary=False,
+                badges=("Unknown",),
+                group="Other Co",
+                secondary_text="B2",
+            ),
+        ]
+        # Per-customer scoping must not leak onto the shared authorization_data after the call.
+        assert client.authorization_data.customer_id is None
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_list_accounts_wraps_soap_fault(self, mock_service_client):
+        instance = mock_service_client.return_value
+        instance.GetUser.return_value = mock.MagicMock(User=mock.MagicMock(CustomerId=111))
+        instance.GetCustomersInfo.side_effect = _make_webfault("Server raised fault: 'Invalid client data.'", None)
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError, match="Failed to list Bing Ads accounts"):
+            client.list_accounts()
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
     def test_get_customer_id_preserves_underlying_exception_details(self, mock_service_client):
