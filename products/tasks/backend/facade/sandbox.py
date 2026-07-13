@@ -37,9 +37,11 @@ if TYPE_CHECKING:
 class SandboxRunRef(Protocol):
     """Structural stand-in for a TaskRun in the sandbox command/token helpers.
 
-    ``send_agent_command`` and ``create_sandbox_connection_token`` only read these
-    attributes off the run, so callers without a TaskRun row (e.g. pulse agent runs)
-    can drive a live sandbox with any object of this shape.
+    This is about run *identity*, not about which runs get a sandbox: every caller drives a
+    full sandbox. ``send_agent_command`` and ``create_sandbox_connection_token`` only read
+    these five attributes off the run, so a product whose run identity isn't a TaskRow row
+    (e.g. pulse, which mints its identity from the Temporal run) can satisfy this shape and
+    use the helpers without a TaskRun.
     """
 
     id: str
