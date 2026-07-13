@@ -196,6 +196,18 @@ class ProvisionReapsLeftoversTest(unittest.TestCase):
         self.assertEqual(deleted, {"box-legacy", "box-corpse"})
         self.assertFalse(new_box.deleted)
 
+    def test_never_matches_other_previews_boxes(self):
+        # Nested names must not cross-match: preview-pr-99 owns neither
+        # preview-pr-999's boxes nor anything without the exact 6-hex tag.
+        from hogbox_preview.hogland_backend import HoglandBackend
+
+        backend = HoglandBackend(host="https://example.invalid", name="preview-pr-99", token="test-token")
+        self.assertTrue(backend._name_matches("preview-pr-99"))
+        self.assertTrue(backend._name_matches("preview-pr-99-abc123"))
+        self.assertFalse(backend._name_matches("preview-pr-999-abc123"))  # other preview's box
+        self.assertFalse(backend._name_matches("preview-pr-99-abc123-extra"))  # not our tag shape
+        self.assertFalse(backend._name_matches("preview-pr-99-ABC123"))  # tag is lowercase hex
+
     def test_reap_failure_does_not_raise(self):
         from hogland import NotFoundError
 
@@ -252,6 +264,19 @@ class DestroyReleasesPenTest(unittest.TestCase):
         client = _FakeClient()
         backend = _make_backend(client)
         backend._box = box  # _resolve_box short-circuits to the live handle
+
+        backend.destroy()
+
+        self.assertEqual(client.deleted_pens, ["preview-pr-999"])
+
+    def test_pen_released_when_box_delete_5xxs(self):
+        # Teardown is best-effort all the way: a transient server error deleting
+        # the box must not abort before delete_pen (the box has a TTL, the pen
+        # doesn't).
+        box = _FakeBox(delete_raises=RuntimeError("hogland API error (HTTP 502)"))
+        client = _FakeClient()
+        backend = _make_backend(client)
+        backend._box = box
 
         backend.destroy()
 

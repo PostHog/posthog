@@ -63,11 +63,12 @@ box-http edge resolves to whatever box currently backs the pen — so **a
 reviewer's link survives every re-push** (the box swaps underneath). Requires
 hogland's pen-id edge routing (shipped in hogland #319).
 
-Only the _pen_ name is deterministic. Each box gets a per-run unique name
-(`preview-pr-<n>-<6hex>`), because hogland enforces per-owner name uniqueness
-across all box statuses (a failed placement holds its name for up to an hour) —
-a deterministic box name would make a placement retry 409 against its own
-corpse. Leftover boxes are reaped after the new box comes up and on teardown.
+Only the _pen_ name is deterministic. Each box gets a unique name — a fresh
+`preview-pr-<n>-<6hex>` per create _attempt_, including 5xx retries — because
+hogland enforces per-owner name uniqueness across all box statuses (a failed
+placement holds its name for up to an hour), so any reused box name would make
+a placement retry 409 against its own corpse. Leftover boxes are reaped after
+the new box comes up and on teardown.
 
 ## Auto-previews & opt-out
 

@@ -26,6 +26,7 @@ un-exposed ``--box-id`` box.
 from __future__ import annotations
 
 import os
+import re
 import json
 import time
 import uuid
@@ -339,15 +340,19 @@ class HoglandBackend(PreviewBackend):
         # A box that was already TTL-reaped counts as "already gone": the pen can
         # still point at a dead current_box_id (previews outlive their boxes — the
         # box has a 24h idle TTL, the pen has none), so both resolving it and
-        # deleting it can raise NotFoundError. Swallow that so teardown still
-        # reaches delete_pen — otherwise the pen leaks forever, which is the exact
-        # thing this method exists to prevent.
+        # deleting it can raise NotFoundError — and a transient 5xx here is just
+        # as fatal to teardown. Swallow everything so we always reach delete_pen —
+        # otherwise the pen leaks forever, which is the exact thing this method
+        # exists to prevent. A box left behind is the smaller loss: its 24h TTL
+        # reaps it.
         try:
             box = self._resolve_box()
             if box is not None:
                 box.delete()
         except NotFoundError:
             pass
+        except Exception as e:  # noqa: BLE001 — TTL reaper is the backstop
+            timing.stage(f"warn: couldn't delete current box during teardown: {e}")
         # Sweep any other name-matched boxes too (a push that failed after create
         # but before repoint leaves a corpse the pen never pointed at).
         self._reap_leftovers()
@@ -474,10 +479,15 @@ class HoglandBackend(PreviewBackend):
 
     def _name_matches(self, box_name: str | None) -> bool:
         # A box belongs to this preview if its name is exactly the pen name
-        # (a legacy box from before per-box names) or `<pen-name>-<suffix>`.
+        # (a legacy box from before per-box names) or the pen name plus exactly
+        # the 6-hex attempt tag _box_name() mints. Anchoring on the full suffix
+        # shape (not a bare prefix) keeps pen names that nest — "foo" vs
+        # "foo-bar" — from cross-matching each other's boxes.
         if not box_name:
             return False
-        return box_name == self.name or box_name.startswith(self.name + "-")
+        if box_name == self.name:
+            return True
+        return re.fullmatch(re.escape(self.name) + r"-[0-9a-f]{6}", box_name) is not None
 
     def _reap_leftovers(self) -> None:
         """Best-effort delete every OTHER box owned by this preview — corpses from
