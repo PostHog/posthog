@@ -170,6 +170,14 @@ describe('shouldOfferAxisSync', () => {
     })
     const section = (...variants: ExperimentVariantResult[]): NewExperimentQueryResponse =>
         ({ variant_results: variants }) as NewExperimentQueryResponse
+    const sectionWithBreakdown = (
+        variants: ExperimentVariantResult[],
+        breakdownVariants: ExperimentVariantResult[]
+    ): NewExperimentQueryResponse =>
+        ({
+            variant_results: variants,
+            breakdown_results: [{ variants: breakdownVariants }],
+        }) as NewExperimentQueryResponse
 
     type ResultList = (NewExperimentQueryResponse | undefined | null)[]
     test.each<{ name: string; a: ResultList; b: ResultList; expected: boolean }>([
@@ -196,6 +204,25 @@ describe('shouldOfferAxisSync', () => {
             a: [section(buildVariant([-0.05, 0.05]))],
             b: [section(buildVariant([-0.4, 0.4]))],
             expected: true,
+        },
+        {
+            // Both sections would cap at ±150% and match; the breakdown lifts one section's cap, so they diverge
+            name: 'shown when a breakdown lifts one section past the ±150% cap',
+            a: [sectionWithBreakdown([buildVariant([-2, 2])], [buildVariant([-2, 2])])],
+            b: [section(buildVariant([-2, 2]))],
+            expected: true,
+        },
+        {
+            name: 'shown when a section is chartable only through its breakdown results',
+            a: [sectionWithBreakdown([buildVariant()], [buildVariant([-0.4, 0.4])])],
+            b: [section(buildVariant([-0.05, 0.05]))],
+            expected: true,
+        },
+        {
+            name: 'hidden when both sections have identical breakdowns',
+            a: [sectionWithBreakdown([buildVariant([-2, 2])], [buildVariant([-2, 2])])],
+            b: [sectionWithBreakdown([buildVariant([-2, 2])], [buildVariant([-2, 2])])],
+            expected: false,
         },
     ])('$name', ({ a, b, expected }) => {
         expect(shouldOfferAxisSync(a, b)).toBe(expected)
