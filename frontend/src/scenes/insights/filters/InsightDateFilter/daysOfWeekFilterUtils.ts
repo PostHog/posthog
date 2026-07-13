@@ -1,12 +1,11 @@
-import { DateRange, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
-import { isTrendsQuery } from '~/queries/utils'
+import { DateRange, TrendsQuery } from '~/queries/schema/schema-general'
 
 export type IsoDayOfWeek = NonNullable<DateRange['daysOfWeek']>[number]
 
-export const DAYS_IN_WEEK = 7
-export const WEEKDAYS: IsoDayOfWeek[] = [1, 2, 3, 4, 5]
-export const WEEKENDS: IsoDayOfWeek[] = [6, 7]
-export const DAY_LABELS: Record<number, string> = {
+const DAYS_IN_WEEK = 7
+const WEEKDAYS: IsoDayOfWeek[] = [1, 2, 3, 4, 5]
+const WEEKENDS: IsoDayOfWeek[] = [6, 7]
+const DAY_LABELS: Record<number, string> = {
     1: 'Mon',
     2: 'Tue',
     3: 'Wed',
@@ -16,34 +15,20 @@ export const DAY_LABELS: Record<number, string> = {
     7: 'Sun',
 }
 
-export const DAY_LABELS_SINGLE: Record<number, string> = {
-    1: 'M',
-    2: 'T',
-    3: 'W',
-    4: 'T',
-    5: 'F',
-    6: 'S',
-    7: 'S',
-}
-
 export const ALL_DAY_NUMBERS: IsoDayOfWeek[] = [1, 2, 3, 4, 5, 6, 7]
 
-export function sortDays(days: IsoDayOfWeek[]): IsoDayOfWeek[] {
+function sortDays(days: IsoDayOfWeek[]): IsoDayOfWeek[] {
     return [...days].sort((a, b) => a - b)
 }
 
-/** Selected ISO days (1=Mon…7=Sun); [] means all days. Legacy hideWeekends reads as Mon–Fri. */
-export function getEffectiveDaysOfWeek(
-    dateRange: DateRange | null | undefined,
-    trendsFilter: TrendsFilter | null | undefined
-): IsoDayOfWeek[] {
-    if (dateRange?.daysOfWeek?.length) {
-        return sortDays(dateRange.daysOfWeek)
-    }
-    if (trendsFilter?.hideWeekends) {
-        return WEEKDAYS
-    }
-    return []
+/** [] means all days on both sides of the inversion. */
+export function invertDaysOfWeek(days: IsoDayOfWeek[]): IsoDayOfWeek[] {
+    return days.length === 0 ? [] : ALL_DAY_NUMBERS.filter((day) => !days.includes(day))
+}
+
+/** ISO days (1=Mon…7=Sun) the query filters OUT; [] means nothing is excluded. */
+export function getExcludedDaysOfWeek(dateRange: DateRange | null | undefined): IsoDayOfWeek[] {
+    return dateRange?.daysOfWeek?.length ? invertDaysOfWeek(sortDays(dateRange.daysOfWeek)) : []
 }
 
 export function daysOfWeekLabel(days: IsoDayOfWeek[]): string {
@@ -59,16 +44,14 @@ export function daysOfWeekLabel(days: IsoDayOfWeek[]): string {
     return days.map((day) => DAY_LABELS[day]).join(', ')
 }
 
-/** 0 or 7 selected days normalise to null ("all days"); clears legacy hideWeekends on takeover. */
+/** 0 or 7 excluded days normalise to daysOfWeek: null ("all days included"). Deliberately does
+ *  not touch the legacy display-only trendsFilter.hideWeekends — its semantics differ (buckets
+ *  hidden from the response, events kept in windowed aggregations), so it stays independent. */
 export function computeDaysOfWeekUpdate(
-    days: IsoDayOfWeek[],
-    querySource: TrendsQuery | Record<string, any> | null | undefined,
+    excludedDays: IsoDayOfWeek[],
     dateRange: DateRange | null | undefined
 ): Partial<TrendsQuery> {
-    const daysOfWeek = days.length === 0 || days.length === DAYS_IN_WEEK ? null : sortDays(days)
-    const update: Partial<TrendsQuery> = { dateRange: { ...dateRange, daysOfWeek } }
-    if (isTrendsQuery(querySource) && querySource.trendsFilter?.hideWeekends) {
-        update.trendsFilter = { ...querySource.trendsFilter, hideWeekends: undefined }
-    }
-    return update
+    const included = invertDaysOfWeek(excludedDays)
+    const daysOfWeek = included.length === 0 || included.length === DAYS_IN_WEEK ? null : sortDays(included)
+    return { dateRange: { ...dateRange, daysOfWeek } }
 }

@@ -21,21 +21,56 @@ describe('InsightDateFilterComposer date range mapping', () => {
         expect(dateRangeForSelection(selection)).toEqual({ date_from: dateFrom, date_to: dateTo })
     })
 
-    it('maps concrete dates to a custom selection and formats day-granular dates without time', () => {
-        const selection = selectionForDateRange('2026-07-01', '2026-07-10')
+    // Strings the composer can't express must resolve to concrete custom ranges via the
+    // canonical parser — never be mislabeled as a fabricated preset like "Last 7 days".
+    it.each([
+        ['-2q', null], // quarters, emitted by the classic rolling filter
+        ['-30M', null], // uppercase-M minutes, the interval=second default
+        ['-2mStart', null], // Start-anchored string not present in dateMapping
+        ['-30d', '-7d'], // relative pair defeats the rolling guard
+    ] as const)('resolves unrepresentable %s / %s to a custom range', (dateFrom, dateTo) => {
+        const selection = selectionForDateRange(dateFrom, dateTo)
         expect(selection.kind).toBe('custom')
-        expect(dateRangeForSelection(selection)).toEqual({ date_from: '2026-07-01', date_to: '2026-07-10' })
+        const custom = selection as Extract<typeof selection, { kind: 'custom' }>
+        expect(custom.start.getTime()).toBeLessThan(custom.end.getTime())
     })
 
-    it('keeps the time component when a custom date has one', () => {
-        const selection = selectionForDateRange('2026-07-01T09:30:00', '2026-07-01T17:00:00')
+    it('quarters resolve to roughly the right span, not a 7-day fabrication', () => {
+        const selection = selectionForDateRange('-2q', null)
+        if (selection.kind !== 'custom') {
+            throw new Error('expected custom')
+        }
+        const days = (selection.end.getTime() - selection.start.getTime()) / 86_400_000
+        expect(days).toBeGreaterThan(170)
+        expect(days).toBeLessThan(190)
+    })
+
+    it('maps concrete dates to a custom selection and keeps date-only serialization without time', () => {
+        const selection = selectionForDateRange('2026-07-01', '2026-07-10')
+        expect(selection.kind).toBe('custom')
         expect(dateRangeForSelection(selection)).toEqual({
-            date_from: '2026-07-01T09:30:00',
-            date_to: '2026-07-01T17:00:00',
+            date_from: '2026-07-01',
+            date_to: '2026-07-10',
+            explicitDate: false,
         })
     })
 
-    it('falls back to last 7 days for unparseable input', () => {
-        expect(selectionForDateRange('garbage', null)).toEqual({ kind: 'rolling', count: 7, unit: 'days' })
+    it('serializes times and sets explicitDate when the selection includes time', () => {
+        const selection = {
+            kind: 'custom' as const,
+            start: new Date(2026, 6, 1, 9, 30),
+            end: new Date(2026, 6, 1, 17, 0),
+            includesTime: true,
+        }
+        expect(dateRangeForSelection(selection)).toEqual({
+            date_from: '2026-07-01T09:30:00',
+            date_to: '2026-07-01T17:00:00',
+            explicitDate: true,
+        })
+    })
+
+    it('falls back to a concrete last-7-days custom range for unparseable input', () => {
+        const selection = selectionForDateRange('garbage', null)
+        expect(selection.kind).toBe('custom')
     })
 })

@@ -21,17 +21,16 @@
  * Badge (→ LemonTag), Separator, Label, Popover/select surfaces,
  * ToggleGroup (→ Lemon day chips), the DateTimePicker footer, and the
  * composer itself — plus a core-token rebind that turns bespoke Tailwind
- * in quill-based features lemony wholesale. The full prototype covering
- * every primitive family (Tabs, Dialog, menus, Chip, Kbd, …) lives on the
- * archive branch posthog-code/date-5-archive-pre-restack; re-add sections
- * from there as new surfaces adopt the skin.
+ * in quill-based features lemony wholesale. A fuller prototype covering
+ * every primitive family existed before this trim; grow sections back as
+ * new surfaces adopt the skin.
  *
  * PORTAL CAVEAT: overlay content (tooltip, menus, select popup, dialog)
  * renders in portals at <body>, outside any scoped wrapper. Two ways to
  * cover it: put the attributes on <body>/<html> (the eventual app-wide flip
  * deployment), or pass `data-lemon-skin` to the quill *Content component so
- * it lands on the portaled element itself — the taxonomic filter menu does
- * the latter, and the portal-surface rules below match both placements.
+ * it lands on the portaled element itself — the composer's flyout and unit
+ * dropdown do the latter, and the portal-surface rules match both placements.
  *
  * Known gaps, acceptable for a prototype:
  * icon-* button sizes, Accordion/Collapsible, Card, Avatar, Table, Toast,
@@ -80,8 +79,8 @@
  * Core quill semantic tokens → Lemon values. This is the broad brush: it
  * recolors quill primitive CSS AND bespoke Tailwind in quill-based features
  * (`bg-(--fill-hover)`, `text-muted-foreground`, `border-border`, `text-xs`)
- * in one place, so feature code like the taxonomic filter rebuild turns
- * lemony without per-feature rules. The per-component sections below refine
+ * in one place, so quill-based feature code turns lemony without
+ * per-feature rules. The per-component sections below refine
  * geometry and typography on top.
  *
  * Quill primitives set `data-quill` on their own root elements, and

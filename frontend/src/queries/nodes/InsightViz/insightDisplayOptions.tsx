@@ -62,10 +62,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         showMovingAverage,
     } = useValues(trendsDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
-    // The composer's exclude-days panel supersedes the legacy hide-weekends checkbox
-    const hideWeekendsEnabled =
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS] &&
-        !featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_COMPOSER]
+    const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
     const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
     const styleRefreshEnabled = !!featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH]
 

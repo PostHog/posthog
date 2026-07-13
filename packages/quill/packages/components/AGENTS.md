@@ -121,31 +121,21 @@ const [value, setValue] = useState<RelativeRangeValue>({ count: 30, unit: 'days'
 
 ## DateRangeComposer
 
-CONCEPT — a compact date filter surface, not a stable API. Layout: a 5-column grid of rolling
-shortcuts (`1h 24h 7d 14d 30d / 90d 180d 1w 1m 1y` — every chip just sets the "In the last"
-input), the `RelativeRangeInput` row, then a 3-column grid of calendar-anchored periods
-(`Today … All time`). Footer rows: "Custom range…" (swaps the whole surface to a range calendar
-with an "Include time" switch; Cancel returns), an optional "Exact time range" switch, and
-"Exclude" (a portaled flyout with an incomplete-period switch and exclude-day chips).
+CONCEPT — a compact date filter surface, not a stable API.
+Layout: a 5-column grid of rolling shortcuts (`1h 24h 7d 14d 30d / 90d 180d 1w 1m 1y` — every chip just sets the "In the last" input), the `RelativeRangeInput` row, then a 3-column grid of calendar-anchored periods (`Today … All time`).
+Footer rows: "Custom range…" (swaps the whole surface to a range calendar with an "Include time" switch; Cancel returns), an optional "Exact time range" switch, and "Exclude" (a portaled flyout with an incomplete-period switch and exclude-day chips).
 
 Rules:
 
-- Controlled via `selection` (`{ kind: 'rolling' | 'fixed' | 'custom', … }`) and `onSelect`;
-  the composer never interprets what a selection means — hosts map it to their own range
-  vocabulary (see `InsightDateFilterComposer` in the app for the PostHog-strings mapping).
-- `exclusions` / `onExclusionsChange` speak _excluded_ ISO days (`'1'`–`'7'`) + an `incomplete`
-  flag; gate sections with `showExcludedDays` / `showIncompletePeriod` (the Exclude row
-  disappears when both are off).
-- `exactTime` / `onExactTimeChange` render the footer switch only when the handler is set —
-  the semantics are host-owned.
-- `portalProps` spreads onto the portaled surfaces (exclusions flyout, unit dropdown) — pass
-  skin opt-in attributes here, since portals escape wrapper-scoped selectors.
-- The "Include time" switch above the calendar is composer-local state; if the composer
-  graduates, it should become a `showTimeToggle` prop on `DateTimePicker` (mirroring
-  `DatePicker`).
-- When hosting in a quill `Popover`, pin the surface with
-  `collisionAvoidance={{ side: 'flip', align: 'none', fallbackAxisSide: 'none' }}` so opening
-  the calendar view (which widens the surface) doesn't shift the chips under the cursor.
+- Controlled via `selection` (`{ kind: 'rolling' | 'fixed' | 'custom', … }`) and `onSelect`; custom selections carry `includesTime` so hosts know whether picked times are meaningful.
+- The composer never interprets what a selection means — hosts map it to their own range vocabulary (see `InsightDateFilterComposer` in the app for the PostHog-strings mapping).
+- `exclusions` / `onExclusionsChange` speak _excluded_ ISO days (`'1'`–`'7'`) + an `incomplete` flag; gate sections with `showExcludedDays` / `showIncompletePeriod` (the Exclude row disappears when both are off). The last included day can't be excluded — the chip disables instead of wiping the selection.
+- `composerExclusionParts(exclusions)` returns the summary as structured parts (`['weekends', 'incomplete']`) for hosts building their own labels; `composerExclusionsSummary` joins them for display. Don't parse the summary string.
+- `exactTime` / `onExactTimeChange` render the footer switch only when the handler is set — the semantics are host-owned.
+- `weekStartsOn` (0 = Sunday, 1 = Monday) drives the calendar grid and the This/Last week chip math — pass the team setting or the chips drift from the query.
+- `portalProps` (typed `DataAttributeProps`) spreads onto the portaled surfaces (exclusions flyout, unit dropdown) — pass skin opt-in attributes here, since portals escape wrapper-scoped selectors.
+- The "Include time" switch above the calendar is composer-local state; if the composer graduates, it should become a `showTimeToggle` prop on `DateTimePicker` (mirroring `DatePicker`).
+- When hosting in a quill `Popover`, pin the surface with `collisionAvoidance={{ side: 'flip', align: 'none', fallbackAxisSide: 'none' }}` so opening the calendar view (which widens the surface) doesn't shift the chips under the cursor.
 
 ## Metric
 

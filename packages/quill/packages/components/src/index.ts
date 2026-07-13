@@ -22,8 +22,10 @@ export {
 // CONCEPT — date filter redesign exploration, not a stable API (see date-range-composer.tsx).
 export {
     DateRangeComposer,
+    composerExclusionParts,
     composerExclusionsSummary,
     composerSelectionLabel,
+    type DataAttributeProps,
     type DateRangeComposerChip,
     type DateRangeComposerExclusions,
     type DateRangeComposerProps,

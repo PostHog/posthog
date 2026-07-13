@@ -1,4 +1,5 @@
 import {
+    endOfDay,
     endOfMonth,
     endOfWeek,
     format,
@@ -39,9 +40,12 @@ import { RelativeRangeInput, type RelativeRangeUnit, type RelativeRangeValue } f
 export type DateRangeComposerSelection =
     | { kind: 'rolling'; count: number; unit: RelativeRangeUnit }
     | { kind: 'fixed'; name: string }
-    | { kind: 'custom'; start: Date; end: Date }
+    | { kind: 'custom'; start: Date; end: Date; includesTime?: boolean }
 
 type PresetSelection = Extract<DateRangeComposerSelection, { kind: 'rolling' } | { kind: 'fixed' }>
+
+/** Portaled surfaces escape wrapper-scoped selectors, so skin opt-in rides in as data attributes. */
+export type DataAttributeProps = React.HTMLAttributes<HTMLDivElement> & Record<`data-${string}`, string>
 
 export interface DateRangeComposerChip {
     label: string
@@ -78,15 +82,26 @@ export function composerSelectionLabel(selection: DateRangeComposerSelection): s
     return `${format(selection.start, 'MMM d')} – ${format(selection.end, 'MMM d')}`
 }
 
-export function composerExclusionsSummary({ days, incomplete }: DateRangeComposerExclusions): string {
+export function composerExclusionParts({ days, incomplete }: DateRangeComposerExclusions): string[] {
     const parts: string[] = []
     if (days.length > 0) {
         const sorted = [...days].sort().join(',')
-        parts.push(sorted === '6,7' ? 'weekends' : sorted === '1,2,3,4,5' ? 'weekdays' : `${days.length} days`)
+        parts.push(
+            sorted === '6,7'
+                ? 'weekends'
+                : sorted === '1,2,3,4,5'
+                  ? 'weekdays'
+                  : `${days.length} ${days.length === 1 ? 'day' : 'days'}`
+        )
     }
     if (incomplete) {
         parts.push('incomplete')
     }
+    return parts
+}
+
+export function composerExclusionsSummary(exclusions: DateRangeComposerExclusions): string {
+    const parts = composerExclusionParts(exclusions)
     return parts.length > 0 ? `Excluding ${parts.join(', ')}` : ''
 }
 
@@ -107,19 +122,19 @@ function rollingStart(count: number, unit: RelativeRangeUnit, now: Date): Date {
     }
 }
 
-function fixedRange(name: string, now: Date): { start: Date; end: Date } {
+function fixedRange(name: string, now: Date, weekStartsOn: 0 | 1 = 1): { start: Date; end: Date } {
     switch (name) {
         case 'Today':
             return { start: startOfDay(now), end: now }
         case 'Yesterday':
-            return { start: startOfDay(subDays(now, 1)), end: startOfDay(now) }
+            return { start: startOfDay(subDays(now, 1)), end: endOfDay(subDays(now, 1)) }
         case 'This week':
-            return { start: startOfWeek(now, { weekStartsOn: 1 }), end: now }
+            return { start: startOfWeek(now, { weekStartsOn }), end: now }
         case 'Last week': {
             const lastWeek = subWeeks(now, 1)
             return {
-                start: startOfWeek(lastWeek, { weekStartsOn: 1 }),
-                end: endOfWeek(lastWeek, { weekStartsOn: 1 }),
+                start: startOfWeek(lastWeek, { weekStartsOn }),
+                end: endOfWeek(lastWeek, { weekStartsOn }),
             }
         }
         case 'This month':
@@ -157,7 +172,7 @@ function ExclusionsControl({
     onChange: (exclusions: DateRangeComposerExclusions) => void
     showDays: boolean
     showIncomplete: boolean
-    panelProps?: React.HTMLAttributes<HTMLDivElement>
+    panelProps?: DataAttributeProps
 }): React.ReactElement {
     const summary = composerExclusionsSummary(exclusions)
     return (
@@ -248,11 +263,11 @@ function chipSelected(chip: PresetSelection, selection: DateRangeComposerSelecti
     return selection.kind === 'fixed' && selection.name === chip.name
 }
 
-function chipTitle(chip: PresetSelection, now: Date): string {
+function chipTitle(chip: PresetSelection, now: Date, weekStartsOn: 0 | 1): string {
     if (chip.kind === 'rolling') {
         return `${format(rollingStart(chip.count, chip.unit, now), 'MMM d, yyyy')} – now`
     }
-    const { start, end } = fixedRange(chip.name, now)
+    const { start, end } = fixedRange(chip.name, now, weekStartsOn)
     return `${format(start, 'MMM d, yyyy')} – ${format(end, 'MMM d, yyyy')}`
 }
 
@@ -269,8 +284,10 @@ export interface DateRangeComposerProps {
     /** Hide sections of the exclusions panel; the Exclude row disappears when both are off. */
     showExcludedDays?: boolean
     showIncompletePeriod?: boolean
+    /** Week start for the calendar grid and the This/Last week chips. */
+    weekStartsOn?: 0 | 1
     /** Extra props for the portaled surfaces (exclusions flyout, unit dropdown) — e.g. skin opt-in data attributes. */
-    portalProps?: React.HTMLAttributes<HTMLDivElement>
+    portalProps?: DataAttributeProps
 }
 
 export function DateRangeComposer({
@@ -284,6 +301,7 @@ export function DateRangeComposer({
     onExactTimeChange,
     showExcludedDays = true,
     showIncompletePeriod = true,
+    weekStartsOn = 1,
     portalProps,
 }: DateRangeComposerProps): React.ReactElement {
     const [calendarOpen, setCalendarOpen] = React.useState(false)
@@ -305,7 +323,7 @@ export function DateRangeComposer({
                     end: now,
                     range: CUSTOM_RANGE,
                 }
-              : { ...fixedRange(selection.name, now), range: CUSTOM_RANGE }
+              : { ...fixedRange(selection.name, now, weekStartsOn), range: CUSTOM_RANGE }
 
     return (
         <div
@@ -330,10 +348,11 @@ export function DateRangeComposer({
                         key={includeTime ? 'time' : 'day'}
                         showHeader={false}
                         showTime={includeTime}
+                        weekStartsOn={weekStartsOn}
                         ranges={[]}
                         value={calendarValue}
                         onApply={({ start, end }) => {
-                            onSelect({ kind: 'custom', start, end })
+                            onSelect({ kind: 'custom', start, end, includesTime: includeTime })
                             setCalendarOpen(false)
                         }}
                         onCancel={() => setCalendarOpen(false)}
@@ -350,7 +369,7 @@ export function DateRangeComposer({
                                 size="sm"
                                 className={CHIP_CLASSES}
                                 aria-selected={chipSelected(chip, selection)}
-                                title={chipTitle(chip, now)}
+                                title={chipTitle(chip, now, weekStartsOn)}
                                 onClick={() => onSelect(chip)}
                                 data-attr={`date-composer-short-${label.toLowerCase()}`}
                             >
@@ -376,7 +395,7 @@ export function DateRangeComposer({
                                 size="sm"
                                 className={CHIP_CLASSES}
                                 aria-selected={selection.kind === 'fixed' && selection.name === name}
-                                title={chipTitle({ kind: 'fixed', name }, now)}
+                                title={chipTitle({ kind: 'fixed', name }, now, weekStartsOn)}
                                 onClick={() => onSelect({ kind: 'fixed', name })}
                                 data-attr={`date-composer-fixed-${name.toLowerCase().replace(/\s+/g, '-')}`}
                             >

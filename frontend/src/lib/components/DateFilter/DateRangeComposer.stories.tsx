@@ -3,7 +3,7 @@ import { type ReactNode, useState } from 'react'
 
 import {
     Button as QuillButton,
-    composerExclusionsSummary,
+    composerExclusionParts,
     composerSelectionLabel,
     DateRangeComposer,
     Popover as QuillPopover,
@@ -35,8 +35,7 @@ function ConceptColumn({ title, children }: { title: string; children: ReactNode
     )
 }
 
-function shortExclusionsLabel(summary: string): string {
-    const parts = summary.replace('Excluding ', '').split(', ')
+function shortExclusionsLabel(parts: string[]): string {
     return parts.length > 1 ? `excl. ${parts[0]} +${parts.length - 1}` : `excl. ${parts[0]}`
 }
 
@@ -49,17 +48,15 @@ function ComposerConcept({ lemonSkin }: { lemonSkin?: boolean }): JSX.Element {
     const [exclusions, setExclusions] = useState<DateRangeComposerExclusions>({ days: [], incomplete: false })
     const [exactTime, setExactTime] = useState(false)
     const [open, setOpen] = useState(false)
-    const summary = composerExclusionsSummary(exclusions)
+    const exclusionParts = composerExclusionParts(exclusions)
     const skinProps = lemonSkin ? { 'data-lemon-skin': true, 'data-quill': true } : {}
-    const portalProps = lemonSkin
-        ? ({ 'data-lemon-skin': 'true' } as unknown as DateRangeComposerProps['portalProps'])
-        : undefined
+    const portalProps = lemonSkin ? ({ 'data-lemon-skin': 'true' } as DateRangeComposerProps['portalProps']) : undefined
     return (
         <QuillPopover open={open} onOpenChange={setOpen}>
             <QuillPopoverTrigger render={<QuillButton variant="outline" {...skinProps} />}>
                 {composerSelectionLabel(selection)}
-                {summary && (
-                    <span className="text-muted-foreground font-normal">· {shortExclusionsLabel(summary)}</span>
+                {exclusionParts.length > 0 && (
+                    <span className="text-muted-foreground font-normal">· {shortExclusionsLabel(exclusionParts)}</span>
                 )}
             </QuillPopoverTrigger>
             <QuillPopoverContent
