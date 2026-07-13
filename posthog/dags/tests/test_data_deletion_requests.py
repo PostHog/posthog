@@ -1506,7 +1506,9 @@ def test_full_job_property_removal_leaves_events_ingested_after_marker_untouched
         (PROP_TEAM_ID, "$pageview", uuid4(), "user-1", now - timedelta(hours=i + 1), props, marker - timedelta(hours=1))
         for i in range(5)
     ]
-    late = [(PROP_TEAM_ID, "$pageview", uuid4(), "user-1", now - timedelta(hours=1), props, marker + timedelta(hours=1))]
+    late = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), "user-1", now - timedelta(hours=1), props, marker + timedelta(hours=1))
+    ]
     cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, in_scope + late)).result()
 
     request = DataDeletionRequest.objects.create(
@@ -1563,7 +1565,9 @@ def test_full_job_property_removal_rerun_after_delete_failure_does_not_duplicate
     assert marker is not None
 
     DataDeletionRequest.objects.filter(pk=request.pk).update(status=RequestStatus.APPROVED)
-    rerun = data_deletion_request_property_removal.execute_in_process(run_config=run_config, resources={"cluster": cluster})
+    rerun = data_deletion_request_property_removal.execute_in_process(
+        run_config=run_config, resources={"cluster": cluster}
+    )
     assert rerun.success
 
     assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 20
