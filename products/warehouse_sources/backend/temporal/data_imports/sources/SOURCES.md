@@ -135,6 +135,7 @@ the row lists both.
 | datadog                 | HTTP                        | requests                                                        | ✅                          |
 | decagon                 | HTTP                        | requests                                                        | ✅                          |
 | deel                    | HTTP                        | requests                                                        | ✅                          |
+| deepgram                | HTTP                        | requests                                                        | ✅                          |
 | delighted               | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                | HTTP                        | requests                                                        | ✅                          |
 | ding_connect            | HTTP                        | requests                                                        | ✅                          |
@@ -337,6 +338,7 @@ the row lists both.
 | salesflare              | HTTP                        | requests                                                        | ✅                          |
 | salesloft               | HTTP                        | requests                                                        | ✅                          |
 | savvycal                | HTTP                        | requests                                                        | ✅                          |
+| scaleway                | HTTP                        | requests                                                        | ✅                          |
 | secoda                  | HTTP                        | requests                                                        | ✅                          |
 | segment                 | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                | HTTP                        | requests                                                        | ✅                          |
@@ -351,6 +353,7 @@ the row lists both.
 | shortio                 | HTTP                        | requests                                                        | ✅                          |
 | simplecast              | HTTP                        | requests                                                        | ✅                          |
 | simplesat               | HTTP                        | requests                                                        | ✅                          |
+| skyvern                 | HTTP                        | requests                                                        | ✅                          |
 | slack                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smaily                  | HTTP                        | requests                                                        | ✅                          |
 | smartreach              | HTTP                        | requests                                                        | ✅                          |
@@ -512,7 +515,6 @@ doesn't conflict with concurrent PRs.
 - datorama
 - db2
 - dbt
-- deepgram
 - deno_deploy
 - deputy
 - digitalocean
@@ -754,7 +756,6 @@ doesn't conflict with concurrent PRs.
 - sap_successfactors
 - savvycal
 - scale_ai
-- scaleway
 - search_ads_360
 - sendpulse
 - senseforce

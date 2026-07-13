@@ -9,7 +9,10 @@ from django.db.models import F
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import run_revenue_view_sync
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    run_engineering_analytics_view_sync,
+    run_revenue_view_sync,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
@@ -99,3 +102,13 @@ def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDat
     here). No-ops if revenue_analytics hasn't registered.
     """
     run_revenue_view_sync(schema, source)
+
+
+def sync_engineering_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:
+    """Re-sync the engineering-analytics per-job CI cost view after a data load completes.
+
+    Same inversion as the revenue sync above: owned by the engineering_analytics product (which
+    depends on warehouse_sources, so it can't be imported here) and registered via
+    external_product_hooks. No-ops if engineering_analytics hasn't registered.
+    """
+    run_engineering_analytics_view_sync(schema, source)
