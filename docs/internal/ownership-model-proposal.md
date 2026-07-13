@@ -1,7 +1,6 @@
 # Repo ownership model: distributed `owners.yaml`
 
-Status: proposal (draft)
-Branch: `feat/repo-ownership`
+Status: implemented (landed with the PR that introduced this document)
 
 Design a single ownership source of truth that multiple consumers (review automation, CI validation, lookup CLIs, service catalogs, future tools) can read, instead of each tool re-parsing `CODEOWNERS-soft` and `product.yaml` on its own.
 
