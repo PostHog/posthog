@@ -43,7 +43,7 @@ class Resolution:
 
 class WireResolution(TypedDict):
     """The JSON wire shape shared by ``hogli owners:resolve --json`` and the
-    dependency-light ``python -m hogli_commands.owners`` entrypoint. Both emit
+    dependency-light ``python -m posthog_owners`` entrypoint. Both emit
     exactly this dict per path so consumers see one format."""
 
     owners: list[str]

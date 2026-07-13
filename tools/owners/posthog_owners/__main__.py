@@ -6,7 +6,7 @@ JSON object keyed by normalized path to stdout::
     {"<path>": {"owners": [...], "status": "...", "slack": "...|null", "source": "...|null"}}
 
 Kept off click on purpose (stdlib + pyyaml only) so a workflow can run it with
-``python -m hogli_commands.owners`` after installing just pyyaml — no hogli, no
+``python -m posthog_owners`` after installing just pyyaml — no hogli, no
 project sync. The click CLI (``hogli owners:resolve --json``) emits the identical
 shape for dev use; both build it via ``resolution_to_wire`` so there is one format.
 """

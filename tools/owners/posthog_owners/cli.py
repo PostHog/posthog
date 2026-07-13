@@ -66,7 +66,10 @@ def cmd_unowned(prefix: str | None) -> None:
 
 def _validate_owners_live(all_owners: set[str]) -> list[str]:
     """Validate team slugs and @handles against the GitHub org. Returns error strings."""
-    from ..product.gh import get_team_slugs
+    # --live reaches back into the hogli-commands extension for the cached team-slug
+    # fetch. It is a dev/CI convenience gated behind the flag, so a standalone uvx
+    # install (no hogli-commands on the path) simply can't run --live; plain lint works.
+    from hogli_commands.product.gh import get_team_slugs  # noqa: PLC0415 — optional org-validation dep, only on --live
 
     errors: list[str] = []
     teams = {o for o in all_owners if not o.startswith("@")}
@@ -274,3 +277,21 @@ def cmd_fmt() -> None:
     click.echo(f"(constants: ALPHA={ALPHA}, GAMMA={GAMMA}, MAX_RULES={MAX_RULES})")
     click.echo("✓ canonical layout resolves identically")
     click.echo("\nnote: owners:fmt is a read-only oracle — it never writes. Reflows are deliberate human decisions.")
+
+
+@click.group()
+def main() -> None:
+    """Distributed owners.yaml resolver, linter, and formatter.
+
+    The console-script entry point (``owners <subcommand>``). hogli registers the
+    same ``cmd_*`` functions directly under their ``owners:*`` names, so this group
+    only exists for the standalone install; the subcommands are named without the
+    ``owners:`` prefix here since the script itself already carries it.
+    """
+
+
+main.add_command(cmd_resolve, name="resolve")
+main.add_command(cmd_who, name="who")
+main.add_command(cmd_unowned, name="unowned")
+main.add_command(cmd_lint, name="lint")
+main.add_command(cmd_fmt, name="fmt")

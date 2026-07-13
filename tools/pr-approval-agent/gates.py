@@ -19,14 +19,14 @@ from typing import Protocol
 
 from policy import OwnershipSource, load_policy
 
-# The resolver lives in the hogli-commands package, a sibling under tools/. It is
+# The resolver lives in the posthog-owners package, a sibling under tools/. It is
 # not installed in this script's uv env, so put it on the path and import the
 # library directly (it needs only pyyaml, which review_pr.py declares).
-_HOGLI_COMMANDS = Path(__file__).resolve().parents[1] / "hogli-commands"
-if str(_HOGLI_COMMANDS) not in sys.path:
-    sys.path.insert(0, str(_HOGLI_COMMANDS))
+_OWNERS_PKG = Path(__file__).resolve().parents[1] / "owners"
+if str(_OWNERS_PKG) not in sys.path:
+    sys.path.insert(0, str(_OWNERS_PKG))
 
-from hogli_commands.owners.resolver import OwnersResolver  # noqa: E402
+from posthog_owners.resolver import OwnersResolver  # noqa: E402
 
 # ── Dependency ecosystems ────────────────────────────────────────
 #

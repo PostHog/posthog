@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from hogli_commands.owners import fmt as fmt_module
-from hogli_commands.owners.cli import _consolidation_suggestions, _reserved_location_error
-from hogli_commands.owners.fmt import CanonicalPlacer, CanonicalPlan
-from hogli_commands.owners.matcher import path_matches_pattern
-from hogli_commands.owners.resolver import OwnersResolver
-from hogli_commands.owners.schema import parse_owners_file
+from posthog_owners import fmt as fmt_module
+from posthog_owners.cli import _consolidation_suggestions, _reserved_location_error
+from posthog_owners.fmt import CanonicalPlacer, CanonicalPlan
+from posthog_owners.matcher import path_matches_pattern
+from posthog_owners.resolver import OwnersResolver
+from posthog_owners.schema import parse_owners_file
 
 
 @pytest.mark.parametrize(

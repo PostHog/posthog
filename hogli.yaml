@@ -999,19 +999,19 @@ tools:
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
 owners:
     owners:resolve:
-        click: hogli_commands.owners.cli:cmd_resolve
+        click: posthog_owners.cli:cmd_resolve
         description: Resolve ownership for paths (args or newline-delimited stdin); --json for machine output
     owners:who:
-        click: hogli_commands.owners.cli:cmd_who
+        click: posthog_owners.cli:cmd_who
         description: Show who owns a single path (owners, status, slack, source)
     owners:unowned:
-        click: hogli_commands.owners.cli:cmd_unowned
+        click: posthog_owners.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
     owners:lint:
-        click: hogli_commands.owners.cli:cmd_lint
+        click: posthog_owners.cli:cmd_lint
         description: Validate owners.yaml schema, product.yaml conflicts, dead globs, coverage (--live checks the GitHub org)
     owners:fmt:
-        click: hogli_commands.owners.cli:cmd_fmt
+        click: posthog_owners.cli:cmd_fmt
         description: Dry-run oracle showing how the owners.yaml layout differs from canonical placement (never writes)
 devex:
     devex:feedback:

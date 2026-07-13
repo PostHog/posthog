@@ -163,7 +163,7 @@ The hard `.github/CODEOWNERS` stays outside this walk entirely. It keeps its own
 
 The stability guarantee is architectural: **consumers never parse ownership files themselves.** One resolver library owns the semantics; everything else calls it.
 
-- **Resolver**: single implementation in hogli — a Python module at `tools/hogli-commands/hogli_commands/owners/` exposing `resolve(path)`, `map()`, `unowned()` as a library, and `hogli owners:resolve --json <path...>` (paths also accepted on stdin) as the CLI. Rationale: hogli already lints ownership, and two of the four consumers are Python, so this makes lint, lookup, and the pr-approval agent native library callers with zero subprocess hops. Glob matching for `rules:` uses gitignore-style semantics implemented (and documented) here — the vendored JS matcher stays only for the hard-CODEOWNERS overlay parsing, or is replaced by an equivalent Python CODEOWNERS parser.
+- **Resolver**: single implementation in the installable `posthog-owners` package at `tools/owners/` exposing `resolve(path)`, `map()`, `unowned()` as a library, and `hogli owners:resolve --json <path...>` (paths also accepted on stdin) as the CLI. Rationale: hogli already lints ownership, and two of the four consumers are Python, so this makes lint, lookup, and the pr-approval agent native library callers with zero subprocess hops. Glob matching for `rules:` uses gitignore-style semantics implemented (and documented) here — the vendored JS matcher stays only for the hard-CODEOWNERS overlay parsing, or is replaced by an equivalent Python CODEOWNERS parser.
 - **JS consumers** shell out to the CLI and read JSON — `assign-reviewers.js` feeds the PR's changed files in and gets resolved owners back; the `establishing-code-ownership` skill does the same. The auto-assign workflow gains a Python/uv setup step (it is node-only today). `gates.py` imports the library directly. No committed lock file, so no freshness-check machinery; if one is ever wanted (offline consumers, Backstage `catalog-info.yaml` emitters), it is a trivial fold over `map()` added later.
 - **Validator**: `hogli owners:lint` — schema check, team slugs and `@handles` against the live GitHub org (reusing `product/gh.py`), dead `rules:` globs (match zero files), same-directory `product.yaml`/`owners.yaml` conflicts, reserved-location rejection (see below), and full-tree coverage (every `git ls-files` path resolves or is `owners: null`). It also prints advisory consolidation suggestions when it spots a cluster of single-purpose owners.yaml files a single parent could absorb (never affects the exit code).
 
@@ -171,13 +171,14 @@ The stability guarantee is architectural: **consumers never parse ownership file
 
 - **Lookup**: `hogli owners:who <path>` / `owners:team <slug>` / `owners:unowned` — thin wrappers over the library; the `establishing-code-ownership` skill's `ownership.js` becomes a shim over the CLI (or is deleted in favor of it).
 
-One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `CODEOWNERS` (`team-security`), so changes to assignment logic require their approval. Moving the resolver into hogli takes it out of that gate. Done — the resolver package (`tools/hogli-commands/hogli_commands/owners/`) is under the blocking file, a deliberate exception to "leave CODEOWNERS alone" since the auto-assigner executes it on `pull_request_target`.
+One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `CODEOWNERS` (`team-security`), so changes to assignment logic require their approval. Moving the resolver out of `.github/scripts/` takes it out of that gate. Done — the resolver package (`tools/owners/posthog_owners/`) is under the blocking file, a deliberate exception to "leave CODEOWNERS alone" since the auto-assigner executes it on `pull_request_target`.
 
 If the first consumer (say the auto-assigner) is ever replaced, the resolver, schema, and lint are untouched — only one caller changes. That is the "source of truth, not tool config" property.
 
 ### Portability: repo = data, app = resolver
 
 Nothing in the resolver is PostHog-specific — `owners.yaml` is a repo-agnostic format, and the library needs only pyyaml and a way to load files.
+That is why it ships as the standalone, installable `tools/owners` package (`posthog-owners`), which any repo can run without vendoring: `uvx --from "git+https://github.com/PostHog/posthog#subdirectory=tools/owners" owners lint`.
 That last part is the seam: resolution walks an abstract file map, not the filesystem (the `owners:fmt` equivalence proof already runs the real resolver over an in-memory layout).
 So when a consumer like stamphog becomes a hosted app that other repos enable without adding any code, the model is: **the repo contributes only ownership data; the resolver ships inside the app.**
 A hosted reviewer fetches the default-branch tree (one API call), pulls just the ownership files (a few dozen blobs, cacheable per commit SHA), and resolves in-process.
@@ -204,7 +205,7 @@ The division of labor: `owners:lint`'s fold/split suggestions are the everyday i
 
 Everything lands atomically. The delivery order below is a review guide, not a merge sequence.
 
-1. **Resolver + schema.** `hogli_commands/owners/` (resolution per §4), `hogli owners:resolve --json`, JSON-schema for `owners.yaml`.
+1. **Resolver + schema.** `tools/owners/` (resolution per §4), `hogli owners:resolve --json`, JSON-schema for `owners.yaml`.
 2. **Convert `CODEOWNERS-soft` → distributed `owners.yaml`.** Mechanical translation of the 383 lines into per-directory files under `posthog/`, `frontend/src/scenes/`, `nodejs/`, `rust/`, `services/`, `ee/`, plugin-server, etc. Where the soft file relied on last-match ordering (e.g. the trailing managed-reverse-proxy block overriding a broad settings-scene rule), that intent becomes an explicit nested file or `rules:` entry — order-independence is the point. This was driven by a one-shot converter that ran during the PR and was removed once the conversion landed (it remains in the branch history).
 3. **Equivalence proof.** A differ resolved every `git ls-files` path under (old: soft + product.yaml) and (new: owners.yaml + product.yaml) and asserted identical reviewer sets. It ran during the PR to verify the migration and was removed once the conversion landed; intentional divergences (there were a few — dead globs, stale teams the 422 fallback already skips) were listed explicitly in the PR description rather than slipping through.
 4. **Flip consumers.**

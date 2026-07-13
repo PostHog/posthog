@@ -20,7 +20,7 @@ hogli owners:unowned                          # every tracked file with no owner
 
 `owners:who` prints the resolved `owners`, the `status`, the derived Slack channel, and `source` — the `owners.yaml`/`product.yaml` file that decided the answer.
 `owners:resolve` takes paths as arguments or newline-delimited on stdin, so you can pipe a file list: `git ls-files posthog/hogql | hogli owners:resolve --json`.
-No hogli/flox available? The dependency-light fallback needs only pyyaml: `git ls-files posthog/hogql | PYTHONPATH=tools/hogli-commands python -m hogli_commands.owners` (stdin paths → the same JSON).
+No hogli/flox available? The dependency-light fallback needs only pyyaml: `git ls-files posthog/hogql | PYTHONPATH=tools/owners python -m posthog_owners` (stdin paths → the same JSON).
 
 ## Resolution algorithm (what the resolver does)
 
