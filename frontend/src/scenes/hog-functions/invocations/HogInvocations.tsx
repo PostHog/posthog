@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useState } from 'react'
 
-import { IconChevronDown, IconRefresh, IconRevert, IconSearch, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconPerson, IconRefresh, IconRevert, IconSearch, IconWarning, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -15,6 +15,9 @@ import {
     LemonTableColumns,
     LemonTag,
     LemonTagProps,
+    Popover,
+    ProfilePicture,
+    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -26,11 +29,12 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
+import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
-import { DateMappingOption } from '~/types'
+import { DateMappingOption, PersonType } from '~/types'
 
 import { LogsViewer } from '../logs/LogsViewer'
 import { LogsViewerLogicProps } from '../logs/logsViewerLogic'
@@ -483,6 +487,7 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
                         prefix={<IconSearch />}
                         allowClear
                     />
+                    <PersonFilterPicker id={id} functionKind={functionKind} />
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                     <StatusFilterDropdown
@@ -1009,5 +1014,100 @@ function Row({ label, help, children }: { label: string; help?: string; children
             {children}
             {help ? <div className="text-xs text-muted-alt mt-1">{help}</div> : null}
         </div>
+    )
+}
+
+/**
+ * Person filter chip that resolves the picked person to a concrete `person_id` on the frontend
+ * via `api.persons.list`. Keeps the invocations query on its own CH cluster — no cross-cluster
+ * subquery against `persons` needed. Follows the same shape as the notification-panel picker
+ * in `HogFlowEditorNotificationPanelTest.tsx`.
+ */
+function PersonFilterPicker({ id, functionKind }: HogInvocationsLogicProps): JSX.Element {
+    const logic = hogInvocationsLogic({ id, functionKind })
+    const { pickedPerson, personSearchResults, personSearchResultsLoading, filters } = useValues(logic)
+    const { setPickedPerson, searchPersons } = useActions(logic)
+    const [open, setOpen] = useState(false)
+    const [search, setSearch] = useState('')
+
+    // Show whatever the URL / picker holds. If we have a full PersonType (chip picked in-session or
+    // hydrated from a shared URL), use PersonDisplay; otherwise render the raw UUID short form.
+    const activeUuid = filters.person_uuid
+    const activeDisplay = pickedPerson
+        ? asDisplay(pickedPerson)
+        : activeUuid
+          ? `${activeUuid.slice(0, 4)}…${activeUuid.slice(-4)}`
+          : null
+
+    if (activeDisplay) {
+        return (
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPerson />}
+                sideIcon={<IconX />}
+                onClick={() => setPickedPerson(null)}
+                tooltip="Clear person filter"
+            >
+                {activeDisplay}
+            </LemonButton>
+        )
+    }
+
+    return (
+        <Popover
+            visible={open}
+            onClickOutside={() => setOpen(false)}
+            overlay={
+                <div className="p-2 min-w-80">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search by name, email, or distinct ID"
+                        value={search}
+                        onChange={(value) => {
+                            setSearch(value)
+                            searchPersons({ search: value })
+                        }}
+                        autoFocus
+                        className="mb-2"
+                    />
+                    {personSearchResultsLoading ? (
+                        <div className="p-4 text-center">
+                            <Spinner />
+                        </div>
+                    ) : search.trim() && personSearchResults.length === 0 ? (
+                        <div className="p-4 text-center text-muted text-sm">No persons found</div>
+                    ) : (
+                        <div className="max-h-64 overflow-y-auto">
+                            {personSearchResults.map((person: PersonType) => (
+                                <LemonButton
+                                    key={person.uuid}
+                                    fullWidth
+                                    size="small"
+                                    onClick={() => {
+                                        setPickedPerson(person)
+                                        setOpen(false)
+                                        setSearch('')
+                                    }}
+                                    className="justify-start"
+                                >
+                                    <ProfilePicture name={asDisplay(person)} size="sm" className="mr-2" />
+                                    <div className="flex-1 text-left">
+                                        <div className="font-semibold">{asDisplay(person)}</div>
+                                        {person.properties?.email ? (
+                                            <div className="text-xs text-muted">{person.properties.email}</div>
+                                        ) : null}
+                                    </div>
+                                </LemonButton>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            }
+        >
+            <LemonButton type="secondary" size="small" icon={<IconPerson />} onClick={() => setOpen((prev) => !prev)}>
+                Filter by person
+            </LemonButton>
+        </Popover>
     )
 }

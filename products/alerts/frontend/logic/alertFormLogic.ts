@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -9,6 +10,7 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -42,6 +44,7 @@ import type { alertFormLogicType } from './alertFormLogicType'
 import { getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
 import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
@@ -127,6 +130,10 @@ export interface AlertFormLogicProps {
     insightInterval?: IntervalType
     /** Selects the default config type for new alerts based on the insight's query kind. */
     insightAlertKind?: InsightAlertKind
+    /** Start new alerts in anomaly detection mode when opened from an anomaly-specific entrypoint. */
+    defaultToAnomalyDetection?: boolean
+    /** Used to prefill a human-readable name for anomaly alerts. */
+    insightName?: string | null
     /** For funnel insights: whether it's a trends (historical) funnel, which alerts on the overall
      * conversion rate over time rather than a single step snapshot. Drives the preview shape. */
     insightIsTrendsFunnel?: boolean
@@ -212,6 +219,13 @@ function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id
     }
 }
 
+function defaultAlertName(props: AlertFormLogicProps, goalLines?: GoalLine[] | null): string {
+    if (props.defaultToAnomalyDetection) {
+        return props.insightName ? `Anomaly in ${props.insightName}` : 'Anomaly alert'
+    }
+    return goalLines && goalLines.length > 0 ? `Crossed ${goalLines[0].label}` : ''
+}
+
 const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
     if (goalLines == null || goalLines.length == 0) {
         return {}
@@ -225,7 +239,10 @@ const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBou
 export const alertFormLogic = kea<alertFormLogicType>([
     path(['lib', 'components', 'Alerts', 'alertFormLogic']),
     props({} as AlertFormLogicProps),
-    key(({ alert }) => alert?.id ?? 'new'),
+    key(
+        ({ alert, defaultToAnomalyDetection, insightId }) =>
+            alert?.id ?? `${defaultToAnomalyDetection ? 'new-anomaly' : 'new'}-${insightId}`
+    ),
 
     connect((props: AlertFormLogicProps) => ({
         values: [
@@ -293,34 +310,38 @@ export const alertFormLogic = kea<alertFormLogicType>([
         alertForm: {
             defaults: props.alert
                 ? alertToFormType(props.alert, props.insightId)
-                : ({
-                      id: undefined,
-                      name:
-                          values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
-                      created_by: null,
-                      created_at: '',
-                      enabled: true,
-                      config: defaultConfigForInsight(props.insightAlertKind),
-                      threshold: {
-                          configuration: {
-                              type: InsightThresholdType.ABSOLUTE,
-                              bounds: getThresholdBounds(values.goalLines),
+                : (() => {
+                      const calculationInterval = insightIntervalToAlertInterval(props.insightInterval)
+                      return {
+                          id: undefined,
+                          name: defaultAlertName(props, values.goalLines),
+                          created_by: null,
+                          created_at: '',
+                          enabled: true,
+                          config: defaultConfigForInsight(props.insightAlertKind),
+                          threshold: {
+                              configuration: {
+                                  type: InsightThresholdType.ABSOLUTE,
+                                  bounds: getThresholdBounds(values.goalLines),
+                              },
                           },
-                      },
-                      condition: {
-                          type: AlertConditionType.ABSOLUTE_VALUE,
-                      },
-                      subscribed_users: [],
-                      checks: [],
-                      calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
-                      skip_weekend: false,
-                      schedule_restriction: null,
-                      detector_config: null,
-                      investigation_agent_enabled: false,
-                      investigation_gates_notifications: false,
-                      investigation_inconclusive_action: 'notify',
-                      insight: props.insightId,
-                  } as AlertFormType),
+                          condition: {
+                              type: AlertConditionType.ABSOLUTE_VALUE,
+                          },
+                          subscribed_users: [],
+                          checks: [],
+                          calculation_interval: calculationInterval,
+                          skip_weekend: false,
+                          schedule_restriction: null,
+                          detector_config: props.defaultToAnomalyDetection
+                              ? getDefaultAnomalyDetectorConfig(calculationInterval)
+                              : null,
+                          investigation_agent_enabled: false,
+                          investigation_gates_notifications: false,
+                          investigation_inconclusive_action: 'notify',
+                          insight: props.insightId,
+                      } as AlertFormType
+                  })(),
             errors: (alert: AlertFormType) => getAlertFormValidationErrors(alert),
             submit: async (alert) => {
                 const entitlementCheck = blockSubmitWithoutEntitlement(alert.calculation_interval, {
@@ -403,12 +424,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     }
                 }
 
+                const existingAlertId = alert.id
+                const isNewAlert = existingAlertId === undefined
                 let updatedAlert: AlertType
                 try {
-                    updatedAlert =
-                        alert.id === undefined
-                            ? await api.alerts.create(payload)
-                            : await api.alerts.update(alert.id, payload)
+                    updatedAlert = isNewAlert
+                        ? await api.alerts.create(payload)
+                        : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
                     // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
                     // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
@@ -429,11 +451,18 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     posthog.captureException(postSaveError)
                 }
 
-                lemonToast.success(alert.id === undefined ? 'Alert created.' : 'Alert saved.')
-                if (alert.id === undefined) {
+                if (isNewAlert) {
+                    lemonToast.success('Alert created.', {
+                        button: {
+                            label: 'View all alerts',
+                            action: () => router.actions.push(urls.alerts()),
+                        },
+                    })
                     tryShowMCPHint('alerts.create', {
                         derivedPrompt: alert.name ? `Create an alert called ${alert.name}` : undefined,
                     })
+                } else {
+                    lemonToast.success('Alert saved.')
                 }
 
                 return alertToFormType(updatedAlert, props.insightId)
