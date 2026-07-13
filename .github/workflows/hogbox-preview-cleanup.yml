@@ -50,9 +50,20 @@ jobs:
                   audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
                   tags: tag:hogland-ci
             - name: Mint hogland OIDC token
+              # Retry + empty-token guard, matching the other mint sites: `curl |
+              # jq` takes jq's exit (which succeeds on empty input), so without the
+              # guard a transient OIDC outage would pass an empty token and the
+              # sweep would no-op silently instead of reaping stale previews.
               run: |
-                  token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
+                  token=""
+                  for attempt in 1 2 3; do
+                    token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value') || token=""
+                    [ -n "$token" ] && [ "$token" != "null" ] && break
+                    echo "::warning::OIDC mint attempt ${attempt} failed; retrying"
+                    [ "$attempt" -lt 3 ] && sleep 5
+                  done
+                  [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed after 3 attempts"; exit 1; }
                   echo "::add-mask::$token"
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
             # uv (repo convention): --no-project skips the monorepo sync, --with

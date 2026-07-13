@@ -176,6 +176,16 @@ def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
     return None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
 
 
+def _include_personal_mcp_for_task(task: Task) -> bool:
+    """Whether a run may pull the task creator's *personal* MCP installations.
+
+    Internal/autonomous runs (support reply, signals) must never pull a
+    resolved member's personal creds — they get shared team connections only.
+    User-initiated Code runs get shared + the creator's personal installs.
+    """
+    return not task.internal
+
+
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
     try:
         task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
@@ -214,15 +224,16 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         interaction_origin=ctx.interaction_origin,
         task_id=str(ctx.task_id),
     )
-    if actor_user and actor_user.id:
-        user_mcp_configs = get_user_mcp_server_configs(
-            token=access_token,
-            team_id=ctx.team_id,
-            user_id=actor_user.id,
-            interaction_origin=ctx.interaction_origin,
-        )
-        if user_mcp_configs:
-            mcp_configs = mcp_configs + user_mcp_configs
+    include_personal = _include_personal_mcp_for_task(task)
+    user_mcp_configs = get_user_mcp_server_configs(
+        token=access_token,
+        team_id=ctx.team_id,
+        user_id=actor_user.id if actor_user else None,
+        include_personal=include_personal,
+        interaction_origin=ctx.interaction_origin,
+    )
+    if user_mcp_configs:
+        mcp_configs = mcp_configs + user_mcp_configs
 
     if mcp_configs:
         emit_agent_log(

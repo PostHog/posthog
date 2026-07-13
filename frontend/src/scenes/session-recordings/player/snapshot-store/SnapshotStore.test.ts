@@ -103,6 +103,33 @@ describe('SnapshotStore', () => {
             expect(store.getEntry(0)?.processedSnapshots).toHaveLength(1)
             expect(store.getEntry(0)?.processedSnapshots?.[0].timestamp).toBe(1000)
         })
+
+        it('refreshes metadata when a preserved blob_key extends its end_timestamp', () => {
+            // An ongoing recording's tail blob grows under a stable blob_key — a stale endMs would
+            // render already-loaded data as "not buffered yet"
+            const store = new SnapshotStore()
+            store.setSources([makeSource(0, 0, 5)])
+            markLoaded(store, 0, [makeFullSnapshot(1000)])
+
+            store.setSources([makeSource(0, 0, 9)])
+
+            expect(store.getSourceStates()[0].endMs).toBe(Date.UTC(2023, 7, 11, 12, 9, 0))
+            expect(store.getSourceStates()[0].state).toBe('loaded')
+        })
+    })
+
+    describe('clearSnapshotData', () => {
+        it('keeps raw snapshots only for excluded indexes', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(2))
+            markLoaded(store, 0, [makeFullSnapshot(1000)])
+            markLoaded(store, 1, [makeSnapshot(2000)])
+
+            store.clearSnapshotData(new Set([0]))
+
+            expect(store.getEntry(0)?.processedSnapshots).toHaveLength(1)
+            expect(store.getEntry(1)?.processedSnapshots).toBeNull()
+        })
     })
 
     describe('markFetched + markProcessed seeding', () => {

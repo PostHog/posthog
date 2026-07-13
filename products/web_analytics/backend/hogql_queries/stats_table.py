@@ -27,6 +27,7 @@ from posthog.hogql.property import (
     property_to_expr,
 )
 
+from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.settings.data_stores import is_web_analytics_events_prefilter_team
 
@@ -375,6 +376,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
+    def _lazy_precompute_stale(self) -> Optional[bool]:
+        # The lazy modules mark serve-stale reads via tag_queries(precompute_stale=True)
+        # before executing the read; surfacing it on the response lets clients (and the
+        # frontend's 'query completed' telemetry) see it too. None when served fresh.
+        return True if get_query_tag_value("precompute_stale") else None
+
     def get_lazy_precomputed_result(self) -> Optional[LazyStatsResult]:
         if not can_use_lazy_precompute(self):
             return None
@@ -408,6 +415,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self._lazy_precompute_stale(),
             hasMore=result.has_more,
             limit=self.paginator.limit,
             offset=self.paginator.offset,
@@ -434,6 +442,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             offset=offset,
         )
         if rows is None:
+            # The lazy module may have tagged precompute_stale before its read failed;
+            # clear it so the fallback response (and its query_log rows) are not
+            # mislabeled as stale-served.
+            clear_tag("precompute_stale")
             return None
         return self._build_response_from_lazy_rows(rows, limit=limit, offset=offset)
 
@@ -496,6 +508,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self._lazy_precompute_stale(),
             hasMore=has_more,
             limit=limit,
             offset=offset,
@@ -554,6 +567,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self._lazy_precompute_stale(),
             hasMore=has_more,
             limit=limit,
             offset=offset,
