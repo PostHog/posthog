@@ -1698,6 +1698,10 @@ class ExperimentService:
         if not can_write_feature_flag or not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
             return
 
+        # Gated write inside unarchive_experiment's transaction: safe because an
+        # archived-only payload matches no approval action (enable/disable detect on
+        # `active`, update on `filters`), so the gate can't raise ApprovalRequired here
+        # and roll back a just-created change request.
         unarchive_flag(feature_flag, team=self.team, user=self.user, request=request)
 
         experiment.feature_flag_auto_archived = False

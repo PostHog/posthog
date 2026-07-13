@@ -2709,6 +2709,36 @@ class TestExperimentService(APIBaseTest):
         # The flag stays disabled — re-enabling is an explicit user decision
         assert flag.active is False
 
+    def test_unarchive_experiment_flag_unarchive_not_blocked_by_approval_policies(self):
+        # unarchive_experiment runs inside transaction.atomic, so its gated flag write must
+        # never trip an approval policy — an ApprovalRequired escaping the block would roll
+        # back the just-created change request. Archived-only payloads match no flag action
+        # today; this pins that invariant against detect() being broadened.
+        experiment = self._create_ended_experiment(name="Unarchive Policy", feature_flag_key="unarchive-policy-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        for action_key in ["feature_flag.enable", "feature_flag.disable", "feature_flag.update"]:
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=self.team,
+                action_key=action_key,
+                approver_config={"quorum": 1, "users": [self.user.id]},
+                created_by=self.user,
+            )
+
+        service = self._service()
+        service.archive_experiment(experiment)
+        service.unarchive_experiment(experiment)
+
+        assert ChangeRequest.objects.filter(team=self.team).count() == 0
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+
     def test_unarchive_experiment_keeps_manually_archived_flag(self):
         # The user archived the flag themselves, so unarchiving the experiment must not undo it.
         experiment = self._create_ended_experiment(name="Manual Archive", feature_flag_key="manually-archived-flag")
