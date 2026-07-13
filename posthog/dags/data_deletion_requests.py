@@ -674,7 +674,11 @@ def process_property_removal_per_shard(
         # original's sorting key AND (via SELECT *) its version, so a background merge would
         # keep an arbitrary one of the pair. With the marker as version, merges
         # deterministically prefer the cleaned row and identical cleaned twins collapse.
-        update_parts.append("_timestamp = toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC'))")
+        # +1 second because _timestamp is second-precision while the copy/delete bound
+        # (inserted_at < marker) is microsecond-precision: an original ingested within the
+        # marker's second is in scope but shares its truncated second — the version must be
+        # STRICTLY greater or the merge tie stays arbitrary for exactly those rows.
+        update_parts.append("_timestamp = toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1")
         for col_name, is_nullable in affected_mat_cols + affected_person_mat_cols:
             default = "NULL" if is_nullable else "''"
             update_parts.append(f"`{col_name}` = {default}")

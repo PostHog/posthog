@@ -1487,7 +1487,7 @@ def _insert_events_with_properties_and_inserted_at(events: list[tuple], client: 
 def _count_marker_rows(team_id: int, marker: datetime, client: Client) -> tuple[int, int]:
     marker_str = marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
     row = client.execute(
-        "SELECT countIf(_timestamp = toDateTime(toDateTime64(%(marker)s, 6, 'UTC'))), count() "
+        "SELECT countIf(_timestamp = toDateTime(toDateTime64(%(marker)s, 6, 'UTC')) + 1), count() "
         "FROM events "
         "WHERE team_id = %(team_id)s AND inserted_at = toDateTime64(%(marker)s, 6, 'UTC')",
         {"team_id": team_id, "marker": marker_str},
