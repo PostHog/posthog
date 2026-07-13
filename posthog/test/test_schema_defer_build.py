@@ -19,12 +19,10 @@ import subprocess
 from pathlib import Path
 
 from parameterized import parameterized
-from pydantic import BaseModel as PydanticBaseModel
 
-import posthog.schema
-from posthog.schema import BaseModel, EventsNode, RootModel
+from posthog.schema import EventsNode
 
-from posthog.schema_build import build_all_schema_models
+from posthog.schema_build import _deferred_model_classes, build_all_schema_models
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 
@@ -116,13 +114,4 @@ class TestDeferredSchemaSerialization:
     def test_build_all_schema_models_leaves_nothing_deferred(self) -> None:
         # Web pods rely on this covering every model (wsgi/asgi call it pre-fork).
         build_all_schema_models()
-        incomplete = [
-            name
-            for name, obj in vars(posthog.schema).items()
-            if isinstance(obj, type)
-            and issubclass(obj, PydanticBaseModel)
-            and obj.__module__ == "posthog.schema"
-            and obj not in (BaseModel, RootModel)
-            and not obj.__pydantic_complete__
-        ]
-        assert incomplete == []
+        assert list(_deferred_model_classes()) == []

@@ -54,6 +54,34 @@ def _ensure_built(cls: type[_PydanticBaseModel]) -> None:
         cls.model_rebuild()
 
 
+# Serializes model_rebuild calls: pydantic's model_rebuild mutates class attributes
+# non-atomically, so concurrent rebuilds of the same (or cross-referencing) classes can
+# observe a half-built class. Only ever taken on the unbuilt path (callers re-check
+# __pydantic_complete__ first), so the built steady state costs nothing.
+_build_lock = threading.RLock()
+
+# Classes whose build is in progress on the current thread: a build triggers
+# __get_pydantic_core_schema__ for every referenced model class (including, recursively,
+# the one being built), and those hooks must not start a second build of the same class.
+# Thread-local because the lock above only serializes the mutation itself — a thread
+# waiting on the lock must not see another thread's in-progress set and skip its own build.
+_currently_building = threading.local()
+
+
+def _building_set() -> set[type]:
+    building = getattr(_currently_building, "classes", None)
+    if building is None:
+        building = set()
+        _currently_building.classes = building
+    return building
+
+
+# Schema dict nodes already walked by _build_reachable_model_classes, by id(). A shared
+# sub-schema is reachable from many parents; without memoizing, a batch build (e.g.
+# build_all_schema_models) re-walks the same subgraphs once per class that reaches them.
+_walked_schema_nodes: set[int] = set()
+
+
 def _build_reachable_model_classes(schema: Any) -> None:
     """Complete every model class reachable from a freshly built core schema.
 
@@ -68,19 +96,17 @@ def _build_reachable_model_classes(schema: Any) -> None:
     while stack:
         node = stack.pop()
         if isinstance(node, dict):
+            node_id = id(node)
+            if node_id in _walked_schema_nodes:
+                continue
+            _walked_schema_nodes.add(node_id)
             if node.get("type") == "model":
                 cls = node.get("cls")
-                if isinstance(cls, type) and issubclass(cls, _PydanticBaseModel):
+                if isinstance(cls, type) and issubclass(cls, _PydanticBaseModel) and not cls.__pydantic_complete__:
                     _ensure_built(cls)
             stack.extend(node.values())
         elif isinstance(node, (list, tuple)):
             stack.extend(node)
-
-
-# Classes whose build is in progress: a build triggers __get_pydantic_core_schema__ for
-# every referenced model class (including, recursively, the one being built), and those
-# hooks must not start a second build of the same class.
-_currently_building: set[type] = set()
 
 
 class _DeferredBuildGuards:
@@ -94,25 +120,40 @@ class _DeferredBuildGuards:
 
     @classmethod
     def model_rebuild(cls, **kwargs: Any) -> bool | None:  # type: ignore[misc]
-        # One extra frame between the caller and pydantic's implementation.
-        kwargs["_parent_namespace_depth"] = kwargs.get("_parent_namespace_depth", 2) + 1
-        _currently_building.add(cls)
-        try:
-            result = super().model_rebuild(**kwargs)  # type: ignore[misc]
-        finally:
-            _currently_building.discard(cls)
-        if result is not False and cls.__pydantic_complete__:  # type: ignore[attr-defined]
-            _build_reachable_model_classes(cls.__pydantic_core_schema__)  # type: ignore[attr-defined]
-        return result
+        if cls.__pydantic_complete__ and not kwargs.get("force"):  # type: ignore[attr-defined]
+            return None
+        with _build_lock:
+            if cls.__pydantic_complete__ and not kwargs.get("force"):  # type: ignore[attr-defined]
+                return None
+            # One extra frame between the caller and pydantic's implementation. 0 is a
+            # meaningful sentinel to pydantic ("don't walk parent frames at all"), so
+            # only the default and positive depths get the extra frame added.
+            depth = kwargs.get("_parent_namespace_depth", 2)
+            kwargs["_parent_namespace_depth"] = depth + 1 if depth > 0 else depth
+            building = _building_set()
+            building.add(cls)
+            try:
+                result = super().model_rebuild(**kwargs)  # type: ignore[misc]
+            finally:
+                building.discard(cls)
+            if result is True:
+                _build_reachable_model_classes(cls.__pydantic_core_schema__)  # type: ignore[attr-defined]
+            return result
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
         # An external schema build referencing this class (another model's rebuild, or a
         # TypeAdapter such as temporal's pydantic payload converter) inlines this class's
         # schema and can then construct its instances — so complete the class itself too.
-        if source is cls and not cls.__pydantic_complete__ and cls not in _currently_building:  # type: ignore[attr-defined]
+        if source is cls and not cls.__pydantic_complete__ and cls not in _building_set():  # type: ignore[attr-defined]
             cls.model_rebuild()  # type: ignore[attr-defined]
-        return super().__get_pydantic_core_schema__(source, handler)  # type: ignore[misc]
+        # Inlined fallback for the deprecated super().__get_pydantic_core_schema__ shim
+        # (PydanticDeprecatedSince211, slated for removal in pydantic V3): return the
+        # class's own schema if pydantic already built one, else let the handler build it.
+        schema = cls.__dict__.get("__pydantic_core_schema__")
+        if schema is not None and not isinstance(schema, MockCoreSchema):
+            return schema
+        return handler(source)
 
     def __setstate__(self, state: dict[Any, Any]) -> None:
         _ensure_built(type(self))
@@ -168,9 +209,11 @@ def main() -> None:
     if "ConfigDict" not in names:
         names.append("ConfigDict")
     pydantic_import = (
+        "import threading\n\n"
         f"from pydantic import {', '.join(sorted(names))}\n"
         "from pydantic import BaseModel as _PydanticBaseModel\n"
-        "from pydantic import RootModel as _PydanticRootModel"
+        "from pydantic import RootModel as _PydanticRootModel\n"
+        "from pydantic._internal._mock_val_ser import MockCoreSchema"
     )
     source = source[: match.start()] + pydantic_import + source[match.end() :]
 
