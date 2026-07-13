@@ -45,6 +45,7 @@ from products.notebooks.backend.sql_v2 import (
     sql_v2_page_lock_key,
     verify_data_plane_token,
 )
+from products.notebooks.backend.sql_v2_callback import MAX_ENVELOPE_BYTES
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
@@ -142,6 +143,12 @@ class TestSQLV2Callback(APIBaseTest):
         token = mint_callback_token("00000000-0000-0000-0000-0000000000ff", self.team.id)
         response = self._post(token)
         self.assertEqual(response.status_code, 403)
+        self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
+
+    def test_oversized_envelope_is_rejected(self):
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        response = self._post(token, envelope={**self.envelope, "stdout": "x" * (MAX_ENVELOPE_BYTES + 1)})
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
 
     def test_unknown_run_returns_404(self):
@@ -254,6 +261,42 @@ class TestSQLV2Run(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(node_id="c").count(), 0)
+        mock_start.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_python_node_dispatches_with_materialization_inputs(self, _mock_enabled, mock_start):
+        # A python node keeps its code verbatim and ships the frames it reads as materialization inputs.
+        self._record_done_run("node-df1", "select id from events")
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "py",
+                "node_type": "python",
+                "code": "df1.head()",
+                "output_name": "result",
+                "refs": {"df1": "node-df1"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(run.code, "df1.head()")  # python code stored as-is, not CTE-resolved
+        dispatched = mock_start.call_args.args[0]
+        self.assertEqual(dispatched.node_type, "python")
+        self.assertEqual(dispatched.output_name, "result")
+        self.assertEqual([i["name"] for i in dispatched.inputs], ["df1"])
+        self.assertEqual(dispatched.inputs[0]["query"], "select id from events")
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_python_node_referencing_a_never_run_node_is_rejected(self, _mock_enabled, mock_start):
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "py", "node_type": "python", "code": "df1.head()", "refs": {"df1": "node-df1"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
         mock_start.assert_not_called()
 
     @patch(
@@ -731,6 +774,18 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         _columns, rows, _types = decode_arrow_stream(response.content)
         self.assertEqual(rows, [(2,), (3,), (4,)])
 
+    def test_materialization_request_is_accepted_and_clipped_at_the_row_ceiling(self):
+        # The kernel executor fetches whole frames with limit=_MATERIALIZE_ROW_CAP (2M, not
+        # importable here: the executor module needs jupyter_client). The serializer must
+        # accept that limit (it once capped at 1000, 400-ing every materialization), and the
+        # async limit context then clips the frame at MAX_SELECT_RETURNED_ROWS (50k) — a
+        # deliberate bound until the object-storage frame store (sql_v2_frame_store.md)
+        # gives big frames a transport that doesn't round-trip through Redis.
+        response = self._run_to_completion({"query": "select number from numbers(50001)", "limit": 2_000_000})
+        self.assertEqual(response.status_code, 200, response.content)
+        _columns, rows, _types = decode_arrow_stream(response.content)
+        self.assertEqual(len(rows), 50_000)
+
     def test_execution_error_surfaces_through_status(self):
         # Valid syntax but fails at execution — the error must reach the sandbox via the poll.
         response = self._run_to_completion({"query": "select nonexistent_column from events"})
@@ -1070,3 +1125,79 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         self.assertIn("nb_kernel/server.py", names)
         self.assertIn("nb_kernel/__init__.py", names)
         self.assertEqual(len(version), 16)
+
+
+class TestSQLV2PythonNodeRun(SimpleTestCase):
+    def test_materialize_query_writes_a_readable_arrow_file(self):
+        # Journey 4 materialization: the server streams a CH result to a local Arrow *file* the
+        # kernel later mmaps. It must be an IPC file (open_file), and the temp must be renamed away.
+        import os
+        import tempfile
+
+        import pyarrow as pa
+
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        arrow_bytes = _rows_to_arrow_bytes(["id", "v"], [(1, 10), (2, 20)], [["id", "Int64"], ["v", "Int64"]])
+
+        class _FakeResponse(io.BytesIO):
+            def __init__(self, body: bytes):
+                super().__init__(body)
+                self.headers = {"Content-Type": "application/vnd.apache.arrow.stream"}
+
+            def __exit__(self, *args):
+                return False
+
+        with tempfile.TemporaryDirectory() as directory:
+            dest = os.path.join(directory, "df.arrow")
+            with patch.object(
+                kernel_data_plane.urllib.request,
+                "urlopen",
+                side_effect=lambda request, timeout=None: _FakeResponse(arrow_bytes),
+            ):
+                rows = kernel_data_plane.materialize_query_to_file(
+                    "http://backend/dp", "t", "select 1", dest, limit=1000
+                )
+            self.assertEqual(rows, 2)
+            table = pa.ipc.open_file(pa.memory_map(dest)).read_all()
+            self.assertEqual(table.num_rows, 2)
+            self.assertEqual(table.column_names, ["id", "v"])
+            self.assertFalse(os.path.exists(dest + ".partial"))
+
+    def test_execute_run_routes_python_nodes_to_the_executor(self):
+        result_envelope = {"status": "ok", "columns": ["a"]}
+        delivered: dict = {}
+        payload = {
+            "run_id": "r-py",
+            "node": {"type": "python", "code": "1 + 1"},
+            "callback_url": "http://backend/cb",
+            "callback_token": "t",
+        }
+        with (
+            patch.object(kernel_runner, "_run_python_node", return_value=result_envelope) as run_python,
+            patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: delivered.update(env)),
+        ):
+            kernel_runner.execute_run(payload)
+        run_python.assert_called_once()
+        self.assertEqual(delivered["status"], "ok")
+
+    def test_execute_run_keeps_hogql_nodes_off_the_kernel(self):
+        # A pure-HogQL node must stay on the capped data-plane fetch — never spin up the kernel.
+        payload = {
+            "run_id": "r-hogql",
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "t",
+            "data_plane_url": "u",
+            "data_plane_token": "t",
+        }
+        with (
+            patch.object(kernel_runner, "_run_python_node") as run_python,
+            patch.object(kernel_runner, "_post_callback"),
+            patch(
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+                return_value=(["n"], [(1,)], [["n", "Int64"]]),
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+        run_python.assert_not_called()
