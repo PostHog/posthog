@@ -162,7 +162,7 @@ const visualReviewRunsList = (): ToolBase<
                 ...result,
                 results: await Promise.all(
                     (result.results ?? []).map((item) =>
-                        withPostHogUrl(context, item, `/visual_review/runs/${item.id}`)
+                        withPostHogUrl(context, item, `/visual_review/runs/${encodeURIComponent(String(item.id))}`)
                     )
                 ),
             },
@@ -182,7 +182,7 @@ const visualReviewRunsRetrieve = (): ToolBase<typeof VisualReviewRunsRetrieveSch
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/visual_review/runs/${result.id}`)
+        return await withPostHogUrl(context, result, `/visual_review/runs/${encodeURIComponent(String(result.id))}`)
     },
 })
 

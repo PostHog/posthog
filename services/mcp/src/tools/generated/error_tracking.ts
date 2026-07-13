@@ -307,7 +307,7 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${result.id}`)
+            return await withPostHogUrl(context, result, `/error_tracking/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -328,7 +328,11 @@ const errorTrackingIssuesResolveRetrieve = (): ToolBase<
                 identifier: params.identifier,
             },
         })
-        return await withPostHogUrl(context, result, `/error_tracking/${result.fingerprint}`)
+        return await withPostHogUrl(
+            context,
+            result,
+            `/error_tracking/${encodeURIComponent(String(result.fingerprint))}`
+        )
     },
 })
 
@@ -625,7 +629,11 @@ const queryErrorTrackingIssue = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/query/issue/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${result.fingerprint}`)
+            return await withPostHogUrl(
+                context,
+                result,
+                `/error_tracking/${encodeURIComponent(String(result.fingerprint))}`
+            )
         },
     })
 
@@ -676,7 +684,11 @@ const queryErrorTrackingIssueEvents = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/query/issue_events/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${params.issueId}`)
+            return await withPostHogUrl(
+                context,
+                result,
+                `/error_tracking/${encodeURIComponent(String(params.issueId))}`
+            )
         },
     })
 
@@ -775,7 +787,11 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                     ...filtered,
                     results: await Promise.all(
                         (filtered.results ?? []).map((item) =>
-                            withPostHogUrl(context, item, `/error_tracking/${item.fingerprint}`)
+                            withPostHogUrl(
+                                context,
+                                item,
+                                `/error_tracking/${encodeURIComponent(String(item.fingerprint))}`
+                            )
                         )
                     ),
                 },

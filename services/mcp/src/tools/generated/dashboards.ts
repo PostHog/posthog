@@ -120,7 +120,7 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
             'tiles.*.insight.timezone',
             'tiles.*.insight.resolved_date_range',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/dashboard/${encodeURIComponent(String(filtered.id))}`)
     },
 })
 
@@ -151,7 +151,7 @@ const dashboardCreateTextTile = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/create_text_tile/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${encodeURIComponent(String(params.id))}`)
     },
 })
 
@@ -191,7 +191,7 @@ const dashboardDeleteTile = (): ToolBase<typeof DashboardDeleteTileSchema, unkno
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/delete_tile/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${encodeURIComponent(String(params.id))}`)
     },
 })
 
@@ -263,7 +263,7 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Sche
             'tiles.*.insight.timezone',
             'tiles.*.insight.resolved_date_range',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/dashboard/${encodeURIComponent(String(filtered.id))}`)
     },
 })
 
@@ -303,7 +303,7 @@ const dashboardInsightsRun = (): ToolBase<
                 variables_override: params.variables_override,
             },
         })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${encodeURIComponent(String(params.id))}`)
     },
 })
 
@@ -328,7 +328,7 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/reorder_tiles/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${encodeURIComponent(String(result.id))}`)
     },
 })
 
@@ -353,7 +353,7 @@ const dashboardTileCopy = (): ToolBase<typeof DashboardTileCopySchema, WithPostH
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/copy_tile/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${encodeURIComponent(String(result.id))}`)
     },
 })
 
@@ -448,7 +448,7 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
             'tiles.*.insight.timezone',
             'tiles.*.insight.resolved_date_range',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/dashboard/${encodeURIComponent(String(filtered.id))}`)
     },
 })
 
@@ -482,7 +482,7 @@ const dashboardUpdateTextTile = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/update_text_tile/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${encodeURIComponent(String(params.id))}`)
     },
 })
 
@@ -526,7 +526,7 @@ const dashboardWidgetsBatchAdd = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/widgets/batch/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${encodeURIComponent(String(params.id))}`)
     },
 })
 
@@ -551,7 +551,7 @@ const dashboardWidgetsBatchUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/widgets/batch_update/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${encodeURIComponent(String(params.id))}`)
     },
 })
 
@@ -574,7 +574,7 @@ const dashboardWidgetsRun = (): ToolBase<
                 tile_ids: params.tile_ids,
             },
         })
-        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${encodeURIComponent(String(params.id))}`)
     },
 })
 
@@ -606,7 +606,9 @@ const dashboardsGetAll = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/dashboard/${item.id}`))
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/dashboard/${encodeURIComponent(String(item.id))}`)
+                    )
                 ),
             },
             '/dashboard'
@@ -638,7 +640,7 @@ const dashboardsMoveTilePartialUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/move_tile/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${encodeURIComponent(String(result.id))}`)
     },
 })
 

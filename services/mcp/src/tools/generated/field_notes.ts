@@ -22,7 +22,7 @@ const fieldNotesGet = (): ToolBase<typeof FieldNotesGetSchema, WithPostHogUrl<Sc
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/field_notes/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/field_notes/${result.id}`)
+        return await withPostHogUrl(context, result, `/field_notes/${encodeURIComponent(String(result.id))}`)
     },
 })
 
@@ -67,7 +67,9 @@ const fieldNotesList = (): ToolBase<typeof FieldNotesListSchema, WithPostHogUrl<
             {
                 ...filtered,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/field_notes/${item.id}`))
+                    (filtered.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/field_notes/${encodeURIComponent(String(item.id))}`)
+                    )
                 ),
             },
             '/field_notes'
@@ -129,7 +131,7 @@ const fieldNotesPartialUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/field_notes/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/field_notes/${result.id}`)
+        return await withPostHogUrl(context, result, `/field_notes/${encodeURIComponent(String(result.id))}`)
     },
 })
 

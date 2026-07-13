@@ -238,7 +238,11 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
-            return await withPostHogUrl(context, filtered, `/tracing/?trace=${params.trace_id}`)
+            return await withPostHogUrl(
+                context,
+                filtered,
+                `/tracing/?trace=${encodeURIComponent(String(params.trace_id))}`
+            )
         },
     })
 

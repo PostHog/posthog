@@ -139,7 +139,7 @@ const surveyCreate = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
+            return await withPostHogUrl(context, result, `/surveys/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -171,7 +171,7 @@ const surveyGet = (): ToolBase<typeof SurveyGetSchema, WithPostHogUrl<Schemas.Su
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/`,
             })
-            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
+            return await withPostHogUrl(context, result, `/surveys/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -187,7 +187,7 @@ const surveyLaunch = (): ToolBase<typeof SurveyLaunchSchema, WithPostHogUrl<Sche
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/launch/`,
             })
-            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
+            return await withPostHogUrl(context, result, `/surveys/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -210,7 +210,7 @@ const surveyStats = (): ToolBase<typeof SurveyStatsSchema, WithPostHogUrl<Schema
                     include_per_question_stats: params.include_per_question_stats,
                 },
             })
-            return await withPostHogUrl(context, result, `/surveys/${result.survey_id}`)
+            return await withPostHogUrl(context, result, `/surveys/${encodeURIComponent(String(result.survey_id))}`)
         },
     })
 
@@ -226,7 +226,7 @@ const surveyStop = (): ToolBase<typeof SurveyStopSchema, WithPostHogUrl<Schemas.
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/stop/`,
             })
-            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
+            return await withPostHogUrl(context, result, `/surveys/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -339,7 +339,7 @@ const surveyUpdate = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
+            return await withPostHogUrl(context, result, `/surveys/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -368,7 +368,9 @@ const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Sc
                 {
                     ...result,
                     results: await Promise.all(
-                        (result.results ?? []).map((item) => withPostHogUrl(context, item, `/surveys/${item.id}`))
+                        (result.results ?? []).map((item) =>
+                            withPostHogUrl(context, item, `/surveys/${encodeURIComponent(String(item.id))}`)
+                        )
                     ),
                 },
                 '/surveys'

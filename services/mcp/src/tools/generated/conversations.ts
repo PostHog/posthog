@@ -162,7 +162,11 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'created_at',
             'updated_at',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/conversations/tickets/${filtered.id}`)
+        return await withPostHogUrl(
+            context,
+            filtered,
+            `/conversations/tickets/${encodeURIComponent(String(filtered.id))}`
+        )
     },
 })
 
@@ -199,7 +203,7 @@ const conversationsTicketsUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/conversations/tickets/${result.id}`)
+        return await withPostHogUrl(context, result, `/conversations/tickets/${encodeURIComponent(String(result.id))}`)
     },
 })
 

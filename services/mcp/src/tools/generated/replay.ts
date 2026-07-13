@@ -72,7 +72,7 @@ const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, WithP
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
             })
-            return await withPostHogUrl(context, result, `/replay/${result.id}`)
+            return await withPostHogUrl(context, result, `/replay/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -244,7 +244,7 @@ const sessionRecordingSummaryGet = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/single_session_summaries/${encodeURIComponent(String(params.session_id))}/`,
         })
-        return await withPostHogUrl(context, result, `/replay/${result.session_id}`)
+        return await withPostHogUrl(context, result, `/replay/${encodeURIComponent(String(result.session_id))}`)
     },
 })
 

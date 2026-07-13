@@ -91,7 +91,7 @@ const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostH
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+        return await withPostHogUrl(context, result, `/feature_flags/${encodeURIComponent(String(result.id))}`)
     },
 })
 
@@ -158,7 +158,9 @@ const featureFlagGetAll = (): ToolBase<
             {
                 ...filtered,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
+                    (filtered.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/feature_flags/${encodeURIComponent(String(item.id))}`)
+                    )
                 ),
             },
             '/feature_flags'
@@ -182,7 +184,7 @@ const featureFlagGetDefinition = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+        return await withPostHogUrl(context, result, `/feature_flags/${encodeURIComponent(String(result.id))}`)
     },
 })
 
@@ -675,7 +677,7 @@ const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostH
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+        return await withPostHogUrl(context, result, `/feature_flags/${encodeURIComponent(String(result.id))}`)
     },
 })
 

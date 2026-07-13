@@ -903,7 +903,7 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
         const enriched = [
             `await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
-            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
+            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${encodeURIComponent(String(item.${field}))}${suffix}\`))),`,
             `        }, '${baseUrl}')`,
         ].join('\n')
         return `        return ${noted(enriched)}\n`
@@ -917,7 +917,7 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return ${noted(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
+        return `        return ${noted(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${encodeURIComponent(String(${sourceExpr}))}${suffix}\`)`)}\n`
     }
 
     return `        return ${noted(resultVar)}\n`

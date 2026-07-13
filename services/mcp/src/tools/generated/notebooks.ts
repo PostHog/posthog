@@ -41,7 +41,7 @@ const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, WithPostHogUr
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/notebooks/${result.short_id}`)
+        return await withPostHogUrl(context, result, `/notebooks/${encodeURIComponent(String(result.short_id))}`)
     },
 })
 
@@ -118,7 +118,7 @@ const notebooksPartialUpdate = (): ToolBase<typeof NotebooksPartialUpdateSchema,
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/notebooks/${result.short_id}`)
+        return await withPostHogUrl(context, result, `/notebooks/${encodeURIComponent(String(result.short_id))}`)
     },
 })
 
@@ -133,7 +133,7 @@ const notebooksRetrieve = (): ToolBase<typeof NotebooksRetrieveSchema, WithPostH
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
         })
-        return await withPostHogUrl(context, result, `/notebooks/${result.short_id}`)
+        return await withPostHogUrl(context, result, `/notebooks/${encodeURIComponent(String(result.short_id))}`)
     },
 })
 

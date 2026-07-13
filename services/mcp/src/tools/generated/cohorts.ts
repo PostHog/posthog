@@ -75,7 +75,7 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, WithPostHogUrl<Sc
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
+            return await withPostHogUrl(context, result, `/cohorts/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -118,7 +118,9 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
                 {
                     ...filtered,
                     results: await Promise.all(
-                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/cohorts/${item.id}`))
+                        (filtered.results ?? []).map((item) =>
+                            withPostHogUrl(context, item, `/cohorts/${encodeURIComponent(String(item.id))}`)
+                        )
                     ),
                 },
                 '/cohorts'
@@ -163,7 +165,7 @@ const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema, Wit
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
+            return await withPostHogUrl(context, result, `/cohorts/${encodeURIComponent(String(result.id))}`)
         },
     })
 
@@ -189,7 +191,7 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, WithPostHogUr
                 'filters.properties.values.*.bytecode_error',
                 'filters.properties.values.*.conditionHash',
             ]) as typeof result
-            return await withPostHogUrl(context, filtered, `/cohorts/${filtered.id}`)
+            return await withPostHogUrl(context, filtered, `/cohorts/${encodeURIComponent(String(filtered.id))}`)
         },
     })
 

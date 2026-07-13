@@ -52,7 +52,11 @@ const actionCreate = (): ToolBase<typeof ActionCreateSchema, WithPostHogUrl<Sche
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/data-management/actions/${result.id}`)
+            return await withPostHogUrl(
+                context,
+                result,
+                `/data-management/actions/${encodeURIComponent(String(result.id))}`
+            )
         },
     })
 
@@ -86,7 +90,11 @@ const actionGet = (): ToolBase<typeof ActionGetSchema, WithPostHogUrl<Schemas.Ac
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/${encodeURIComponent(String(params.id))}/`,
             })
-            return await withPostHogUrl(context, result, `/data-management/actions/${result.id}`)
+            return await withPostHogUrl(
+                context,
+                result,
+                `/data-management/actions/${encodeURIComponent(String(result.id))}`
+            )
         },
     })
 
@@ -127,7 +135,11 @@ const actionUpdate = (): ToolBase<typeof ActionUpdateSchema, WithPostHogUrl<Sche
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/data-management/actions/${result.id}`)
+            return await withPostHogUrl(
+                context,
+                result,
+                `/data-management/actions/${encodeURIComponent(String(result.id))}`
+            )
         },
     })
 
@@ -157,7 +169,11 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, WithPostHogUrl<Sc
                     ...result,
                     results: await Promise.all(
                         (result.results ?? []).map((item) =>
-                            withPostHogUrl(context, item, `/data-management/actions/${item.id}`)
+                            withPostHogUrl(
+                                context,
+                                item,
+                                `/data-management/actions/${encodeURIComponent(String(item.id))}`
+                            )
                         )
                     ),
                 },
