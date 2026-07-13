@@ -2486,6 +2486,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "filters",
             "deleted",
             "active",
+            "archived",
             "ensure_experience_continuity",
             "version",
             "evaluation_runtime",

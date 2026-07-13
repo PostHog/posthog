@@ -5181,9 +5181,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
 
-        # The response must reflect the flag we just disabled, not a stale pre-mutation echo.
-        # MinimalFeatureFlagSerializer exposes active but not archived, so archived is checked on the row.
-        self.assertFalse(archive_response.json()["feature_flag"]["active"])
+        # The response must reflect the flag we just disabled and archived, not a stale pre-mutation echo.
+        response_flag = archive_response.json()["feature_flag"]
+        self.assertFalse(response_flag["active"])
+        self.assertTrue(response_flag["archived"])
 
         feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
         self.assertFalse(feature_flag.active)
@@ -5357,20 +5358,28 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         experiment_id = response.json()["id"]
+        feature_flag_id = response.json()["feature_flag"]["id"]
 
-        # Archive first
+        # Archive and disable the flag so unarchive has a flag archive state to restore.
         archive_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
         )
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
         self.assertTrue(archive_response.json()["archived"])
+        self.assertTrue(archive_response.json()["feature_flag"]["archived"])
 
-        # Unarchive
+        # Unarchive restores the flag; the response must reflect the un-archived flag, not a stale echo.
         unarchive_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/unarchive/",
         )
         self.assertEqual(unarchive_response.status_code, status.HTTP_200_OK)
         self.assertFalse(unarchive_response.json()["archived"])
+        self.assertFalse(unarchive_response.json()["feature_flag"]["archived"])
+
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+        self.assertFalse(feature_flag.archived)
 
     def test_unarchive_experiment_endpoint_not_archived(self):
         response = self.client.post(

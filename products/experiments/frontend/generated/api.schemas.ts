@@ -607,6 +607,7 @@ export interface MinimalFeatureFlagApi {
     filters?: MinimalFeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
+    archived?: boolean
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     /**
