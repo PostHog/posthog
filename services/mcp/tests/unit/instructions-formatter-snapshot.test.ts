@@ -98,7 +98,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
-            toolFeatureFlags: STATIC_CTX.featureFlags,
+            toolFeatureFlags: {},
             renderUiEnabled: STATIC_CTX.renderUiEnabled,
             metadata: STATIC_CTX.metadata,
             groupTypes: STATIC_CTX.groupTypes,

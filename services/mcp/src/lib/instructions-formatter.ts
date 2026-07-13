@@ -10,10 +10,9 @@ import {
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
-import CLAUDE_EXEC_HELP from '@/templates/sections/claude-exec-help.md'
-import CLAUDE_WEB_CLI_EXAMPLES from '@/templates/sections/claude-web/cli-examples.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
+import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
 import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
@@ -22,6 +21,7 @@ import COMPACT_INSTRUCTIONS from '@/templates/sections/compact-instructions.md'
 import ENTITY_SCHEMA_DISCOVERY from '@/templates/sections/entity-schema-discovery.md'
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
+import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
@@ -118,12 +118,12 @@ export class InstructionsFormatter {
     /**
      * Claude web/desktop silently drops tool entries whose complete JSON schema
      * exceeds 18,000 characters. Keep routine tool-use guidance inline and move
-     * only task-specific sections behind `learn <topic>`.
+     * only task-specific sections behind `learn <topic...>`.
      */
     buildClaudeExecCommandReference(ctx: InstructionsContext): string {
         const helpEntries = this.buildClaudeExecHelpEntries(ctx)
         const helpTopics = helpEntries.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
-        const helpSection = formatPrompt(CLAUDE_EXEC_HELP, { help_topics: helpTopics })
+        const helpSection = formatPrompt(EXEC_LEARN, { help_topics: helpTopics })
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
             metadata: ctx.metadata,
@@ -137,7 +137,7 @@ export class InstructionsFormatter {
                 helpSection,
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
-                CLAUDE_WEB_CLI_EXAMPLES,
+                CLI_EXAMPLES_CLAUDE,
                 CLI_ERROR_HANDLING,
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
@@ -148,7 +148,7 @@ export class InstructionsFormatter {
             {
                 compact: false,
                 compactToolDomains: true,
-                extraCommands: 'learn <topic> - load a learning topic\n',
+                extraCommands: 'learn <topic...> - load one or more learning topics\n',
             }
         )
     }

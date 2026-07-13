@@ -297,6 +297,7 @@ Optional, task-specific guidance is served through the same tool:
 
 - `learn` lists the available topics.
 - `learn analytics` loads detailed analytics guidance and examples.
+- `learn analytics visualizations` loads multiple topics in one command.
 - `learn visualizations` loads rendering guidance when visualizations are available.
 - `learn feedback` loads feedback guidance when feedback is available.
 

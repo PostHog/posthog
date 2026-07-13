@@ -250,7 +250,7 @@ describe('ToolExecutor', () => {
             }
         )
 
-        it('serves optional guidance through exec learn for Claude web/desktop', async () => {
+        it('serves multiple optional guidance topics through exec learn for Claude web/desktop', async () => {
             const state = makeState(
                 catalog
                     .getPreBuiltEntries()
@@ -258,6 +258,7 @@ describe('ToolExecutor', () => {
                     .map(({ name }) => ({ name })),
                 {
                     useSingleExec: true,
+                    renderUiEnabled: true,
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
                         isCliModeEnabled: vi.fn(() => true),
@@ -269,12 +270,15 @@ describe('ToolExecutor', () => {
             )
 
             const result = (await executor.handleToolCall(
-                { name: 'exec', arguments: { command: 'learn analytics' } },
+                { name: 'exec', arguments: { command: 'learn analytics visualizations' } },
                 state
             )) as { content: { text: string }[] }
 
+            expect(result.content[0]!.text).toContain('## Analytics')
             expect(result.content[0]!.text).toContain('### Retrieving data')
             expect(result.content[0]!.text).toContain('### Examples')
+            expect(result.content[0]!.text).toContain('## Visualizations')
+            expect(result.content[0]!.text).toContain('### Rendering visualizations')
         })
 
         it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {

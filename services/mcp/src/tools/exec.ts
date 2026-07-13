@@ -263,15 +263,25 @@ export function createExecTool(
                     if (!rest) {
                         return JSON.stringify(helpCatalog.list())
                     }
-                    const entry = helpCatalog.get(rest)
-                    if (!entry) {
+                    const topicIds = [...new Set(rest.split(/\s+/))]
+                    const entries = topicIds.map((topicId) => helpCatalog.get(topicId))
+                    const unknownTopicIds = topicIds.filter((_, index) => entries[index] === undefined)
+                    if (unknownTopicIds.length > 0) {
                         const available = helpCatalog
                             .list()
                             .map((item) => item.id)
                             .join(', ')
-                        throw new Error(`Unknown learning topic: "${rest}". Available: ${available}`)
+                        if (unknownTopicIds.length === 1) {
+                            throw new Error(`Unknown learning topic: "${unknownTopicIds[0]}". Available: ${available}`)
+                        }
+                        const unknownTopics = unknownTopicIds.map((topicId) => `"${topicId}"`).join(', ')
+                        throw new Error(`Unknown learning topics: ${unknownTopics}. Available: ${available}`)
                     }
-                    return entry.content
+                    const resolvedEntries = entries.filter((entry) => entry !== undefined)
+                    if (resolvedEntries.length === 1) {
+                        return resolvedEntries[0]!.content
+                    }
+                    return resolvedEntries.map((entry) => `## ${entry.title}\n\n${entry.content}`).join('\n\n')
                 }
 
                 case 'tools': {

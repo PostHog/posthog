@@ -232,14 +232,18 @@ describe('InstructionsFormatter', () => {
             const result = formatter.buildClaudeExecCommandReference(fullCtx)
 
             expect(result).toContain('**LEARN FIRST: HARD REQUIREMENT**')
-            expect(result).toContain('learn <topic> - load a learning topic')
+            expect(result).toContain('learn <topic...> - load one or more learning topics')
             expect(result).toContain('Topics are cumulative.')
             expect(result).toContain('User: create pageviews visualization')
             expect(result).toContain(
                 "Assistant: This needs analytics and visualization guidance, so I'll load both first."
             )
-            expect(result).toContain('posthog:exec({"command":"learn analytics"})')
-            expect(result).toContain('posthog:exec({"command":"learn visualizations"})')
+            expect(result).toContain('posthog:exec({"command":"learn analytics visualizations"})')
+            expect(result).toContain('User: How many weekly active users do we have?')
+            expect(result).toContain('render-ui({ "tool_name": "query-trends", "tool_input": {...} })')
+            expect(result.indexOf('render-ui({ "tool_name": "query-trends"')).toBeGreaterThan(
+                result.indexOf('posthog:exec({"command":"call query-trends {...}"})')
+            )
             expect(result).toContain('- analytics:')
             expect(result).toContain('- visualizations:')
             expect(result).toContain('- feedback:')
@@ -283,19 +287,21 @@ describe('InstructionsFormatter', () => {
             )
         })
 
-        it('only advertises topics whose features are available', () => {
+        it('only advertises visualizations when rendering is available', () => {
             const formatter = new InstructionsFormatter()
             const ctx = {
                 ...fullCtx,
-                featureFlags: { 'mcp-feedback-tool': false },
                 renderUiEnabled: false,
             }
 
-            expect(formatter.buildClaudeExecHelpEntries(ctx).map((entry) => entry.id)).toEqual(['analytics'])
+            expect(formatter.buildClaudeExecHelpEntries(ctx).map((entry) => entry.id)).toEqual([
+                'analytics',
+                'feedback',
+            ])
             const result = formatter.buildClaudeExecCommandReference(ctx)
             expect(result).toContain('- analytics:')
             expect(result).not.toContain('- visualizations:')
-            expect(result).not.toContain('- feedback:')
+            expect(result).toContain('- feedback:')
         })
     })
 

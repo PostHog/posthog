@@ -113,12 +113,30 @@ describe('exec tool', () => {
             )
         })
 
+        it('loads multiple unique topics in the requested order', async () => {
+            const exec = createExec(undefined, undefined, { helpCatalog })
+
+            await expect(
+                exec.handler(mockContext, { command: 'learn retention-analysis analytics retention-analysis' })
+            ).resolves.toBe(
+                '## Retention analysis\n\n### Retention analysis\n\nFollow the workflow.\n\n## Analytics\n\n### Retrieving data\n\nUse the analytics tools.'
+            )
+        })
+
         it('reports the available IDs when a topic is unknown', async () => {
             const exec = createExec(undefined, undefined, { helpCatalog })
 
             await expect(exec.handler(mockContext, { command: 'learn unknown' })).rejects.toThrow(
                 'Unknown learning topic: "unknown". Available: analytics, retention-analysis'
             )
+        })
+
+        it('reports every unknown ID without returning partial topic content', async () => {
+            const exec = createExec(undefined, undefined, { helpCatalog })
+
+            await expect(
+                exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
+            ).rejects.toThrow('Unknown learning topics: "unknown", "missing". Available: analytics, retention-analysis')
         })
     })
 
