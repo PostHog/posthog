@@ -7,6 +7,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pyarrow as pa
 import deltalake
 import structlog
@@ -129,6 +130,33 @@ def test_table_from_py_list_inconsistent_types_with_str_and_dict():
             ]
         )
     )
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        None,
+        pa.schema([("id", pa.int64()), ("data", pa.string())]),
+        # A source may declare a non-string type for a column that arrives as dicts; the
+        # serialized column must coerce the schema field to string or from_pydict fails.
+        pa.schema([("id", pa.int64()), ("data", pa.struct([("a", pa.int64())]))]),
+    ],
+)
+def test_table_from_py_list_dict_column_preserves_original_documents(schema):
+    # Heterogeneous nested documents (each row's structure differs, as in a MongoDB collection).
+    # Routing these through a unified pyarrow struct made conversion superlinear in batch size
+    # and injected null-filled union fields from other rows into every serialized document.
+    docs = [
+        {"a": 1, "nested": {"x": [{"k": 1, "verbs": ["led"]}]}},
+        {"b": "two", "nested": {"y": {"deep": True}}, "extra": [1, 2]},
+        None,
+        {"c": [{"only": "here"}]},
+    ]
+    table = table_from_py_list([{"id": i, "data": doc} for i, doc in enumerate(docs)], schema)
+
+    assert table.schema.field("data").type == pa.string()
+    stored = [None if v is None else orjson.loads(v) for v in table.column("data").to_pylist()]
+    assert stored == docs
 
 
 @pytest.mark.parametrize(
