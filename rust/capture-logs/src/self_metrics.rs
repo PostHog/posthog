@@ -276,10 +276,13 @@ fn now_unix_nanos() -> u64 {
 fn process_cpu_seconds() -> Option<f64> {
     let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
     // SAFETY: getrusage fills the struct we hand it; we only read it on success.
+    // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
     let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
     if rc != 0 {
         return None;
     }
+    // SAFETY: rc == 0 means getrusage initialized the struct.
+    // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
     let usage = unsafe { usage.assume_init() };
     let seconds = |tv: libc::timeval| tv.tv_sec as f64 + tv.tv_usec as f64 / 1e6;
     Some(seconds(usage.ru_utime) + seconds(usage.ru_stime))
@@ -290,6 +293,7 @@ fn process_rss_bytes() -> Option<f64> {
     let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
     let resident_pages: f64 = statm.split_whitespace().nth(1)?.parse().ok()?;
     // SAFETY: sysconf with a valid constant is always safe to call.
+    // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page_size <= 0 {
         return None;
