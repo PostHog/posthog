@@ -48,7 +48,8 @@ _SELECT = f"""
         min(w.run_started_at) AS run_started_at,
         if(countIf(w.status != 'completed') = 0, dateDiff('second', min(w.run_started_at), max(w.updated_at)), NULL)
             AS duration_seconds,
-        any(w.head_branch) AS head_branch
+        any(w.head_branch) AS head_branch,
+        w.head_sha AS head_sha
     FROM (
         SELECT
             argMax(r.id, r.run_started_at) AS id,
@@ -95,7 +96,7 @@ def query_repo_run_activity(
 
 
 def _to_point(row: tuple) -> WorkflowRunActivityPoint:
-    run_id, conclusion, run_started_at, duration_seconds, head_branch = row
+    run_id, conclusion, run_started_at, duration_seconds, head_branch, head_sha = row
     return WorkflowRunActivityPoint(
         run_id=int(run_id),
         # '' is the in-flight sentinel from the multiIf (not every workflow settled) — normalize to None.
@@ -105,4 +106,5 @@ def _to_point(row: tuple) -> WorkflowRunActivityPoint:
         head_branch=head_branch or "",
         # Default-branch commits aren't attributed to a single PR — the chart hides the PR line at 0.
         pr_number=0,
+        head_sha=head_sha or "",
     )

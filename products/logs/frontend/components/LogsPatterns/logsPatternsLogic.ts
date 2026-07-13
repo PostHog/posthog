@@ -30,11 +30,6 @@ export interface LogsPatternsLogicProps {
     id: string
 }
 
-// 'lastWeek' omits baselineDateRange so the backend defaults to the same window one week
-// earlier (absorbs daily/weekly cycles); 'preceding' compares against the window immediately
-// before the current one (the post-deploy / incident-onset comparison).
-export type PatternsBaselineMode = 'lastWeek' | 'preceding'
-
 // The severity filter is an exact match on these six buckets; a sampled severity outside them
 // (e.g. "notice") can't be expressed, so applying the filter would silently exclude those lines.
 const CANONICAL_SEVERITIES = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
@@ -86,7 +81,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             logsViewerFiltersLogic({ id: props.id }),
             ['filters', 'utcDateRange', 'queryFilterGroup'],
             logsViewerConfigLogic({ id: props.id }),
-            ['viewMode'],
+            ['viewMode', 'compareEnabled', 'baselineMode'],
         ],
         actions: [
             logsViewerFiltersLogic({ id: props.id }),
@@ -101,14 +96,12 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 'setPinnedFilters',
             ],
             logsViewerConfigLogic({ id: props.id }),
-            ['setViewMode'],
+            ['setViewMode', 'setCompareEnabled', 'setBaselineMode'],
         ],
     })),
 
     actions({
         viewMatchingLogs: (pattern: _LogPatternApi) => ({ pattern }),
-        setCompareEnabled: (enabled: boolean) => ({ enabled }),
-        setBaselineMode: (mode: PatternsBaselineMode) => ({ mode }),
     }),
 
     loaders(({ values }) => ({
@@ -144,34 +137,38 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
     })),
 
     // A failed mine (e.g. the sampling query exceeding its execution budget) must surface as
-    // an error, not render as "no patterns found" — that would misrepresent the data.
+    // an error, not render as "no patterns found" — that would misrepresent the data. The two
+    // modes track their own error: the loaders run independently (toggling compare off fires a
+    // plain mine without cancelling an in-flight diff), so a shared error would let a stale diff
+    // failure clobber a successful plain-mine table's empty state.
     reducers({
-        patternsError: [
+        mineError: [
             null as string | null,
             {
                 loadPatterns: () => null,
                 loadPatternsSuccess: () => null,
                 loadPatternsFailure: (_, { error }) => error ?? 'Pattern analysis failed',
+            },
+        ],
+        diffError: [
+            null as string | null,
+            {
                 loadDiff: () => null,
                 loadDiffSuccess: () => null,
                 loadDiffFailure: (_, { error }) => error ?? 'Pattern comparison failed',
             },
         ],
-        compareEnabled: [
-            false,
-            {
-                setCompareEnabled: (_, { enabled }) => enabled,
-            },
-        ],
-        baselineMode: [
-            'lastWeek' as PatternsBaselineMode,
-            {
-                setBaselineMode: (_, { mode }) => mode,
-            },
-        ],
     }),
 
     selectors({
+        // Surface only the active mode's error. The loaders run independently, so a stale diff
+        // failure landing after the user toggled compare off must not overwrite the successful
+        // plain-mine table's empty state (and vice versa).
+        patternsError: [
+            (s) => [s.compareEnabled, s.mineError, s.diffError],
+            (compareEnabled: boolean, mineError: string | null, diffError: string | null): string | null =>
+                compareEnabled ? diffError : mineError,
+        ],
         // The shared query body for both the mine and the diff — the diff must scope its two
         // windows with exactly the filters a plain mine would use, or compare mode would
         // silently answer a different question than the table next to it.
@@ -310,7 +307,14 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         }
     }),
 
-    afterMount(({ actions }) => {
-        actions.loadPatterns()
+    afterMount(({ actions, values }) => {
+        // Compare state lives on the config logic and survives Logs↔Patterns lens switches,
+        // so this logic can mount with compare already on — loading the plain mine then would
+        // answer the wrong question.
+        if (values.compareEnabled) {
+            actions.loadDiff()
+        } else {
+            actions.loadPatterns()
+        }
     }),
 ])

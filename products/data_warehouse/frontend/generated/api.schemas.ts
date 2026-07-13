@@ -1794,6 +1794,8 @@ export interface CredentialApi {
  * * `TerraApi` - TerraApi
  * * `TriggerDev` - TriggerDev
  * * `Turso` - Turso
+ * * `Singular` - Singular
+ * * `Swonkie` - Swonkie
  * * `TwelveLabs` - TwelveLabs
  * * `Twenty` - Twenty
  * * `Unstructured` - Unstructured
@@ -1802,6 +1804,7 @@ export interface CredentialApi {
  * * `Vultr` - Vultr
  * * `Windmill` - Windmill
  * * `Zep` - Zep
+ * * `Hex` - Hex
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2552,6 +2555,8 @@ export const ExternalDataSourceTypeEnumApi = {
     TerraApi: 'TerraApi',
     TriggerDev: 'TriggerDev',
     Turso: 'Turso',
+    Singular: 'Singular',
+    Swonkie: 'Swonkie',
     TwelveLabs: 'TwelveLabs',
     Twenty: 'Twenty',
     Unstructured: 'Unstructured',
@@ -2560,6 +2565,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Vultr: 'Vultr',
     Windmill: 'Windmill',
     Zep: 'Zep',
+    Hex: 'Hex',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

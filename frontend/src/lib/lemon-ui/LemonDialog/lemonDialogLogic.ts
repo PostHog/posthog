@@ -7,6 +7,8 @@ export type LemonDialogFormPropsType = {
     errors?: Record<string, (value: string) => string | undefined>
     /** Unique key that isolates this dialog's form state from other open dialogs. */
     dialogKey?: string
+    /** Surface field errors inline once a field is touched, instead of only via the submit button tooltip. */
+    showErrorsOnTouch?: boolean
 }
 
 export const lemonDialogLogic = kea<lemonDialogLogicType>([
@@ -15,6 +17,7 @@ export const lemonDialogLogic = kea<lemonDialogLogicType>([
     path((k) => ['components', 'lemon-dialog', 'lemonDialogLogic', k]),
     forms(({ props }) => ({
         form: {
+            options: { showErrorsOnTouch: props.showErrorsOnTouch ?? false },
             defaults: {} as Record<string, string>,
             errors: (values: Record<string, string>) => {
                 const entries = Object.entries(props.errors || []).map(([key, valueOf]) => {

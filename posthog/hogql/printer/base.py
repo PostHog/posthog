@@ -255,15 +255,19 @@ class BasePrinter(Visitor[str]):
         inner = ", ".join(self.visit(e) for e in node.exprs)
         return f"({inner})"
 
+    def _visit_set_operand(self, node: ast.SelectQuery | ast.SelectSetQuery) -> str:
+        """Render one operand of a set query (UNION/INTERSECT/EXCEPT). Dialects whose grammar
+        needs each operand parenthesized (e.g. to carry a per-branch LIMIT) override this."""
+        query = self.visit(node)
+        if self.pretty:
+            query = query.strip()
+        return query
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
-        ret = self.visit(node.initial_select_query)
-        if self.pretty:
-            ret = ret.strip()
+        ret = self._visit_set_operand(node.initial_select_query)
         for expr in node.subsequent_select_queries:
-            query = self.visit(expr.select_query)
-            if self.pretty:
-                query = query.strip()
+            query = self._visit_set_operand(expr.select_query)
             if expr.set_operator is not None:
                 self._assert_set_operator_supported(expr.set_operator)
                 if self.pretty:
@@ -991,10 +995,12 @@ class BasePrinter(Visitor[str]):
             # Handle format strings in function names before checking function type
             # HogQL preserves the macro in its original shape; SQL dialects expand it.
             if func_meta.using_placeholder_arguments and self._expands_placeholder_macros():
-                # Pre-#58714 behavior: single-arg toFloatOrDefault was degenerate and
-                # equivalent to toFloatOrZero. Rewrite here so saved queries still work.
-                if node.name == "toFloatOrDefault" and len(node.args) == 1:
-                    return self.visit(ast.Call(name="toFloatOrZero", args=node.args))
+                # The single-arg form of these is degenerate (equivalent to toFloatOrZero/toIntOrZero).
+                # For toFloatOrDefault this is pre-#58714 behavior kept so old saved queries still print;
+                # toIntOrDefault is new but made degenerate the same way for parity.
+                if len(node.args) == 1 and node.name in ("toFloatOrDefault", "toIntOrDefault"):
+                    zero_fn = "toFloatOrZero" if node.name == "toFloatOrDefault" else "toIntOrZero"
+                    return self.visit(ast.Call(name=zero_fn, args=node.args))
                 return self._render_placeholder_macro(
                     node=node,
                     clickhouse_name=func_meta.clickhouse_name,
@@ -1639,7 +1645,7 @@ class BasePrinter(Visitor[str]):
             case "text" | "varchar" | "char" | "string":
                 return f"toString({self.visit(node.expr)})"
             case "boolean" | "bool":
-                return f"toBoolean({self.visit(node.expr)})"
+                return f"accurateCastOrNull({self.visit(node.expr)}, 'Bool')"
             case "date":
                 return f"toDate({self.visit(node.expr)})"
             case (
