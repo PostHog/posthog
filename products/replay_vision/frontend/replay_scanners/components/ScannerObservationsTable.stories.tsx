@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { screen, within } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
+import { screen, within } from '@testing-library/react'
 
 import { urls } from 'scenes/urls'
 
@@ -182,9 +181,12 @@ const meta = {
             },
         }),
     ],
-    render: () => (
+    args: {
+        scannerId: SCANNER_ID,
+    },
+    render: ({ scannerId }) => (
         <div className="p-6 min-w-[1180px]">
-            <ScannerObservationsTable scannerId={SCANNER_ID} />
+            <ScannerObservationsTable scannerId={scannerId} />
         </div>
     ),
 } satisfies Meta<typeof ScannerObservationsTable>
@@ -204,11 +206,11 @@ export const TagMenuOpen: Story = {
     play: async ({ canvasElement }) => {
         await within(canvasElement).findByText('Observation history')
         await within(canvasElement).findByText('actively-read')
-        const tagFilter = canvasElement.querySelector('[data-attr="vision-observations-tag-filter"]')
+        const tagFilter = canvasElement.querySelector<HTMLInputElement>('[data-attr="vision-observations-tag-filter"]')
         if (!tagFilter) {
             throw new Error('Tag filter input not found')
         }
-        await userEvent.click(tagFilter)
+        tagFilter.click()
         await screen.findByRole('button', { name: 'Clear all' })
     },
 }
