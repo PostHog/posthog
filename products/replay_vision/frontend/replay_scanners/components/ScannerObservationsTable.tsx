@@ -105,7 +105,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationSubjectFilter,
         hasActiveObservationFilters,
         observationDetailLinkParams,
-        availableTags,
+        observationTagFilterOptions,
         observationStats,
         scanner,
         triggeringOnDemandObservation,
@@ -124,7 +124,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         clearObservationFilters,
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
-    const tagFilterOptions = availableTags.map((tag) => ({ key: tag, label: tag, value: tag }))
 
     const columns: LemonTableColumns<ReplayObservationApi> = [
         {
@@ -280,12 +279,12 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         onChange={setObservationVerdictFilter}
                                     />
                                 )}
-                                {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
+                                {scannerType === 'classifier' && observationTagFilterOptions.length > 0 && (
                                     <LemonInputSelect
                                         mode="multiple"
                                         size="small"
                                         placeholder="Tag"
-                                        options={tagFilterOptions}
+                                        options={observationTagFilterOptions}
                                         value={observationTagFilter}
                                         onChange={setObservationTagFilter}
                                         displayMode="count"

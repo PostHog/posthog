@@ -632,6 +632,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             (s) => [s.observationStatsApi],
             (stats: ObservationStatsApi | null): string[] => stats?.available_tags ?? [],
         ],
+        observationTagFilterOptions: [
+            (s) => [s.availableTags],
+            (availableTags: string[]): { key: string; label: string; value: string }[] =>
+                availableTags.map((tag) => ({ key: tag, label: tag, value: tag })),
+        ],
         observationStats: [
             (s) => [s.observationStatsApi],
             (
