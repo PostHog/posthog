@@ -51,7 +51,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     get_credentials_using_user_aws_role,
     s3_client,
 )
-from products.batch_exports.backend.temporal.destinations.utils import get_key_prefix
+from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -1336,7 +1336,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             organization_id = str(team.organization_id)
 
             bucket_name = inputs.copy.s3_bucket.name
-            key_prefix = get_key_prefix(
+            key_prefix = get_absolute_key_prefix(
                 inputs.copy.s3_key_prefix,
                 inputs.batch_export.data_interval_start,
                 inputs.batch_export.data_interval_end,
@@ -1346,7 +1346,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                 PolicyStatement(
                     Effect="Allow",
                     Action=["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
-                    Resource=f"arn:aws:s3:::{bucket_name}/{key_prefix}/*",
+                    Resource=f"arn:aws:s3:::{bucket_name}{key_prefix}*",
                 ),
                 PolicyStatement(
                     Effect="Allow",

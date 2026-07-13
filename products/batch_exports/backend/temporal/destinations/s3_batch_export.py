@@ -3,7 +3,6 @@ import typing
 import asyncio
 import secrets
 import datetime as dt
-import posixpath
 import contextlib
 import dataclasses
 import collections.abc
@@ -53,7 +52,11 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.destinations.constants import (
     S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
 )
-from products.batch_exports.backend.temporal.destinations.utils import get_key_prefix, get_manifest_key, get_object_key
+from products.batch_exports.backend.temporal.destinations.utils import (
+    get_absolute_key_prefix,
+    get_manifest_key,
+    get_object_key,
+)
 from products.batch_exports.backend.temporal.metrics import Attributes, CumulativeTimer, ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -570,15 +573,9 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                 organization_id = str(team.organization_id)
 
                 bucket_name = inputs.bucket_name
-                key_prefix = get_key_prefix(
+                key_prefix = get_absolute_key_prefix(
                     inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
                 )
-                # Empty string becomes "/", prefixes without a leading "/" get one,
-                # and for everything else this is a no-op.
-                key_prefix = posixpath.join("/", key_prefix)
-                # Ensures a trailing slash, as all of our object keys join on the prefix,
-                # which means they end up after a slash.
-                key_prefix = posixpath.join(key_prefix, "")
 
                 policy_statements = [
                     PolicyStatement(
