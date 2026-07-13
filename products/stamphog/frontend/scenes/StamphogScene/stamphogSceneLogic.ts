@@ -11,19 +11,13 @@ import {
     stamphogRepoConfigsList,
     stamphogRepoConfigsPartialUpdate,
     stamphogRepoConfigsSyncInstallationCreate,
-    stamphogReviewRunsList,
 } from '../../generated/api'
 import type {
-    ReviewRunApi,
     StamphogInstallInfoApi,
     StamphogRepoConfigApi,
     StamphogSyncInstallationResponseApi,
 } from '../../generated/api.schemas'
 import type { stamphogSceneLogicType } from './stamphogSceneLogicType'
-
-// Only the most recent review runs are shown — this is a compact activity
-// list, not a full history browser.
-const REVIEW_RUNS_LIMIT = 20
 
 export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
     path(['products', 'stamphog', 'frontend', 'scenes', 'StamphogScene', 'stamphogSceneLogic']),
@@ -44,17 +38,6 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             {
                 loadRepoConfigs: async () => {
                     const response = await stamphogRepoConfigsList(String(values.currentProjectId))
-                    return response.results
-                },
-            },
-        ],
-        reviewRuns: [
-            [] as ReviewRunApi[],
-            {
-                loadReviewRuns: async () => {
-                    const response = await stamphogReviewRunsList(String(values.currentProjectId), {
-                        limit: REVIEW_RUNS_LIMIT,
-                    })
                     return response.results
                 },
             },
@@ -153,7 +136,6 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadRepoConfigs()
-        actions.loadReviewRuns()
         actions.loadInstallInfo()
     }),
 ])

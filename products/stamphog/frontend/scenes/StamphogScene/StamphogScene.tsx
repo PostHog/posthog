@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -10,21 +10,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import type { ReviewRunApi, StamphogRepoConfigApi } from '../../generated/api.schemas'
+import type { StamphogRepoConfigApi } from '../../generated/api.schemas'
 import { stamphogSceneLogic } from './stamphogSceneLogic'
 
 export const scene: SceneExport = {
     component: StamphogScene,
     logic: stamphogSceneLogic,
-}
-
-const VERDICT_TAG_TYPE: Record<string, 'success' | 'danger' | 'warning' | 'default'> = {
-    approved: 'success',
-    refused: 'danger',
-    escalate: 'warning',
-    wait: 'warning',
-    error: 'danger',
-    none: 'default',
 }
 
 function ConnectRepositoryButton(): JSX.Element {
@@ -123,53 +114,6 @@ function RepoConfigsTable(): JSX.Element {
     )
 }
 
-function ReviewRunsTable(): JSX.Element {
-    const { reviewRuns, reviewRunsLoading } = useValues(stamphogSceneLogic)
-
-    const columns: LemonTableColumns<ReviewRunApi> = [
-        {
-            title: 'PR',
-            key: 'pr_number',
-            render: (_, run) => (
-                <Link to={run.pr_url} target="_blank">
-                    #{run.pr_number}
-                </Link>
-            ),
-        },
-        {
-            title: 'Repository',
-            dataIndex: 'repository',
-        },
-        {
-            title: 'Status',
-            dataIndex: 'status',
-            render: (status) => <LemonTag>{status as string}</LemonTag>,
-        },
-        {
-            title: 'Verdict',
-            dataIndex: 'verdict',
-            render: (verdict) => (
-                <LemonTag type={VERDICT_TAG_TYPE[verdict as string] ?? 'default'}>{verdict as string}</LemonTag>
-            ),
-        },
-        {
-            title: 'Created',
-            dataIndex: 'created_at',
-            render: (created_at) => <TZLabel time={created_at as string} />,
-        },
-    ]
-
-    return (
-        <LemonTable
-            columns={columns}
-            dataSource={reviewRuns}
-            loading={reviewRunsLoading}
-            rowKey="id"
-            emptyState="No review runs yet."
-        />
-    )
-}
-
 export function StamphogScene(): JSX.Element {
     return (
         <SceneContent>
@@ -183,10 +127,6 @@ export function StamphogScene(): JSX.Element {
             <div>
                 <h3>Repositories</h3>
                 <RepoConfigsTable />
-            </div>
-            <div>
-                <h3>Recent review runs</h3>
-                <ReviewRunsTable />
             </div>
         </SceneContent>
     )
