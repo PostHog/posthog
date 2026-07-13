@@ -1,5 +1,6 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+import time
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
@@ -42,7 +43,7 @@ from posthog.exceptions import (
 )
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
-from posthog.models.person.util import validate_person_uuids_exist
+from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -1820,7 +1821,7 @@ class ExperimentService:
         persons, so a person cohort cannot freeze the exposed set. Experiments whose
         exposed set contains a material share of anonymous (personless) users are
         rejected too, since cohort membership is person-keyed and freezing would drop
-        those users' variants (see _assert_exposed_persons_resolvable).
+        those users' variants (see _resolve_exposed_persons).
 
         Runs in two phases because the snapshot build can take tens of seconds — plenty of
         time for a concurrent freeze, pause, end, or flag edit to land. Phase 1 (unlocked)
@@ -1834,11 +1835,20 @@ class ExperimentService:
         ``request`` is required because FeatureFlagSerializer needs a real request
         with authentication and session context to persist the flag change.
         """
+        # Phase timings are logged at the end: the freeze spans several backends (ClickHouse scan,
+        # personhog RPCs, cohort build with its cache side effects, flag save) whose relative cost
+        # can't be reconstructed from any single backend's logs — see experiment_freeze_exposure_timing.
+        freeze_started_at = time.monotonic()
+
         # Phase 1 — unlocked: fail obviously-invalid requests before the expensive snapshot build.
         self._validate_freeze_exposure_state(experiment)
+        # Separate checkpoint so scan_ms measures only the ClickHouse scan — the guard above can
+        # lazy-load the flag row, and folding that into scan_ms would misattribute it.
+        scan_started_at = time.monotonic()
 
         # 1. Snapshot the actually-exposed set (bounded by time + count; raises if too large to freeze in-request).
         exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
+        scan_done_at = time.monotonic()
         if not exposed_person_uuids:
             # An empty snapshot cohort ANDed into every release group would un-enroll every user.
             raise ValidationError(
@@ -1846,12 +1856,16 @@ class ExperimentService:
                 "Wait until the experiment has recorded exposures."
             )
 
-        # 2. Fail closed if a material share of the exposed set has no person profile: cohort
-        # membership is person-keyed, so those users would silently lose their variant.
-        self._assert_exposed_persons_resolvable(exposed_person_uuids)
+        # 2. Resolve the exposed set to person ids, failing closed if a material share has no
+        # person profile: cohort membership is person-keyed, so those users would silently lose
+        # their variant. The resolved pairs feed the snapshot insert directly, so the persons
+        # aren't fetched from personhog a second time.
+        resolved_person_pairs = self._resolve_exposed_persons(exposed_person_uuids)
+        resolve_done_at = time.monotonic()
 
         # 3. Materialize it into a static cohort synchronously, so the flag never points at an unpopulated cohort.
-        exposure_snapshot = self._create_exposure_snapshot_cohort(experiment, exposed_person_uuids)
+        exposure_snapshot = self._create_exposure_snapshot_cohort(experiment, resolved_person_pairs)
+        cohort_build_done_at = time.monotonic()
 
         # Phase 2 — locked: any failure here drops the snapshot cohort, which is referenced only by
         # the flag change attempted below — a failed freeze should leave nothing behind.
@@ -1916,10 +1930,26 @@ class ExperimentService:
         # Refresh so the experiment's nested flag reflects the narrowed filters when serialized.
         locked_flag.refresh_from_db()
         experiment.feature_flag = locked_flag
+        flag_save_done_at = time.monotonic()
 
         # end_date intentionally left null — metrics keep flowing.
 
         self._report_lifecycle_event(experiment, "experiment exposure frozen", request=request)
+
+        # flag_save_ms includes the transaction commit, so it carries the on-commit flag cache
+        # rebuilds; cohort_build_ms carries the cohort dependency cache warm-up triggered by the
+        # snapshot cohort's creation.
+        logger.info(
+            "experiment_freeze_exposure_timing",
+            team_id=self.team.pk,
+            experiment_id=experiment.pk,
+            exposed_count=len(exposed_person_uuids),
+            scan_ms=round((scan_done_at - scan_started_at) * 1000),
+            resolve_ms=round((resolve_done_at - scan_done_at) * 1000),
+            cohort_build_ms=round((cohort_build_done_at - resolve_done_at) * 1000),
+            flag_save_ms=round((flag_save_done_at - cohort_build_done_at) * 1000),
+            total_ms=round((time.monotonic() - freeze_started_at) * 1000),
+        )
 
         return experiment
 
@@ -2051,23 +2081,30 @@ class ExperimentService:
 
         return [str(row[0]) for row in response.results]
 
-    def _assert_exposed_persons_resolvable(self, person_uuids: list[str]) -> None:
-        """Fail closed when a material share of the exposed set has no person profile.
+    def _resolve_exposed_persons(self, person_uuids: list[str]) -> list[tuple[int, str]]:
+        """Resolve exposed person UUIDs to (person_id, uuid) pairs, failing closed when a
+        material share of the exposed set has no person profile.
 
         Cohort membership is person-keyed, and flag evaluation resolves distinct_id to person
         before checking it, so an exposed user without a person row (anonymous "personless"
-        traffic, or a since-deleted person) can never match the snapshot cohort. The cohort
-        insert silently skips such users, and post-freeze the narrowed flag stops serving them:
-        freezing would break "everyone already enrolled keeps their variant" for exactly that
-        share of the population. Typical for experiments exposed on logged-out surfaces, where
-        the share can be the majority. A small unresolved share is tolerated as deletion/merge
-        noise; beyond FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE the freeze is rejected, before any
-        cohort is created.
+        traffic, or a since-deleted person) can never match the snapshot cohort. Post-freeze the
+        narrowed flag would stop serving such users: freezing would break "everyone already
+        enrolled keeps their variant" for exactly that share of the population. Typical for
+        experiments exposed on logged-out surfaces, where the share can be the majority. A small
+        unresolved share is tolerated as deletion/merge noise; beyond
+        FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE the freeze is rejected, before any cohort is created.
+
+        The returned pairs are what the snapshot cohort is built from — resolution and insert
+        share one (field-masked) personhog pass instead of fetching the persons twice. Membership
+        is therefore snapshotted at resolve time: a person deleted or merged in the moments before
+        the insert is written as an inert row rather than skipped. The user-facing outcome is
+        unchanged from insert-time resolution (their distinct_id no longer resolves to a cohort
+        member either way), and the cohort stays consistent with the count this guard approved.
         """
-        resolved_count = len(validate_person_uuids_exist(self.team.id, person_uuids))
-        unresolved_count = len(person_uuids) - resolved_count
+        resolved_person_pairs = get_person_ids_and_uuids_by_uuids(self.team.id, person_uuids)
+        unresolved_count = len(person_uuids) - len(resolved_person_pairs)
         if unresolved_count == 0:
-            return
+            return resolved_person_pairs
         unresolved_share = unresolved_count / len(person_uuids)
         logger.warning(
             "experiment_freeze_exposure_unresolved_persons",
@@ -2082,12 +2119,14 @@ class ExperimentService:
                 "cannot be held in a cohort. Freezing would remove their variant. Freezing exposure "
                 "requires an experiment whose exposed users are identified."
             )
+        return resolved_person_pairs
 
-    def _create_exposure_snapshot_cohort(self, experiment: Experiment, person_uuids: list[str]) -> Cohort:
+    def _create_exposure_snapshot_cohort(self, experiment: Experiment, id_uuid_pairs: list[tuple[int, str]]) -> Cohort:
         """Create a static cohort frozen to the given already-exposed persons (synchronous, no Celery).
 
         Static is required — behavioral cohorts are rejected by feature-flag validation, and a static
-        snapshot is exactly what freezes enrollment.
+        snapshot is exactly what freezes enrollment. Takes the (person_id, uuid) pairs resolved by
+        _resolve_exposed_persons so the insert doesn't re-fetch the persons from personhog.
         """
         cohort = Cohort.objects.create(
             team=self.team,
@@ -2098,7 +2137,9 @@ class ExperimentService:
         try:
             # raise_on_error: the batching helper otherwise swallows mid-batch failures and returns
             # normally, and a partially populated snapshot would evict every user missing from it.
-            cohort.insert_users_list_by_uuid(person_uuids, team_id=self.team.id, raise_on_error=True)
+            cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
+                id_uuid_pairs, team_id=self.team.id, raise_on_error=True
+            )
         except Exception:
             # The cohort row exists but isn't referenced by anything yet — drop it so a failed
             # population doesn't leave an empty static cohort behind.
@@ -2220,6 +2261,8 @@ class ExperimentService:
         this path (see Experiment.is_exposure_frozen). The snapshot cohort is soft-deleted after
         the flag save so it doesn't accumulate as clutter.
         """
+        unfreeze_started_at = time.monotonic()
+
         if experiment.is_draft:
             raise ValidationError("Experiment has not been launched yet.")
         if experiment.is_stopped:
@@ -2246,11 +2289,24 @@ class ExperimentService:
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
         flag.refresh_from_db()
         experiment.feature_flag = flag
+        flag_save_done_at = time.monotonic()
 
         # Only after the flag no longer references them: soft-delete the now-orphaned snapshots.
         self._delete_orphaned_snapshot_cohorts(cohort_ids)
+        cohort_cleanup_done_at = time.monotonic()
 
         self._report_lifecycle_event(experiment, "experiment exposure unfrozen", request=request)
+
+        # flag_save_ms carries the on-commit flag cache rebuilds; cohort_cleanup_ms carries the
+        # orphan check plus the cohort-delete cache side effects (dependency cache warm-up).
+        logger.info(
+            "experiment_unfreeze_exposure_timing",
+            team_id=self.team.pk,
+            experiment_id=experiment.pk,
+            flag_save_ms=round((flag_save_done_at - unfreeze_started_at) * 1000),
+            cohort_cleanup_ms=round((cohort_cleanup_done_at - flag_save_done_at) * 1000),
+            total_ms=round((time.monotonic() - unfreeze_started_at) * 1000),
+        )
 
         return experiment
 

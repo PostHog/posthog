@@ -358,6 +358,23 @@ class TestCohort(BaseTest):
         member_ids = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)
         cohort_person_uuids = {str(_require_person_by_id(self.team.id, pid).uuid) for pid in member_ids}
         assert cohort_person_uuids == set(uuids)
+
+    def test_insert_users_list_by_id_uuid_pairs_skip_validation(self):
+        persons = [create_person(team=self.team) for _ in range(5)]
+        pairs = [(person.id, str(person.uuid)) for person in persons]
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+
+        cohort.insert_users_list_by_id_uuid_pairs_skip_validation(pairs, team_id=self.team.id)
+
+        cohort.refresh_from_db()
+        assert cohort.count == 5
+        assert set(list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)) == {p.id for p in persons}
+        # The members must also land in the ClickHouse static cohort table, keyed by uuid.
+        ch_rows = sync_execute(
+            "SELECT person_id FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.pk},
+        )
+        assert {str(row[0]) for row in ch_rows} == {str(p.uuid) for p in persons}
         assert cohort.is_calculating is False
 
     def test_insert_users_by_list_avoids_duplicates_with_batching(self):

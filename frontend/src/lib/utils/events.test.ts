@@ -1,5 +1,6 @@
 import {
     autoCaptureEventToDescription,
+    distinctPrimaryPropertiesForEvents,
     eventToDescription,
     getEventsWithPrimaryProperty,
     getPrimaryPropertyForEvent,
@@ -220,11 +221,24 @@ describe('events utils', () => {
     })
 
     describe('getPrimaryPropertyForEvent', () => {
-        it('returns the core taxonomy default for built-in events', () => {
-            expect(getPrimaryPropertyForEvent('$pageview')).toBe('$pathname')
-            expect(getPrimaryPropertyForEvent('$pageleave')).toBe('$pathname')
-            expect(getPrimaryPropertyForEvent('$screen')).toBe('$screen_name')
-            expect(getPrimaryPropertyForEvent('$feature_flag_called')).toBe('$feature_flag')
+        it.each([
+            ['$pageview', '$pathname'],
+            ['$pageleave', '$pathname'],
+            ['$screen', '$screen_name'],
+            ['$feature_flag_called', '$feature_flag'],
+            ['$exception', '$exception_type'],
+            ['$ai_generation', '$ai_model'],
+            ['$ai_trace', '$ai_span_name'],
+            ['$ai_span', '$ai_span_name'],
+            ['$ai_metric', '$ai_metric_name'],
+            ['$ai_evaluation', '$ai_evaluation_name'],
+            ['$csp_violation', '$csp_violated_directive'],
+            ['$mcp_tool_call', '$mcp_tool_name'],
+            ['$mcp_resource_read', '$mcp_resource_name'],
+            ['$mcp_prompt_get', '$mcp_resource_name'],
+            ['Deep link opened', 'url'],
+        ])('returns the core taxonomy default for %s', (eventName, expected) => {
+            expect(getPrimaryPropertyForEvent(eventName)).toBe(expected)
         })
 
         it('returns null for events with no taxonomy default and no override', () => {
@@ -290,6 +304,29 @@ describe('events utils', () => {
                 { event: 'arbitrary_custom', id: 2 },
             ]
             expect(getEventsWithPrimaryProperty(events)).toEqual([])
+        })
+    })
+
+    describe('distinctPrimaryPropertiesForEvents', () => {
+        it('returns the distinct taxonomy defaults for a list of events', () => {
+            expect(distinctPrimaryPropertiesForEvents(['$pageview', '$pageleave', '$screen'])).toEqual([
+                '$pathname',
+                '$screen_name',
+            ])
+        })
+
+        it('includes team overrides for events with no taxonomy default', () => {
+            expect(
+                distinctPrimaryPropertiesForEvents(['$pageview', 'order_placed'], { order_placed: 'order_id' })
+            ).toEqual(['$pathname', 'order_id'])
+        })
+
+        it('returns an empty list for no event names', () => {
+            expect(distinctPrimaryPropertiesForEvents([])).toEqual([])
+        })
+
+        it('returns an empty list when nothing has a primary property', () => {
+            expect(distinctPrimaryPropertiesForEvents(['$autocapture', 'arbitrary_custom'])).toEqual([])
         })
     })
 

@@ -3803,7 +3803,8 @@
         },
         "$ai_evaluation": {
             "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
-            "label": "AI evaluation (LLM)"
+            "label": "AI evaluation (LLM)",
+            "primary_property": "$ai_evaluation_name"
         },
         "$ai_feedback": {
             "description": "User-provided feedback for a trace of a generative AI model (LLM).",
@@ -3811,15 +3812,18 @@
         },
         "$ai_generation": {
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
-            "label": "AI generation (LLM)"
+            "label": "AI generation (LLM)",
+            "primary_property": "$ai_model"
         },
         "$ai_metric": {
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
-            "label": "AI metric (LLM)"
+            "label": "AI metric (LLM)",
+            "primary_property": "$ai_metric_name"
         },
         "$ai_span": {
             "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs).",
-            "label": "AI span (LLM)"
+            "label": "AI span (LLM)",
+            "primary_property": "$ai_span_name"
         },
         "$ai_tag": {
             "description": "A tag classification of an AI event. Contains the assigned tags, reasoning, and tagger metadata.",
@@ -3827,7 +3831,8 @@
         },
         "$ai_trace": {
             "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls.",
-            "label": "AI trace (LLM)"
+            "label": "AI trace (LLM)",
+            "primary_property": "$ai_span_name"
         },
         "$autocapture": {
             "description": "User interactions that were automatically captured.",
@@ -3882,7 +3887,8 @@
                 "Unauthorized inline script",
                 "Trying to load resources from unauthorized domain"
             ],
-            "label": "CSP violation"
+            "label": "CSP violation",
+            "primary_property": "$csp_violated_directive"
         },
         "$dead_click": {
             "description": "A user has clicked on something that is probably not clickable.",
@@ -3907,7 +3913,8 @@
         },
         "$exception": {
             "description": "An unexpected error or unhandled exception in your application.",
-            "label": "Exception"
+            "label": "Exception",
+            "primary_property": "$exception_type"
         },
         "$feature_enrollment_update": {
             "description": "When a user enrolls with a feature.",
@@ -3957,7 +3964,8 @@
         },
         "$mcp_prompt_get": {
             "description": "Fires when an MCP prompt is fetched by a client. Includes the prompt name.",
-            "label": "MCP prompt fetched"
+            "label": "MCP prompt fetched",
+            "primary_property": "$mcp_resource_name"
         },
         "$mcp_prompts_list": {
             "description": "Fires when an MCP client requests the list of available prompts.",
@@ -3965,7 +3973,8 @@
         },
         "$mcp_resource_read": {
             "description": "Fires when an MCP resource is fetched by a client. Includes the resource name.",
-            "label": "MCP resource read"
+            "label": "MCP resource read",
+            "primary_property": "$mcp_resource_name"
         },
         "$mcp_resources_list": {
             "description": "Fires when an MCP client requests the list of available resources.",
@@ -4050,7 +4059,8 @@
         },
         "Deep link opened": {
             "description": "When a user opens the mobile app via a deep link.",
-            "label": "Deep link opened"
+            "label": "Deep link opened",
+            "primary_property": "url"
         },
         "mcp feedback submitted": {
             "description": "Fires when feedback is submitted through the MCP server's feedback tool \u2014 about any PostHog product, the MCP server itself, or the docs.",
