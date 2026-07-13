@@ -19,6 +19,11 @@ from products.pulse.backend.agent.async_completion import line_signals_turn_comp
 
 logger = logging.getLogger(__name__)
 
+# Mirrors the sibling task event-ingest cap (event_ingest.py): the body is untrusted agent output,
+# so bound it before buffering into worker memory. Raw request.body is not covered by Django's
+# DATA_UPLOAD_MAX_MEMORY_SIZE (that guards form parsing only).
+MAX_REQUEST_BYTES = 5_000_000
+
 
 def pulse_agent_events(request: HttpRequest, run_id: str) -> JsonResponse:
     # Inline to keep the sandbox/temporal deps off the URLconf import path (this module is
@@ -41,6 +46,13 @@ def pulse_agent_events(request: HttpRequest, run_id: str) -> JsonResponse:
     # The JWT carries the run it was minted for; a mismatch means a token replayed across runs.
     if claims.run_id != run_id:
         return JsonResponse({"error": "Token does not match run"}, status=403)
+
+    try:
+        content_length = int(request.headers.get("Content-Length") or 0)
+    except ValueError:
+        content_length = 0
+    if content_length > MAX_REQUEST_BYTES:
+        return JsonResponse({"error": "Request body too large"}, status=413)
 
     body = request.body.decode("utf-8", errors="replace")
     if any(line_signals_turn_complete(line) for line in body.splitlines()):

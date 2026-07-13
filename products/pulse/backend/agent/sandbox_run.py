@@ -100,7 +100,9 @@ def _allowed_domains(bundle: MissionBundle) -> list[str]:
 
 
 def _read_report(sandbox: Any) -> dict[str, Any]:
-    out = sandbox.execute(f"cat {REPORT_PATH} 2>/dev/null || true", timeout_seconds=30)
+    # head -c bounds the read in the sandbox (one over the cap so an oversized report is still
+    # detectable) rather than buffering an arbitrarily large file into worker memory first.
+    out = sandbox.execute(f"head -c {MAX_REPORT_BYTES + 1} {REPORT_PATH} 2>/dev/null || true", timeout_seconds=30)
     raw = out.stdout.strip()
     if not raw:
         raise MissionRunError("Agent finished without writing a report")
