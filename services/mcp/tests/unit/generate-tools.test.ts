@@ -380,9 +380,11 @@ describe('generateToolCode with input_schema', () => {
             stubGetQuerySchema
         )
 
-        // The `fields` param must be added to the custom schema, constrained to the allowlist.
+        // The `fields` param must be added to the custom schema, constrained to the allowlist,
+        // and reject an empty array so it can't silently fall back to the full payload.
         expect(result.code).toContain('.extend({ fields: z.array(z.enum([')
         expect(result.code).toContain("z.enum(['id', 'name'])")
+        expect(result.code).toContain('.min(1)')
         // And the response filter must honor it, falling back to the full allowlist when omitted.
         expect(result.code).toContain("params.fields?.length ? params.fields : ['id', 'name']")
     })

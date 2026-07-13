@@ -66,5 +66,7 @@ describe('advanced-activity-logs-list selectable fields', () => {
         expect(schema.safeParse({ fields: ['user.email', 'activity'] }).success).toBe(true)
         // A real response field that is not in the allowlist cannot be requested.
         expect(schema.safeParse({ fields: ['unredacted_ip'] }).success).toBe(false)
+        // An empty array is rejected rather than silently falling back to the full payload.
+        expect(schema.safeParse({ fields: [] }).success).toBe(false)
     })
 })

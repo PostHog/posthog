@@ -66,6 +66,7 @@ const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.exten
                 'created_at',
             ])
         )
+        .min(1)
         .optional()
         .describe(
             'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'

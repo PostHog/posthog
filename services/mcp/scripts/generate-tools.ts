@@ -854,8 +854,9 @@ function buildResponseFilter(config: ToolConfig): {
     if (config.response?.include?.length) {
         const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
         // `selectable` lets the agent pass `fields` to narrow the allowlist per call; the Zod
-        // `z.enum` on the schema already constrains `fields` to `include`, so an empty/absent
-        // `fields` falls back to the full allowlist and no separate intersection is needed.
+        // `z.enum(...).min(1)` on the schema already constrains `fields` to a non-empty subset of
+        // `include`, so an absent `fields` falls back to the full allowlist (an empty array is
+        // rejected at validation) and no separate intersection is needed.
         const pathsExpr = config.response?.selectable
             ? `params.fields?.length ? params.fields : [${paths}]`
             : `[${paths}]`
@@ -900,7 +901,7 @@ function buildSelectableFieldsExtension(config: ToolConfig): string {
     const description =
         'Optional subset of response fields to return, each a dot-path from the allowlist. ' +
         'Omit to return all fields. Request only the fields your task needs to keep responses small.'
-    return `.extend({ fields: z.array(z.enum([${enumValues}])).optional().describe(${JSON.stringify(description)}) })`
+    return `.extend({ fields: z.array(z.enum([${enumValues}])).min(1).optional().describe(${JSON.stringify(description)}) })`
 }
 
 // ------------------------------------------------------------------
