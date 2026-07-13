@@ -12,7 +12,6 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
-from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 
 # Each evaluated session is a full scanner run, so keep the bill bounded.
 EVALUATION_SESSION_CAP = 100
@@ -92,6 +91,13 @@ def evaluation_in_flight(evaluation: Any) -> bool:
         return False
     if started_at.tzinfo is None:
         return False
+    # Deferred: this business module is imported by `quota`, while importing the temporal package
+    # eagerly loads the activity graph (incl. `create_observation`, which imports `quota` back).
+    # A module-level import here closes that cycle; keeping it lazy breaks it.
+    from products.replay_vision.backend.temporal.constants import (  # noqa: PLC0415
+        EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
+    )
+
     return timezone.now() - started_at < EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT + _EVALUATION_RUNNING_GRACE
 
 
