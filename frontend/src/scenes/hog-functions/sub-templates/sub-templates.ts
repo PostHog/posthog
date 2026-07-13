@@ -936,7 +936,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                         {
                             type: 'section',
                             text: {
-                                type: 'plain_text',
+                                type: 'mrkdwn',
                                 text: '{event.properties.breaches}',
                             },
                         },

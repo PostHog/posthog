@@ -243,7 +243,9 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
         message.send()
 
-    trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})
+    # Join with newlines so each breach/investigation line renders on its own line in
+    # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
+    trigger_alert_hog_functions(alert=alert, properties={"breaches": "\n".join(breaches)})
 
     return email_targets
 

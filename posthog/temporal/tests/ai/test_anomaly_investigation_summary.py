@@ -23,3 +23,14 @@ def test_truncate_summary_clips_long_text_with_ellipsis() -> None:
     assert clipped is not None
     assert len(clipped) == MAX_SUMMARY_CHARS
     assert clipped.endswith("…")
+
+
+def test_truncate_summary_clips_on_sentence_boundary() -> None:
+    text = "All systems nominal here. " * 40  # > MAX_SUMMARY_CHARS, sentence ends past the midpoint
+    clipped = _truncate_summary(text)
+    assert clipped is not None
+    assert len(clipped) <= MAX_SUMMARY_CHARS
+    # Clips on a full sentence, not mid-word — no ellipsis, ends on the period.
+    assert clipped.endswith(".")
+    assert not clipped.endswith("…")
+    assert text.startswith(clipped)

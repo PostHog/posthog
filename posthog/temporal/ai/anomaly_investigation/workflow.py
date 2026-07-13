@@ -6,6 +6,7 @@ Triggered from posthog/temporal/alerts/workflows.py when an alert transitions to
 
 from __future__ import annotations
 
+import re
 import json
 import asyncio
 from dataclasses import dataclass
@@ -43,6 +44,10 @@ ANOMALY_INVESTIGATION_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS = 2
 
 MAX_SUMMARY_CHARS = 500
+
+# Matches a sentence-ending punctuation mark followed by whitespace or end-of-string,
+# used to clip the summary teaser on a sentence boundary instead of mid-word.
+_SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 
 
 @dataclass
@@ -288,6 +293,18 @@ def _truncate_summary(summary: str | None) -> str | None:
         return None
     if len(trimmed) <= MAX_SUMMARY_CHARS:
         return trimmed
+
+    window = trimmed[:MAX_SUMMARY_CHARS]
+    # Prefer clipping at the last complete sentence, but only if it keeps enough of the
+    # teaser — otherwise a short lead sentence would drop most of the summary.
+    sentence_ends = [match.end() for match in _SENTENCE_END_RE.finditer(window)]
+    if sentence_ends and sentence_ends[-1] >= MAX_SUMMARY_CHARS // 2:
+        return window[: sentence_ends[-1]].rstrip()
+
+    # No usable sentence boundary — fall back to the last word boundary with an ellipsis.
+    word_end = window.rstrip().rfind(" ")
+    if word_end != -1:
+        return window[:word_end].rstrip() + "…"
     return trimmed[: MAX_SUMMARY_CHARS - 1].rstrip() + "…"
 
 
