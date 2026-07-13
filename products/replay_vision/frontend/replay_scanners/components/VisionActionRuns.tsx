@@ -9,6 +9,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import type { VisionActionRunListApi } from '../../generated/api.schemas'
+import { VisionActionModeEnumApi } from '../../generated/api.schemas'
 import { visionActionRunsLogic } from '../visionActionRunsLogic'
 import { RunStatusTag } from '../visionActionRunStatus'
 import { visionActionSceneLogic } from '../visionActionSceneLogic'
@@ -34,11 +35,18 @@ function StatCell({
 function RunStats(): JSX.Element {
     const { action, runsCount } = useValues(visionActionRunsLogic)
     const disabled = action?.enabled === false
+    // Quiet alert checks (condition not met) don't appear in the run list, so for alerts the time
+    // cells speak in terms of checks: "last checked" can be much more recent than the newest row.
+    const isAlert = action?.mode === VisionActionModeEnumApi.Alert
     return (
         <div className="flex flex-wrap sm:flex-nowrap items-stretch border rounded bg-surface-primary">
-            <StatCell title="Total runs" value={humanFriendlyNumber(runsCount)} description="all time" />
             <StatCell
-                title="Last run"
+                title={isAlert ? 'Alerts' : 'Total runs'}
+                value={humanFriendlyNumber(runsCount)}
+                description="all time"
+            />
+            <StatCell
+                title={isAlert ? 'Last checked' : 'Last run'}
                 value={
                     action?.last_run_at ? (
                         <TZLabel time={action.last_run_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />
@@ -46,9 +54,10 @@ function RunStats(): JSX.Element {
                         'Never'
                     )
                 }
+                description={isAlert ? 'checks run about every hour' : undefined}
             />
             <StatCell
-                title="Next run"
+                title={isAlert ? 'Next check' : 'Next run'}
                 value={
                     disabled ? (
                         'N/A'
@@ -58,20 +67,23 @@ function RunStats(): JSX.Element {
                         '—'
                     )
                 }
-                description={disabled ? 'Action disabled' : undefined}
+                description={disabled ? (isAlert ? 'Alert disabled' : 'Action disabled') : undefined}
             />
         </div>
     )
 }
 
 function EmptyRuns(): JSX.Element {
+    const { action } = useValues(visionActionRunsLogic)
+    const isAlert = action?.mode === VisionActionModeEnumApi.Alert
     return (
         <div className="flex flex-col items-center text-center gap-3 py-10">
             <SleepingHog className="w-40 h-40" />
-            <h3 className="m-0">Your action is live</h3>
+            <h3 className="m-0">{isAlert ? 'Your alert is live' : 'Your action is live'}</h3>
             <p className="text-muted max-w-md">
-                Results will show up after its next scheduled run. Once it runs, you'll see the summaries here — check
-                back soon.
+                {isAlert
+                    ? 'Checks run about every hour. When the condition is met, the alert and its matching observations show up here.'
+                    : "Results will show up after its next scheduled run. Once it runs, you'll see the summaries here — check back soon."}
             </p>
         </div>
     )
