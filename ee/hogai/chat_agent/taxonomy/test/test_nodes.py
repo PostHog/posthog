@@ -87,6 +87,31 @@ class TestTaxonomyAgentNode(BaseTest):
         self.assertIsNotNone(result)
         self.assertTrue(len(result.messages) > 0)
 
+    @parameterized.expand(
+        [
+            ("double_brace_tokens", "filter by {{campaign}} and {{ad}}"),
+            ("single_brace", "filter where value = {id}"),
+            ("empty", ""),
+        ]
+    )
+    def test_construct_messages_does_not_template_user_request(self, _name, change):
+        # A user request containing brace tokens must not be parsed as template variables:
+        # doing so makes them required inputs and crashes chain invocation (only events/groups are supplied).
+        state: TaxonomyAgentState = TaxonomyAgentState()
+        state.change = change
+
+        result = self.node._construct_messages(state)
+
+        # Only events/groups from the system prompt should be required — never tokens from the request.
+        self.assertNotIn("campaign", result.input_variables)
+        self.assertNotIn("ad", result.input_variables)
+        self.assertNotIn("id", result.input_variables)
+
+        # Rendering with just the supported variables must succeed and preserve the request verbatim.
+        rendered = result.invoke({"events": "formatted events", "groups": []})
+        human_messages = [m for m in rendered.to_messages() if m.type == "human"]
+        self.assertEqual(human_messages[-1].content, change)
+
     @patch("ee.hogai.chat_agent.taxonomy.nodes.merge_message_runs")
     @patch("ee.hogai.chat_agent.taxonomy.nodes.format_events_yaml")
     def test_loop_preserves_previous_results_and_appends_new_calls(self, mock_format_events, mock_merge):
