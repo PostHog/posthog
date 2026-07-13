@@ -1,30 +1,45 @@
 from django.test import SimpleTestCase
 
 from products.notebooks.backend.sql_v2_references import (
+    PythonNodeRef,
     SQLV2ReferenceError,
     resolve_python_node_inputs,
     resolve_sql_v2_references,
 )
 
 
+def _ref(query: str, node_id: str = "node-df1", run_id: str = "run-1") -> PythonNodeRef:
+    return PythonNodeRef(node_id=node_id, run_id=run_id, query=query)
+
+
 class TestResolvePythonNodeInputs(SimpleTestCase):
     def test_only_referenced_frames_are_materialized(self):
         # A python node reads frames as variables; materialize only the ones its code uses.
-        inputs = resolve_python_node_inputs("df1.head()", {"df1": "select id from events", "df2": "select 1"})
+        inputs = resolve_python_node_inputs(
+            "df1.head()", {"df1": _ref("select id from events"), "df2": _ref("select 1", node_id="node-df2")}
+        )
         self.assertEqual(len(inputs), 1)
         self.assertEqual(inputs[0]["name"], "df1")
         self.assertEqual(inputs[0]["kind"], "hogql")
         self.assertEqual(inputs[0]["query"], "select id from events")
-        self.assertTrue(inputs[0]["query_hash"])
 
     def test_unused_refs_are_ignored(self):
-        self.assertEqual(resolve_python_node_inputs("import pandas as pd\npd.DataFrame()", {"df1": "select 1"}), [])
+        self.assertEqual(
+            resolve_python_node_inputs("import pandas as pd\npd.DataFrame()", {"df1": _ref("select 1")}), []
+        )
 
-    def test_query_hash_is_stable_for_the_same_query(self):
-        # The executor reuses a frame file keyed by hash, so identical queries must hash identically.
-        a = resolve_python_node_inputs("df1", {"df1": "select 1"})[0]["query_hash"]
-        b = resolve_python_node_inputs("df1", {"df1": "select 1"})[0]["query_hash"]
-        self.assertEqual(a, b)
+    def test_reassigned_ref_is_still_materialized(self):
+        # Reassigning a ref (df1 = df1.assign(...)) must not drop it from the inputs — otherwise it
+        # is never re-fetched and the node runs against the mutated frame from its previous run.
+        inputs = resolve_python_node_inputs("df1.columns = ['a']\ndf1 = df1.assign(x=1)", {"df1": _ref("select 1")})
+        self.assertEqual([i["name"] for i in inputs], ["df1"])
+
+    def test_frame_is_keyed_on_the_upstream_run_id(self):
+        # The executor caches/evicts frames by (node_id, run_id), so both must reach the spec — a
+        # new run of the same node must key a fresh frame rather than reuse the stale one.
+        inputs = resolve_python_node_inputs("df1.head()", {"df1": _ref("select 1", node_id="n1", run_id="r2")})
+        self.assertEqual(inputs[0]["node_id"], "n1")
+        self.assertEqual(inputs[0]["run_id"], "r2")
 
     def test_referencing_a_never_run_node_raises(self):
         with self.assertRaises(SQLV2ReferenceError):
