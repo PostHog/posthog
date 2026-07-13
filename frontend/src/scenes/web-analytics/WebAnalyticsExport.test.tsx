@@ -14,11 +14,23 @@ import {
     WebAnalyticsTableAdapter,
     WorldMapAdapter,
     buildCsvFilenames,
+    csvFromTableData,
 } from './webAnalyticsExportUtils'
 
 describe('WebAnalyticsExport adapters', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+    })
+
+    describe('csvFromTableData', () => {
+        it.each(['=', '+', '-', '@'])(
+            'neutralizes a leading "%s" so spreadsheets do not evaluate the cell as a formula',
+            (prefix) => {
+                const csv = csvFromTableData([['header'], [`${prefix}cmd(1)`]])
+                expect(csv).toContain(`'${prefix}cmd(1)`)
+                expect(csv).not.toContain(`\n${prefix}cmd(1)`)
+            }
+        )
     })
 
     describe('buildCsvFilenames', () => {

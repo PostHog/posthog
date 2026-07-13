@@ -38,15 +38,21 @@ export interface TileExportSection {
 }
 
 export function csvFromTableData(tableData: string[][]): string {
-    return Papa.unparse(tableData)
+    return Papa.unparse(tableData, { escapeFormulae: true })
 }
 
-export function downloadTableDataAsCsv(tableData: string[][], filename: string): void {
+export function downloadTableDataAsCsv(tableData: string[][], filename: string): boolean {
+    if (tableData.length === 0) {
+        lemonToast.warning('No data to export yet')
+        return false
+    }
     try {
         const file = new File([csvFromTableData(tableData)], filename, { type: 'text/csv' })
         downloadFile(file)
+        return true
     } catch {
         lemonToast.error('Export failed')
+        return false
     }
 }
 
@@ -99,6 +105,30 @@ function tileToTableData(query: QuerySchema, insightProps: InsightLogicProps): s
     return tableData.length > 0 ? tableData : null
 }
 
+function isTileStillLoading(insightProps: InsightLogicProps): boolean {
+    return insightDataLogic.findMounted(insightProps)?.values.insightDataLoading === true
+}
+
+export function anyTileStillLoading(tiles: WebAnalyticsTile[]): boolean {
+    for (const tile of tiles) {
+        if (tile.kind === 'query') {
+            if (isTileStillLoading(tile.insightProps)) {
+                return true
+            }
+        } else if (tile.kind === 'tabs') {
+            const activeTab = tile.tabs.find((tab) => tab.id === tile.activeTabId)
+            if (activeTab && isTileStillLoading(activeTab.insightProps)) {
+                return true
+            }
+        } else if (tile.kind === 'section') {
+            if (anyTileStillLoading(tile.tiles)) {
+                return true
+            }
+        }
+    }
+    return false
+}
+
 function tabSectionTitle(tile: { tileId: WebAnalyticsTile['tileId'] }, tab: TabsTileTab): string {
     const base = TILE_LABELS[tile.tileId]
     const tabTitle =
@@ -113,6 +143,9 @@ export function exportAllTilesAsCsvZip(tiles: WebAnalyticsTile[], filename = 'we
         return false
     }
     downloadTilesAsCsvZip(sections, filename)
+    if (anyTileStillLoading(tiles)) {
+        lemonToast.warning('Some tiles are still loading, so this export may be incomplete')
+    }
     return true
 }
 
@@ -143,7 +176,7 @@ export function exportTableData(tableData: string[][], format: ExporterFormat): 
     try {
         switch (format) {
             case ExporterFormat.CSV: {
-                const csv = Papa.unparse(tableData)
+                const csv = csvFromTableData(tableData)
                 void copyToClipboard(csv, 'table')
                 break
             }
@@ -162,7 +195,7 @@ export function exportTableData(tableData: string[][], format: ExporterFormat): 
                 break
             }
             case ExporterFormat.XLSX: {
-                const tsv = Papa.unparse(tableData, { delimiter: '\t' })
+                const tsv = Papa.unparse(tableData, { delimiter: '\t', escapeFormulae: true })
                 void copyToClipboard(tsv, 'table')
                 break
             }

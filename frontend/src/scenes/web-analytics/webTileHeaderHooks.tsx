@@ -122,8 +122,9 @@ export function useWebTileOverflowMenuItems({
                     if (!adapter) {
                         return
                     }
-                    downloadTableDataAsCsv(adapter.toTableData(), `web-analytics-${tileId}.csv`)
-                    exportTriggered()
+                    if (downloadTableDataAsCsv(adapter.toTableData(), `web-analytics-${tileId}.csv`)) {
+                        exportTriggered()
+                    }
                 },
             },
         ]
