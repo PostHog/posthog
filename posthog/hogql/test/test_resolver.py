@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any, Optional, cast
+from typing import Any, ClassVar, Optional, cast
 from uuid import UUID
 
 import pytest
@@ -30,6 +30,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import QueryError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
@@ -56,8 +57,20 @@ class TestResolver(BaseTest):
             "hogql",
         )[0]
 
+    # _fetch_sources hits Postgres a dozen times and its inputs never change within this class
+    # (fixed team, no warehouse objects), so cache the fetched sources per effective modifiers —
+    # the only input that varies (via @override_settings). Building the Database stays per-test
+    # because several tests mutate their instance's tables.
+    _sources_cache: ClassVar[dict[str, Any]] = {}
+
     def setUp(self):
-        self.database = Database.create_for(team=self.team)
+        modifiers = create_default_modifiers_for_team(self.team)
+        cache_key = modifiers.model_dump_json()
+        sources = TestResolver._sources_cache.get(cache_key)
+        if sources is None:
+            sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
+            TestResolver._sources_cache[cache_key] = sources
+        self.database = Database._build_from_sources(sources)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
 
     @pytest.mark.usefixtures("unittest_snapshot")

@@ -195,7 +195,13 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="bar"
+            />
+        )
     }
 
     return (

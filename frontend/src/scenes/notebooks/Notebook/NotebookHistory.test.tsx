@@ -14,7 +14,7 @@ import { AccessControlLevel, ActivityScope } from '~/types'
 import { NotebookEditor, NotebookType } from '../types'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { notebookCollabLogic } from './notebookCollabLogic'
-import { SYNC_DELAY, notebookLogic } from './notebookLogic'
+import { MARKDOWN_SYNC_DELAY, SYNC_DELAY, notebookLogic } from './notebookLogic'
 
 // Skip the API-driven query upgrade step inside migrate so the loader doesn't try
 // to upgrade insight nodes. Our fixture content has no insight nodes anyway, but
@@ -94,6 +94,7 @@ describe('Notebook history revert flow', () => {
         }) as unknown as NotebookEditor
 
     beforeEach(() => {
+        localStorage.clear()
         historyLogic = null
         editorContent = null
         useMocks({
@@ -147,6 +148,27 @@ describe('Notebook history revert flow', () => {
             expect.anything()
         )
         expect(apiUpdateSpy).not.toHaveBeenCalled()
+    })
+
+    it('does not persist editor updates emitted while previewing a historical revision', async () => {
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.setEditor(stubEditor())
+
+        logic.actions.setPreviewContent(HISTORICAL_DOC)
+        logic.actions.onEditorUpdate()
+
+        await expectLogic(logic)
+            .delay(SYNC_DELAY + 100)
+            .toFinishAllListeners()
+
+        expect(logic.values.previewContent).toEqual(HISTORICAL_DOC)
+        expect(logic.values.localContent).toBeNull()
+        expect(apiUpdateSpy).not.toHaveBeenCalled()
+        expect(apiCreateSpy).not.toHaveBeenCalledWith(
+            expect.stringContaining(`/notebooks/${SHORT_ID}/collab/save/`),
+            expect.anything()
+        )
     })
 
     it('saves through the pending content debounce after autosave resumes', async () => {
@@ -243,6 +265,100 @@ converted`)
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
 
         expect(logic.values.collabEnabled).toBe(false)
+    })
+
+    it('renders legacy notebooks as markdown when the markdown flag is enabled without marking them dirty', async () => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS, FEATURE_FLAGS.NOTEBOOKS_COLLABORATION],
+            {
+                [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]: true,
+                [FEATURE_FLAGS.NOTEBOOKS_COLLABORATION]: true,
+            }
+        )
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        expect(logic.values.notebook?.content).toEqual(SAMPLE_DOC)
+        expect(logic.values.content).toEqual(buildMarkdownNotebookContent('current'))
+        expect(logic.values.localContent).toBeNull()
+        expect(logic.values.syncStatus).toBe('synced')
+        expect(logic.values.collabEnabled).toBe(false)
+        expect(logic.values.markdownRealtimeEnabled).toBe(true)
+        expect(apiUpdateSpy).not.toHaveBeenCalled()
+        expect(apiMarkdownSaveSpy).not.toHaveBeenCalled()
+    })
+
+    it('reverts legacy history entries as markdown when the markdown flag is enabled', async () => {
+        const historicalMarkdownContent = buildMarkdownNotebookContent('historical')
+        apiMarkdownSaveSpy.mockResolvedValueOnce({
+            ...cachedNotebook,
+            version: 2,
+            content: historicalMarkdownContent,
+            text_content: 'historical',
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKDOWN_NOTEBOOKS], {
+            [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]: true,
+        })
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.setEditor(stubEditor())
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setPreviewContent(HISTORICAL_DOC)
+        expect(logic.values.previewContent).toEqual(HISTORICAL_DOC)
+        expect(logic.values.content).toEqual(historicalMarkdownContent)
+        editorSetContent.mockClear()
+
+        const contentToRestore = logic.values.content
+        logic.actions.clearPreviewContent()
+        logic.actions.setLocalContent(contentToRestore, true)
+        logic.actions.setShowHistory(false)
+
+        await expectLogic(logic)
+            .delay(MARKDOWN_SYNC_DELAY + 100)
+            .toFinishAllListeners()
+
+        expect(editorSetContent).toHaveBeenCalledWith(historicalMarkdownContent)
+        expect(apiMarkdownSaveSpy).toHaveBeenCalledWith(
+            SHORT_ID,
+            expect.objectContaining({
+                content: historicalMarkdownContent,
+                text_content: 'historical',
+                version: 1,
+            })
+        )
+        expect(apiUpdateSpy).not.toHaveBeenCalled()
+    })
+
+    it('clears stale legacy local content when loading a markdown v2 notebook', async () => {
+        const markdownNotebook = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent('# Markdown v2'),
+            text_content: '# Markdown v2',
+        }
+        jest.spyOn(api.notebooks, 'get').mockResolvedValueOnce(markdownNotebook as NotebookType)
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.setLocalContent(HISTORICAL_DOC)
+        expect(logic.values.localContent).toEqual(HISTORICAL_DOC)
+
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess', 'clearLocalContent']).toFinishAllListeners()
+
+        expect(logic.values.notebook?.content).toEqual(markdownNotebook.content)
+        expect(logic.values.localContent).toBeNull()
+
+        await expectLogic(logic)
+            .delay(SYNC_DELAY + 100)
+            .toFinishAllListeners()
+
+        expect(apiUpdateSpy).not.toHaveBeenCalled()
     })
 
     it('refreshes markdown v2 notebooks from the update stream', async () => {
@@ -446,6 +562,8 @@ Base paragraph with local edit`
             if (collab) {
                 notebookCollabLogic({ shortId: SHORT_ID }).actions.bindEditor({
                     state: { selection: { head: 0 } },
+                    on: jest.fn(),
+                    off: jest.fn(),
                 } as any)
             }
             logic.actions.loadNotebook()

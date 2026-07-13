@@ -934,6 +934,8 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             },
                         },
                         {
+                            // plain_text (not mrkdwn) so user-controlled names in the breach text can't
+                            // inject Slack markup/links/mentions. Newlines still render as line breaks.
                             type: 'section',
                             text: {
                                 type: 'plain_text',
@@ -949,13 +951,19 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
-                                    text: { text: 'View Insight', type: 'plain_text' },
+                                    // Points to the anomaly investigation notebook when present, otherwise falls
+                                    // back to the alert page (Slack can't conditionally hide a button, so the
+                                    // one button does double duty).
+                                    url: "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}",
+                                    text: {
+                                        text: "{event.properties.investigation_notebook_url ? 'View Investigation' : 'View Alert'}",
+                                        type: 'plain_text',
+                                    },
                                     type: 'button',
                                 },
                                 {
-                                    url: '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
-                                    text: { text: 'View Alert', type: 'plain_text' },
+                                    url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
+                                    text: { text: 'View Insight', type: 'plain_text' },
                                     type: 'button',
                                 },
                             ],

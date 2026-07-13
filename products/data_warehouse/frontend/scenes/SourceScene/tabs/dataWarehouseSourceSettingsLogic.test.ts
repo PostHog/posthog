@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
@@ -37,6 +38,9 @@ const makeSource = (schemas: ExternalDataSourceSchema[]): ExternalDataSource =>
     }) as ExternalDataSource
 
 describe('sourceSettingsLogic', () => {
+    // Safety net for the test that calls silenceKeaLoadersErrors() inline
+    afterEach(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof sourceSettingsLogic.build>
 
     beforeEach(() => {
@@ -286,6 +290,8 @@ describe('sourceSettingsLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        // Deliberate loader failure — kea-loaders would log it
+        silenceKeaLoadersErrors()
         const serverError = Object.assign(new Error('boom'), { status: 500 })
         jest.spyOn(api.externalDataSources, 'jobs').mockRejectedValueOnce(serverError)
 

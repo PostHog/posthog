@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -93,6 +94,8 @@ describe('customPropertyDefinitionsLogic', () => {
         jest.spyOn(window, 'open').mockReturnValue(null)
     })
 
+    afterEach(resumeKeaLoadersErrors)
+
     it('loads definitions on mount', async () => {
         useMocks(defaultMocks())
         mountLogic()
@@ -116,6 +119,7 @@ describe('customPropertyDefinitionsLogic', () => {
             description: '',
             displayType: 'currency',
             isBigNumber: true,
+            options: [],
             sourceMode: 'data_warehouse',
             savedQuery: 'view-1',
             sourceColumn: 'mrr',
@@ -213,6 +217,21 @@ describe('customPropertyDefinitionsLogic', () => {
             .toMatchValues({ definitions: [] })
     })
 
+    it('treats an already-deleted definition (404) as a successful delete', async () => {
+        silenceKeaLoadersErrors() // the 404 loader failure is the scenario under test
+        useMocks({
+            ...defaultMocks(),
+            delete: { ...defaultMocks().delete, [DEFINITION_URL]: () => [404, { detail: 'Not found.' }] },
+        })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsSuccess'])
+        // A 404 refreshes the table instead of surfacing a failure toast/exception.
+        await expectLogic(logic, () => logic.actions.deleteDefinition({ id: 'def-1' })).toDispatchActions([
+            'deleteDefinitionFailure',
+            'loadDefinitions',
+        ])
+    })
+
     it('exposes the selected view columns for the pickers', async () => {
         useMocks(defaultMocks())
         mountLogic()
@@ -302,100 +321,8 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(sourceDeleted).toBe(true)
     })
 
-    it('hydrates the source modal form when configuring an existing source', async () => {
-        useMocks(defaultMocks())
-        mountLogic()
-        await expectLogic(logic, () => logic.actions.openSourceModal(buildDefinition({ source: buildSource() })))
-            .toDispatchActions(['loadSavedQueries', 'loadSavedQueriesSuccess'])
-            .toFinishAllListeners()
-
-        expect(logic.values.sourceModalVisible).toBe(true)
-        expect(logic.values.customPropertySourceForm).toEqual({
-            savedQuery: 'view-1',
-            sourceColumn: 'mrr',
-            keyColumn: 'org_id',
-            isEnabled: true,
-        })
-    })
-
-    it('exposes the selected view columns for the source modal pickers', async () => {
-        useMocks(defaultMocks())
-        mountLogic()
-        await expectLogic(logic, () => logic.actions.openSourceModal(buildDefinition())).toDispatchActions([
-            'loadSavedQueriesSuccess',
-        ])
-        logic.actions.setCustomPropertySourceFormValue('savedQuery', 'view-1')
-        expect(logic.values.sourceModalColumns).toEqual(['org_id', 'mrr'])
-    })
-
-    it('creates a source from the source modal', async () => {
-        let postedBody: Record<string, any> | null = null
-        useMocks({
-            ...defaultMocks(),
-            post: {
-                ...defaultMocks().post,
-                [SOURCES_URL]: async ({ request }) => {
-                    postedBody = (await request.json()) as Record<string, any>
-                    return buildSource()
-                },
-            },
-        })
-        mountLogic()
-        logic.actions.openSourceModal(buildDefinition())
-        logic.actions.setCustomPropertySourceFormValues({
-            savedQuery: 'view-1',
-            sourceColumn: 'mrr',
-            keyColumn: 'org_id',
-            isEnabled: true,
-        })
-
-        await expectLogic(logic, () => logic.actions.submitCustomPropertySourceForm()).toDispatchActions([
-            'submitCustomPropertySourceFormSuccess',
-            'loadDefinitions',
-            'closeSourceModal',
-        ])
-        expect(postedBody).toEqual({
-            definition: 'def-1',
-            saved_query: 'view-1',
-            source_column: 'mrr',
-            key_column: 'org_id',
-            is_enabled: true,
-        })
-    })
-
-    it('updates an existing source from the source modal without the create-only fields', async () => {
-        let patchedBody: Record<string, any> | null = null
-        useMocks({
-            ...defaultMocks(),
-            patch: {
-                ...defaultMocks().patch,
-                [SOURCE_URL]: async ({ request }) => {
-                    patchedBody = (await request.json()) as Record<string, any>
-                    return buildSource()
-                },
-            },
-        })
-        mountLogic()
-        logic.actions.openSourceModal(buildDefinition({ source: buildSource() }))
-        logic.actions.setCustomPropertySourceFormValue('isEnabled', false)
-
-        await expectLogic(logic, () => logic.actions.submitCustomPropertySourceForm()).toDispatchActions([
-            'submitCustomPropertySourceFormSuccess',
-        ])
-        expect(patchedBody).toEqual({ source_column: 'mrr', key_column: 'org_id', is_enabled: false })
-    })
-
-    it('removes a source and closes the source modal', async () => {
-        useMocks(defaultMocks())
-        mountLogic()
-        const definition = buildDefinition({ source: buildSource() })
-        await expectLogic(logic, () => logic.actions.removeSource({ definition })).toDispatchActions([
-            'removeSourceSuccess',
-            'closeSourceModal',
-        ])
-    })
-
     it('fails the workflow CTA with a field error when the name is missing', async () => {
+        silenceKeaLoadersErrors() // the MissingNameError loader failure is the scenario under test
         useMocks(defaultMocks())
         mountLogic()
         logic.actions.openCreateModal()

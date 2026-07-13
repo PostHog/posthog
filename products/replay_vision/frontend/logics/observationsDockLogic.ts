@@ -3,9 +3,10 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionScannersObserveCreate, visionObservationsList } from '../generated/api'
+import { visionObservationsList, visionScannersObserveCreate } from '../generated/api'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
+import { requestObservationRetry } from './observationRetry'
 import type { observationsDockLogicType } from './observationsDockLogicType'
 import { refreshVisionQuota } from './visionQuotaLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
@@ -31,6 +32,9 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         observe: (scannerId: string) => ({ scannerId }),
         observeSuccess: true,
         observeFailure: true,
+        retryObservation: (observationId: string) => ({ observationId }),
+        retryObservationSuccess: (observationId: string) => ({ observationId }),
+        retryObservationFailure: (observationId: string) => ({ observationId }),
         setDockOpen: (open: boolean) => ({ open }),
         setScannerPickerOpen: (open: boolean) => ({ open }),
         setScannerSearch: (search: string) => ({ search }),
@@ -79,10 +83,25 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 setScannerPickerOpen: () => '',
             },
         ],
+        retryingObservationIds: [
+            [] as string[],
+            {
+                retryObservation: (state: string[], { observationId }: { observationId: string }) => [
+                    ...state,
+                    observationId,
+                ],
+                retryObservationSuccess: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
+                retryObservationFailure: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
+            },
+        ],
         pollUntil: [
             0,
             {
                 observeSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+                // The replacement row is inserted by the workflow moments after the retry 202 lands.
+                retryObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
             },
         ],
     }),
@@ -154,6 +173,15 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     lemonToast.error(`Failed to start observation${error.detail ? `: ${error.detail}` : ''}`)
                     actions.observeFailure()
                 }
+            },
+
+            retryObservation: async ({ observationId }) => {
+                if (!(await requestObservationRetry(observationId))) {
+                    actions.retryObservationFailure(observationId)
+                    return
+                }
+                actions.retryObservationSuccess(observationId)
+                actions.loadObservations()
             },
         }
     }),

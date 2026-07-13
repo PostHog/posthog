@@ -57,7 +57,7 @@ from products.data_modeling.backend.facade.modeling import DataWarehouseModelPat
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 TEST_TIME = dt.datetime.now(dt.UTC)
 
@@ -319,7 +319,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
         key=lambda d: (d["distinct_id"], d["timestamp"]),
     )
 
-    query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+\/.+")
+    query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+_[0-9a-f]{8}\/.+")
 
     assert any(query_folder_pattern.match(obj["Key"]) for obj in s3_objects["Contents"])
     assert any(f"{saved_query.normalized_name}__query" in obj["Key"] for obj in s3_objects["Contents"])
@@ -468,7 +468,7 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
         key=lambda d: (d["distinct_id"], d["timestamp"]),
     )
 
-    query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+\/.+")
+    query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+_[0-9a-f]{8}\/.+")
 
     assert any(query_folder_pattern.match(obj["Key"]) for obj in s3_objects["Contents"])
     assert any(f"{saved_query.normalized_name}__query" in obj["Key"] for obj in s3_objects["Contents"])

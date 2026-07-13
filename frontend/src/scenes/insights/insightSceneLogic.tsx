@@ -3,7 +3,6 @@ import { urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { AlertType } from 'lib/components/Alerts/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -22,6 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     DashboardFilter,
@@ -52,6 +52,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { AlertType } from 'products/alerts/frontend/types'
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -113,7 +114,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             ['filterTestAccountsDefault'],
             featureFlagLogic,
             ['featureFlags'],
+            sceneLayoutLogic,
+            ['scenePanelIsPresent'],
         ],
+        actions: [sceneLayoutLogic, ['setScenePanelIsPresent']],
     })),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -444,11 +448,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: [
             sharedListeners.reloadInsightLogic,
             ({ sceneSource }) => {
-                if (sceneSource === 'endpoints') {
+                // Only open here when the scene panel already exists; otherwise Info isn't in
+                // `enabledTabs` yet and SidePanel's fallback reroutes to Max. The fresh-navigation
+                // case is handled by the `setScenePanelIsPresent` listener below.
+                if (sceneSource === 'endpoints' && values.scenePanelIsPresent) {
                     sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Info)
                 }
             },
         ],
+        setScenePanelIsPresent: ({ active }) => {
+            if (active && values.sceneSource === 'endpoints') {
+                sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Info)
+            }
+        },
         upgradeQuery: async ({ query }) => {
             let upgradedQuery: Node | null = null
 

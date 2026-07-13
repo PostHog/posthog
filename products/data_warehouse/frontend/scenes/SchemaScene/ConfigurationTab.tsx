@@ -85,7 +85,7 @@ export function ConfigurationTab({
     onViewSyncHistory,
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { isProjectTime, refreshingSchemas, resyncingSchema } = useValues(logic)
+    const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
         useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -114,6 +114,7 @@ export function ConfigurationTab({
                     resyncSchema={resyncSchema}
                     refreshSchemas={refreshSchemas}
                     refreshingSchemas={refreshingSchemas}
+                    supportsRowFilters={supportsRowFilters}
                 />
             )
         case 'schedule':
@@ -300,7 +301,12 @@ function DetailsSection({
                                 type="primary"
                                 onClick={() => reloadSchema(schema)}
                                 disabledReason={
-                                    disabledReason ?? (!schema.sync_type ? 'Set up the sync method first' : undefined)
+                                    disabledReason ??
+                                    (!schema.sync_type
+                                        ? 'Set up the sync method first'
+                                        : schema.status === 'Running'
+                                          ? 'A sync is already running'
+                                          : undefined)
                                 }
                             >
                                 {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
@@ -494,6 +500,7 @@ function ColumnsAndRowFiltersSection({
     resyncSchema,
     refreshSchemas,
     refreshingSchemas,
+    supportsRowFilters,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
@@ -501,6 +508,7 @@ function ColumnsAndRowFiltersSection({
     resyncSchema: (schema: ExternalDataSourceSchema) => void
     refreshSchemas: () => void
     refreshingSchemas: boolean
+    supportsRowFilters: boolean
 }): JSX.Element {
     const available = schema.available_columns ?? []
     const hasAvailableColumns = available.length > 0
@@ -604,7 +612,11 @@ function ColumnsAndRowFiltersSection({
                 <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
                     {!hasAvailableColumns ? (
                         <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-6">
-                            <span className="text-sm">No columns discovered yet for this schema.</span>
+                            <span className="text-sm">
+                                {!schema.last_synced_at
+                                    ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
+                                    : 'No columns discovered yet for this schema.'}
+                            </span>
                             <SourceEditorAction source={source}>
                                 <LemonButton
                                     type="secondary"
@@ -627,7 +639,7 @@ function ColumnsAndRowFiltersSection({
                 </div>
             </div>
 
-            {source?.access_method !== 'direct' && schema.sync_type !== 'cdc' && (
+            {supportsRowFilters && source?.access_method !== 'direct' && schema.sync_type !== 'cdc' && (
                 <div>
                     <SectionHeader
                         title="Row filters"

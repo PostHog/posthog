@@ -20,6 +20,7 @@ from collections.abc import Callable
 
 from django.db import close_old_connections
 
+import psycopg
 import pyarrow as pa
 import structlog
 import posthoganalytics
@@ -55,9 +56,13 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCSchemaMergeError,
     classify_cdc_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BatchQueue,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
 )
@@ -84,6 +89,26 @@ RETENTION_CAP_SAFETY_FACTOR = 0.8
 # Mirrors maximum_attempts on CDCExtractionWorkflow's retry policy (workflows.py). On the final
 # attempt a failure won't be retried, so it's the last chance to record a visible failed-run row.
 CDC_MAX_EXTRACTION_ATTEMPTS = 3
+
+# Shown as latest_error on prior-run jobs reconciled by _reconcile_orphaned_prior_jobs.
+CDC_ORPHANED_JOB_MESSAGE = (
+    "CDC run ended without finalizing this job (worker timeout or eviction). It was superseded by a "
+    "later run; no data was lost — change capture resumes from the last confirmed replication position."
+)
+# Only reconcile prior RUNNING jobs older than this. A healthy run enqueues its first batch within
+# seconds, so a no-batch job older than this is abandoned; the floor also keeps us clear of any
+# concurrent manual/backfill run of the same source that has only just created its job row.
+CDC_ORPHAN_JOB_MIN_AGE = dt.timedelta(minutes=30)
+# Upper bound: batches are pruned from the queue after PARTITION_PRUNING_INTERVAL (14 days), so a
+# "no batches" verdict is only trustworthy within that window. Never touch older rows — we cannot
+# tell an abandoned run from one whose batches simply aged out.
+CDC_ORPHAN_JOB_MAX_AGE = dt.timedelta(days=14)
+
+# Backpressure guard: past this age a skipped tick is a stuck load, not a slow one — well beyond
+# the loader's recovery-sweep grace (300s) and retry backoffs, so it only trips when a run needs
+# operator attention. Skips past it log at error level; the tick is still skipped (see
+# _previous_load_still_pending for why we never auto-fail the pending run).
+CDC_BACKPRESSURE_STUCK_AGE = dt.timedelta(hours=2)
 
 # Per-peek bound on WAL changes. A large backlog is drained over several passes (and, if needed,
 # several scheduled runs) instead of one unbounded read that risks the 2h activity timeout and
@@ -672,7 +697,17 @@ class CDCExtractActivity:
         if not self._setup():
             return
 
+        if self._previous_load_still_pending():
+            return
+
         self._mark_schemas_running()
+        # Best-effort — must never break the extraction run, so guard the call
+        # site: the method itself has unguarded lines (activity.info(),
+        # conn.close()) and runs before the main try block below.
+        try:
+            self._reconcile_orphaned_prior_jobs()
+        except Exception:
+            self.log.warning("cdc_orphan_reconcile_unexpected_failed", exc_info=True)
 
         try:
             self.reader.connect()
@@ -752,11 +787,120 @@ class CDCExtractActivity:
         except Exception:
             self.log.exception("failed_to_delete_own_schedule")
 
+    def _previous_load_still_pending(self) -> bool:
+        """Backpressure guard: skip this tick while a previous run's batches are still loading.
+
+        CDC ticks don't hold the per-schema pipeline lock the way external-data-job runs do,
+        so without this check every tick enqueues a fresh run regardless of whether the
+        previous one landed. Coexisting runs of one schema can then be claimed out of order
+        by the loader (its head-of-line gate is run-scoped), and an incremental merge applied
+        out of order silently overwrites newer rows with older ones. Skipping keeps at most
+        one active run per schema; nothing has been peeked and the slot is untouched, so WAL
+        accumulates and the next tick catches up.
+
+        Per-source, not per-schema: the slot is read once for all tables, so one table's
+        pending load must hold back the whole source's tick.
+
+        Deliberately no auto-remediation past CDC_BACKPRESSURE_STUCK_AGE: the slot already
+        advanced past the pending runs' events, so failing their batches would leave a
+        permanent gap in the table. The queue-freshness alert fires well before the
+        threshold, and if nobody intervenes the engine eventually invalidates the slot,
+        which triggers the existing full re-sync recovery. Fail-open on probe errors — the
+        producer writes to the same DB, so a run that can't be probed can't enqueue either.
+        """
+        schema_ids = [str(s.id) for s in self.cdc_schemas]
+        try:
+            conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+        except Exception:
+            self.log.warning("cdc_backpressure_probe_connect_failed", exc_info=True)
+            return False
+        try:
+            age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(
+                conn, team_id=self.inputs.team_id, schema_ids=schema_ids
+            )
+        except Exception:
+            self.log.warning("cdc_backpressure_probe_failed", exc_info=True)
+            return False
+        finally:
+            conn.close()
+
+        if age is None:
+            return False
+
+        stuck = age >= CDC_BACKPRESSURE_STUCK_AGE.total_seconds()
+        log = self.log.error if stuck else self.log.info
+        log("cdc_tick_skipped_pending_load", oldest_pending_age_seconds=round(age, 1), stuck=stuck)
+        metrics.get_tick_skipped_metric(self.inputs.team_id, str(self.inputs.source_id), stuck).add(1)
+        return True
+
     def _mark_schemas_running(self) -> None:
         """Mark CDC schemas as Running at the start."""
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.RUNNING
             schema.save(update_fields=["status", "updated_at"])
+
+    def _reconcile_orphaned_prior_jobs(self) -> None:
+        """Finalize this source's prior RUNNING jobs that were stranded mid-run.
+
+        A CDC run creates an ExternalDataJob at its first WAL event (RUNNING) and only
+        finalizes it on clean completion (the loader, for streaming) or in its own failure
+        handler. If an activity attempt dies abruptly — a heartbeat/start-to-close timeout
+        or worker eviction — that finalizer never runs and the row is stranded RUNNING; every
+        later run leaks another. Nothing in-process can close it, so the next run does.
+
+        The schedule's SKIP overlap policy means any prior run (a different workflow_run_id)
+        has already ended, so its still-RUNNING rows are safe to close. We only fail rows that
+        enqueued NO queue batches: with nothing queued the loader has no outstanding work, so
+        failing cannot race a late load. Rows that did enqueue batches are left to the loader,
+        which owns their completion. Best-effort — must never break the extraction run.
+        """
+        current_run_id = activity.info().workflow_run_id
+        now = dt.datetime.now(tz=dt.UTC)
+        try:
+            orphans = list(
+                ExternalDataJob.objects.filter(
+                    team_id=self.inputs.team_id,
+                    schema_id__in=[s.id for s in self.cdc_schemas],
+                    status=ExternalDataJob.Status.RUNNING,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V3,
+                    created_at__gt=now - CDC_ORPHAN_JOB_MAX_AGE,
+                    created_at__lt=now - CDC_ORPHAN_JOB_MIN_AGE,
+                )
+                .exclude(workflow_run_id=current_run_id)
+                .order_by("created_at")[:200]
+            )
+        except Exception:
+            self.log.warning("cdc_orphan_reconcile_query_failed", exc_info=True)
+            return
+
+        if not orphans:
+            return
+
+        try:
+            conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+        except Exception:
+            self.log.warning("cdc_orphan_reconcile_queue_connect_failed", exc_info=True)
+            return
+
+        reconciled = 0
+        try:
+            for job in orphans:
+                try:
+                    if BatchQueue.count_batches_for_run(conn, job_id=str(job.id)) > 0:
+                        # The run enqueued batches; the loader owns their completion — leave it.
+                        continue
+                    job.status = ExternalDataJob.Status.FAILED
+                    job.latest_error = CDC_ORPHANED_JOB_MESSAGE
+                    job.finished_at = dt.datetime.now(tz=dt.UTC)
+                    job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
+                    reconciled += 1
+                except Exception:
+                    self.log.warning("cdc_orphan_reconcile_job_failed", job_id=str(job.id), exc_info=True)
+        finally:
+            conn.close()
+
+        if reconciled:
+            self.log.info("cdc_orphaned_jobs_reconciled", count=reconciled)
 
     # ------------------------------------------------------------------
     # PK column loading
@@ -818,21 +962,8 @@ class CDCExtractActivity:
         )
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
-        """Resolve a CDC schema row to its source-qualified `schema.table` name.
-
-        Prefers stored schema_metadata, then a dotted display name, then the source's
-        default schema — so a row stored bare (`orders`) still resolves to its real
-        source location (`public.orders`).
-        """
         default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
-        metadata = schema.sync_type_config.get("schema_metadata") or {}
-        src_schema = metadata.get("source_schema")
-        src_table = metadata.get("source_table_name")
-        if isinstance(src_schema, str) and isinstance(src_table, str):
-            return f"{src_schema}.{src_table}"
-        if "." in schema.name:
-            return schema.name
-        return f"{default_schema or 'public'}.{schema.name}"
+        return cdc_qualified_table_name(schema, default_schema)
 
     def _build_event_name_map(self) -> dict[str, str]:
         """Map each schema's source-qualified `schema.table` name to its stored `name`.

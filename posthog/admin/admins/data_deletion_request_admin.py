@@ -603,6 +603,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.min_timestamp = None
             obj.max_timestamp = None
             obj.stats_calculated_at = None
+            # Rows cleaned under the old criteria are ordinary candidates for the new ones —
+            # a stale marker would make the copy pass skip them as "already cleaned".
+            obj.property_removal_marker = None
             if obj.status != RequestStatus.DRAFT:
                 obj.status = RequestStatus.DRAFT
                 messages.warning(request, "Deletion criteria were changed — status has been reset to draft.")

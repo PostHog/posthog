@@ -1,15 +1,37 @@
-// Canonical definitions live in schema-signals.ts (synced between TS and Python).
-// Re-exported here so existing consumers keep working.
-import {
-    EnrichedReviewer,
-    RelevantCommit,
-    SignalSourceProduct,
-    SignalSourceType,
-} from '~/queries/schema/schema-signals'
 import type { UserBasicType } from '~/types'
 
-export type { EnrichedReviewer, RelevantCommit }
+import {
+    SignalSourceProductApi as SignalSourceProduct,
+    SignalSourceTypeApi as SignalSourceType,
+} from 'products/signals/frontend/generated/api.schemas'
+
+// The canonical signal taxonomy, generated from the backend enums via OpenAPI/Orval.
+// Re-exported under the domain names so consumers don't carry the `Api` suffix around.
 export { SignalSourceProduct, SignalSourceType }
+
+// Suggested-reviewer shapes, read from `suggested_reviewers` artefact content (a polymorphic JSON
+// field with no per-type OpenAPI schema). Mirrors EnrichedReviewer/RelevantCommit in
+// products/signals/backend/contracts.py.
+export interface RelevantCommit {
+    sha: string
+    url: string
+    reason: string
+}
+
+export interface SignalReviewerUserInfo {
+    id: number
+    uuid: string
+    first_name: string
+    last_name: string
+    email: string
+}
+
+export interface EnrichedReviewer {
+    github_login: string
+    github_name: string | null
+    relevant_commits: RelevantCommit[]
+    user: SignalReviewerUserInfo | null
+}
 
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */
 export type SignalReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
@@ -303,6 +325,8 @@ export interface SignalScoutEmission {
     weight: number
     confidence: number
     severity: SignalReportPriority | null
+    /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). */
+    tags: string[]
     source_id: string
     emitted_at: string
 }

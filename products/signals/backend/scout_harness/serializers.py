@@ -12,8 +12,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from posthog.schema import Severity
-
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -162,7 +160,7 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         help_text="Agent's confidence the finding is real in [0, 1].",
     )
     severity = serializers.ChoiceField(
-        choices=[(s.value, s.value) for s in Severity],
+        choices=[(p.value, p.value) for p in Priority],
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.",
     )
@@ -525,7 +523,7 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         help_text="Optional one-line hypothesis the finding tests.",
     )
     severity = serializers.ChoiceField(
-        choices=[(s.value, s.value) for s in Severity],
+        choices=[(p.value, p.value) for p in Priority],
         required=False,
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.",
@@ -571,6 +569,14 @@ class EmitFindingResponseSerializer(serializers.Serializer):
     skipped_reason = serializers.CharField(
         allow_null=True,
         help_text="`ai_processing_not_approved` | `source_disabled` | null when emitted normally.",
+    )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
+            "(e.g. an org admin must approve AI data processing). Null when emitted normally or the "
+            "skip isn't something the scout can act on."
+        ),
     )
 
 
@@ -720,6 +726,14 @@ class EmitReportResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="When the safety judge suppressed the report, why; null when safe.",
     )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
+            "(e.g. an org admin must approve AI data processing). Null when the report was authored "
+            "or the skip isn't something the scout can act on."
+        ),
+    )
 
 
 class EditReportRequestSerializer(serializers.Serializer):
@@ -809,6 +823,18 @@ class ExternalDataSourceEntrySerializer(serializers.Serializer):
         allow_null=True,
         help_text="ISO-8601 timestamp the source was connected.",
     )
+    last_run_at = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp of the most recent completed sync job, or null if this source has "
+            "never completed a sync. Use this to tell a healthy source apart from one stuck in "
+            "`Running` that has imported zero rows — `status` alone conflates the two."
+        ),
+    )
+    latest_error = serializers.CharField(
+        allow_null=True,
+        help_text="Newest schema-level sync error for this source, or null if no schema is erroring.",
+    )
 
 
 class SignalSourceConfigEntrySerializer(serializers.Serializer):
@@ -828,6 +854,29 @@ class SignalSourceConfigsBucketsSerializer(serializers.Serializer):
     disabled = serializers.ListField(
         child=SignalSourceConfigEntrySerializer(),
         help_text="Source configs the team has explicitly disabled (different from never wired up).",
+    )
+
+
+class EmitEligibilitySerializer(serializers.Serializer):
+    """`inventory.emit_eligibility` — whether scout findings can reach the inbox for this team."""
+
+    ai_processing_approved = serializers.BooleanField(
+        help_text="Whether the organization has approved AI data processing (an org-level gate on all scout emits).",
+    )
+    source_enabled = serializers.BooleanField(
+        help_text="Whether the `signals_scout` signal source is enabled for this team.",
+    )
+    can_emit = serializers.BooleanField(
+        help_text=(
+            "True only when both team/org-level gates pass, so scout findings (signal and report "
+            "channels alike) actually reach the inbox. When False, every emit is silently dropped — "
+            "quick-close instead of doing throwaway investigation. Does not account for a scout's "
+            "own dry-run `emit` toggle, which is per-config, not team-wide."
+        ),
+    )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text="One-line next step to unblock emits when `can_emit` is False; null when emits can flow.",
     )
 
 
@@ -873,8 +922,20 @@ class RecentDashboardEntrySerializer(serializers.Serializer):
 class TopEventEntrySerializer(serializers.Serializer):
     """One row in `inventory.top_events`."""
 
+    window_days = serializers.IntegerField(
+        help_text=(
+            "Rolling lookback window (in days) that every count and timestamp on this row "
+            "is measured over — these are windowed figures, NOT lifetime totals. A capture "
+            "gap can collapse a real, high-volume project's in-window counts to near-zero, "
+            "so a thin `count` here does not by itself mean the project is low-volume: rule "
+            "out an ingestion gap (compare against a trailing baseline via a direct "
+            "`execute-sql`) before closing out a surface as unused."
+        ),
+    )
     event = serializers.CharField(help_text="Event name as captured.")
-    count = serializers.IntegerField(help_text="Number of occurrences in the lookback window (last 7 days).")
+    count = serializers.IntegerField(
+        help_text="Number of occurrences within the last `window_days` (windowed, not lifetime)."
+    )
     distinct_users = serializers.IntegerField(
         help_text=(
             "`uniq(person_id)` over the window — reach. Distinguishes a high-count "
@@ -883,8 +944,9 @@ class TopEventEntrySerializer(serializers.Serializer):
     )
     recent_24h_count = serializers.IntegerField(
         help_text=(
-            "Count in just the last 24 hours. Compare to `count / 7` to spot bursts: "
-            "a ratio well above 1/7 means the event is concentrated in the last day."
+            "Count in just the last 24 hours. Compare to `count / window_days` to spot "
+            "bursts: a ratio well above `1 / window_days` means the event is concentrated "
+            "in the last day."
         ),
     )
     recent_24h_users = serializers.IntegerField(
@@ -893,19 +955,18 @@ class TopEventEntrySerializer(serializers.Serializer):
             "users is qualitatively different from one user in a loop."
         ),
     )
-    first_seen = serializers.CharField(
+    first_seen_in_window = serializers.CharField(
         allow_null=True,
         help_text=(
-            "ISO-8601 timestamp of the earliest occurrence within the lookback window. "
-            "Compare to the window start to spot new event types: `first_seen` close to "
-            "`now` ⇒ likely new or recently bursting; close to the window edge ⇒ has "
-            "been around at least that long (the window can't tell you when the event "
-            "*truly* first appeared)."
+            "ISO-8601 timestamp of the earliest occurrence within the `window_days` window. "
+            "Compare to the window start to spot new event types: close to `now` ⇒ likely "
+            "new or recently bursting; close to the window edge ⇒ has been around at least "
+            "that long (the window can't tell you when the event *truly* first appeared)."
         ),
     )
-    last_seen = serializers.CharField(
+    last_seen_in_window = serializers.CharField(
         allow_null=True,
-        help_text="ISO-8601 timestamp of the most recent occurrence within the lookback window.",
+        help_text="ISO-8601 timestamp of the most recent occurrence within the `window_days` window.",
     )
 
 
@@ -1225,6 +1286,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     signal_source_configs = SignalSourceConfigsBucketsSerializer(
         help_text="Signal source configs split into enabled / disabled buckets.",
     )
+    emit_eligibility = EmitEligibilitySerializer(
+        help_text=(
+            "Whether scout findings can actually reach the inbox for this team — the org-level AI "
+            "data-processing consent gate and the `signals_scout` source toggle, plus a one-line "
+            "remediation pointer. Read at cold start to quick-close before doing throwaway work."
+        ),
+    )
     existing_inbox_reports = ExistingInboxReportsSerializer(
         help_text="Counts of reports already in the inbox, grouped by status.",
     )
@@ -1235,7 +1303,7 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each "
             "scope reports `edits` (total log entries), `users` (distinct user count), "
             "and `last_edit` (ISO-8601). Use to triage which scope a team has been working "
-            "in lately before drilling down via the per-entity readers or `activity-log-list`."
+            "in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`."
         ),
     )
     recent_reviewer_corrections = RecentReviewerCorrectionsSerializer(
@@ -1309,11 +1377,16 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
         child=TopEventEntrySerializer(),
         allow_null=True,
         help_text=(
-            "Top ~50 events by count over the last 7 days, with first/last seen "
-            "timestamps within the window. `null` if the underlying ClickHouse query "
-            "failed or timed out (distinct from `[]`, which means the team has no "
-            "captures in the window). Use the gap between `first_seen` and `now` to "
-            "spot new event types or recent bursts."
+            "Top ~50 events by count over a recent rolling window (each row carries "
+            "`window_days`), with first/last seen timestamps within that window. These "
+            "are WINDOWED counts, not lifetime totals: a capture gap can collapse a "
+            "real, high-volume project's counts to near-zero here, so rule out an "
+            "ingestion gap (compare against a trailing baseline via a direct "
+            "`execute-sql`) before reading thinness as a genuinely low-volume project. "
+            "`null` if the underlying ClickHouse query failed or timed out (distinct "
+            "from `[]`, which means the team has no captures in the window). Use the gap "
+            "between `first_seen_in_window` and `now` to spot new event types or recent "
+            "bursts."
         ),
     )
 

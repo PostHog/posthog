@@ -94,6 +94,15 @@ packages/quill/**/node_modules
 packages/quill/**/dist
 products/**/node_modules
 nodejs/node_modules
+# The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
+# artifacts out of the plugin-server build context.
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/node_modules
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/models
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/corpus
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/test-data
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/out
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/tmp
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/*.traineddata
 services/mcp/node_modules
 services/mcp/dist
 services/mcp/.wrangler
