@@ -9,6 +9,7 @@ from django.conf import settings
 from rest_framework import status
 
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.user import User
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task
@@ -149,6 +150,25 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         folder = FileSystem.objects.get(team=self.team, path="MyChannel", type="folder")
         message = self._thread_messages(task).get()
         self.assertTrue(message.content.startswith(f"[MyCanvas]({settings.SITE_URL}/code/canvas/{folder.id}/"))
+
+    @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
+    def test_header_naming_someone_elses_task_stays_silent(self, _flag):
+        # The header selects the announcement's thread; it must not let a publisher
+        # plant agent messages in a task they didn't create.
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        Task = apps.get_model("tasks", "Task")
+        task = Task.objects.create(
+            team=self.team,
+            title="Someone else's task",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=other,
+        )
+        item_id = self._create_dashboard()
+
+        self.client.patch(self._canvas_url(item_id), {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
+
+        self.assertFalse(self._thread_messages(task).exists())
 
     def test_publish_without_task_attribution_stays_silent(self):
         item_id = self._create_dashboard()

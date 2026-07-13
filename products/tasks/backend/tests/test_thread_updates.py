@@ -125,7 +125,9 @@ class TestAgentThreadUpdates(TestCase):
     )
     @patch(_FLAG_TARGET, return_value=True)
     def test_canvas_created_message_content(self, _name, canvas_name, canvas_url, expected, _flag) -> None:
-        post_canvas_created_thread_update(self.task.id, self.team.id, canvas_name=canvas_name, canvas_url=canvas_url)
+        post_canvas_created_thread_update(
+            self.task.id, self.team.id, acting_user_id=self.user.id, canvas_name=canvas_name, canvas_url=canvas_url
+        )
 
         messages = self._messages(self.task)
         self.assertEqual(len(messages), 1)
@@ -134,9 +136,21 @@ class TestAgentThreadUpdates(TestCase):
         self.assertEqual(messages[0].event, "canvas_created")
         self.assertEqual(messages[0].content, expected)
 
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_canvas_created_requires_creator_match(self, _flag) -> None:
+        other = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+
+        post_canvas_created_thread_update(
+            self.task.id, self.team.id, acting_user_id=other.id, canvas_name="Canvas", canvas_url=None
+        )
+
+        self.assertEqual(self._messages(self.task), [])
+
     @patch(_FLAG_TARGET, return_value=False)
     def test_canvas_created_skips_when_flag_off(self, _flag) -> None:
-        post_canvas_created_thread_update(self.task.id, self.team.id, canvas_name="Canvas", canvas_url=None)
+        post_canvas_created_thread_update(
+            self.task.id, self.team.id, acting_user_id=self.user.id, canvas_name="Canvas", canvas_url=None
+        )
 
         self.assertEqual(self._messages(self.task), [])
 

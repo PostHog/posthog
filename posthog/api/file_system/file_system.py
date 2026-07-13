@@ -1169,22 +1169,22 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         """Announce a canvas's first publish in the generating task's thread.
 
         The task sandbox stamps every MCP call with an X-PostHog-Task-Id header, so
-        a publish is attributable to the task that made it. Attribution only, not an
-        authorization boundary: the bearer token already had to be able to write the
-        canvas, and the header must name a task in the same team. No header (a human
-        or app save) means no announcement.
+        a publish is attributable to the task that made it. The sandbox authenticates
+        with the task creator's credentials, so the facade only accepts a task created
+        by the requesting user — the header can't point the announcement at someone
+        else's task thread. No header (a human or app save) means no announcement.
         """
         raw_task_id = (request.headers.get("X-PostHog-Task-Id") or "").strip()
         try:
             task_id = UUID(raw_task_id)
         except ValueError:
             return
-        if not tasks_facade.task_exists(task_id, self.team_id):
-            return
+        user = request.user if isinstance(request.user, User) else None
         segments = split_path(dashboard.path)
         tasks_facade.post_canvas_created_thread_update(
             task_id,
             self.team_id,
+            acting_user_id=user.id if user else None,
             canvas_name=segments[-1] if segments else "Canvas",
             canvas_url=self._canvas_share_url(dashboard),
         )

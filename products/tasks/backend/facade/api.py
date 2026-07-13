@@ -5070,18 +5070,23 @@ def _agent_thread_updates_enabled(creator: User | None) -> bool:
 
 
 def post_canvas_created_thread_update(
-    task_id: str | UUID, team_id: int, *, canvas_name: str, canvas_url: str | None
+    task_id: str | UUID, team_id: int, *, acting_user_id: int | None, canvas_name: str, canvas_url: str | None
 ) -> None:
     """Announce a freshly created canvas in the generating task's thread.
 
-    Posts "[name](url) has been created" as an authorless (agent) message. Called
-    on a canvas's first publish only — the caller owns that once-guard. Best-effort
+    Posts "[name](url) has been created" as an agent message. Called on a canvas's
+    first publish only — the caller owns that once-guard. ``acting_user_id`` must be
+    the task's creator: the sandbox publishes with the creator's credentials, so this
+    binds the attributed task to the caller's identity — a same-team caller can't
+    plant agent messages in someone else's task thread by naming its id. Best-effort
     and never raises: the publish must not fail because its announcement couldn't
     be written.
     """
     try:
         task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
-        if task is None or not _agent_thread_updates_enabled(task.created_by):
+        if task is None or task.created_by_id is None or task.created_by_id != acting_user_id:
+            return
+        if not _agent_thread_updates_enabled(task.created_by):
             return
         # Brackets and newlines in the name would break the [label](url) token.
         name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
