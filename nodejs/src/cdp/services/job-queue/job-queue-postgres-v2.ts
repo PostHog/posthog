@@ -261,6 +261,26 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             })
         )
     }
+
+    public async heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+        await Promise.all(
+            invocations.map(async (inv) => {
+                const job = this.pendingJobs.get(inv.id)
+                if (!job) {
+                    return
+                }
+                try {
+                    await job.heartbeat()
+                } catch (err) {
+                    // Race with ack/fail/reschedule flipping `released` on the wrapper.
+                    logger.debug('CyclotronV2 heartbeat skipped for released job', {
+                        id: inv.id,
+                        error: String(err),
+                    })
+                }
+            })
+        )
+    }
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {

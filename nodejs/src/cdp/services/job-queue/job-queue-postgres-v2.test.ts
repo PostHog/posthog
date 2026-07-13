@@ -352,4 +352,29 @@ describe('CyclotronJobQueuePostgresV2', () => {
             expect((queue as any).pendingJobs.has(job.id)).toBe(false)
         })
     })
+
+    describe('heartbeatInvocations', () => {
+        it('proxies to heartbeat on pending jobs, skips unknown ids, and swallows released errors', async () => {
+            const { queue } = createQueue()
+            const pending = createDequeuedJob()
+            const released = createDequeuedJob({
+                heartbeat: jest.fn().mockRejectedValue(new Error(`Job ${'x'} already released, cannot heartbeat`)),
+            })
+            ;(queue as any).pendingJobs.set(pending.id, pending)
+            ;(queue as any).pendingJobs.set(released.id, released)
+
+            await expect(
+                queue.heartbeatInvocations([
+                    { ...baseInvocation, id: pending.id },
+                    { ...baseInvocation, id: released.id },
+                    { ...baseInvocation, id: uuidv4() }, // not in pendingJobs
+                ])
+            ).resolves.toBeUndefined()
+
+            expect(pending.heartbeat).toHaveBeenCalledTimes(1)
+            expect(released.heartbeat).toHaveBeenCalledTimes(1)
+            // pendingJobs is unchanged — heartbeat is not a terminal transition
+            expect((queue as any).pendingJobs.size).toBe(2)
+        })
+    })
 })
