@@ -83,6 +83,9 @@ HARVEY_ENDPOINTS: dict[str, HarveyEndpointConfig] = {
     "client_matters": HarveyEndpointConfig(
         name="client_matters",
         primary_keys=["id"],
+        # A matter's description is free-text that can carry confidential client content -
+        # keep these bodies out of HTTP sample capture, like query_history.
+        capture_http_samples=False,
     ),
     # Page-number pagination. Rows are mutable (file counts, sharing, update timestamps),
     # so full refresh keeps the table current.
