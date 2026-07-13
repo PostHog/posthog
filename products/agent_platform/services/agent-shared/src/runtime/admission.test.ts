@@ -560,6 +560,31 @@ describe('AdmissionService', () => {
         }
     })
 
+    it('revoked authoritative credential invalidates the binding → re-auth', async () => {
+        // A binding without a live credential is meaningless — the authoritative
+        // provider has nothing to prove the identity with anymore. Revoking
+        // (or removing) the credential must stop admitting via the durable
+        // binding until the user re-links.
+        const work = makeIdp('https://work.example', 'alice')
+        const h = harness([work])
+        const rev = revWith('work')
+        const claim: TransportClaim = { transport: 'slack', subjectId: 'T:U' }
+
+        const first = await h.admission.resolve(claim, { application: APP, revision: rev })
+        const linked = first.kind === 'auth_required' ? await driveLink(h, first.authorizeUrl) : null
+        expect(linked).toBeTruthy()
+
+        // Sanity: durable admit works while the credential is active.
+        const admittedAgain = await h.admission.resolve(claim, { application: APP, revision: rev })
+        expect(admittedAgain.kind).toBe('admitted')
+
+        // Credential revoked (e.g. admin unlinked). Binding still exists but
+        // must no longer admit — a fresh link is required.
+        await h.credentials.revoke(linked!.canonicalId, 'work')
+        const afterRevoke = await h.admission.resolve(claim, { application: APP, revision: rev })
+        expect(afterRevoke.kind).toBe('auth_required')
+    })
+
     it('re-auth as a different subject replaces the binding (account switch)', async () => {
         const work = makeIdp('https://work.example', 'alice')
         const h = harness([work])

@@ -117,10 +117,25 @@ export class AdmissionService {
                 } else {
                     const canonical = await this.deps.identities.getById(binding.canonicalAgentUserId)
                     if (canonical && canonical.principal_kind === canonicalKind(authoritativeId)) {
-                        return this.admitted(authoritativeId, canonical, transportUser.id, 'binding')
+                        // The binding is only trustworthy while the underlying
+                        // authoritative credential is still active. If it was
+                        // revoked or removed (`credentials.get` returns null
+                        // for both), the durable link is invalidated — fall
+                        // through so the user re-links and a fresh credential
+                        // is written before we admit again.
+                        const credential = await this.deps.credentials.get(canonical.id, authoritativeId)
+                        if (credential) {
+                            return this.admitted(authoritativeId, canonical, transportUser.id, 'binding')
+                        }
+                        this.deps.log?.('warn', 'admission.binding_credential_inactive', {
+                            binding_id: binding.id,
+                            canonical_id: canonical.id,
+                            provider: authoritativeId,
+                        })
+                    } else {
+                        // Dangling / mismatched canonical → fall through to re-auth.
+                        this.deps.log?.('warn', 'admission.dangling_binding', { binding_id: binding.id })
                     }
-                    // Dangling / mismatched canonical → fall through to re-auth.
-                    this.deps.log?.('warn', 'admission.dangling_binding', { binding_id: binding.id })
                 }
             }
         }
