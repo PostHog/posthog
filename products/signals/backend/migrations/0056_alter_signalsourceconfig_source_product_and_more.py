@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
                     ("llm_analytics", "LLM analytics"),
                     ("github", "GitHub"),
                     ("linear", "Linear"),
+                    ("jira", "Jira"),
                     ("zendesk", "Zendesk"),
                     ("conversations", "Conversations"),
                     ("error_tracking", "Error tracking"),
