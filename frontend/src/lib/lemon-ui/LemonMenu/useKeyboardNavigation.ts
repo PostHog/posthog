@@ -13,13 +13,25 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
     const referenceRef = useRef<R>(null)
     const itemsRef = useRef(Array.from({ length: itemCount }, () => createRef<I>()))
 
+    // Keep the ref array in sync with the current item count, since it can grow or shrink after mount
+    // (dynamic or filtered menus). Done during render so refs exist before items attach them, and
+    // existing refs are preserved so already-mounted items keep their DOM node.
+    const items = itemsRef.current
+    if (items.length < itemCount) {
+        while (items.length < itemCount) {
+            items.push(createRef<I>())
+        }
+    } else if (items.length > itemCount) {
+        items.length = itemCount
+    }
+
     useEffect(() => {
         focusedItemIndexRef.current = activeItemIndex
     }, [activeItemIndex])
 
     function focus(itemIndex: number): void {
         if (itemIndex > -1) {
-            itemsRef.current[itemIndex].current?.focus()
+            itemsRef.current[itemIndex]?.current?.focus()
         } else {
             referenceRef.current?.focus()
         }
