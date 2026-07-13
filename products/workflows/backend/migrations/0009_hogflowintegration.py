@@ -1,6 +1,8 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
+import posthog.models.utils
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -12,7 +14,12 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="HogFlowIntegration",
             fields=[
-                ("id", models.BigAutoField(primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
                 (
                     "hog_flow",
                     models.ForeignKey(

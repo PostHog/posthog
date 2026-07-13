@@ -7,7 +7,7 @@ from django.dispatch.dispatcher import receiver
 import structlog
 
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 from products.actions.backend.models.action import Action
@@ -94,7 +94,7 @@ class HogFlow(UUIDTModel):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
 
-class HogFlowIntegration(models.Model):
+class HogFlowIntegration(UUIDModel):
     """Join row recording that a hog flow's live action config references an integration.
 
     Derived from the flow's JSON actions (which stay the runtime source of truth) and kept
@@ -102,7 +102,6 @@ class HogFlowIntegration(models.Model):
     reverse lookups ("what uses this integration?") don't need to scan JSON blobs.
     """
 
-    id = models.BigAutoField(primary_key=True)
     hog_flow = models.ForeignKey("workflows.HogFlow", on_delete=models.CASCADE, related_name="integration_links")
     integration = models.ForeignKey("posthog.Integration", on_delete=models.CASCADE, related_name="hog_flow_links")
 

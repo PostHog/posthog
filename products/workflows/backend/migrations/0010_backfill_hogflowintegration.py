@@ -29,7 +29,7 @@ def _collect_integration_ids(node, ids, depth=0):
 
 
 def _extract_integration_ids(actions, get_template_inputs_schema):
-    ids = set()
+    ids: set[int] = set()
     for action in actions or []:
         if not isinstance(action, dict) or "function" not in (action.get("type") or ""):
             continue
@@ -68,7 +68,7 @@ def backfill(apps, schema_editor):
             template_schema_cache[template_id] = template.inputs_schema if template else None
         return template_schema_cache[template_id]
 
-    pending = []
+    pending: list[tuple] = []
 
     def flush():
         if not pending:

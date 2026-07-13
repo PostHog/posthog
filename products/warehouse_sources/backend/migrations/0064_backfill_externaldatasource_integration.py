@@ -24,7 +24,7 @@ def backfill(apps, schema_editor):
     ExternalDataSource = apps.get_model("warehouse_sources", "ExternalDataSource")
     Integration = apps.get_model("posthog", "Integration")
 
-    pending = []
+    pending: list[tuple] = []
 
     def flush():
         if not pending:

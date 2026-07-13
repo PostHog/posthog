@@ -17,7 +17,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.plugins.plugin_server_api import (
     get_hog_function_status,
     patch_hog_function_status,
@@ -252,7 +252,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         return f"HogFunction {self.id}: {self.name}"
 
 
-class HogFunctionIntegration(models.Model):
+class HogFunctionIntegration(UUIDModel):
     """Join row recording that a hog function's inputs reference an integration.
 
     Derived from the function's JSON inputs (which stay the runtime source of truth) and kept
@@ -260,7 +260,6 @@ class HogFunctionIntegration(models.Model):
     reverse lookups ("what uses this integration?") don't need to scan JSON blobs.
     """
 
-    id = models.BigAutoField(primary_key=True)
     hog_function = models.ForeignKey("cdp.HogFunction", on_delete=models.CASCADE, related_name="integration_links")
     integration = models.ForeignKey("posthog.Integration", on_delete=models.CASCADE, related_name="hog_function_links")
 
