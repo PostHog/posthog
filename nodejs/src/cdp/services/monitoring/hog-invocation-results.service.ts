@@ -122,7 +122,8 @@ const classifyError = (error: unknown): { kind: string; message: string } => {
         typeof error === 'string'
             ? error
             : error instanceof Error
-              ? error.message
+              ? // fall back to the error name so an empty message doesn't blank the row (without the stack)
+                error.message || error.name
               : (() => {
                     try {
                         return JSON.stringify(error)
