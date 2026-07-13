@@ -54,10 +54,17 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
-def _make_session(api_key: str) -> requests.Session:
+def _make_session(api_key: str, capture: bool = True) -> requests.Session:
     # `redact_values` masks the bearer token from any captured request samples or logged errors,
-    # so the credential never leaks into warehouse job telemetry.
-    return make_tracked_session(redact_values=(api_key,))
+    # so the credential never leaks into warehouse job telemetry. `capture=False` additionally
+    # excludes the response body from HTTP sample capture, for endpoints whose bodies carry
+    # arbitrary user content the name-based scrubbers can't recognise.
+    return make_tracked_session(redact_values=(api_key,), capture=capture)
+
+
+def _endpoint_captures_samples(endpoint: str) -> bool:
+    config = HARVEY_ENDPOINTS.get(endpoint)
+    return config.capture_http_samples if config is not None else True
 
 
 def validate_credentials(api_key: str, region: str | None) -> bool:
@@ -89,7 +96,10 @@ def check_endpoint_access(api_key: str, region: str | None, endpoint: str) -> st
     """
     url = _probe_url(get_base_url(region), endpoint)
     try:
-        response = _make_session(api_key).get(url, headers=_get_headers(api_key), timeout=30)
+        # The query_history probe fetches a live window of prompt/response text, so honour the
+        # endpoint's capture flag here too - the probe body is as sensitive as the export body.
+        session = _make_session(api_key, capture=_endpoint_captures_samples(endpoint))
+        response = session.get(url, headers=_get_headers(api_key), timeout=30)
     except Exception:
         return None
     if response.status_code in (401, 403):
@@ -120,9 +130,10 @@ def _fetch_json(session: requests.Session, url: str, headers: dict[str, str], lo
 
     if not response.ok:
         # 404 is expected from the seed endpoints (no logs at/after the watermark) and is
-        # handled by callers; anything else is a genuine failure.
+        # handled by callers; anything else is a genuine failure. The response body is
+        # deliberately left out of the log - it can contain confidential query content.
         log = logger.warning if response.status_code == 404 else logger.error
-        log(f"Harvey API error: status={response.status_code}, body={response.text}, url={url}")
+        log(f"Harvey API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -350,8 +361,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     base_url = get_base_url(region)
     headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = _make_session(api_key)
+    # One session reused across every page so urllib3 keeps the connection alive. Endpoints whose
+    # bodies carry arbitrary user content (e.g. query_history) opt out of HTTP sample capture.
+    session = _make_session(api_key, capture=_endpoint_captures_samples(endpoint))
 
     if endpoint == "audit_logs":
         yield from _get_audit_log_rows(

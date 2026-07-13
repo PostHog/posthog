@@ -249,6 +249,54 @@ class TestSessionRedaction:
         assert mock_session.call_args.kwargs["redact_values"] == ("token",)
 
 
+class TestHttpSampleCapture:
+    # query_history bodies carry confidential prompt/response text. Capturing them into the HTTP
+    # sample bucket would leak that content past the scrubbers, so its session must be built with
+    # capture=False; every other endpoint keeps capture on. A regression here (dropping the
+    # per-endpoint flag or hardcoding capture=True) would re-introduce the leak.
+    @parameterized.expand(
+        [
+            # History endpoints resume at `now` so the window loop makes no request - the session is
+            # still built up front, which is where the capture flag is decided.
+            ("query_history", "query_history", HarveyResumeConfig(window_start=NOW_EPOCH), [], False),
+            ("usage_history", "usage_history", HarveyResumeConfig(window_start=NOW_EPOCH), [], True),
+            ("client_matters", "client_matters", None, [_response([])], True),
+        ]
+    )
+    def test_get_rows_capture_flag(
+        self,
+        _name: str,
+        endpoint: str,
+        resume: HarveyResumeConfig | None,
+        responses: list[Response],
+        expected_capture: bool,
+    ) -> None:
+        session = _session_with(responses)
+        with (
+            freeze_time(NOW),
+            mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session) as mock_session,
+        ):
+            list(
+                get_rows(
+                    api_key="token",
+                    region="us",
+                    endpoint=endpoint,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_FakeManager(resume=resume),  # type: ignore[arg-type]
+                )
+            )
+
+        assert mock_session.call_args.kwargs["capture"] is expected_capture
+
+    @parameterized.expand([("query_history", "query_history", False), ("audit_logs", "audit_logs", True)])
+    def test_check_endpoint_access_capture_flag(self, _name: str, endpoint: str, expected_capture: bool) -> None:
+        session = _session_with([_response({})])
+        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session) as mock_session:
+            check_endpoint_access("token", "us", endpoint)
+
+        assert mock_session.call_args.kwargs["capture"] is expected_capture
+
+
 class TestAuditLogRows:
     def _get_batches(
         self,

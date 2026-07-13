@@ -26,6 +26,10 @@ class HarveyEndpointConfig:
     partition_key: str | None = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     should_sync_default: bool = True
+    # When False, this endpoint's responses are excluded from HTTP sample capture. Set it for
+    # endpoints whose bodies carry arbitrary user content (prompts, model responses, matter text)
+    # that the name-based sample scrubbers can't recognise, so it never lands in job telemetry.
+    capture_http_samples: bool = True
 
 
 HARVEY_ENDPOINTS: dict[str, HarveyEndpointConfig] = {
@@ -72,6 +76,8 @@ HARVEY_ENDPOINTS: dict[str, HarveyEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+        # Bodies carry confidential prompt/response text - keep them out of HTTP sample capture.
+        capture_http_samples=False,
     ),
     # Unpaginated full list with no server-side time filter - full refresh only.
     "client_matters": HarveyEndpointConfig(
