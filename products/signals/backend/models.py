@@ -188,9 +188,9 @@ class SignalReport(UUIDModel):
         SUPPRESSED = "suppressed"
 
     class BillingExemptReason(models.TextChoices):
-        POSTHOG_HEALTH_CHECK = "posthog_health_check"
-        POSTHOG_ONBOARDING = "posthog_onboarding"
-        POSTHOG_SYSTEM = "posthog_system"
+        POSTHOG_HEALTH_CHECK = "posthog_health_check", "PostHog health check"
+        POSTHOG_ONBOARDING = "posthog_onboarding", "PostHog onboarding"
+        POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
@@ -1000,10 +1000,10 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
     """
 
     class Reason(models.TextChoices):
-        PR_INCORRECT = "pr_incorrect"
-        PR_NOT_USEFUL = "pr_not_useful"
-        DUPLICATE = "duplicate"
-        OTHER = "other"
+        PR_INCORRECT = "pr_incorrect", "PR incorrect"
+        PR_NOT_USEFUL = "pr_not_useful", "PR not useful"
+        DUPLICATE = "duplicate", "Duplicate"
+        OTHER = "other", "Other"
 
     class BillingPath(models.TextChoices):
         # Refund landed on the same UTC day as the first billable PR run: the usage query simply
