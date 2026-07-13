@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
+import { warehouseProvisioningLogic } from './scene/warehouseProvisioningLogic'
 
 export enum DataWarehouseTab {
     OVERVIEW = 'overview',
@@ -15,30 +16,48 @@ export enum DataWarehouseTab {
     MODELING = 'modeling',
 }
 
+function isDataWarehouseTab(tab: unknown): tab is DataWarehouseTab {
+    return typeof tab === 'string' && (Object.values(DataWarehouseTab) as string[]).includes(tab)
+}
+
 // Single source of truth for which tabs the Data ops scene exposes. The scene, the URL
 // state, and the default tab all derive from availableTabs / activeTab below.
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'data-warehouse', 'dataWarehouseSceneLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], warehouseProvisioningLogic, ['warehouseStatus']],
+        actions: [warehouseProvisioningLogic, ['loadWarehouseStatusSuccess', 'loadWarehouseStatusFailure']],
     })),
     actions({
-        setActiveTab: (tab: DataWarehouseTab) => ({ tab }),
+        setActiveTab: (tab: DataWarehouseTab | null) => ({ tab }),
     }),
     reducers({
+        // Null until the URL or the user picks a tab — activeTab derives the effective one.
         selectedTab: [
-            DataWarehouseTab.OVERVIEW as DataWarehouseTab,
+            null as DataWarehouseTab | null,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
+        // warehouseStatus is null both before the first load and when no warehouse exists, so
+        // resolution has to be tracked separately — otherwise "still loading" reads as "no warehouse".
+        warehouseStatusResolved: [
+            false,
+            {
+                loadWarehouseStatusSuccess: () => true,
+                loadWarehouseStatusFailure: () => true,
+            },
+        ],
     }),
     selectors({
+        // A warehouse that isn't serving yet has nothing to report on, so Overview stays hidden
+        // until it's ready and the scene shows the setup form on its own.
+        warehouseReady: [(s) => [s.warehouseStatus], (warehouseStatus): boolean => warehouseStatus?.state === 'ready'],
         availableTabs: [
-            (s) => [s.featureFlags],
-            (featureFlags): DataWarehouseTab[] => {
+            (s) => [s.featureFlags, s.warehouseReady],
+            (featureFlags, warehouseReady): DataWarehouseTab[] => {
                 const tabs: DataWarehouseTab[] = []
-                if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
+                if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE] && warehouseReady) {
                     tabs.push(DataWarehouseTab.OVERVIEW)
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]) {
@@ -50,11 +69,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 return tabs
             },
         ],
-        // The selected tab clamped to what's actually available (null when nothing is).
+        // The selected tab clamped to what's actually available (null when nothing is). Clamping
+        // lives here rather than in urlToAction so it re-derives when the warehouse status lands.
         activeTab: [
             (s) => [s.selectedTab, s.availableTabs],
             (selectedTab, availableTabs): DataWarehouseTab | null =>
-                availableTabs.includes(selectedTab) ? selectedTab : (availableTabs[0] ?? null),
+                selectedTab && availableTabs.includes(selectedTab) ? selectedTab : (availableTabs[0] ?? null),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [],
@@ -65,13 +85,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     }),
     urlToAction(({ actions, values }) => ({
         [urls.dataOps()]: (_, searchParams) => {
-            const requested = searchParams.tab as DataWarehouseTab | undefined
-            const target =
-                requested && values.availableTabs.includes(requested)
-                    ? requested
-                    : (values.availableTabs[0] ?? DataWarehouseTab.OVERVIEW)
-            if (target !== values.selectedTab) {
-                actions.setActiveTab(target)
+            const requested = isDataWarehouseTab(searchParams.tab) ? searchParams.tab : null
+            if (requested !== values.selectedTab) {
+                actions.setActiveTab(requested)
             }
         },
     })),
