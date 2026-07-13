@@ -839,6 +839,27 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         read_only_fields = fields
 
 
+class HogFlowSummarySerializer(HogFlowMinimalSerializer):
+    # Metadata-only listing view. Deliberately omits the action graph (actions/edges) and other
+    # detail-only fields: an action's `config` can hold credential-like values (e.g. a webhook
+    # Authorization header), and a workflow *listing* must not broaden their visibility. Full
+    # definitions stay behind retrieve. Used for MCP list requests; see get_serializer_class.
+    class Meta(HogFlowMinimalSerializer.Meta):
+        fields = [
+            "id",
+            "name",
+            "description",
+            "version",
+            "status",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "trigger",
+            "user_access_level",
+        ]
+        read_only_fields = fields
+
+
 class HogFlowSerializer(HogFlowMinimalSerializer):
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
@@ -1308,7 +1329,15 @@ class HogFlowViewSet(
         return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
-        return HogFlowMinimalSerializer if self.action == "list" else HogFlowSerializer
+        if self.action == "list":
+            # MCP list ("workflows-list") is a discovery/summary tool — return metadata only so it
+            # never exposes action config bodies (which can hold credential-like values). The web app
+            # and raw API keep the full graph, which they legitimately need (e.g. client-side
+            # duplication); MCP callers drill into a single workflow via retrieve instead.
+            if self.request is not None and self._is_mcp_request(self.request):
+                return HogFlowSummarySerializer
+            return HogFlowMinimalSerializer
+        return HogFlowSerializer
 
     def get_serializer_context(self) -> dict:
         # Drives draft strictness in the serializers: web-builder drafts stay lenient, programmatic
