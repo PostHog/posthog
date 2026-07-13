@@ -234,6 +234,28 @@ class TestCertificationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert TableCertification.objects.for_team(self.team.id).filter(id=cert.id).exists()
 
+    @parameterized.expand([("certify",), ("deprecate",), ("destroy",)])
+    def test_approval_actions_require_base_catalog_scope(self, act: str) -> None:
+        # data_catalog_approval:write alone must not grant access without base catalog read —
+        # required_scopes replaces the viewset default, so the base scope has to be listed too.
+        table = _table(self.team)
+        cert = propose_certification(team=self.team, user=self.user, table_id=str(table.id))
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="k",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["data_catalog_approval:write"],
+        )
+        self.client.logout()
+
+        if act == "destroy":
+            response = self.client.delete(f"{self.url}{cert.id}/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+        else:
+            response = self.client.post(f"{self.url}{cert.id}/{act}/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     @parameterized.expand([("put",), ("patch",)])
     def test_update_methods_not_allowed(self, method: str) -> None:
         table = _table(self.team)

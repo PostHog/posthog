@@ -219,7 +219,7 @@ class CertificationViewSet(
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         if getattr(view, "action", None) == "destroy":
-            return ["data_catalog_approval:write"]
+            return ["data_catalog_approval:write", "data_catalog:read"]
         return None
 
     @extend_schema(request=CertificationCreateSerializer, responses={201: CertificationSerializer})
@@ -235,7 +235,7 @@ class CertificationViewSet(
     @action(
         detail=True,
         methods=["POST"],
-        required_scopes=["data_catalog_approval:write"],
+        required_scopes=["data_catalog_approval:write", "data_catalog:read"],
         request=None,
         responses={200: CertificationSerializer},
     )
@@ -247,7 +247,7 @@ class CertificationViewSet(
     @action(
         detail=True,
         methods=["POST"],
-        required_scopes=["data_catalog_approval:write"],
+        required_scopes=["data_catalog_approval:write", "data_catalog:read"],
         request=None,
         responses={200: CertificationSerializer},
     )
