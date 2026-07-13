@@ -36,6 +36,7 @@ from products.review_hog.backend.temporal.activities import (
     BuildBodyInput,
     DedupResult,
     FetchPRDataInput,
+    FinalizeStatusCommentInput,
     GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
@@ -50,6 +51,7 @@ from products.review_hog.backend.temporal.activities import (
     ReviewMeta,
     SandboxStageInput,
     SelectPerspectivesInput,
+    StatusCommentInput,
     SyncReviewSkillsInput,
     ValidateChunkInput,
     ValidateChunkResult,
@@ -57,11 +59,14 @@ from products.review_hog.backend.temporal.activities import (
     append_code_review_artefact_activity,
     build_body_activity,
     dedup_activity,
+    fail_status_comment_activity,
     fetch_pr_data_activity,
+    finalize_status_comment_activity,
     generate_schemas_activity,
     load_blind_spots_skill_activity,
     load_perspectives_activity,
     load_validation_skill_activity,
+    post_status_comment_activity,
     publish_review_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
@@ -416,6 +421,22 @@ class ReviewPRWorkflow:
             return report_id
         acting_user_id = acting.acting_user_id
 
+        # The PR's live status comment: posted once every gate has passed, refreshed by the pipeline
+        # activities as they persist progress, and rewritten with the outcome below. Publish-path
+        # only — eval / CLI / branch-target runs keep zero GitHub footprint. Best-effort throughout:
+        # a status comment must never cost a review.
+        status_comment = inputs.publish and meta.pr_number is not None
+        if status_comment:
+            try:
+                await workflow.execute_activity(
+                    post_status_comment_activity,
+                    StatusCommentInput(team_id=inputs.team_id, report_id=report_id),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+            except ActivityError:
+                workflow.logger.warning("Could not post the status comment; continuing without it")
+
         publish_result: PublishResult | None = None
         try:
             await workflow.execute_activity(
@@ -539,6 +560,18 @@ class ReviewPRWorkflow:
             else:
                 workflow.logger.info("Publishing disabled for this run (publish=False)")
         except Exception:
+            # A dead run must not read as forever in progress on the PR; best-effort so the status
+            # edit can never mask the original error.
+            if status_comment:
+                try:
+                    await workflow.execute_activity(
+                        fail_status_comment_activity,
+                        StatusCommentInput(team_id=inputs.team_id, report_id=report_id),
+                        start_to_close_timeout=_QUICK_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except Exception:
+                    workflow.logger.warning("Could not mark the status comment as failed")
             # The signal report's log records a failed turn too (a receipt per executed turn,
             # completion or failure); best-effort so it can never mask the original error.
             await self._append_code_review_receipt(
@@ -547,6 +580,25 @@ class ReviewPRWorkflow:
             raise
 
         posted = publish_result is not None and publish_result.posted
+        # The outcome edit: the full found-vs-published counts land on the status comment, so a PR
+        # with two inline comments never reads as "the review only found two things" — and a
+        # zero-publishable run gets explicit closure instead of silence. Best-effort like the receipt.
+        if status_comment:
+            try:
+                await workflow.execute_activity(
+                    finalize_status_comment_activity,
+                    FinalizeStatusCommentInput(
+                        team_id=inputs.team_id,
+                        report_id=report_id,
+                        run_index=meta.run_index,
+                        urgency_threshold=acting.urgency_threshold,
+                        review_url=publish_result.review_url if publish_result is not None else None,
+                    ),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+            except Exception:
+                workflow.logger.warning("Could not finalize the status comment")
         # Best-effort like the failed path: the receipt is bookkeeping, and failing (+ retrying) an
         # already-published review over it buys nothing — the retry's already-published early-exit
         # returns before this append anyway, so the receipt would stay lost either way.

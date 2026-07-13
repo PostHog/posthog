@@ -90,6 +90,12 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
+from products.review_hog.backend.reviewer.status_comment import (
+    ensure_status_comment,
+    fail_status_comment,
+    finalize_status_comment,
+    maybe_refresh_status_comment,
+)
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
     fetch_branch_compare,
@@ -359,6 +365,24 @@ class AppendCodeReviewArtefactInput:
     review_url: str | None = None
 
 
+@dataclass
+class StatusCommentInput:
+    """Kickoff / failure edits of the PR's status comment; owner/repo/pr come off the report row."""
+
+    team_id: int
+    report_id: str
+
+
+@dataclass
+class FinalizeStatusCommentInput:
+    team_id: int
+    report_id: str
+    run_index: int
+    # The run's snapshotted threshold, so the held-back explanation matches what publish enforced.
+    urgency_threshold: str
+    review_url: str | None = None
+
+
 # --- Setup activities ------------------------------------------------------------------------------
 
 
@@ -369,6 +393,11 @@ def _sandbox_workflow_id_prefix(step_name: str) -> str:
     review, its children, and every sandbox run; a failed sandbox workflow is self-describing.
     """
     return f"{activity.info().workflow_id}:{step_name}".lower()
+
+
+async def _refresh_status_comment(team_id: int, report_id: str) -> None:
+    """Refresh the PR's status comment after this activity persisted progress (debounced, best-effort)."""
+    await database_sync_to_async(maybe_refresh_status_comment, thread_sensitive=False)(team_id, report_id)
 
 
 def _github_integration_exists(team_id: int) -> bool:
@@ -619,6 +648,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     )
     if existing is not None:
         logger.info("Reusing persisted chunk set for this turn")
+        await _refresh_status_comment(input.team_id, input.report_id)
         return [chunk.chunk_id for chunk in existing.chunks]
 
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
@@ -635,6 +665,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
         await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
             team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=planned
         )
+        await _refresh_status_comment(input.team_id, input.report_id)
         return [chunk.chunk_id for chunk in planned.chunks]
 
     prompt = generate_chunking_prompt(snapshot.pr_metadata, snapshot.pr_comments, snapshot.pr_files)
@@ -674,6 +705,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=chunks
     )
+    await _refresh_status_comment(input.team_id, input.report_id)
     return [chunk.chunk_id for chunk in chunks.chunks]
 
 
@@ -745,6 +777,7 @@ async def select_perspectives_activity(input: SelectPerspectivesInput) -> Perspe
         roster=[p.skill_name for p in input.perspectives],
         selection=selection,
     )
+    await _refresh_status_comment(input.team_id, input.report_id)
     return PerspectiveSelectionDTO.from_model(selection)
 
 
@@ -859,6 +892,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         head_sha=input.head_sha,
         results={(input.pass_number, input.chunk_id): review},
     )
+    await _refresh_status_comment(input.team_id, input.report_id)
     return True
 
 
@@ -913,6 +947,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     issue_ids = await database_sync_to_async(persist_findings, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, issues=survivors, run_index=input.run_index
     )
+    await _refresh_status_comment(input.team_id, input.report_id)
     return DedupResult(issue_ids=issue_ids)
 
 
@@ -1053,6 +1088,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                 status="completed" if chunk_ok else "failed",
                 error=None if chunk_ok else "validation chunk failed mid-session",
             )
+    await _refresh_status_comment(input.team_id, input.report_id)
     return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=validated)
 
 
@@ -1138,6 +1174,43 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
         input.pr_number,
         input.urgency_threshold,
     )
+
+
+# --- The PR's live status comment -------------------------------------------------------------------
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def post_status_comment_activity(input: StatusCommentInput) -> None:
+    """Post (or reset) the PR's "review in progress" status comment at run kickoff.
+
+    Dispatched only on the publish path once every gate has passed. Best-effort inside
+    (`ensure_status_comment` swallows failures), so it can't fail the review.
+    """
+    await database_sync_to_async(ensure_status_comment, thread_sensitive=False)(input.team_id, input.report_id)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) -> None:
+    """Rewrite the status comment with the turn's outcome: full found counts vs. what was published."""
+    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(
+        input.team_id,
+        input.report_id,
+        run_index=input.run_index,
+        urgency_threshold=input.urgency_threshold,
+        review_url=input.review_url,
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def fail_status_comment_activity(input: StatusCommentInput) -> None:
+    """Rewrite the status comment as failed, so a dead run never reads as forever in progress."""
+    await database_sync_to_async(fail_status_comment, thread_sensitive=False)(input.team_id, input.report_id)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

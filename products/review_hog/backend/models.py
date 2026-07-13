@@ -59,6 +59,10 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # activity retry / re-trigger can't double-post the review or the one-time alpha promo comment.
     published_head_sha = models.CharField(max_length=64, null=True, blank=True)
     last_seen_comment_id = models.BigIntegerField(null=True, blank=True)
+    # The PR's live "review in progress" status comment (publish path only): the GitHub comment id we
+    # edit in place, and the last-edit watermark that debounces refreshes across concurrent activities.
+    status_comment_id = models.BigIntegerField(null=True, blank=True)
+    status_comment_edited_at = models.DateTimeField(null=True, blank=True)
     report_markdown = models.TextField(default="", blank=True)
     # Provenance for inbox-triggered reviews: the signals report whose implementation this review
     # targets. A plain UUID, not an FK — the link must survive report deletion/reingestion on the
