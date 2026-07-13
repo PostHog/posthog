@@ -839,6 +839,22 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.login_as_other_user()
         assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is False
 
+    def test_rejected_reimpersonation_preserves_read_only_and_reason(self):
+        self.login_as_other_user_read_only()
+        assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is True
+
+        # An empty reason is rejected by loginas without changing the session (it redirects back to
+        # the referer). The rejected attempt must not clear the active read-only flag or its reason.
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false", "reason": ""},
+            HTTP_REFERER="/some/page",
+        )
+
+        user = self.client.get("/api/users/@me/").json()
+        assert user["is_impersonated_read_only"] is True
+        assert user["is_impersonated_reason"] == "Test read-only impersonation"
+
     @parameterized.expand(
         [
             ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
