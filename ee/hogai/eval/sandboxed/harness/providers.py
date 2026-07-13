@@ -202,7 +202,11 @@ class DockerProviderStrategy(SandboxProviderStrategy):
     def cleanup_case(self, task_id: str) -> None:
         # Belt-and-braces on top of the workflow's own shutdown: its cleanup_sandbox
         # can lag or be cancelled at worker shutdown, so reclaim this case's container
-        # by name before the next case grabs a slot.
+        # by name before the next case grabs a slot. --keep-sandbox-containers skips
+        # this too — the flag exists to inspect a failed case's container, and the
+        # per-case reclaim would otherwise remove it before anyone could look.
+        if self.keep_containers:
+            return
         cleanup_case_containers(task_id)
 
     def cleanup(self) -> None:

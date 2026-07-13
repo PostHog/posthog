@@ -7,7 +7,10 @@ from typing import get_args
 
 from .providers import DockerProviderStrategy, ModalProviderStrategy, SandboxProvider
 
-DEFAULT_AGENT_MODEL = "anthropic/claude-opus-4-8"
+# Bare model id, no "anthropic/" prefix: the LLM gateway checks the model against a
+# bare-id allowlist with startswith, so the prefixed form is rejected with a 403 and
+# the agent finishes without doing anything — while still scoring exit_code_zero=1.
+DEFAULT_AGENT_MODEL = "claude-opus-4-8"
 DEFAULT_CASE_TIMEOUT_SECONDS = 60 * 15
 OFFLINE_CASE_TIMEOUT_SECONDS = 60 * 60
 
