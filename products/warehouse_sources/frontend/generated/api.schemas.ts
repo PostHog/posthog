@@ -1121,6 +1121,8 @@ export const CreatedViaEnumApi = {
  * * `TerraApi` - TerraApi
  * * `TriggerDev` - TriggerDev
  * * `Turso` - Turso
+ * * `Singular` - Singular
+ * * `Swonkie` - Swonkie
  * * `TwelveLabs` - TwelveLabs
  * * `Twenty` - Twenty
  * * `Unstructured` - Unstructured
@@ -1880,6 +1882,8 @@ export const ExternalDataSourceTypeEnumApi = {
     TerraApi: 'TerraApi',
     TriggerDev: 'TriggerDev',
     Turso: 'Turso',
+    Singular: 'Singular',
+    Swonkie: 'Swonkie',
     TwelveLabs: 'TwelveLabs',
     Twenty: 'Twenty',
     Unstructured: 'Unstructured',
@@ -1907,6 +1911,7 @@ export const AccessMethodEnumApi = {
  * * `postgres` - postgres
  * * `mysql` - mysql
  * * `snowflake` - snowflake
+ * * `redshift` - redshift
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -1915,6 +1920,7 @@ export const EngineEnumApi = {
     Postgres: 'postgres',
     Mysql: 'mysql',
     Snowflake: 'snowflake',
+    Redshift: 'redshift',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -1962,7 +1968,8 @@ export interface ExternalDataSourceSerializersApi {
      * * `duckdb` - duckdb
      * * `postgres` - postgres
      * * `mysql` - mysql
-     * * `snowflake` - snowflake */
+     * * `snowflake` - snowflake
+     * * `redshift` - redshift */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -2741,6 +2748,8 @@ export interface ExternalDataSourceCreateApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -2820,7 +2829,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `duckdb` - duckdb
      * * `postgres` - postgres
      * * `mysql` - mysql
-     * * `snowflake` - snowflake */
+     * * `snowflake` - snowflake
+     * * `redshift` - redshift */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -2936,7 +2946,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `duckdb` - duckdb
      * * `postgres` - postgres
      * * `mysql` - mysql
-     * * `snowflake` - snowflake */
+     * * `snowflake` - snowflake
+     * * `redshift` - redshift */
     readonly engine: EngineEnumApi | null
     /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
      *
@@ -4475,6 +4486,8 @@ export interface DatabaseSchemaRequestApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -5316,6 +5329,8 @@ export interface SourcePreviewRequestApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -6114,6 +6129,8 @@ export interface SourceSetupApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured
@@ -6919,6 +6936,8 @@ export interface SourceCredentialCreateApi {
      * * `TerraApi` - TerraApi
      * * `TriggerDev` - TriggerDev
      * * `Turso` - Turso
+     * * `Singular` - Singular
+     * * `Swonkie` - Swonkie
      * * `TwelveLabs` - TwelveLabs
      * * `Twenty` - Twenty
      * * `Unstructured` - Unstructured

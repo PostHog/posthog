@@ -23252,7 +23252,9 @@
                 "Vultr",
                 "Windmill",
                 "Zep",
-                "Hex"
+                "Hex",
+                "Singular",
+                "Swonkie"
             ],
             "type": "string"
         },
