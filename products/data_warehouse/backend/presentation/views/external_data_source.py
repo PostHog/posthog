@@ -4178,7 +4178,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, pagination_class=None)
     def connections(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         queryset = (
             ExternalDataSource._base_manager.filter(

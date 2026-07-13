@@ -15,6 +15,7 @@ import type {
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSchemasLogsRetrieveParams,
+    ExternalDataSourceConnectionOptionApi,
     ExternalDataSourceCreateApi,
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
@@ -28,7 +29,6 @@ import type {
     ExternalDataSourcesWizardRetrieveParams,
     IntegrationAccountsResponseApi,
     PaginatedExternalDataSchemaListApi,
-    PaginatedExternalDataSourceConnectionOptionListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PatchedExternalDataSchemaApi,
     PatchedExternalDataSourceBulkUpdateSchemasApi,
@@ -872,8 +872,8 @@ export const externalDataSourcesConnectionsList = async (
     projectId: string,
     params?: ExternalDataSourcesConnectionsListParams,
     options?: RequestInit
-): Promise<PaginatedExternalDataSourceConnectionOptionListApi> => {
-    return apiMutator<PaginatedExternalDataSourceConnectionOptionListApi>(
+): Promise<ExternalDataSourceConnectionOptionApi[]> => {
+    return apiMutator<ExternalDataSourceConnectionOptionApi[]>(
         getExternalDataSourcesConnectionsListUrl(projectId, params),
         {
             ...options,

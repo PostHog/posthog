@@ -35174,15 +35174,6 @@ export namespace Schemas {
       results: ExternalDataSchema[];
     }
 
-    export interface PaginatedExternalDataSourceConnectionOptionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ExternalDataSourceConnectionOption[];
-    }
-
     export interface PaginatedExternalDataSourceSerializersList {
       count: number;
       /** @nullable */
@@ -62191,14 +62182,6 @@ export namespace Schemas {
 
     export type EnvironmentsExternalDataSourcesConnectionsListParams = {
     /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
      * A search term.
      */
     search?: string;
@@ -69209,14 +69192,6 @@ export namespace Schemas {
     };
 
     export type ExternalDataSourcesConnectionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     /**
      * A search term.
      */
