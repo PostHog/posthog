@@ -15,6 +15,7 @@ and injects the policy into the sandbox, and only ever reads back a single verdi
 
 from __future__ import annotations
 
+import os
 import shlex
 import base64
 from collections.abc import Sequence
@@ -72,6 +73,21 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
         .select_related("pull_request__repo_config")
         .get(id=input.review_run_id)
     )
+
+
+def _reviewer_environment() -> dict[str, str]:
+    """Environment for the in-sandbox reviewer, passed through from the worker env.
+
+    The sandbox holds no GitHub token by design; the only secrets it receives are the
+    LLM credentials the engine needs — the internal ai-gateway when configured, with
+    direct Anthropic as the engine's own fallback (tools/pr-approval-agent/gateway.py).
+    """
+    env = {"STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR}
+    for key in ("AI_GATEWAY_URL", "AI_GATEWAY_API_KEY", "ANTHROPIC_API_KEY"):
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    return env
 
 
 def _resolve_sandbox_backend() -> str:
@@ -159,7 +175,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     config = SandboxConfig(
         name=f"stamphog-review-{run.id}",
         metadata={"review_run_id": str(run.id)},
-        environment_variables={"STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR},
+        environment_variables=_reviewer_environment(),
     )
     sandbox = sandbox_class.create(config)
     try:
