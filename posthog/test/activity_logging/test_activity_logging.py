@@ -6,7 +6,8 @@ from django.db.utils import IntegrityError
 from parameterized import parameterized
 
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
 from posthog.models.utils import UUIDT
 
@@ -235,6 +236,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("user_changed_password", "User", "changed_password", False, False),
             # InstanceSetting updates are staff-only and must be hidden from non-staff viewers
             ("instance_setting_updated", "InstanceSetting", "updated", False, True),
+            # AI-gateway top-ups are staff-only and must be hidden from non-staff viewers
+            ("ai_gateway_credit_added", "AIGatewayCredit", "credit_added", False, True),
             # Non-User scopes are unaffected
             ("feature_flag_created", "FeatureFlag", "created", False, False),
             ("feature_flag_updated", "FeatureFlag", "updated", True, False),
@@ -264,6 +267,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("user_created_staff_bypass", "User", "created", False, False),
             # Staff can also see InstanceSetting updates (allow_staff=True)
             ("instance_setting_updated_staff_bypass", "InstanceSetting", "updated", False, False),
+            # Staff can also see AI-gateway top-ups (allow_staff=True)
+            ("ai_gateway_credit_added_staff_bypass", "AIGatewayCredit", "credit_added", False, False),
             # Non-User activities still not restricted for anyone
             ("feature_flag_created", "FeatureFlag", "created", False, False),
         ]
@@ -300,6 +305,20 @@ class TestActivityLogVisibilityManager(BaseTest):
         self.assertFalse(filtered.filter(scope="User", activity="updated").exists())
         self.assertTrue(filtered.filter(scope="FeatureFlag", activity="created").exists())
 
+    def test_queryset_excludes_ai_gateway_credit_for_non_staff(self) -> None:
+        # Pin the actual API-facing exclusion path (apply_to_queryset), not just is_restricted:
+        # the staff email, credit reason, and balance must stay out of org-scoped endpoints.
+        ActivityLog.objects.create(team_id=self.team.id, scope="AIGatewayCredit", activity="credit_added")
+        ActivityLog.objects.create(team_id=self.team.id, scope="FeatureFlag", activity="created")
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+
+        non_staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=False)
+        assert not non_staff.filter(scope="AIGatewayCredit").exists()
+        assert non_staff.filter(scope="FeatureFlag").exists()
+
+        staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
+        assert staff.filter(scope="AIGatewayCredit").exists()
+
     def test_queryset_includes_all_logs_for_staff(self) -> None:
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_in", was_impersonated=True)
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_out", was_impersonated=True)
@@ -312,3 +331,26 @@ class TestActivityLogVisibilityManager(BaseTest):
         filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
 
         self.assertEqual(filtered.count(), 4)
+
+
+class TestActivityTriggerContext(BaseTest):
+    def tearDown(self):
+        activity_storage.clear_trigger()
+        super().tearDown()
+
+    def test_nested_contexts_restore_the_outer_trigger(self):
+        outer = Trigger(job_type="hog_flow", job_id="outer", payload={})
+        inner = Trigger(job_type="hog_flow", job_id="inner", payload={})
+
+        with ActivityTriggerContext(outer):
+            with ActivityTriggerContext(inner):
+                self.assertEqual(activity_storage.get_trigger(), inner)
+            self.assertEqual(activity_storage.get_trigger(), outer)
+        self.assertIsNone(activity_storage.get_trigger())
+
+    def test_none_trigger_is_a_noop(self):
+        outer = Trigger(job_type="hog_flow", job_id="outer", payload={})
+        with ActivityTriggerContext(outer):
+            with ActivityTriggerContext(None):
+                self.assertEqual(activity_storage.get_trigger(), outer)
+            self.assertEqual(activity_storage.get_trigger(), outer)

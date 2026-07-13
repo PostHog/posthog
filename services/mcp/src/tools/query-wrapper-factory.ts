@@ -96,6 +96,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 query,
                 results: data.results,
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
+                ...(data.warnings ? { warnings: data.warnings } : {}),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
         },

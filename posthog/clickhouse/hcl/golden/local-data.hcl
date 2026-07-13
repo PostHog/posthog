@@ -566,7 +566,7 @@ database "posthog" {
       type = "UInt64"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     engine "distributed" {
@@ -1415,7 +1415,7 @@ database "posthog" {
       type = "UInt64"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     engine "distributed" {
@@ -1744,6 +1744,66 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_ingestion_warnings"
       sharding_key    = "rand()"
+    }
+  }
+
+  table "ingestion_warnings_v2_distributed" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "type" {
+      type = "LowCardinality(String)"
+    }
+    column "details" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "category" {
+      type         = "LowCardinality(String)"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
+    }
+    column "severity" {
+      type         = "LowCardinality(String)"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
+    }
+    column "pipeline_step" {
+      type         = "LowCardinality(String)"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
+    }
+    column "event_uuid" {
+      type         = "Nullable(UUID)"
+      default      = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
+    }
+    column "distinct_id" {
+      type         = "Nullable(String)"
+      default      = "nullIf(JSONExtractString(details, 'distinctId'), '')"
+    }
+    column "group_key" {
+      type         = "Nullable(String)"
+      default      = "nullIf(JSONExtractString(details, 'groupKey'), '')"
+    }
+    column "person_id" {
+      type         = "Nullable(UUID)"
+      default      = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "ingestion_warnings_v2"
     }
   }
 

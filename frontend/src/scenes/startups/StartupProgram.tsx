@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { HedgehogHogpatch } from '@posthog/brand/hoggies'
+import * as hogpatchPng from '@posthog/brand/hoggies/png/hogpatch'
 import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { ClimberHog1, ClimberHog2 } from 'lib/components/hedgehogs'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
@@ -22,6 +23,8 @@ import { BillingProductV2Type, StartupProgramLabel } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'
 import { StartupProgramLogicProps, startupProgramLogic } from './startupProgramLogic'
+
+const HedgehogHogpatch = pngHoggie(hogpatchPng)
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
 

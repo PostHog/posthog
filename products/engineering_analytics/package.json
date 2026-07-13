@@ -15,6 +15,7 @@
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "react": "*"
     }

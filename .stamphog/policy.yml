@@ -159,8 +159,8 @@ allow:
         - '.yaml'
         - '.yml'
 size_gate:
-    max_lines: 500
-    max_files: 20
+    max_lines: 800
+    max_files: 30
 tiers:
     t1_subclasses:
         T1a-trivial:

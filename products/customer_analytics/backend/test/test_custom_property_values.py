@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import BaseTest
@@ -18,10 +18,12 @@ from products.customer_analytics.backend.facade import (
     contracts,
 )
 from products.customer_analytics.backend.logic.custom_property_values import (
+    VALUE_SUGGESTIONS_LIMIT,
     CustomPropertyDefinitionNotFound,
     CustomPropertyValueConflict,
     InvalidCustomPropertyValue,
     list_active_custom_property_values,
+    list_custom_property_value_suggestions,
     set_account_custom_properties_by_id,
     set_custom_property_value,
 )
@@ -268,6 +270,91 @@ class TestSetAccountCustomPropertiesById(BaseTest):
                 team_id=self.team.id, account_id=self.account.id, properties={str(seats.id): "not a number"}
             )
         assert exc_info.value.field == str(seats.id)
+
+
+class TestListCustomPropertyValueSuggestions(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+
+    def _set(self, definition: CustomPropertyDefinition, value: object, account: Account | None = None) -> None:
+        set_custom_property_value(
+            team_id=self.team.id,
+            account_id=(account or self.account).id,
+            definition_id=definition.id,
+            value=value,
+        )
+
+    def _suggestions(self, definition_id: str | UUID, search: str | None = None) -> list[str]:
+        return list_custom_property_value_suggestions(team_id=self.team.id, definition_id=definition_id, search=search)
+
+    def test_select_returns_option_labels_filtered_by_search(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id,
+            name="Tier",
+            display_type=DisplayType.SELECT,
+            options=[*SELECT_OPTIONS, {"id": "opt-3", "color": "preset-3"}],  # unlabeled option must not suggest
+        )
+        assert self._suggestions(definition.id) == ["Enterprise", "Startup"]
+        assert self._suggestions(definition.id, search="ENT") == ["Enterprise"]
+
+    def test_text_returns_distinct_active_values_only(self):
+        definition = create_custom_property_definition(team_id=self.team.id, name="Region")
+        other_account = create_account(team_id=self.team.id, name="Other", external_id="other-ext")
+        self._set(definition, "emea")
+        self._set(definition, "apac")  # supersedes "emea" — the soft-deleted row must not suggest
+        self._set(definition, "amer", account=other_account)
+        assert self._suggestions(definition.id) == ["amer", "apac"]
+        assert self._suggestions(definition.id, search="ap") == ["apac"]
+
+    def test_boolean_suggests_true_false(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Active", display_type=DisplayType.BOOLEAN
+        )
+        assert self._suggestions(definition.id) == ["true", "false"]
+
+    def test_numeric_values_render_like_clickhouse_tostring(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER
+        )
+        other_account = create_account(team_id=self.team.id, name="Other2", external_id="other-ext-2")
+        self._set(definition, 10.0)
+        self._set(definition, 2.5, account=other_account)
+        assert self._suggestions(definition.id) == ["2.5", "10"]
+
+    def test_numeric_search_matches_values_beyond_the_limit_window(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER
+        )
+        accounts = Account.objects.unscoped().bulk_create(
+            Account(team_id=self.team.id, name=f"Account {i}") for i in range(VALUE_SUGGESTIONS_LIMIT + 10)
+        )
+        CustomPropertyValue.objects.unscoped().bulk_create(
+            CustomPropertyValue(team_id=self.team.id, account=account, definition=definition, value_num=float(i))
+            for i, account in enumerate(accounts)
+        )
+        # The match sorts after the first VALUE_SUGGESTIONS_LIMIT values — the search must not be
+        # applied to a pre-sliced window.
+        assert self._suggestions(definition.id, search=str(VALUE_SUGGESTIONS_LIMIT + 5)) == [
+            str(VALUE_SUGGESTIONS_LIMIT + 5)
+        ]
+
+    def test_non_finite_numeric_rows_are_skipped(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER
+        )
+        # Write-path coercion rejects non-finite values, so plant a stray row directly; it must be
+        # skipped rather than crash the suggestions.
+        stray_account = create_account(team_id=self.team.id, name="Stray", external_id="stray-ext")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=stray_account, definition=definition, value_num=float("inf")
+        )
+        self._set(definition, 7.0)
+        assert self._suggestions(definition.id) == ["7"]
+
+    @parameterized.expand([("unknown_uuid", str(uuid4())), ("malformed", "not-a-uuid")])
+    def test_unknown_definition_returns_empty(self, _name, definition_id):
+        assert self._suggestions(definition_id) == []
 
 
 class TestCustomPropertyValueFacade(BaseTest):

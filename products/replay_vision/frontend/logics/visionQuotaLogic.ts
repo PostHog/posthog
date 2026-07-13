@@ -45,7 +45,7 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                 state
                     ? {
                           ...state,
-                          projected_monthly_observations: Math.max(0, state.projected_monthly_observations + delta),
+                          projected_monthly_credits: Math.max(0, state.projected_monthly_credits + delta),
                       }
                     : state,
         },

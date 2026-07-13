@@ -3,9 +3,12 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
+import psycopg.errors
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 
 _ADAPTER = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter"
+_POSTGRES = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
 
 
 def _source(**cdc_overrides):
@@ -249,6 +252,33 @@ class TestRecreateSlot:
         source = _source(cdc_enabled=True)
         with pytest.raises(RuntimeError, match="no slot name"):
             PostgresCDCAdapter().recreate_slot(source, tables=[])
+
+    @patch(f"{_POSTGRES}.time.sleep")
+    @patch(f"{_ADAPTER}.create_slot")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=True)
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_retries_recreation_after_transient_connection_drop(
+        self, _conn, mock_drop, _pub_exists, mock_create_slot, _sleep
+    ) -> None:
+        # The source terminates our backend mid-recreate (deploy/failover); recovery must reconnect
+        # and retry rather than fail the whole run. drop-before-create keeps the retry idempotent.
+        mock_create_slot.side_effect = [
+            psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
+            "0/CC",
+        ]
+        source = _source(
+            cdc_enabled=True,
+            cdc_management_mode="posthog",
+            cdc_slot_name="posthog_slot",
+            cdc_publication_name="posthog_pub",
+        )
+
+        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+
+        assert fields == {"cdc_consistent_point": "0/CC"}
+        assert mock_create_slot.call_count == 2
+        assert mock_drop.call_count == 2
 
 
 class TestAlterPublicationMembership:

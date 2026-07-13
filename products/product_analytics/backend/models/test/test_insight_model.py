@@ -147,7 +147,13 @@ class TestInsightModel(BaseTest):
                 {},
                 {"date_from": "-14d", "date_to": "-7d"},
                 {
-                    "dateRange": {"date_from": "-14d", "date_to": "-7d", "explicitDate": False},
+                    "dateRange": {
+                        "date_from": "-14d",
+                        "date_to": "-7d",
+                        "explicitDate": False,
+                        "daysOfWeek": None,
+                        "excludeIncompletePeriods": False,
+                    },
                     "filterTestAccounts": None,
                     "properties": None,
                 },
@@ -157,7 +163,13 @@ class TestInsightModel(BaseTest):
                 {"dateRange": {"date_from": "-2d", "date_to": "-1d"}},
                 {"date_from": "-4d", "date_to": "-3d"},
                 {
-                    "dateRange": {"date_from": "-4d", "date_to": "-3d", "explicitDate": False},
+                    "dateRange": {
+                        "date_from": "-4d",
+                        "date_to": "-3d",
+                        "explicitDate": False,
+                        "daysOfWeek": None,
+                        "excludeIncompletePeriods": False,
+                    },
                     "filterTestAccounts": None,
                     "properties": None,
                 },
@@ -167,7 +179,13 @@ class TestInsightModel(BaseTest):
                 {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
                 {"date_from": "all"},
                 {
-                    "dateRange": {"date_from": "all", "date_to": None, "explicitDate": False},
+                    "dateRange": {
+                        "date_from": "all",
+                        "date_to": None,
+                        "explicitDate": False,
+                        "daysOfWeek": None,
+                        "excludeIncompletePeriods": False,
+                    },
                     "filterTestAccounts": None,
                     "properties": None,
                 },

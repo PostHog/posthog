@@ -318,6 +318,7 @@ class EndpointViewSet(
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
             "tags": self._get_tag_names(endpoint),
+            "optional_breakdown_properties": list(version.optional_breakdown_properties or []),
         }
 
         if isinstance(obj, EndpointVersion):
@@ -417,9 +418,11 @@ class EndpointViewSet(
             self.destroy(request, name=name)
             return Response({"success": True}, status=status.HTTP_200_OK)
 
-        validate_update_request(data, self.team, cast(User, request.user), endpoint=endpoint)
-
         version_number = self._parse_version_param(request)
+        validate_update_request(
+            data, self.team, cast(User, request.user), endpoint=endpoint, version_number=version_number
+        )
+
         outcome = EndpointCrudService(self.team, request).update(endpoint, data, request.data, version_number)
 
         # When targeting a specific version, return version data; otherwise return endpoint data

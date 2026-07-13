@@ -36,7 +36,7 @@ def DROP_SESSION_VIEW_SQL():
 # or had contacted support about an issue.
 # This list exists because we want to reduce the number of writes happening to this table, and so we don't write to it
 # for any team not in this list. Adding a team to this is possible if needed, but would require changing this MV in
-# production and backfilling this table with the management command backfill_sessions_table.
+# production and backfilling this table from events.
 ALLOWED_TEAM_IDS = [
     # posthog
     1,

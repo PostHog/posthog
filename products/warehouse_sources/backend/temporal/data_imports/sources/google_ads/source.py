@@ -201,7 +201,11 @@ class GoogleAdsSource(
                         secret=False,
                     ),
                     SourceFieldOauthConfig(
-                        name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
+                        name="google_ads_integration_id",
+                        label="Google Ads account",
+                        required=True,
+                        kind="google-ads",
+                        requiredScopes="https://www.googleapis.com/auth/adwords",
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
