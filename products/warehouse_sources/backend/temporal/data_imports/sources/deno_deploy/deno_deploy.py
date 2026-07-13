@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -18,7 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deplo
     DenoDeployEndpointConfig,
 )
 
-DENO_DEPLOY_BASE_URL = "https://api.deno.com"
+DENO_DEPLOY_HOST = "api.deno.com"
+DENO_DEPLOY_BASE_URL = f"https://{DENO_DEPLOY_HOST}"
 
 # Default page size for the cursor-paginated list endpoints (API default is 30, max 100).
 DEFAULT_LIST_PAGE_SIZE = 100
@@ -26,6 +27,26 @@ DEFAULT_LIST_PAGE_SIZE = 100
 
 class DenoDeployRetryableError(Exception):
     pass
+
+
+def _require_deno_deploy_url(url: str) -> str:
+    """SSRF guard for every authenticated request. The bearer token is attached to whatever URL we
+    fetch, and both pagination `Link` headers and persisted resume URLs are attacker-influenceable, so
+    only accept HTTPS URLs whose host is exactly `api.deno.com` before the token can be forwarded."""
+    try:
+        parts = urlsplit(url)
+    except ValueError as e:
+        raise ValueError(f"Refusing to fetch malformed Deno Deploy URL: {e}")
+    if parts.scheme != "https" or parts.hostname != DENO_DEPLOY_HOST:
+        raise ValueError(f"Refusing to fetch off-host Deno Deploy URL (host={parts.hostname!r})")
+    return url
+
+
+def _make_session(access_token: str) -> requests.Session:
+    """A tracked session that (1) masks the bearer token in logged URLs and captured samples and
+    (2) never follows redirects, so a tampered response can't bounce the `Authorization` header to an
+    attacker-controlled host."""
+    return make_tracked_session(redact_values=(access_token,), allow_redirects=False)
 
 
 @dataclasses.dataclass
@@ -100,6 +121,9 @@ def _parse_next_link(link_header: str) -> str | None:
 def _fetch(
     session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> requests.Response:
+    # Validate every URL at the single choke point where the token is attached: this covers freshly
+    # built URLs, `Link`-header continuations, logs cursors, and persisted resume URLs alike.
+    _require_deno_deploy_url(url)
     response = session.get(url, headers=headers, timeout=60)
 
     # Rate limits aren't documented in the spec; treat 429 and 5xx as transient and retry.
@@ -117,7 +141,7 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     """Confirm the org access token is genuine with one cheap probe against the apps list."""
     url = _build_url("/v2/apps", {"limit": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(access_token), timeout=10)
+        response = _make_session(access_token).get(url, headers=_get_headers(access_token), timeout=10)
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -139,7 +163,7 @@ def _iter_app_refs(
     session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> Iterator[tuple[str, str]]:
     """Page through /v2/apps and yield each app's (id, slug), following the Link header cursor."""
-    url = _build_url("/v2/apps", {"limit": DEFAULT_LIST_PAGE_SIZE})
+    url: str | None = _build_url("/v2/apps", {"limit": DEFAULT_LIST_PAGE_SIZE})
     while url:
         response = _fetch(session, url, headers, logger)
         data = response.json()
@@ -224,11 +248,14 @@ def _initial_child_url(
 
 def _logs_next_url(current_url: str, next_cursor: str) -> str:
     """The logs endpoint returns its cursor in the body (`next_cursor`), not a Link header. Rebuild the
-    next-page URL by swapping the `cursor` query param on the current URL, preserving start/end/limit."""
-    base, _, query = current_url.partition("?")
-    params = [(k, v) for k, v in (pair.split("=", 1) for pair in query.split("&") if pair) if k != "cursor"]
+    next-page URL by swapping the `cursor` query param on the current URL, preserving start/end/limit.
+
+    `parse_qsl` decodes the existing (already percent-encoded) query values so `urlencode` re-encodes
+    them exactly once — splitting the raw query string by hand would double-encode `start`/`end`."""
+    parts = urlsplit(current_url)
+    params = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "cursor"]
     params.append(("cursor", next_cursor))
-    return f"{base}?{urlencode(params)}"
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), ""))
 
 
 def _parse_page(
@@ -334,7 +361,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = DENO_DEPLOY_ENDPOINTS[endpoint]
     headers = _get_headers(access_token)
-    session = make_tracked_session()
+    session = _make_session(access_token)
 
     if config.fan_out_over_apps:
         yield from _fan_out_rows(

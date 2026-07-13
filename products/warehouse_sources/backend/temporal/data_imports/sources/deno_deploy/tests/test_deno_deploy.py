@@ -1,6 +1,8 @@
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
+from urllib.parse import parse_qsl, urlsplit
 
+import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deplo
     _log_row_id,
     _logs_next_url,
     _parse_next_link,
+    _require_deno_deploy_url,
     _reshape_analytics,
     _shape_log,
     _time_window_params,
@@ -45,7 +48,7 @@ class FakeResponse:
 
     def raise_for_status(self) -> None:
         if not self.ok:
-            raise requests.HTTPError(f"{self.status_code} Client Error")
+            raise requests.HTTPError(f"{self.status_code} Client Error", response=cast(requests.Response, self))
 
 
 class FakeSession:
@@ -213,6 +216,30 @@ class TestLogsNextUrl:
         assert "cursor=new" in nxt
         assert "cursor=old" not in nxt
         assert "start=" in nxt and "end=" in nxt and "limit=1000" in nxt
+        # The already-encoded start/end must be encoded exactly once, not doubled (`%253A`); parsing the
+        # rebuilt URL must recover the original timestamps.
+        assert "%253A" not in nxt
+        params = dict(parse_qsl(urlsplit(nxt).query))
+        assert params["start"] == "2026-01-01T00:00:00Z"
+        assert params["end"] == "2026-01-02T00:00:00Z"
+
+
+class TestRequireDenoDeployUrl:
+    @parameterized.expand(
+        [
+            ("https_apex", "https://api.deno.com/v2/apps?limit=1", True),
+            ("http_scheme_rejected", "http://api.deno.com/v2/apps", False),
+            ("other_host_rejected", "https://evil.example.com/v2/apps", False),
+            ("subdomain_rejected", "https://api.deno.com.evil.com/v2/apps", False),
+            ("host_as_userinfo_rejected", "https://api.deno.com@evil.com/v2/apps", False),
+        ]
+    )
+    def test_only_https_deno_host_allowed(self, _name: str, url: str, allowed: bool) -> None:
+        if allowed:
+            assert _require_deno_deploy_url(url) == url
+        else:
+            with pytest.raises(ValueError):
+                _require_deno_deploy_url(url)
 
 
 class TestValidateCredentials:

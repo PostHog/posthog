@@ -1,10 +1,10 @@
-from typing import Any
+from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy import source as source_module
@@ -34,7 +34,7 @@ class TestDenoDeploySourceConfig:
         field_names = [f.name for f in config.fields]
         assert field_names == ["access_token"]
         # The token is a secret, rendered as a password input.
-        assert config.fields[0].secret is True
+        assert cast(SourceFieldInputConfig, config.fields[0]).secret is True
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog (no I/O), so the public docs catalog opts in.
@@ -102,7 +102,7 @@ class TestResumableWiring:
         manager = MagicMock()
         with patch.object(source_module, "deno_deploy_source", return_value="response") as mock_source:
             result = DenoDeploySource().source_for_pipeline(_config(), manager, inputs)
-        assert result == "response"
+        assert cast(Any, result) == "response"
         _, kwargs = mock_source.call_args
         assert kwargs["access_token"] == "ddo_test"
         assert kwargs["endpoint"] == "logs"
