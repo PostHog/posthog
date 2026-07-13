@@ -195,7 +195,7 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 COPY --from=sourcemap-upload /tmp/.sourcemaps-status /tmp/.sourcemaps-status
 RUN if [ "$(cat /tmp/.sourcemaps-status)" = uploaded ]; then \
         echo "sourcemaps uploaded — stripping .map files from the image"; \
-        find /code/staticfiles /code/frontend/dist -name '*.map' -delete; \
+        find /code/staticfiles /code/frontend/dist \( -name '*.map' -o -name '*.map.gz' -o -name '*.map.br' \) -delete; \
     else \
         echo "sourcemaps NOT uploaded — retaining .map files in the image"; \
     fi
