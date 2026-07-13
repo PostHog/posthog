@@ -1291,6 +1291,86 @@ export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Bulk enable or disable feature flags by filter criteria or explicit IDs.
+ *
+ * Accepts either:
+ * - {"active": bool, "ids": [...]} - explicit flag IDs, or
+ * - {"active": bool, "filters": {...}} - same filter params as the list endpoint.
+ *
+ * `ids` and `filters` are mutually exclusive. Enabling a flag rolls it out to the users matching
+ * its release conditions immediately; disabling rolls it back. Archived flags cannot be enabled.
+ * Flags already in the target state are skipped (not re-written, not logged).
+ *
+ * Mirrors `bulk_delete`: database writes and cache invalidation are batched, and because
+ * `queryset.update()` bypasses `ModelActivityMixin`, an "updated" activity log entry recording the
+ * `active` change is written per flag via `bulk_log_activity` so the audit trail matches the
+ * single-flag update path.
+ */
+
+export const FeatureFlagsBulkUpdateStatusCreateBody = /* @__PURE__ */ zod.object({
+    active: zod
+        .boolean()
+        .describe(
+            'Target enabled state to apply to every matched flag. `true` enables the flag (rolls it out to users matching its release conditions); `false` disables it (rolls it back).'
+        ),
+    filters: zod
+        .object({
+            active: zod
+                .enum(['true', 'false', 'STALE'])
+                .describe('\* `true` - true\n\* `false` - false\n\* `STALE` - STALE')
+                .optional()
+                .describe('Filter by active state.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE'),
+            created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
+            search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
+            type: zod
+                .enum(['boolean', 'multivariant', 'experiment', 'remote_config'])
+                .describe(
+                    '\* `boolean` - boolean\n\* `multivariant` - multivariant\n\* `experiment` - experiment\n\* `remote_config` - remote_config'
+                )
+                .optional()
+                .describe(
+                    'Filter by flag type.\n\n\* `boolean` - boolean\n\* `multivariant` - multivariant\n\* `experiment` - experiment\n\* `remote_config` - remote_config'
+                ),
+            evaluation_runtime: zod
+                .enum(['server', 'client', 'all'])
+                .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All')
+                .optional()
+                .describe(
+                    'Filter by evaluation runtime.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
+                ),
+            excluded_properties: zod
+                .string()
+                .optional()
+                .describe('JSON-encoded property filter to exclude. Same shape as the list endpoint.'),
+            tags: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tag names to filter by. Flags carrying at least one of these tags match.'),
+            excluded_tags: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tag names to exclude. Flags carrying any of these tags are filtered out.'),
+            has_evaluation_contexts: zod
+                .boolean()
+                .optional()
+                .describe('When true, only matches flags with at least one evaluation context.'),
+            archived: zod
+                .boolean()
+                .optional()
+                .describe('Filter by archived state. When omitted, archived flags are excluded.'),
+        })
+        .describe("Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.")
+        .optional()
+        .describe(
+            "Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to update every flag matching a search\/active\/tags\/etc. filter instead of supplying explicit IDs."
+        ),
+    ids: zod
+        .array(zod.number().min(1))
+        .optional()
+        .describe('Explicit feature flag IDs to update. Mutually exclusive with `filters`.'),
+})
+
+/**
  * Bulk update tags on multiple objects.
  *
  * PAT access: this action has no ``required_scopes=`` on the decorator —

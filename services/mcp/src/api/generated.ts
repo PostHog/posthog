@@ -26156,6 +26156,39 @@ export namespace Schemas {
       readonly is_used_in_replay_settings: boolean;
     }
 
+    export interface FeatureFlagBulkUpdateStatusRequest {
+      /** Target enabled state to apply to every matched flag. `true` enables the flag (rolls it out to users matching its release conditions); `false` disables it (rolls it back). */
+      active: boolean;
+      /** Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to update every flag matching a search/active/tags/etc. filter instead of supplying explicit IDs. */
+      filters?: BulkDeleteFilters;
+      /**
+         * Explicit feature flag IDs to update. Mutually exclusive with `filters`.
+         * @items.minimum 1
+         */
+      ids?: number[];
+    }
+
+    export interface FeatureFlagBulkUpdateStatusUpdatedItem {
+      /** ID of the flag whose enabled state changed. */
+      id: number;
+      /** The flag key. */
+      key: string;
+      /** The flag's enabled state after the update. */
+      active: boolean;
+    }
+
+    /**
+     * Schema-only — see ``BulkDeleteResponseSerializer`` for why the declared ``errors`` field must
+     * never be validated against. The handler builds the response dict directly; this exists only so
+     * drf-spectacular can render the response in the OpenAPI spec.
+     */
+    export interface FeatureFlagBulkUpdateStatusResponse {
+      /** Flags whose enabled state was changed. Flags already in the target state are omitted. */
+      updated: FeatureFlagBulkUpdateStatusUpdatedItem[];
+      /** Flags that could not be updated (e.g. archived flags cannot be enabled), with reasons. */
+      errors: BulkDeleteErrorItem[];
+    }
+
     export interface FeatureFlagConditionPropertyAnalysis {
       /** Property key */
       key: string;

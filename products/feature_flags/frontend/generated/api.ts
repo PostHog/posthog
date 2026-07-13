@@ -23,6 +23,8 @@ import type {
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
+    FeatureFlagBulkUpdateStatusRequestApi,
+    FeatureFlagBulkUpdateStatusResponseApi,
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagStatusResponseApi,
     FeatureFlagTestEvaluationRequestApi,
@@ -935,6 +937,39 @@ export const featureFlagsBulkKeysRetrieve = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkKeysRequestApi),
+    })
+}
+
+export const getFeatureFlagsBulkUpdateStatusCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/bulk_update_status/`
+}
+
+/**
+ * Bulk enable or disable feature flags by filter criteria or explicit IDs.
+ *
+ * Accepts either:
+ * - {"active": bool, "ids": [...]} - explicit flag IDs, or
+ * - {"active": bool, "filters": {...}} - same filter params as the list endpoint.
+ *
+ * `ids` and `filters` are mutually exclusive. Enabling a flag rolls it out to the users matching
+ * its release conditions immediately; disabling rolls it back. Archived flags cannot be enabled.
+ * Flags already in the target state are skipped (not re-written, not logged).
+ *
+ * Mirrors `bulk_delete`: database writes and cache invalidation are batched, and because
+ * `queryset.update()` bypasses `ModelActivityMixin`, an "updated" activity log entry recording the
+ * `active` change is written per flag via `bulk_log_activity` so the audit trail matches the
+ * single-flag update path.
+ */
+export const featureFlagsBulkUpdateStatusCreate = async (
+    projectId: string,
+    featureFlagBulkUpdateStatusRequestApi: FeatureFlagBulkUpdateStatusRequestApi,
+    options?: RequestInit
+): Promise<FeatureFlagBulkUpdateStatusResponseApi> => {
+    return apiMutator<FeatureFlagBulkUpdateStatusResponseApi>(getFeatureFlagsBulkUpdateStatusCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagBulkUpdateStatusRequestApi),
     })
 }
 
