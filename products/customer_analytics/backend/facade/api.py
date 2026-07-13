@@ -72,6 +72,7 @@ from products.customer_analytics.backend.models import (
     TargetType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
+from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
     contracts as notebook_contracts,
@@ -2161,6 +2162,8 @@ def get_announcement(team_id: int, short_id: str) -> contracts.AnnouncementView 
 def create_announcement(*, team_id: int, user: "User", message: str, channels: list[str]) -> contracts.AnnouncementView:
     team = Team.objects.get(id=team_id)
     announcement = _announcements_logic.create_announcement(team, user, message, channels)
+    # Dispatch only after the delivery rows commit; a rollback must not leave a phantom task.
+    transaction.on_commit(lambda: send_announcement.delay(str(announcement.id), team_id))
     return _to_announcement_view(announcement)
 
 
