@@ -147,6 +147,7 @@
             "jest-playwright-preset>playwright-core": "1.60.0",
             "@smithy/node-http-handler": "4.4.9",
             "@smithy/core": "3.24.6",
+            "rolldown": "1.1.4",
             "@tiptap/core": "3.20.6",
             "@tiptap/extensions": "3.20.6",
             "@tiptap/html": "3.20.6",
