@@ -79,7 +79,7 @@ const AssistantDurationRange = z.object({
 
 const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
 
-const IntervalType = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month'])
+const IntervalType = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
 
 const AssistantStringOrBooleanValuePropertyFilterOperator = z.enum([
     'exact',

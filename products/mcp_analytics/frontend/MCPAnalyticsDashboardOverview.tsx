@@ -21,6 +21,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const {
         kpis,
         kpisLoading,
+        users,
+        usersLoading,
         intentClusterCount,
         notableSessions,
         sessionRowsLoading,
@@ -59,6 +61,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 propertyFilters={propertyFilters}
                                 onChange={setPropertyFilters}
                                 taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.MCPProperties,
                                     TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.EventFeatureFlags,
                                 ]}
@@ -79,7 +82,14 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             <MCPAnalyticsFirstLook />
             <section data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
-                <KpiTiles kpis={kpis} intentClusterCount={intentClusterCount} kpisLoading={kpisLoading} theme={theme} />
+                <KpiTiles
+                    kpis={kpis}
+                    users={users}
+                    intentClusterCount={intentClusterCount}
+                    kpisLoading={kpisLoading}
+                    usersLoading={usersLoading}
+                    theme={theme}
+                />
             </section>
             <section data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Usage</h2>

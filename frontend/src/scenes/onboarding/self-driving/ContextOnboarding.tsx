@@ -1,38 +1,39 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type ReactNode, useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconCheckCircle, IconCloud, IconGithub, IconTerminal } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconArrowRight, IconCheckCircle, IconGithub } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import type { TeamType } from '~/types'
 
 import selfDrivingHog from 'public/hedgehog/self-driving-hog.png'
 
+// Deliberate self-driving → legacy import: onboardingLogic owns the completion flow (marking the
+// team onboarded, redirecting out) for both variants.
 import { onboardingLogic } from '../legacy/onboardingLogic'
-import {
-    useWizardTakeoverActive,
-    WizardProgressTracker,
-} from '../legacy/sdks/OnboardingInstallStep/WizardProgressTracker'
+import { type ContextOnboardingStepId, onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
 import { useWizardCommand } from '../shared/SetupWizardBanner'
 import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../shared/utils'
+import { activeCloudRunLogic, type CloudRunHandle } from '../shared/wizard-sync/activeCloudRunLogic'
+import { installationProgressLogic } from '../shared/wizard-sync/installationProgressLogic'
+import { InstallationProgressView, useLocalWizardRunActive } from '../shared/wizard-sync/InstallationProgressView'
+import { wizardCloudRunLogic } from '../shared/wizard-sync/wizardCloudRunLogic'
+import { WizardCommandBlock } from '../shared/wizard-sync/WizardCommandBlock'
+import { WizardInstallOptions } from '../shared/wizard-sync/WizardInstallOptions'
 import { ContextBillingStep } from './ContextBillingStep'
 import { ContextInviteStep } from './ContextInviteStep'
 import { ContextWarehouseStep } from './ContextWarehouseStep'
-import { activeCloudRunLogic, type CloudRunHandle } from './sdks/OnboardingInstallStep/activeCloudRunLogic'
-import { installationProgressLogic } from './sdks/OnboardingInstallStep/installationProgressLogic'
-import { WizardCloudRunBlock } from './sdks/OnboardingInstallStep/WizardCloudRunBlock'
-import { wizardCloudRunLogic } from './sdks/OnboardingInstallStep/wizardCloudRunLogic'
-import { WizardCommandBlock } from './sdks/OnboardingInstallStep/WizardCommandBlock'
-import { WizardFrameworkBadges } from './sdks/OnboardingInstallStep/WizardModeShell'
 
 /**
  * Context-first onboarding (prototype, legacy variant). A fixed linear flow, one thing per step,
@@ -58,29 +59,13 @@ function WelcomeStep(): JSX.Element {
     )
 }
 
-type InstallMode = 'cloud' | 'local'
-
-// One wizard, two ways to run it: have us run it and open a PR (the self-driving path), or run the
-// CLI yourself. A segmented control switches between them. The cloud path only exists behind
-// ONBOARDING_WIZARD_CLOUD_RUN on cloud/dev; elsewhere this collapses to just the local command.
-// hideHog keeps the compact onboarding card free of the wizard hedgehog.
+// One wizard, two ways to run it — the shared WizardInstallOptions owns the cloud/local switching
+// and framework badges; this wraps it in the self-driving copy and manual-docs fallback.
 function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element {
     const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
     const { isCloudOrDev } = useWizardCommand()
-    const { activeCloudRun } = useValues(activeCloudRunLogic)
-    const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
-    const [mode, setMode] = useState<InstallMode>('cloud')
+    const { reportContextOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
     const offerCloud = cloudRunEnabled && isCloudOrDev
-    // GROW-95: once a cloud run is spawned you cannot also run it locally, so the local tab is blocked and
-    // the view pins to the cloud run's progress until it is cleared (e.g. via the failure fallback below).
-    const localBlocked = !!activeCloudRun
-    const effectiveMode: InstallMode = localBlocked ? 'cloud' : mode
-
-    // A failed cloud run's fallback: drop the dead run (unblocks local, clears its FAB) and switch to the command.
-    const runItYourself = (): void => {
-        clearActiveCloudRun()
-        setMode('local')
-    }
 
     // Self-hosted: the wizard CLI / cloud run only target cloud + dev, so both wizard blocks render
     // nothing. Show a real, actionable fallback instead of an empty step.
@@ -112,42 +97,13 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
                     Run the wizard to get your product's context flowing so agents can start finding and fixing things.
                 </p>
             )}
-            {/* Frameworks are the same whichever way the wizard runs, so the badges sit above the selector. */}
-            {isCloudOrDev && (
-                <div className="pb-2">
-                    <WizardFrameworkBadges />
-                </div>
-            )}
-            {offerCloud && (
-                <LemonSegmentedButton
-                    fullWidth
-                    value={effectiveMode}
-                    onChange={(value) => setMode(value)}
-                    options={[
-                        {
-                            value: 'cloud',
-                            label: 'Open a pull request',
-                            icon: <IconCloud />,
-                            'data-attr': 'context-wizard-mode-cloud',
-                        },
-                        {
-                            value: 'local',
-                            label: 'Run it yourself',
-                            icon: <IconTerminal />,
-                            disabledReason: localBlocked ? 'A cloud run is in progress.' : undefined,
-                            'data-attr': 'context-wizard-mode-local',
-                        },
-                    ]}
-                />
-            )}
-            {/* No onQueued: unlike the legacy install step, this flow's footer Continue is always
-                enabled (install is non-blocking), so a queued cloud run needs no extra unblock signal. */}
-            {offerCloud && effectiveMode === 'cloud' ? (
-                // GROW-96: kicking off the cloud run is the step's "next" action, so onQueued advances the flow.
-                <WizardCloudRunBlock hideHog onRetryLocally={runItYourself} onQueued={onContinue} />
-            ) : (
-                <WizardCommandBlock hideHog />
-            )}
+            {/* GROW-96: kicking off the cloud run is the step's "next" action, so onQueued advances the flow. */}
+            <WizardInstallOptions
+                hideHog
+                onQueued={onContinue}
+                onModeSelected={reportContextOnboardingInstallModeSelected}
+                localBlock={<WizardCommandBlock hideHog />}
+            />
             <p className="text-xs text-muted m-0 text-center">
                 Rather wire it up by hand?{' '}
                 <Link to="https://posthog.com/docs/getting-started/install" target="_blank">
@@ -160,22 +116,14 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
 
 // When wizard sync is on and a LOCAL run is in flight, swap the options for the live tracker. A cloud
 // run is already surfaced by the unified Installation layer (WizardCloudRunBlock → InstallationProgressView),
-// and the cloud wizard posts to the same session — so suppress the legacy tracker when a cloud run is
+// and the cloud wizard posts to the same session — so suppress the local run view when a cloud run is
 // active to avoid showing two progress components.
 function InstallStepWithSync({ onContinue }: { onContinue: () => void }): JSX.Element {
-    const isTakeoverActive = useWizardTakeoverActive()
+    const isLocalRunActive = useLocalWizardRunActive()
     const { activeCloudRun } = useValues(activeCloudRunLogic)
-    const { setPanelMounted } = useActions(activeCloudRunLogic)
-    const showLegacyTracker = isTakeoverActive && !activeCloudRun
-    // While the inline legacy tracker shows a local run on this step, claim the shared inline-panel flag
-    // so the detached WizardSyncFab hides and the run is not shown in two places.
-    useEffect(() => {
-        if (showLegacyTracker) {
-            setPanelMounted(true)
-            return () => setPanelMounted(false)
-        }
-    }, [showLegacyTracker, setPanelMounted])
-    return showLegacyTracker ? <WizardProgressTracker /> : <InstallOptions onContinue={onContinue} />
+    // The view claims the shared inline-panel flag itself, so no FAB coordination is needed here.
+    const showLocalRun = isLocalRunActive && !activeCloudRun
+    return showLocalRun ? <InstallationProgressView mode="local" /> : <InstallOptions onContinue={onContinue} />
 }
 
 function InstallStep({ onContinue }: { onContinue: () => void }): JSX.Element {
@@ -388,7 +336,8 @@ export function SourcesStepInner({
     codebase: CodebaseAccess
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeam } = useAsyncActions(teamLogic)
+    const { reportContextOnboardingSourceToggled } = useActions(onboardingEventUsageLogic)
 
     const autocaptureOn = !currentTeam?.autocapture_opt_out
     const replayOn = !!currentTeam?.session_recording_opt_in
@@ -397,6 +346,15 @@ export function SourcesStepInner({
     // Every source here collects through the posthog-js SDK; ingested_event is our proxy for it being
     // installed and sending. Until then, turned-on sources read as "Needs install".
     const sdkInstalled = !!currentTeam?.ingested_event
+
+    // Report to the v2 funnel (GROW-89) only after the PATCH lands: on failure the switch snaps back
+    // to the team's real state, so a funnel event would record a toggle that never happened.
+    // `toggle` names the switch — a card can carry several.
+    const toggleSource = (productKey: ProductKey, toggle: string, enabled: boolean, patch: Partial<TeamType>): void => {
+        void updateCurrentTeam(patch)
+            .then(() => reportContextOnboardingSourceToggled(productKey, toggle, enabled))
+            .catch(() => {}) // a failed write is not a toggle; the UI already reflects the revert
+    }
 
     const sources: ToolSource[] = [
         {
@@ -407,13 +365,17 @@ export function SourcesStepInner({
                     label: 'Autocapture events',
                     description: 'Clicks, pageviews, and inputs captured automatically.',
                     checked: autocaptureOn,
-                    onChange: (checked) => updateCurrentTeam({ autocapture_opt_out: !checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.PRODUCT_ANALYTICS, 'autocapture', checked, {
+                            autocapture_opt_out: !checked,
+                        }),
                 },
                 {
                     label: 'Heatmaps',
                     description: 'Aggregate clicks, scrolls, and mouse movement.',
                     checked: !!currentTeam?.heatmaps_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ heatmaps_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.PRODUCT_ANALYTICS, 'heatmaps', checked, { heatmaps_opt_in: checked }),
                 },
             ],
         },
@@ -424,18 +386,27 @@ export function SourcesStepInner({
                 {
                     label: 'Record sessions',
                     checked: replayOn,
-                    onChange: (checked) => updateCurrentTeam({ session_recording_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.SESSION_REPLAY, 'session_recording', checked, {
+                            session_recording_opt_in: checked,
+                        }),
                 },
                 {
                     label: 'Console logs',
                     checked: !!currentTeam?.capture_console_log_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ capture_console_log_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.SESSION_REPLAY, 'console_logs', checked, {
+                            capture_console_log_opt_in: checked,
+                        }),
                     disabled: !replayOn,
                 },
                 {
                     label: 'Network performance',
                     checked: !!currentTeam?.capture_performance_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ capture_performance_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.SESSION_REPLAY, 'network_performance', checked, {
+                            capture_performance_opt_in: checked,
+                        }),
                     disabled: !replayOn,
                 },
             ],
@@ -448,7 +419,10 @@ export function SourcesStepInner({
                     label: 'Capture exceptions',
                     description: 'Errors and stack traces as they happen.',
                     checked: !!currentTeam?.autocapture_exceptions_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ autocapture_exceptions_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.ERROR_TRACKING, 'exception_autocapture', checked, {
+                            autocapture_exceptions_opt_in: checked,
+                        }),
                 },
             ],
         },
@@ -460,7 +434,10 @@ export function SourcesStepInner({
                     label: 'Web vitals',
                     description: 'Load times and layout shifts from real users.',
                     checked: !!currentTeam?.autocapture_web_vitals_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ autocapture_web_vitals_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.WEB_ANALYTICS, 'web_vitals', checked, {
+                            autocapture_web_vitals_opt_in: checked,
+                        }),
                 },
             ],
             extra: (
@@ -512,7 +489,7 @@ export function SourcesStepInner({
 // ---- Shell ---------------------------------------------------------------------------------------
 
 interface StepDef {
-    id: string
+    id: ContextOnboardingStepId
     title: string
     Content: (props: { onContinue: () => void }) => JSX.Element
     skippable?: boolean
@@ -546,6 +523,12 @@ const CARD_CLASSES =
 export function ContextOnboarding(): JSX.Element {
     const { completeContextOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
+    const {
+        reportContextOnboardingStarted,
+        reportContextOnboardingStepViewed,
+        reportContextOnboardingStepCompleted,
+        reportContextOnboardingStepSkipped,
+    } = useActions(onboardingEventUsageLogic)
     // Initialize from the URL so a refresh — or an OAuth callback that lands back on ?step=install
     // (e.g. the GitHub connect flow) — resumes where it left off instead of restarting at welcome.
     const [stepIndex, setStepIndex] = useState(() => {
@@ -557,6 +540,18 @@ export function ContextOnboarding(): JSX.Element {
     const isFirst = stepIndex === 0
     const isLast = stepIndex === STEPS.length - 1
 
+    // Funnel (GROW-89): `started` fires once per fresh entry — a ?step= resume (refresh, OAuth
+    // callback) is a continuation, not a new start. `step viewed` fires for every step shown,
+    // including the one this mounts on.
+    useOnMountEffect(() => {
+        if (stepIndex === 0) {
+            reportContextOnboardingStarted()
+        }
+    })
+    useEffect(() => {
+        reportContextOnboardingStepViewed(STEPS[stepIndex].id)
+    }, [stepIndex, reportContextOnboardingStepViewed])
+
     // Keep ?step= in sync as the user moves so the URL stays resumable, preserving any other params
     // (like the integration ids the GitHub callback appends).
     const goToStep = (index: number): void => {
@@ -567,7 +562,7 @@ export function ContextOnboarding(): JSX.Element {
         })
     }
 
-    const goNext = (): void => {
+    const advance = (): void => {
         if (isLast) {
             // Marks onboarding complete (credits the sources turned on) and navigates out, so
             // sceneLogic doesn't bounce the user back into onboarding.
@@ -575,6 +570,17 @@ export function ContextOnboarding(): JSX.Element {
             return
         }
         goToStep(stepIndex + 1)
+    }
+    // Leaving a step forward is either completing it (Continue / the step's own primary action,
+    // e.g. a queued cloud run or a plan pick) or skipping it — reported separately so the funnel
+    // can tell drop-off from opt-out.
+    const completeStep = (): void => {
+        reportContextOnboardingStepCompleted(step.id)
+        advance()
+    }
+    const skipStep = (): void => {
+        reportContextOnboardingStepSkipped(step.id)
+        advance()
     }
     const goBack = (): void => goToStep(Math.max(0, stepIndex - 1))
 
@@ -614,7 +620,7 @@ export function ContextOnboarding(): JSX.Element {
 
             {/* Scrollable middle: fade edges + hover scrollbar so tall steps don't hard-crop. */}
             <ScrollableShadows direction="vertical" styledScrollbars className="flex-1 min-h-0" contentClassName="px-1">
-                <step.Content onContinue={goNext} />
+                <step.Content onContinue={completeStep} />
             </ScrollableShadows>
 
             {/* Pinned footer — omitted when the step has neither Skip nor a footer Continue (it supplies
@@ -622,7 +628,7 @@ export function ContextOnboarding(): JSX.Element {
             {(step.skippable || !step.hideContinue) && (
                 <div className="shrink-0 flex items-center justify-between gap-2">
                     {step.skippable ? (
-                        <LemonButton type="tertiary" size="small" onClick={goNext}>
+                        <LemonButton type="tertiary" size="small" onClick={skipStep}>
                             Skip for now
                         </LemonButton>
                     ) : (
@@ -633,7 +639,7 @@ export function ContextOnboarding(): JSX.Element {
                             type="primary"
                             status="alt"
                             sideIcon={<IconArrowRight />}
-                            onClick={goNext}
+                            onClick={completeStep}
                             loading={isLast && isCompleting}
                         >
                             {isLast ? 'Finish' : isFirst ? 'Get started' : 'Continue'}

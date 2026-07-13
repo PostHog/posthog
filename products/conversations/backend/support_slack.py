@@ -36,6 +36,17 @@ def get_support_slack_bot_token(team: "Team") -> str:
     return str(config.slack_bot_token or "")
 
 
+def team_exists_for_slack_workspace(slack_team_id: str) -> bool:
+    """Whether any team has SupportHog connected to this Slack workspace.
+
+    Used by the webhook endpoints for region routing — the Celery task re-resolves
+    the full config, so only existence matters here.
+    """
+    return TeamConversationsSlackConfig.objects.filter(
+        slack_team_id=slack_team_id, slack_bot_token__isnull=False
+    ).exists()
+
+
 def validate_support_request(request: HttpRequest | Request) -> None:
     """
     Validate Support Slack bot requests.

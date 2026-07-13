@@ -58,7 +58,7 @@ describe('EditErrorTrackingWidgetModal', () => {
         await userEvent.type(limitInput, '30')
 
         expect(screen.getByText('Too big: expected number to be <=25')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true')
         expect(onSave).not.toHaveBeenCalled()
     })
 
@@ -80,7 +80,7 @@ describe('EditErrorTrackingWidgetModal', () => {
         await userEvent.type(screen.getByPlaceholderText('Top issues'), 'Critical crashes')
         await userEvent.type(screen.getByPlaceholderText('Enter description (optional)'), 'Top crashes this week')
         const dialog = screen.getByRole('dialog')
-        await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+        await userEvent.click(within(dialog).getByText('Save'))
 
         expect(onSave).toHaveBeenCalledTimes(1)
         expect(onSave).toHaveBeenCalledWith(
@@ -112,9 +112,9 @@ describe('EditErrorTrackingWidgetModal', () => {
             />
         )
 
-        await userEvent.click(screen.getByRole('switch', { name: /Filter out internal and test users/i }))
+        await userEvent.click(screen.getByLabelText(/Filter out internal and test users/i))
         const dialog = screen.getByRole('dialog')
-        await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+        await userEvent.click(within(dialog).getByText('Save'))
 
         expect(onSave).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -143,13 +143,13 @@ describe('EditErrorTrackingWidgetModal', () => {
         )
 
         const dialog = screen.getByRole('dialog')
-        await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+        await userEvent.click(within(dialog).getByText('Save'))
 
-        expect(within(dialog).getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true')
-        expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveAttribute('aria-disabled', 'true')
+        expect(within(dialog).getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        expect(within(dialog).getByText('Cancel').closest('button')).toHaveAttribute('aria-disabled', 'true')
 
         resolveSave?.()
-        await within(dialog).findByRole('button', { name: 'Save' })
+        await within(dialog).findByText('Save')
     })
 
     it('hides issue settings when exception ingestion is not configured', () => {

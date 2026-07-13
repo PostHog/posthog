@@ -2,13 +2,16 @@ from django.utils.html import format_html
 
 from django_admin_inline_paginator.admin import TabularInlinePaginated
 
-from posthog.admin.admins.team_admin import TeamAdmin
+from posthog.admin.admins.team_admin import TeamAdmin, TeamAdminForm
 from posthog.models import Team
 
 
 class TeamInline(TabularInlinePaginated):
     extra = 0
     model = Team
+    # The default ModelForm requires test_account_filters, so an empty [] is rejected as required and
+    # blocks disabling the org. TeamAdminForm makes it optional (and rejects non-list values).
+    form = TeamAdminForm
     per_page = 20
     pagination_key = "page-team"
     show_change_link = True
@@ -44,10 +47,12 @@ class TeamInline(TabularInlinePaginated):
             "internal_properties",
             "delete_recordings",
             "remote_config_cache_actions",
+            "flags_staff_tools_link",
             "api_token_display",
             "admit_state",
             "ai_gateway_actions",
             "ai_gateway_wallet",
+            "ai_gateway_credit_history",
             "policy_cache_blob",
             "group_type_mappings_display",
         )

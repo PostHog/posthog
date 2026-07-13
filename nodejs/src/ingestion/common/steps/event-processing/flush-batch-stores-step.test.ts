@@ -292,10 +292,14 @@ describe('flush-batch-stores-step', () => {
                 await result.sideEffects[0]
             }
 
-            expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, 'message_size_too_large', {
-                eventUuid: 'uuid1',
-                distinctId: 'user1',
-                step: 'flushBatchStoresStep',
+            expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, {
+                type: 'message_size_too_large',
+                details: {
+                    personId: 'uuid1',
+                    distinctId: 'user1',
+                    step: 'flushBatchStoresStep',
+                },
+                pipelineStep: 'flush',
             })
         })
 
