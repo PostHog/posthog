@@ -171,6 +171,12 @@ is reachable as data rather than through the named endpoints.
   same rate ladder + label→tier parser the Python model uses), rendered as HogQL. A ClickHouse-backed
   parity test asserts the view's output equals the Python model's across the classification matrix,
   so the SQL can only drift from the model if that test fails.
+- **One cost path for the view and the endpoints.** The product's endpoint cost queries (`pr_cost`,
+  the workflow/author/runner-tier cost splits, the cost-per-merge series) read this same rendered
+  per-job cost SELECT — via `_curated.job_cost_source()`, which adds only endpoint-private run
+  pass-through columns for windowing/branch filters — and aggregate `billable_seconds` /
+  `estimated_cost_usd` in ClickHouse. Cost is therefore computed exactly once, in one place; there is
+  no separate Python cost rollup for the endpoints to drift from the view.
 
 ## 6. Delivery shape
 

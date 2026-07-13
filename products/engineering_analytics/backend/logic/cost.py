@@ -17,7 +17,6 @@ source-agnostic so they are unit-tested today and wired to the ``github_workflow
 warehouse source once it lands (see SPEC section 6/9).
 """
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -135,6 +134,24 @@ def runner_descriptor(labels: list[str]) -> tuple[str, str]:
     return "self_hosted", tier.os.value
 
 
+def runner_tier_descriptor(provider: str | None, os: str | None, vcpu: int | None) -> tuple[str, str]:
+    """Provider badge + human tier label from an already-classified ``(provider, os, vcpu)`` tuple — the
+    display form of ``runner_descriptor`` for callers that group by the rendered tier columns (the job
+    cost source's ``provider`` / ``os`` / ``vcpu``) rather than raw labels. Same mapping as
+    ``runner_descriptor``, minus the raw-label fallback: grouped by tier there is no single ``runs-on``
+    to echo, so a github-hosted or unclassified tier reads as its OS (or ``''``) instead of the label.
+    ``provider`` is the ``render_provider`` output — ``'depot'`` / ``'github_hosted'`` / ``None``.
+    """
+    if provider is None:
+        return "unknown", ""
+    if provider == RunnerProvider.GITHUB_HOSTED.value:
+        return "github_hosted", (os or "")
+    # Depot is the only billed provider — it maps to the 'self_hosted' badge; Linux reads as '<vcpu>-core'.
+    if os == RunnerOS.LINUX.value:
+        return "self_hosted", f"{vcpu}-core"
+    return "self_hosted", (os or "")
+
+
 def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> float | None:
     """Estimated Depot dollar cost for one job, or ``None`` when no honest figure exists.
 
@@ -173,37 +190,6 @@ class PRCostAggregate:
     costed_jobs: int
     unsettled_jobs: int
     excluded_jobs: int
-
-
-def aggregate_pr_cost(jobs: Iterable[tuple[list[str], float | None]]) -> PRCostAggregate:
-    """Sum per-job cost over a PR's jobs, partitioning each job by why it does (or doesn't) count.
-
-    Each input is one job's ``(labels, elapsed_seconds)``. A job counts toward cost only when its
-    runner classifies as a billable self-hosted Linux tier AND it has elapsed time; everything else
-    lands in ``unsettled_jobs`` (self-hosted Linux, no elapsed) or ``excluded_jobs`` (provider-hosted /
-    non-Linux). The billable classification is currently Depot-shaped (the only modeled provider).
-    """
-    billable_seconds = 0.0
-    total_cost = 0.0
-    costed = unsettled = excluded = 0
-    for labels, elapsed_seconds in jobs:
-        tier = classify_runner(labels)
-        if tier is None or tier.provider is not RunnerProvider.DEPOT or tier.os is not RunnerOS.LINUX:
-            excluded += 1
-            continue
-        if elapsed_seconds is None:
-            unsettled += 1
-            continue
-        billable_seconds += max(0.0, elapsed_seconds)
-        total_cost += estimate_job_cost_usd(labels, elapsed_seconds) or 0.0
-        costed += 1
-    return PRCostAggregate(
-        billable_seconds=billable_seconds,
-        estimated_cost_usd=total_cost if costed else None,
-        costed_jobs=costed,
-        unsettled_jobs=unsettled,
-        excluded_jobs=excluded,
-    )
 
 
 # --- HogQL renderer -------------------------------------------------------------------
@@ -300,11 +286,20 @@ def render_multiplier(vcpu_sql: str) -> str:
     return f"if({vcpu_sql} IS NULL, NULL, {ladder})"
 
 
+def render_is_billable_tier(provider_sql: str, os_sql: str) -> str:
+    """SQL predicate: True when a job's classified tier is billable — self-hosted Linux (Depot Linux,
+    the only modeled billed tier). Generated from the enums so ``'depot'`` / ``'linux'`` never appear
+    as string literals in the query layer. NULL-safe: an unclassified tier (``provider`` NULL) reads as
+    not billable. This is the one place the billable-partition rule is spelled out; the endpoint cost
+    aggregates and the two renderers below all read it, so the three-bucket split can't drift."""
+    return f"ifNull({provider_sql} = '{RunnerProvider.DEPOT.value}' AND {os_sql} = '{RunnerOS.LINUX.value}', 0)"
+
+
 def render_billable_seconds(provider_sql: str, os_sql: str, elapsed_sql: str) -> str:
     """Raw billable wall-clock seconds (NOT multiplier-weighted): ``greatest(elapsed, 0)`` only for
-    a billable self-hosted Linux job with a known elapsed, else NULL — mirrors the
-    ``max(0, elapsed)`` a costed job contributes to ``aggregate_pr_cost.billable_seconds``."""
-    billable = f"ifNull({provider_sql} = '{RunnerProvider.DEPOT.value}' AND {os_sql} = '{RunnerOS.LINUX.value}', 0)"
+    a billable self-hosted Linux job with a known elapsed, else NULL — mirrors the ``max(0, elapsed)``
+    a costed job contributes to a PR's ``billable_seconds``."""
+    billable = render_is_billable_tier(provider_sql, os_sql)
     return f"if({billable} AND {elapsed_sql} IS NOT NULL, greatest({elapsed_sql}, 0), NULL)"
 
 
@@ -313,8 +308,6 @@ def render_estimated_cost_usd(provider_sql: str, os_sql: str, vcpu_sql: str, ela
     NULL when not billable (non-Depot / non-Linux / unclassified) and NULL for an unsettled job
     (elapsed unknown, never $0.00), a real 0.0 for non-positive elapsed, else
     ``(elapsed / 60) * REFERENCE_RATE_USD_PER_MIN * multiplier``."""
-    is_depot_linux = (
-        f"ifNull({provider_sql} = '{RunnerProvider.DEPOT.value}' AND {os_sql} = '{RunnerOS.LINUX.value}', 0)"
-    )
+    is_depot_linux = render_is_billable_tier(provider_sql, os_sql)
     cost = f"({elapsed_sql} / 60) * {REFERENCE_RATE_USD_PER_MIN} * {render_multiplier(vcpu_sql)}"
     return f"multiIf(NOT {is_depot_linux}, NULL, {elapsed_sql} IS NULL, NULL, {elapsed_sql} <= 0, 0.0, {cost})"

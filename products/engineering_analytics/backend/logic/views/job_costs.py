@@ -65,12 +65,19 @@ COLUMNS: dict[str, dict[str, str]] = {
 }
 
 
-def build_query(*, jobs_table: str, runs_table: str) -> str:
+def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool = False) -> str:
     """The per-job cost SELECT for one GitHub source: curated jobs LEFT JOIN curated runs.
 
     Grain is one row per job attempt (a retry appears once per attempt — correct for cost). The
     cost columns are derived only from the job's ``labels`` + elapsed, so an unjoined run (no ``r``
     row) leaves only the attribution columns (``repo_owner`` / ``repo_name`` / ``pr_number``) NULL.
+
+    ``include_run_columns`` adds two run pass-through columns — ``run_started_at`` and
+    ``run_head_branch`` (the run's start time and the *run's* head branch, distinct from the job's
+    ``head_branch``) — used only by the product's endpoint cost queries to window and branch-filter
+    on run attributes. They are deliberately kept out of the public view (``build_team_view`` uses the
+    default): ``run_head_branch`` would duplicate ``head_branch`` for the exposed grain, and the view
+    already carries ``created_at`` for time filtering.
     """
     jobs = workflow_jobs.build_query(jobs_table)
     runs = workflow_runs.build_query(runs_table)
@@ -78,6 +85,22 @@ def build_query(*, jobs_table: str, runs_table: str) -> str:
     # labels is already ifNull'd to '[]' by the jobs builder; JSONExtract to Array(String) yields
     # [] for any non-array/invalid JSON, matching cost._parse_labels' empty-on-bad-input behavior.
     labels_array = "JSONExtract(labels, 'Array(String)')"
+
+    # Endpoint-only run pass-throughs, threaded through both wrapper SELECTs when requested.
+    inner_run_columns = (
+        """,
+                    r.run_started_at AS run_started_at,
+                    r.head_branch AS run_head_branch"""
+        if include_run_columns
+        else ""
+    )
+    run_columns = (
+        """,
+            run_started_at,
+            run_head_branch"""
+        if include_run_columns
+        else ""
+    )
 
     return f"""
         SELECT
@@ -102,7 +125,7 @@ def build_query(*, jobs_table: str, runs_table: str) -> str:
             vcpu,
             {render_multiplier("vcpu")} AS multiplier,
             {render_billable_seconds("provider", "os", "duration_seconds")} AS billable_seconds,
-            {render_estimated_cost_usd("provider", "os", "vcpu", "duration_seconds")} AS estimated_cost_usd
+            {render_estimated_cost_usd("provider", "os", "vcpu", "duration_seconds")} AS estimated_cost_usd{run_columns}
         FROM (
             SELECT
                 repo_owner,
@@ -123,7 +146,7 @@ def build_query(*, jobs_table: str, runs_table: str) -> str:
                 duration_seconds,
                 {render_provider("labels_arr")} AS provider,
                 {render_os("labels_arr")} AS os,
-                {render_vcpu("labels_arr")} AS vcpu
+                {render_vcpu("labels_arr")} AS vcpu{run_columns}
             FROM (
                 SELECT
                     r.repo_owner AS repo_owner,
@@ -144,7 +167,7 @@ def build_query(*, jobs_table: str, runs_table: str) -> str:
                     j.completed_at AS completed_at,
                     j.queue_seconds AS queue_seconds,
                     j.duration_seconds AS duration_seconds,
-                    {labels_array} AS labels_arr
+                    {labels_array} AS labels_arr{inner_run_columns}
                 FROM ({jobs}) AS j
                 LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
             )
