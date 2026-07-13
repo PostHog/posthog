@@ -1939,6 +1939,11 @@ class ExternalDataSourceType(StrEnum):
     HEX = "Hex"
     SINGULAR = "Singular"
     SWONKIE = "Swonkie"
+    SUMSUB = "Sumsub"
+    GOOGLE_CHAT = "GoogleChat"
+    KICKSCALE = "Kickscale"
+    ZELLIFY = "Zellify"
+    RUDDER_STACK = "RudderStack"
 
 
 class ExternalQueryErrorCode(StrEnum):

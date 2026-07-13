@@ -798,6 +798,11 @@ class ExternalDataSourceType(models.TextChoices):
     WINDMILL = "Windmill", "Windmill"
     ZEP = "Zep", "Zep"
     HEX = "Hex", "Hex"
+    SUMSUB = "Sumsub", "Sumsub"
+    GOOGLECHAT = "GoogleChat", "GoogleChat"
+    KICKSCALE = "Kickscale", "Kickscale"
+    ZELLIFY = "Zellify", "Zellify"
+    RUDDERSTACK = "RudderStack", "RudderStack"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
