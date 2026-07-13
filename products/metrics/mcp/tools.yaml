@@ -50,6 +50,24 @@ tools:
     metrics-samples-create:
         operation: metrics_samples_create
         enabled: false
+    metrics-views-create:
+        operation: metrics_views_create
+        enabled: false
+    metrics-views-destroy:
+        operation: metrics_views_destroy
+        enabled: false
+    metrics-views-list:
+        operation: metrics_views_list
+        enabled: false
+    metrics-views-partial-update:
+        operation: metrics_views_partial_update
+        enabled: false
+    metrics-views-retrieve:
+        operation: metrics_views_retrieve
+        enabled: false
+    metrics-views-update:
+        operation: metrics_views_update
+        enabled: false
     query-metrics:
         operation: metrics_query_create
         enabled: true
