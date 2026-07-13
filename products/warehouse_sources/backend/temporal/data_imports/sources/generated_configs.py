@@ -687,7 +687,8 @@ class ChargifySourceConfig(config.Config):
 
 @config.config
 class ChartHopSourceConfig(config.Config):
-    pass
+    api_key: str
+    org_id: str | None = None
 
 
 @config.config
