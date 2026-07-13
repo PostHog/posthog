@@ -50,7 +50,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.constants import AvailableFeature
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
@@ -60,7 +60,6 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
-from products.product_analytics.backend.api.insight import _last_refresh_for_shared_gate
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -529,6 +528,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
+                cache_age_seconds=None,
                 analytics_props=ANY,
             )
 
@@ -539,9 +539,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
                 dashboard=mock.ANY,
-                # The shared force_blocking gate downgrades to IF_STALE because the insight was
-                # just created — the InsightCachingState row's `created_at` is younger than
-                # `SHARED_FORCE_BLOCKING_MIN_AGE` and the throttle clock falls back to it.
+                # Shared force_blocking runs as blocking-if-stale with the throttle window as
+                # the staleness threshold: a cache younger than `SHARED_FORCE_BLOCKING_STALENESS_WINDOW`
+                # is served as-is, anything older (or missing) recomputes synchronously.
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
@@ -549,28 +549,70 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
+                cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
             )
 
-    @parameterized.expand(
-        [
-            # When no caching state row exists, the gate falls back to insight.created_at so
-            # legitimate stale-refresh isn't silently blocked on insights without rows.
-            ("missing_row_falls_back_to_insight_created_at", True),
-            ("existing_row_used_when_present", False),
-        ]
-    )
-    def test_last_refresh_for_shared_gate_fallback(self, _name: str, delete_caching_state: bool) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
-        if delete_caching_state:
-            InsightCachingState.objects.filter(insight=insight).delete()
-            self.assertIsNone(InsightCachingState.objects.filter(insight=insight).first())
-            expected = insight.created_at
-        else:
-            cs = InsightCachingState.objects.filter(insight=insight, dashboard_tile=None).first()
-            assert cs is not None  # narrows type for mypy
-            expected = cs.created_at  # last_refresh is null on a freshly created row
-        self.assertEqual(_last_refresh_for_shared_gate(insight, None), expected)
+    def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
+        # Un-mocked end-to-end regression test: exercises the real process_query_dict ->
+        # process_query_model -> query_runner.run() chain that the mocked assertions above
+        # never execute the body of. A 200 alone doesn't prove this: insight_result's
+        # broad except Exception swallows calculation crashes into a query_status error
+        # and still renders 200, so assert the embedded result actually computed.
+        filter_dict = {"events": [{"id": "$pageview"}]}
+
+        insight_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "name": "insight"})
+        sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
+
+        # .json suffix returns exported_data directly, skipping exporter.html rendering
+        valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}.json"
+
+        response = self.client.get(valid_url, data={"refresh": "force_blocking"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        exported = response.json()
+        query_status = exported["insight"]["query_status"] or {}
+        self.assertFalse(query_status.get("error"), query_status)
+        self.assertIsNotNone(exported["insight"]["result"])
+
+    def test_shared_force_refresh_ignores_client_filter_overrides(self) -> None:
+        # Regression: the /shared/<token> page load runs without an authenticator, so the serializer
+        # must rely on the is_shared context flag to drop client-supplied overrides. Without the flag
+        # reaching the override helpers, a viewer could pair a unique filters_override with
+        # refresh=force_blocking on every request — each novel value is a fresh cache miss that
+        # recomputes synchronously, defeating the throttle this PR relies on.
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}]}, "name": "insight"}
+        )
+        sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
+
+        valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
+
+        with patch(
+            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+        ) as calculate_for_query_based_insight:
+            self.client.get(
+                valid_url,
+                data={
+                    "refresh": "force_blocking",
+                    "filters_override": json.dumps({"date_from": "-1d"}),
+                    "variables_override": json.dumps({"injected": {"value": "evil"}}),
+                    "tile_filters_override": json.dumps({"breakdown": "region"}),
+                },
+            )
+            calculate_for_query_based_insight.assert_called_once_with(
+                mock.ANY,
+                dashboard=mock.ANY,
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                team=self.team,
+                user=mock.ANY,
+                user_access_control=mock.ANY,
+                filters_override={},
+                variables_override={},
+                tile_filters_override={},
+                cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
+                analytics_props=ANY,
+            )
 
     def test_get_insight_by_short_id(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}

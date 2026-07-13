@@ -23250,7 +23250,14 @@
                 "Vultr",
                 "Windmill",
                 "Zep",
-                "Hex"
+                "Hex",
+                "Singular",
+                "Swonkie",
+                "Sumsub",
+                "GoogleChat",
+                "Kickscale",
+                "Zellify",
+                "RudderStack"
             ],
             "type": "string"
         },
@@ -23545,6 +23552,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
+                "mcp_analytics",
                 "exports"
             ],
             "type": "string"

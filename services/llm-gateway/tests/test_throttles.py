@@ -17,6 +17,7 @@ from llm_gateway.rate_limiting.throttles import (
     get_rate_limit_multiplier,
     get_staff_multiplier,
     get_team_multiplier,
+    is_usage_unlimited,
 )
 
 
@@ -234,4 +235,23 @@ class TestGetRateLimitMultiplier:
         monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "10")
         get_settings.cache_clear()
         assert get_rate_limit_multiplier(make_user(team_id=99, is_staff=False)) == 1
+        get_settings.cache_clear()
+
+
+class TestIsUsageUnlimited:
+    def test_false_for_non_staff_user(self) -> None:
+        get_settings.cache_clear()
+        assert is_usage_unlimited(make_user(is_staff=False)) is False
+        get_settings.cache_clear()
+
+    def test_true_for_staff_user_by_default(self) -> None:
+        # staff_unlimited_usage defaults to True.
+        get_settings.cache_clear()
+        assert is_usage_unlimited(make_user(is_staff=True)) is True
+        get_settings.cache_clear()
+
+    def test_false_for_staff_when_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_STAFF_UNLIMITED_USAGE", "false")
+        get_settings.cache_clear()
+        assert is_usage_unlimited(make_user(is_staff=True)) is False
         get_settings.cache_clear()
