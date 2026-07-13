@@ -92,6 +92,18 @@ class TestBugsnagSource:
         schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id, names=["errors", "projects"])
         assert {s.name for s in schemas} == {"errors", "projects"}
 
+    def test_publishes_table_catalog_for_public_docs(self) -> None:
+        # `lists_tables_without_credentials` gates whether the static endpoint catalog reaches the
+        # posthog.com "Supported tables" section. Dropping the flag (or making get_schemas require
+        # credentials) would silently empty that section, so assert the catalog flows through with
+        # canonical descriptions attached.
+        tables = self.source.get_documented_tables()
+        names = {t["name"] for t in tables}
+        assert set(ENDPOINTS).issubset(names)
+        errors = next(t for t in tables if t["name"] == "errors")
+        assert "Full refresh" in errors["sync_methods"]
+        assert errors["description"]
+
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.source.validate_bugsnag_credentials"
     )

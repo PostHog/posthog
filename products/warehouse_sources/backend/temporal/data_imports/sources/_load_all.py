@@ -299,6 +299,7 @@ from .hellobaton.source import HellobatonSource
 from .helpscout.source import HelpScoutSource
 from .heroku.source import HerokuSource
 from .hetzner.source import HetznerSource
+from .hex.source import HexSource
 from .heygen.source import HeyGenSource
 from .hibob.source import HiBobSource
 from .high_level.source import HighLevelSource
@@ -618,6 +619,7 @@ from .sim.source import SimSource
 from .simfin.source import SimFinSource
 from .simplecast.source import SimpleCastSource
 from .simplesat.source import SimplesatSource
+from .singular.source import SingularSource
 from .skyvern.source import SkyvernSource
 from .slack.source import SlackSource
 from .slash.source import SlashSource
@@ -650,6 +652,7 @@ from .surveymonkey.source import SurveyMonkeySource
 from .surveysparrow.source import SurveySparrowSource
 from .survicate.source import SurvicateSource
 from .svix.source import SvixSource
+from .swonkie.source import SwonkieSource
 from .synthesia.source import SynthesiaSource
 from .systeme.source import SystemeSource
 from .taboola.source import TaboolaSource

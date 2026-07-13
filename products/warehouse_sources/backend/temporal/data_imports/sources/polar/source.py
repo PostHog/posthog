@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+import requests
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -92,6 +94,24 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
             return True, None
         except PolarPermissionError as e:
             return False, f"Polar Organization Access Token lacks permissions: {e}"
+        except requests.exceptions.HTTPError as e:
+            # A failed probe surfaces via raise_for_status(): its str() leaks the full request URL
+            # (with query params) and tells the user nothing to act on. Map the status instead.
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code == 401:
+                return (
+                    False,
+                    "Your Polar Organization Access Token is invalid or expired. Please generate a new token in Polar and reconnect.",
+                )
+            if status_code == 403:
+                return (
+                    False,
+                    "Your Polar Organization Access Token does not have the required permissions. Please check the token's scopes in Polar and reconnect.",
+                )
+            return (
+                False,
+                f"Polar returned an unexpected error (HTTP {status_code}) while validating your token. Please try again.",
+            )
         except Exception as e:
             return False, str(e)
 

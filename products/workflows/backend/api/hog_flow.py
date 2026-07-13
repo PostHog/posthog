@@ -8,7 +8,7 @@ from typing import Any, Optional, cast
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -58,6 +58,8 @@ from posthog.plugins.plugin_server_api import (
     create_hog_flow_scheduled_invocation,
     rerun_hog_invocations,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -809,7 +811,7 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class HogFlowMinimalSerializer(serializers.ModelSerializer):
+class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -832,6 +834,28 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "abort_action",
             "variables",
             "billable_action_types",
+            "user_access_level",
+        ]
+        read_only_fields = fields
+
+
+class HogFlowSummarySerializer(HogFlowMinimalSerializer):
+    # Metadata-only listing view. Deliberately omits the action graph (actions/edges) and other
+    # detail-only fields: an action's `config` can hold credential-like values (e.g. a webhook
+    # Authorization header), and a workflow *listing* must not broaden their visibility. Full
+    # definitions stay behind retrieve. Used for MCP list requests; see get_serializer_class.
+    class Meta(HogFlowMinimalSerializer.Meta):
+        fields = [
+            "id",
+            "name",
+            "description",
+            "version",
+            "status",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "trigger",
+            "user_access_level",
         ]
         read_only_fields = fields
 
@@ -945,6 +969,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "variables",
             "billable_action_types",
             "schedules",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -956,6 +981,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
             "schedules",  # Managed via the schedules sub-resource, surfaced read-only here
+            "user_access_level",
         ]
 
     def validate(self, data):
@@ -1229,7 +1255,9 @@ class StaleWorkflowUpdateError(exceptions.APIException):
 
 
 @extend_schema(extensions={"x-product": "workflows"})
-class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
+class HogFlowViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+):
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",
@@ -1301,7 +1329,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
-        return HogFlowMinimalSerializer if self.action == "list" else HogFlowSerializer
+        if self.action == "list":
+            # MCP list ("workflows-list") is a discovery/summary tool — return metadata only so it
+            # never exposes action config bodies (which can hold credential-like values). The web app
+            # and raw API keep the full graph, which they legitimately need (e.g. client-side
+            # duplication); MCP callers drill into a single workflow via retrieve instead.
+            if self.request is not None and self._is_mcp_request(self.request):
+                return HogFlowSummarySerializer
+            return HogFlowMinimalSerializer
+        return HogFlowSerializer
 
     def get_serializer_context(self) -> dict:
         # Drives draft strictness in the serializers: web-builder drafts stay lenient, programmatic
@@ -1545,7 +1581,11 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def invocations(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
-        except Exception:
+        except (Http404, exceptions.NotFound):
+            # Only a genuinely missing workflow lands here (e.g. testing from the builder before first
+            # save) — fall back to testing the submitted payload. Permission failures never reach this
+            # fallback: a resource-level denial 403s upstream before this method runs, and an object-level
+            # PermissionDenied from get_object() is deliberately not caught, so it surfaces as a 403.
             hog_flow = None
 
         serializer = HogFlowInvocationSerializer(
@@ -1568,6 +1608,13 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: Request, **kwargs):
+        # detail=False, so there's no workflow object for AccessControlPermission to check — it falls back to
+        # "has access to any one workflow" (has_any_specific_access_for_resource). That's too weak for a
+        # project-wide person/group count: require resource-level workflow access so an object-level grant on
+        # a single workflow can't be used as a project-wide audience oracle.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            raise exceptions.PermissionDenied("You do not have access to workflows.")
+
         param_serializer = BlastRadiusRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
@@ -1793,8 +1840,18 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         except ValueError:
             return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
 
-        queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
-        deleted_count, _ = queryset.delete()
+        # Match the single destroy path: deleting a workflow needs object-level editor access, not just
+        # visibility. filter_queryset_by_access_level only drops effective-"none" (invisible) objects, so an
+        # object-specific viewer override would otherwise be bulk-deletable. Check each candidate explicitly.
+        candidates = list(self.get_queryset().filter(id__in=validated_ids, status="archived"))
+        self.user_access_control.preload_object_access_controls(candidates)
+        deletable_ids = [
+            flow.id
+            for flow in candidates
+            if self.user_access_control.check_access_level_for_object(flow, required_level="editor")
+        ]
+
+        deleted_count, _ = self.get_queryset().filter(id__in=deletable_ids).delete()
 
         return Response({"deleted": deleted_count})
 
@@ -1806,7 +1863,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
-        except Exception:
+        except (Http404, exceptions.NotFound):
+            # A PermissionDenied from the object-level access check propagates as a 403; only a genuine
+            # missing workflow becomes a friendly 404.
             raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")
 
         if request.method == "POST":
