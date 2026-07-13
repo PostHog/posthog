@@ -166,6 +166,7 @@ class SandboxedEvalHarness:
             raise RuntimeError("_bootstrap() must run before the eval context is built")
         return EvalContext(
             provider=self.options.provider,
+            provider_strategy=self.provider,
             agent_model=self.options.agent_model,
             case_filter=self.options.case_filter,
             demo_data=self._demo_data,

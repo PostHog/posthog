@@ -7,7 +7,7 @@ from pathlib import Path
 from posthoganalytics import Posthog
 
 from .demo_data import SandboxedDemoData
-from .providers import SandboxProvider
+from .providers import SandboxProvider, SandboxProviderStrategy
 from .reporting import ProgressReporter
 
 
@@ -21,6 +21,10 @@ class EvalContext:
     """
 
     provider: SandboxProvider
+    """Provider label, kept for display and metadata only."""
+
+    provider_strategy: SandboxProviderStrategy
+    """The live provider strategy — the behavior hook for per-case teardown."""
 
     agent_model: str
     """Model every sandboxed agent runs against. Pinned for stable comparisons."""

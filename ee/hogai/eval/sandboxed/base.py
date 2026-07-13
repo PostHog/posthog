@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from braintrust import EvalAsync, EvalCase, EvalHooks
 from braintrust.framework import EvalResultWithSummary
@@ -169,6 +169,7 @@ async def SandboxedEval(
 
     async def task(input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any] | None:
         case_started = time.monotonic()
+        status: Literal["ok", "timeout", "error"] = "ok"
         eval_case = SandboxedEvalCase(
             name=input["name"],
             prompt=input["prompt"],
@@ -201,7 +202,7 @@ async def SandboxedEval(
                 # Budget the agent run from slot acquisition, so time spent queued
                 # on the sandbox semaphore can never eat into a case's timeout.
                 result = await asyncio.wait_for(
-                    run_eval_case(eval_case, sandbox_context),
+                    run_eval_case(eval_case, sandbox_context, provider=ctx.provider_strategy),
                     timeout=ctx.per_case_timeout_seconds,
                 )
 
@@ -264,18 +265,29 @@ async def SandboxedEval(
                 "seed": seed_result,
                 "prompt": eval_case.prompt,
             }
-        except Exception as e:
-            logger.exception("Eval task failed for '%s'", input.get("name", "?"))
+        except TimeoutError:
+            # A case that outran its budget is an agent result (too slow), not an
+            # infra error: score it 0 rather than letting Braintrust mark it errored.
+            status = "timeout"
+            logger.warning("Eval case '%s' timed out after %ds", eval_case.name, ctx.per_case_timeout_seconds)
             return AgentArtifacts(
-                exit_code=-1,
-                stderr=f"Eval runner error: {e}",
+                exit_code=1,
+                stderr=f"case timeout after {ctx.per_case_timeout_seconds}s",
             ).model_dump()
+        except Exception:
+            # Infra failure (provisioning, demo copy, setup hook, poll). Re-raise so
+            # Braintrust records the case as errored and excludes it from score
+            # averages, instead of scoring the agent 0 for the harness's fault.
+            status = "error"
+            logger.exception("Eval task errored for '%s'", input.get("name", "?"))
+            raise
         finally:
-            # Report on both paths so the reporter's live case counter never stalls.
+            # Report on every path so the reporter's live case counter never stalls.
             await ctx.reporter.case_done(
                 experiment_name,
                 eval_case.name,
                 duration_seconds=time.monotonic() - case_started,
+                status=status,
             )
 
     project_name = f"sandboxed-agent-{experiment_name}" if is_public else experiment_name
@@ -345,7 +357,10 @@ async def SandboxedEval(
     # Hand the summary to the reporter: suites don't return their Braintrust
     # result up to the orchestrator, so this is the only place the final table
     # and the EXPORT_EVAL_RESULTS jsonl can read per-scorer scores from.
-    await ctx.reporter.record_summary(experiment_name, result.summary)
+    # Errored cases (infra failures) are surfaced separately so they read as noise,
+    # not as agent 0s dragging the averages.
+    error_count = sum(1 for r in result.results if r.error is not None)
+    await ctx.reporter.record_summary(experiment_name, result.summary, error_count=error_count)
 
     return result
 

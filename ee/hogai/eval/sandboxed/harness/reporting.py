@@ -56,18 +56,30 @@ class ProgressReporter:
         self._summaries: dict[str, ExperimentSummary] = {}
         self._case_counts: dict[str, int] = defaultdict(int)
         self._case_durations: dict[str, float] = defaultdict(float)
+        self._error_counts: dict[str, int] = defaultdict(int)
 
     async def suite_started(self, suite_id: str) -> None:
         async with self._lock:
             _emit(f"{self._counter()} START  {suite_id}")
 
-    async def case_done(self, experiment_name: str, case_name: str, *, duration_seconds: float) -> None:
+    async def case_done(
+        self,
+        experiment_name: str,
+        case_name: str,
+        *,
+        duration_seconds: float,
+        status: Literal["ok", "timeout", "error"] = "ok",
+    ) -> None:
         """Keyed by experiment rather than suite id: a case only knows which
-        Braintrust experiment it belongs to, and that is what the table rows are."""
+        Braintrust experiment it belongs to, and that is what the table rows are.
+
+        ``status`` distinguishes a normal finish from a timeout (scored 0) or an
+        infra error (excluded from scores) so the two stand out in the live stream."""
         async with self._lock:
             self._case_counts[experiment_name] += 1
             self._case_durations[experiment_name] += duration_seconds
-            _emit(f"{self._counter()} case   {experiment_name} :: {case_name}  ({duration_seconds:.1f}s)")
+            marker = {"ok": "case ", "timeout": "TMOUT", "error": "ERROR"}[status]
+            _emit(f"{self._counter()} {marker}  {experiment_name} :: {case_name}  ({duration_seconds:.1f}s)")
 
     async def case_log_path(self, case_name: str, path: Path) -> None:
         async with self._lock:
@@ -79,15 +91,19 @@ class ProgressReporter:
             marker = "PASS " if result.status == "passed" else "CRASH"
             _emit(f"{self._counter()} {marker}  {result.suite_id}  ({result.duration_seconds:.1f}s)")
 
-    async def record_summary(self, experiment_name: str, summary: ExperimentSummary) -> None:
+    async def record_summary(self, experiment_name: str, summary: ExperimentSummary, *, error_count: int = 0) -> None:
         """Store a Braintrust experiment summary for the final table and export it.
 
         Suite functions do not return their Braintrust result up to the
         orchestrator, so the reporter is the single place both the summary
         table and the JSONL export can read from.
+
+        ``error_count`` is the number of cases Braintrust recorded as errored
+        (infra failures excluded from the scores), surfaced in the final table.
         """
         async with self._lock:
             self._summaries[experiment_name] = summary
+            self._error_counts[experiment_name] = error_count
             if os.getenv("EXPORT_EVAL_RESULTS"):
                 with open(EVAL_RESULTS_JSONL, "a") as f:
                     f.write(summary.as_json() + "\n")
@@ -128,7 +144,9 @@ class ProgressReporter:
     def _passed_rows(self, experiment_name: str, summary: ExperimentSummary, name_width: int) -> list[str]:
         case_count = self._case_counts.get(experiment_name, 0)
         duration = self._case_durations.get(experiment_name, 0.0)
-        rows = [f"PASS   {experiment_name:<{name_width}}  {case_count:>3} cases  {duration:>7.1f}s"]
+        error_count = self._error_counts.get(experiment_name, 0)
+        errored = f", {error_count} errored" if error_count else ""
+        rows = [f"PASS   {experiment_name:<{name_width}}  {case_count:>3} cases{errored}  {duration:>7.1f}s"]
         scores = "  ".join(f"{name} {s.score * 100:.1f}%" for name, s in summary.scores.items() if s.score is not None)
         if scores:
             rows.append(f"         scores: {scores}")

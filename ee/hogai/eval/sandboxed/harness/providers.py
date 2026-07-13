@@ -62,6 +62,41 @@ def cleanup_eval_containers() -> None:
         pass
 
 
+def cleanup_case_containers(task_id: str) -> None:
+    """Force-remove any sandbox container created for this case's task.
+
+    Eval cases return as soon as ``poll_for_turn`` sees ``end_turn``, but the
+    ``ProcessTaskWorkflow`` finally block that calls ``cleanup_sandbox`` runs
+    asynchronously and can lag — or get cancelled when the temporal worker is
+    shut down at session end. With 16GB-per-sandbox defaults and a handful of
+    concurrent cases, accumulated containers exhaust host memory.
+
+    Match by name prefix ``task-sandbox-{task_id}-`` (see ``get_sandbox_name_for_task``
+    and ``DockerSandbox.create``) so we never touch a concurrently-running case's
+    container.
+    """
+    name_prefix = f"{EVAL_CONTAINER_PREFIX}{task_id}-"
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--filter", f"name={name_prefix}", "--format", "{{.ID}}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except Exception:
+        logger.warning("Failed to list sandbox containers for task %s", task_id, exc_info=True)
+        return
+
+    for container_id in result.stdout.strip().splitlines():
+        if not container_id:
+            continue
+        logger.info("Cleaning up eval container %s for task %s", container_id, task_id)
+        try:
+            subprocess.run(["docker", "rm", "-f", container_id], capture_output=True, timeout=30)
+        except Exception:
+            logger.warning("Failed to remove sandbox container %s", container_id, exc_info=True)
+
+
 def _modal_eval_app_name() -> str:
     """Name of the dedicated Modal app the eval sandboxes run under (the
     ``MODAL_DOCKER`` provider), read from its source of truth in ``products.tasks``."""
@@ -127,6 +162,9 @@ class SandboxProviderStrategy(ABC):
         """Per-sandbox max lifetime, or ``None`` to keep ``SANDBOX_TTL_SECONDS``."""
         return None
 
+    def cleanup_case(self, task_id: str) -> None:  # noqa: B027 — optional hook; only providers whose per-case teardown can lag override it
+        """Per-case teardown run after each case settles, on top of the workflow's own cleanup."""
+
     def cleanup(self) -> None:  # noqa: B027 — optional hook; providers that own teardown override it
         """End-of-run sweep for anything per-case teardown may have missed."""
 
@@ -159,6 +197,12 @@ class DockerProviderStrategy(SandboxProviderStrategy):
             "SANDBOX_LLM_GATEWAY_URL": f"http://host.docker.internal:{LLM_GATEWAY_PORT}",
             "SANDBOX_MCP_URL": f"http://host.docker.internal:{MCP_PORT}/mcp",
         }
+
+    def cleanup_case(self, task_id: str) -> None:
+        # Belt-and-braces on top of the workflow's own shutdown: its cleanup_sandbox
+        # can lag or be cancelled at worker shutdown, so reclaim this case's container
+        # by name before the next case grabs a slot.
+        cleanup_case_containers(task_id)
 
     def cleanup(self) -> None:
         if self.keep_containers:

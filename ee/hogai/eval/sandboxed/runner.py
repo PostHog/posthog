@@ -5,51 +5,42 @@ import time
 import uuid
 import asyncio
 import logging
-import subprocess
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from posthog.temporal.common.client import async_connect
 
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_task_and_trigger, poll_for_turn
+from products.tasks.backend.facade.temporal import ProcessTaskWorkflow
 
 from .config import AgentArtifacts, SandboxedEvalCase
+from .harness.providers import SandboxProviderStrategy
+
+if TYPE_CHECKING:
+    from temporalio.client import WorkflowHandle
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["run_eval_case"]
 
 
-def _cleanup_case_containers(task_id: str) -> None:
-    """Force-remove any sandbox container created for this case's task.
+async def _end_workflow(handle: WorkflowHandle, reason: str) -> None:
+    """Shut the case's ``ProcessTaskWorkflow`` down so a timed-out or errored case
+    stops burning LLM tokens and its sandbox stops billing.
 
-    Eval cases return as soon as ``poll_for_turn`` sees ``end_turn``, but the
-    ``ProcessTaskWorkflow`` finally block that calls ``cleanup_sandbox`` runs
-    asynchronously and can lag — or get cancelled when the temporal worker is
-    shut down at session end. With 16GB-per-sandbox defaults and
-    ``max_concurrency=2`` cases, accumulated containers exhaust host memory.
-
-    Match by name prefix ``task-sandbox-{task_id}-`` (see
-    ``get_sandbox_name_for_task`` and ``DockerSandbox.create``) so we never
-    touch a concurrently-running case's container.
+    Signals ``complete_task`` with a failed status (the same path the multi-turn
+    session's ``end`` takes), falling back to a hard cancel if the signal can't be
+    delivered. Either route runs the workflow's own ``cleanup_sandbox``, so this is
+    provider-agnostic. A double failure only warns — teardown must not mask the
+    original error being propagated.
     """
-    name_prefix = f"task-sandbox-{task_id}-"
     try:
-        result = subprocess.run(
-            ["docker", "ps", "-a", "--filter", f"name={name_prefix}", "--format", "{{.ID}}"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
+        await handle.signal(ProcessTaskWorkflow.complete_task, args=["failed", reason])
     except Exception:
-        logger.warning("Failed to list sandbox containers for task %s", task_id, exc_info=True)
-        return
-
-    for container_id in result.stdout.strip().splitlines():
-        if not container_id:
-            continue
-        logger.info("Cleaning up eval container %s for task %s", container_id, task_id)
         try:
-            subprocess.run(["docker", "rm", "-f", container_id], capture_output=True, timeout=30)
+            await handle.cancel()
         except Exception:
-            logger.warning("Failed to remove sandbox container %s", container_id, exc_info=True)
+            logger.warning("Failed to tear down workflow for eval case (reason=%s)", reason, exc_info=True)
 
 
 @dataclass
@@ -62,16 +53,28 @@ class EvalCaseResult:
 async def run_eval_case(
     case: SandboxedEvalCase,
     context: CustomPromptSandboxContext,
+    *,
+    provider: SandboxProviderStrategy,
 ) -> EvalCaseResult:
-    """Run an eval case using the full Task -> temporal workflow -> log polling pipeline."""
+    """Run an eval case using the full Task -> temporal workflow -> log polling pipeline.
+
+    On any failure — including the ``CancelledError`` the caller's ``wait_for``
+    timeout raises into this coroutine — the case's workflow is signalled to shut
+    down before the exception propagates, so no agent or sandbox is left running.
+    """
     trace_id = str(uuid.uuid4())
     logger.info("Starting eval case '%s' (trace=%s) with prompt: %.100s...", case.name, trace_id, case.prompt)
     start = time.monotonic()
     task = None
+    handle: WorkflowHandle | None = None
     try:
         # Eval is a test harness — direct use of internals (instead of MTS) is intentional:
         # the agent isn't asked for structured JSON, and we need full_log for artifact parsing.
         task, task_run = await create_task_and_trigger(case.prompt, context, step_name=case.name)
+        # Handle to the case's workflow so a timeout/error can shut the agent down.
+        workflow_id = task_run.get_workflow_id(task.id, task_run.id)
+        client = await async_connect()
+        handle = client.get_workflow_handle(workflow_id)
         last_message, full_log_opt, _, _ = await poll_for_turn(
             task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg)
         )
@@ -87,16 +90,18 @@ async def run_eval_case(
         )
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
         return EvalCaseResult(artifacts=artifacts, trace_id=trace_id, raw_log=full_log)
-    except Exception as e:
+    except (Exception, asyncio.CancelledError) as e:
+        # CancelledError is how the caller's asyncio.wait_for timeout reaches this
+        # coroutine; catch it explicitly so we can stop the workflow, then re-raise.
         duration = time.monotonic() - start
         logger.exception("Eval case '%s' failed after %.1fs: %s", case.name, duration, e)
-        return EvalCaseResult(
-            artifacts=AgentArtifacts(exit_code=1, stderr=str(e), duration_seconds=duration),
-            trace_id=trace_id,
-        )
+        if handle is not None:
+            # Shield so a re-firing cancel can't abort the shutdown signal mid-flight.
+            await asyncio.shield(_end_workflow(handle, reason=f"eval case '{case.name}' failed: {e}"))
+        raise
     finally:
         if task is not None:
-            await asyncio.to_thread(_cleanup_case_containers, str(task.id))
+            await asyncio.to_thread(provider.cleanup_case, str(task.id))
 
 
 def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:
