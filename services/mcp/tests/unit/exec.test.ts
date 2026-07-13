@@ -9,6 +9,7 @@ import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instruction
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
+import type { CodeExecutionDiscovery } from '@/tools/code-exec/runtime'
 import { createExecTool, type ExecInnerCallProperties, parseExecCallInnerToolName } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
@@ -505,6 +506,62 @@ describe('exec tool', () => {
             expect(calls[0]!.properties.validation_error).toBe(true)
             expect(calls[0]!.properties.duration_ms).toBe(0)
             expect(calls[0]!.properties.error_message).toMatch(/missing required parameter: id/)
+        })
+    })
+
+    describe('sql command', () => {
+        // Presence is all the verb gate checks — and only of the discovery half:
+        // `sql` must keep dispatching on executor-less servers (spec §4.4).
+        const fakeDiscovery: CodeExecutionDiscovery = {
+            types: async () => '',
+            methodIdForTool: async () => null,
+        }
+
+        function makeExecuteSqlTool(received: Record<string, unknown>[]): Tool<ZodObjectAny> {
+            return makeMockTool({
+                name: 'execute-sql',
+                schema: z.object({ query: z.string().min(1) }),
+                handler: async (_ctx, params) => {
+                    received.push(params as Record<string, unknown>)
+                    return 'event|count\npageview|6'
+                },
+            })
+        }
+
+        function createSqlExec(received: Record<string, unknown>[]): Tool<any> {
+            return createExecTool(
+                [makeExecuteSqlTool(received)],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                undefined,
+                [],
+                { codeExecutionDiscovery: fakeDiscovery }
+            )
+        }
+
+        it('stays an unknown command when code execution is not wired', async () => {
+            const exec = createExec([makeExecuteSqlTool([])])
+            await expect(exec.handler(mockContext, { command: 'sql SELECT 1' })).rejects.toThrow(
+                'Unknown command: "sql". Supported commands: tools, search, info, schema, call'
+            )
+        })
+
+        it('dispatches multi-line HogQL to execute-sql and returns the formatted string untouched', async () => {
+            const received: Record<string, unknown>[] = []
+            const exec = createSqlExec(received)
+            const hogql = 'SELECT event, count()\nFROM events\nGROUP BY event'
+            const result = await exec.handler(mockContext, { command: `sql ${hogql}` })
+            expect(received).toEqual([{ query: hogql }])
+            // The execute-sql prompt template returns a pre-formatted string —
+            // it must pass through byte-identical, never TOON re-encoded.
+            expect(result).toBe('event|count\npageview|6')
+        })
+
+        it('throws a usage error for bare sql', async () => {
+            const exec = createSqlExec([])
+            await expect(exec.handler(mockContext, { command: 'sql' })).rejects.toThrow('Usage: sql <hogql>')
         })
     })
 

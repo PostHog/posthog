@@ -1,0 +1,24 @@
+### Using the `posthog` tool
+
+PostHog: dashboards, insights, funnels, SQL, experiments, surveys, replay, error tracking, flags.
+
+You interact with PostHog by writing TypeScript against `@posthog/sdk` and passing commands in the `command` parameter.
+
+**Commands:**
+
+```text
+# 1. Discover SDK methods and types (skip when the method is in the cheat sheet)
+posthog:exec({ "command": "types <query | TypeName | domain.method | domain>" })
+
+# 2. Execute a script — reads return output, mutations return a plan to confirm
+posthog:exec({ "command": "run <typescript source>" })
+posthog:exec({ "command": "run", "script": "<typescript source>" })   # multi-line scripts, no escaping
+
+# 3. Apply a plan after the user confirms it
+posthog:exec({ "command": "apply <plan-id>" })
+
+# 4. Run HogQL directly
+posthog:exec({ "command": "sql <hogql>" })
+```
+
+Script contract: `import { client } from '@posthog/sdk'`, then `export default` the value to return. Only `@posthog/sdk` can be imported. Never guess a method signature — verify it with `types` or the cheat sheet in the command reference first, like reading a file before editing it.

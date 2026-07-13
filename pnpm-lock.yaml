@@ -4707,6 +4707,9 @@ importers:
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
+      '@posthog/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@toon-format/toon':
         specifier: ^2.1.0
         version: 2.1.0
@@ -4752,6 +4755,12 @@ importers:
       prosemirror-transform:
         specifier: ^1.10.4
         version: 1.10.4
+      sucrase:
+        specifier: ^3.35.1
+        version: 3.35.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
       uuid:
         specifier: ^11.1.1
         version: 11.1.1
@@ -4822,9 +4831,6 @@ importers:
       tsx:
         specifier: ^4.20.5
         version: 4.20.5
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
       vite:
         specifier: ^7.3.5
         version: 7.3.5(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)

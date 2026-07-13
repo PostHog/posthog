@@ -1,8 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
+import { InstructionsBuilder } from '@/hono/instructions'
+import type { ResolvedState } from '@/hono/request-state-resolver'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
+import { CODE_EXECUTION_FEATURE_FLAG } from '@/tools/code-exec/constants'
 
 const realisticGroupTypes: GroupType[] = [
     { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
@@ -234,6 +237,132 @@ describe('InstructionsFormatter', () => {
                 expect(withoutRendering).not.toContain('### Rendering visualizations')
             }
         })
+
+        // The advertised command set must match what the dispatcher accepts per
+        // availability level (spec §4.2/§4.4): a fast-path-only server that
+        // documented unrestricted scripts would steer agents into
+        // sandbox-unavailable errors, and vice versa.
+        it.each([
+            {
+                level: 'full' as const,
+                contains: [
+                    '### Code execution',
+                    'types <query>',
+                    'sql <hogql>',
+                    'run <typescript source>',
+                    'apply <plan-id>',
+                    'top-level `await`',
+                ],
+                notContains: ['single-call scripts only'],
+            },
+            {
+                level: 'fast-path' as const,
+                contains: [
+                    '### Code execution',
+                    'types <query>',
+                    'sql <hogql>',
+                    'run <typescript source>',
+                    'apply <plan-id>',
+                    'single-call scripts only',
+                ],
+                notContains: ['top-level `await`'],
+            },
+            {
+                level: 'off' as const,
+                contains: [],
+                notContains: ['### Code execution', 'types <query>', 'run <typescript source>'],
+            },
+            // `fullCtx` leaves the field unset — the sections must be opt-in.
+            {
+                level: undefined,
+                contains: [],
+                notContains: ['### Code execution', 'types <query>', 'run <typescript source>'],
+            },
+        ])('advertises the code-execution command set for level "$level"', ({ level, contains, notContains }) => {
+            const formatter = new InstructionsFormatter()
+            for (const stripEnvContext of [true, false]) {
+                const result = formatter.buildExecCommandReference(
+                    { ...fullCtx, codeExecution: level },
+                    { stripEnvContext }
+                )
+                for (const expected of contains) {
+                    expect(result).toContain(expected)
+                }
+                for (const unexpected of notContains) {
+                    expect(result).not.toContain(unexpected)
+                }
+            }
+        })
+
+        describe('code-first arm (mcp-code-first, spec §4.6 Phase 3)', () => {
+            const codeFirstCtx: InstructionsContext = { ...fullCtx, codeExecution: 'full', codeFirstEnabled: true }
+
+            it('swaps the JSON-schema discovery prose for the script surface and keeps data-taxonomy prose', () => {
+                const formatter = new InstructionsFormatter()
+                const result = formatter.buildExecCommandReference(codeFirstCtx, { stripEnvContext: false })
+                // Cut per spec §4.4: legacy verb table, drill-down protocol, tool
+                // search, schema workflow, call transcripts, planning examples.
+                expect(result).not.toContain('CLI-style command string')
+                expect(result).not.toContain('SCHEMA DRILL-DOWN RULE')
+                expect(result).not.toContain('### Tool search')
+                expect(result).not.toContain('#### Schema-first workflow')
+                expect(result).not.toContain('INCORRECT usage patterns')
+                expect(result).not.toContain('### Examples')
+                // The code-first surface in their place.
+                expect(result).toContain('types <query | TypeName... | domain.method | domain>')
+                expect(result).toContain('### SDK cheat sheet')
+                expect(result).toContain('### Mutations: plan → confirm → apply')
+                expect(result).toContain('sql <hogql>')
+                // Data-taxonomy prose survives untouched (spec §4.4), including the
+                // entity-schema-discovery placeholder and the query-tool catalog.
+                expect(result).toContain('Data discovery:')
+                expect(result).toContain('#### Searching for existing entities')
+                expect(result).toContain('- `query-trends` — time series')
+                // Template maintainer comments must never reach the prompt.
+                expect(result).not.toContain('<!--')
+            })
+
+            // The arm documents unrestricted scripts as THE interface, so
+            // anywhere the sandbox executor is absent (or the flag is off) the
+            // legacy arm must keep serving — flipping `mcp-code-first` alone in
+            // production would otherwise document capability the dispatcher
+            // rejects (and disagree with the dispatcher's own gating).
+            it.each([
+                { name: 'flag off at full availability', ctx: { ...fullCtx, codeExecution: 'full' as const } },
+                {
+                    name: 'flag on without an executor (fast-path level)',
+                    ctx: { ...fullCtx, codeExecution: 'fast-path' as const, codeFirstEnabled: true },
+                },
+                { name: 'flag on with code execution off', ctx: { ...fullCtx, codeFirstEnabled: true } },
+            ])('$name keeps serving the legacy arm', ({ ctx }) => {
+                const result = new InstructionsFormatter().buildExecCommandReference(ctx, { stripEnvContext: false })
+                expect(result).toContain('SCHEMA DRILL-DOWN RULE')
+                expect(result).not.toContain('### SDK cheat sheet')
+            })
+
+            it('gates the rendering section on renderUiEnabled exactly like the legacy arm', () => {
+                const formatter = new InstructionsFormatter()
+                expect(formatter.buildExecCommandReference(codeFirstCtx, { stripEnvContext: false })).toContain(
+                    '### Rendering visualizations'
+                )
+                expect(
+                    formatter.buildExecCommandReference(
+                        { ...codeFirstCtx, renderUiEnabled: false },
+                        { stripEnvContext: false }
+                    )
+                ).not.toContain('### Rendering visualizations')
+            })
+
+            it('switches the tool description to the code-first blurb only for a code-first context', () => {
+                const formatter = new InstructionsFormatter()
+                const codeFirstBlurb = formatter.buildExecToolDescription(codeFirstCtx)
+                expect(codeFirstBlurb).toContain('@posthog/sdk')
+                expect(codeFirstBlurb).not.toContain('MANDATORY — HARD REQUIREMENTS')
+                // A non-code-first context (and the CLI's zero-arg call, covered
+                // above) keeps the legacy blurb byte-for-byte.
+                expect(formatter.buildExecToolDescription(fullCtx)).toBe(formatter.buildExecToolDescription())
+            })
+        })
     })
 
     // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
@@ -275,5 +404,32 @@ describe('InstructionsFormatter', () => {
                 expect(commandReference).toContain('Defined group types: organization')
             }
         })
+    })
+})
+
+describe('InstructionsBuilder code-execution availability level (spec §4.4)', () => {
+    const ORIG_NODE_ENV = process.env.NODE_ENV
+
+    afterEach(() => {
+        process.env.NODE_ENV = ORIG_NODE_ENV
+    })
+
+    const makeState = (flagOn: boolean): ResolvedState =>
+        ({
+            allTools: [],
+            toolFeatureFlags: flagOn ? { [CODE_EXECUTION_FEATURE_FLAG]: true } : {},
+            renderUiEnabled: false,
+        }) as unknown as ResolvedState
+
+    it.each([
+        { case: 'flag off', flagOn: false, nodeEnv: 'test', level: 'off' },
+        { case: 'flag on where the sandbox can run', flagOn: true, nodeEnv: 'test', level: 'full' },
+        // In production no sandbox exists yet, so the flag documents `run`
+        // restricted to single-call (fast-path) scripts, never unrestricted ones.
+        { case: 'flag on where the sandbox cannot run', flagOn: true, nodeEnv: 'production', level: 'fast-path' },
+    ])('$case resolves the "$level" level', ({ flagOn, nodeEnv, level }) => {
+        process.env.NODE_ENV = nodeEnv
+        const ctx = new InstructionsBuilder('guidelines').buildContext(makeState(flagOn))
+        expect(ctx.codeExecution).toBe(level)
     })
 })

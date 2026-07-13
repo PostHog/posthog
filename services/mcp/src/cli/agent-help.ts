@@ -12,7 +12,8 @@ On top of the reference below, the CLI adds:
 - \`posthog-cli api call --dry-run <tool> '<json>'\` — validate input against the tool schema without executing. Use it before any mutation.
 - Destructive tools refuse to run without \`--confirm\`; add it only after verifying the exact target IDs.
 - \`posthog-cli api skill list\` and \`posthog-cli api skill install <skill-id>\` — install PostHog agent skills into \`.agents/skills/\`. Before starting a PostHog task, check the skill list for a match; if one exists, install it, read its \`SKILL.md\`, and follow it — skills contain task-specific workflows that individual tools do not.
-- \`posthog-cli api agents-md install [--path AGENTS.md]\` — install the PostHog steering snippet into a repository.`
+- \`posthog-cli api agents-md install [--path AGENTS.md]\` — install the PostHog steering snippet into a repository.
+- \`posthog-cli api run --file <path>\` and \`run -\` (stdin) pass a script without shell-quoting TypeScript; \`run --yes\` applies a returned plan in the same invocation (scripted/CI use). \`types\` works without an API key; \`run\`/\`apply\` require one.`
 
 const EXEC_INVOCATION_PATTERN = /posthog:exec\(\{\s*"command":\s*"((?:\\.|[^"\\])*)"\s*\}\)/g
 
@@ -59,7 +60,10 @@ export function buildAgentHelp(tools: Tool<ZodObjectAny>[]): string {
             } as QueryToolInfo
         })
 
-    const ctx: InstructionsContext = { guidelines: '', tools: toolInfos, queryTools }
+    // The CLI always ships the code-execution verbs (spec §4.8 — no feature
+    // flag, no executor gating on the user's own machine), so the guide always
+    // includes both code-execution sections.
+    const ctx: InstructionsContext = { guidelines: '', tools: toolInfos, queryTools, codeExecution: 'full' }
     const sections = [
         AGENT_HELP_HEADER,
         formatter.buildExecToolDescription(),

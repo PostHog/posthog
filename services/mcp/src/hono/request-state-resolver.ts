@@ -11,6 +11,7 @@ import {
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
+import { CODE_EXECUTION_FEATURE_FLAG, CODE_FIRST_FEATURE_FLAG } from '@/tools/code-exec/constants'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
 
@@ -105,7 +106,12 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const allFlagKeys = [...new Set(getRequiredFeatureFlags())]
+        // `mcp-code-execution` / `mcp-code-first` aren't catalog tool flags, but they
+        // ride the same batched evaluation: the exec dispatcher gates the code-execution
+        // verbs (and the code-first surface) on them via `state.toolFeatureFlags`.
+        const allFlagKeys = [
+            ...new Set([...getRequiredFeatureFlags(), CODE_EXECUTION_FEATURE_FLAG, CODE_FIRST_FEATURE_FLAG]),
+        ]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined

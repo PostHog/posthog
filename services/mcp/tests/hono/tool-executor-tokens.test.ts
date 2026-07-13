@@ -263,5 +263,62 @@ describe('ToolExecutor token estimates', () => {
             const trackEvent = state.reqCtx.trackEvent as ReturnType<typeof vi.fn>
             expect(trackEvent.mock.calls.some((call) => call[0] === 'mcp_tool_call')).toBe(false)
         })
+
+        it.each([
+            { command: 'tools', isError: false, verb: 'tools' },
+            { command: 'gibberish-verb {}', isError: true, verb: 'unknown' },
+        ])(
+            'stamps $mcp_exec_verb "$verb" on the wrapper event for "$command" (spec §4.6 Phase 0)',
+            async ({ command, isError, verb }) => {
+                const tools = catalog.getFilteredTools({ scopes: ['*'] }).filter((t) => t.name === 'organization-get')
+
+                await executor.handleToolCall(
+                    { name: 'exec', arguments: { command } },
+                    makeState(tools, { useSingleExec: true })
+                )
+
+                const execCall = mockTrackToolCall.mock.calls.find((call) => call[0] === 'exec')!
+                expect(execCall[2]).toBe(isError)
+                // The verb dimension must land on the error path too — usage and
+                // unknown-command failures are exactly what it slices.
+                expect(execCall[4].$mcp_exec_verb).toBe(verb)
+                expect(execCall[4].$mcp_exec_deprecated_verb).toBe(false)
+            }
+        )
+
+        it('attributes a fast-pathed run to the inner tool and stamps the run-status dimensions', async () => {
+            const tools = catalog.getPreBuiltEntries().map((entry) => {
+                const preBuilt = catalog.getToolByName(entry.name)!
+                return {
+                    ...preBuilt.base,
+                    title: entry.title,
+                    description: entry.description ?? '',
+                    annotations: entry.annotations,
+                    scopes: [],
+                }
+            })
+            const target = tools.find((t) => t.name === 'feature-flag-get-all')! as any
+            target.handler = vi.fn(async () => 'inner-ok')
+            const state = makeState(tools as any, {
+                useSingleExec: true,
+                toolFeatureFlags: { 'mcp-code-execution': true },
+            })
+
+            const script = "import { client } from '@posthog/sdk'\nexport default await client.featureFlags.list({})"
+            await executor.handleToolCall({ name: 'exec', arguments: { command: `run ${script}` } }, state)
+
+            // Dashboard continuity (spec §4.6 Phase 0): a fast-pathed run is
+            // attributed to the inner tool exactly like `call`, never to `exec`.
+            const innerCall = mockTrackToolCall.mock.calls.find((call) => call[0] === 'feature-flag-get-all')!
+            expect(innerCall).toBeTruthy()
+            expect(innerCall[2]).toBe(false)
+            expect(innerCall[4]).toMatchObject({
+                $mcp_exec_verb: 'run',
+                $mcp_exec_run_status: 'read_only',
+                $mcp_exec_fast_path: true,
+                $mcp_exec_deprecated_verb: false,
+            })
+            expect(mockTrackToolCall.mock.calls.some((call) => call[0] === 'exec')).toBe(false)
+        })
     })
 })

@@ -7,6 +7,7 @@ export interface RedisLike {
     set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>
     del(...keys: string[]): Promise<number>
     unlink?(...keys: string[]): Promise<number>
+    getdel?(key: string): Promise<string | null>
     scan(cursor: string | number, ...args: (string | number)[]): Promise<[cursor: string, keys: string[]]>
     incr(key: string): Promise<number>
     expire(key: string, seconds: number): Promise<number>
@@ -24,7 +25,12 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     private ttl: number
     private prefix: CachePrefix
 
-    constructor(scope: string, redis: RedisLike, prefix: CachePrefix = 'token', ttlSeconds: number = DEFAULT_TTL_SECONDS) {
+    constructor(
+        scope: string,
+        redis: RedisLike,
+        prefix: CachePrefix = 'token',
+        ttlSeconds: number = DEFAULT_TTL_SECONDS
+    ) {
         super(scope)
         this.redis = redis
         this.prefix = prefix

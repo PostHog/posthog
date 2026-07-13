@@ -22,6 +22,10 @@ describe('CLI agent help', () => {
 
         expect(help).toContain('posthog-cli api info <tool_name>')
         expect(help).toContain('SCHEMA DRILL-DOWN RULE')
+        // The CLI always ships the code-execution verbs (spec §4.8), so the
+        // guide must document the run/apply contract.
+        expect(help).toContain('run <typescript source>')
+        expect(help).toContain('apply <plan-id>')
         expect(help).not.toContain('posthog:exec(')
         // Tool-domain index and query-tool catalog come from the bundled registry.
         expect(help).toContain('query-trends')

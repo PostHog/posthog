@@ -2,11 +2,14 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import type { QueryToolInfo } from '@/lib/instructions'
-import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
+import { type CodeExecutionLevel, type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { sandboxExecutionAvailable } from '@/tools/code-exec/availability'
+import { CODE_EXECUTION_FEATURE_FLAG, CODE_FIRST_FEATURE_FLAG } from '@/tools/code-exec/constants'
+import { SCRIPT_PARAM_DESCRIPTION } from '@/tools/exec'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -62,17 +65,46 @@ export class InstructionsBuilder {
             renderUiEnabled: state.renderUiEnabled,
             metadata: state.metadata,
             groupTypes: state.groupTypes,
+            codeExecution: this.resolveCodeExecutionLevel(state),
+            // The formatter additionally requires `codeExecution: 'full'` before
+            // rendering the code-first arm — flag semantics live there.
+            codeFirstEnabled: state.toolFeatureFlags?.[CODE_FIRST_FEATURE_FLAG] === true,
         }
+    }
+
+    /**
+     * Advertised code-execution command set for this process (spec §4.2/§4.4):
+     * the flag turns the surface on everywhere, and the level selects between
+     * the full-sandbox and fast-path-only `run` documentation — the same probe
+     * the executor wiring uses, so the instructions can never promise script
+     * capability the dispatcher rejects.
+     */
+    private resolveCodeExecutionLevel(state: ResolvedState): CodeExecutionLevel {
+        if (state.toolFeatureFlags?.[CODE_EXECUTION_FEATURE_FLAG] !== true) {
+            return 'off'
+        }
+        return sandboxExecutionAvailable() ? 'full' : 'fast-path'
     }
 
     buildExecToolEntry(state: ResolvedState): McpTool {
         const commandReference = this.buildExecCommandReference(state)
-        const ExecSchema = { command: { type: 'string', description: commandReference } }
+        // Hand-built rather than derived from `makeExecSchema` — keep the shape and
+        // the shared `SCRIPT_PARAM_DESCRIPTION` in sync with `src/tools/exec.ts`.
+        // `script` is only advertised where `run` exists: on a flag-off server its
+        // description would steer agents into an unknown command, and every spare
+        // char inside `inputSchema.properties` counts against claude.ai's silent
+        // per-tool registry cap.
+        const ExecSchema = {
+            command: { type: 'string', description: commandReference },
+            ...(this.resolveCodeExecutionLevel(state) !== 'off'
+                ? { script: { type: 'string', description: SCRIPT_PARAM_DESCRIPTION } }
+                : {}),
+        }
 
         return {
             name: 'exec',
             title: 'Execute PostHog command',
-            description: this.formatter.buildExecToolDescription(),
+            description: this.buildExecToolDescription(state),
             inputSchema: { type: 'object', properties: ExecSchema, required: ['command'] },
         }
     }
@@ -116,8 +148,8 @@ export class InstructionsBuilder {
         })
     }
 
-    buildExecToolDescription(): string {
-        return this.formatter.buildExecToolDescription()
+    buildExecToolDescription(state: ResolvedState): string {
+        return this.formatter.buildExecToolDescription(this.buildContext(state))
     }
 
     getGuidelines(): string {

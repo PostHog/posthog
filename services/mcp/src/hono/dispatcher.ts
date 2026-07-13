@@ -99,7 +99,7 @@ class McpDispatcher {
         this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
-        this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
+        this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder, redis)
     }
 
     async warmup(): Promise<void> {
