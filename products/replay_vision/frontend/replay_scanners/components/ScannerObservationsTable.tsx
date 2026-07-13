@@ -106,6 +106,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         hasActiveObservationFilters,
         observationDetailLinkParams,
         observationTagFilterOptions,
+        showObservationTagFilter,
         observationStats,
         scanner,
         triggeringOnDemandObservation,
@@ -279,7 +280,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         onChange={setObservationVerdictFilter}
                                     />
                                 )}
-                                {scannerType === 'classifier' && observationTagFilterOptions.length > 0 && (
+                                {showObservationTagFilter && (
                                     <LemonInputSelect
                                         mode="multiple"
                                         size="small"
