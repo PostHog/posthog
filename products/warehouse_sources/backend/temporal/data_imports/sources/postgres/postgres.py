@@ -2839,11 +2839,22 @@ def postgres_source(
                         )
 
                         # Session, not LOCAL: under autocommit a LOCAL timeout has no transaction to bind to.
-                        cursor.execute(
-                            sql.SQL("SET statement_timeout = {timeout}").format(
-                                timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                        # Best-effort: some Postgres-compatible engines and poolers reject `SET
+                        # statement_timeout` with FeatureNotSupported, so fall back to the source's
+                        # default rather than failing the whole sync — mirroring the metadata-probe
+                        # sites in `_get_table`/`_get_columns_for_tables`. A genuine connection
+                        # drop/limit stringifies differently and re-raises so the setup retry recovers
+                        # on a fresh connection instead of silently losing the timeout guard.
+                        try:
+                            cursor.execute(
+                                sql.SQL("SET statement_timeout = {timeout}").format(
+                                    timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                                )
                             )
-                        )
+                        except psycopg.Error as e:
+                            if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+                                raise
+                            logger.debug(f"Source does not support setting statement_timeout; using its default: {e}")
 
                         # Capture the xmin ceiling on this row-serving connection before streaming.
                         if is_xmin:
