@@ -5181,6 +5181,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
 
+        # The response must reflect the flag we just disabled, not a stale pre-mutation echo.
+        # MinimalFeatureFlagSerializer exposes active but not archived, so archived is checked on the row.
+        self.assertFalse(archive_response.json()["feature_flag"]["active"])
+
         feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
         self.assertFalse(feature_flag.active)
         self.assertTrue(feature_flag.archived)
