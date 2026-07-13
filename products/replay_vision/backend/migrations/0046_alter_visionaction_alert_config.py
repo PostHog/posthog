@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("replay_vision", "0045_visionaction_alert_config_alter_visionaction_mode")
-    ]
+    dependencies = [("replay_vision", "0045_visionaction_alert_config_alter_visionaction_mode")]
 
     operations = [
         migrations.AlterField(
