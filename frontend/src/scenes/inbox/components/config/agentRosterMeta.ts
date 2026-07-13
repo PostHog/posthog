@@ -1,4 +1,4 @@
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 
 import { DataWarehouseSource } from '../../signalSourcesLogic'
 import { SignalSourceProduct } from '../../types'
@@ -29,7 +29,7 @@ export interface AgentRosterDefinition {
     docsLabel?: string
     alpha?: boolean
     /** Show this entry only while the given feature flag is enabled (alpha rollouts). */
-    flag?: string
+    flag?: FeatureFlagKey
     /**
      * For data-warehouse-backed sources, the wizard product passed to
      * `initiateDataWarehouseSourceToggle`. Absent for native PostHog sources
