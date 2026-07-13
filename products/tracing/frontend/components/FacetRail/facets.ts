@@ -243,10 +243,17 @@ export function filterFacetsByName(facets: FacetConfig[], query: string): FacetC
  * Missing values are prepended with a zero count.
  */
 export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: string[]): FacetOption[] {
-    const fetchedValues = new Set(fetched.map((option) => option.value))
-    const missing = selected
-        .filter((value) => !fetchedValues.has(value))
-        .map((value) => ({ value, label: value, count: 0 }))
+    const seen = new Set(fetched.map((option) => option.value))
+    // Dedupe as we go: a URL or saved view can carry the same value twice, and two rows sharing a
+    // value would collide on their React key and toggle target.
+    const missing: FacetOption[] = []
+    for (const value of selected) {
+        if (seen.has(value)) {
+            continue
+        }
+        seen.add(value)
+        missing.push({ value, label: value, count: 0 })
+    }
     return missing.length > 0 ? [...missing, ...fetched] : fetched
 }
 

@@ -19,6 +19,18 @@ interface FacetProps {
     dimZeroCounts?: boolean
 }
 
+/**
+ * Lowercase a label into a selector-safe slug for data-attrs. Facet values are real resource
+ * attributes (pod, deployment, host names) that can carry spaces, quotes, or slashes, so collapse
+ * any run of non-alphanumerics to a single hyphen and trim the ends.
+ */
+function slugify(value: string): string {
+    return value
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+}
+
 /** A single rail facet: a collapsible field title and its selectable values (multi-select = OR), each with a count. */
 export function Facet({
     title,
@@ -31,7 +43,7 @@ export function Facet({
     onToggleCollapsed,
     dimZeroCounts = false,
 }: FacetProps): JSX.Element {
-    const slug = title.toLowerCase().replace(/\s+/g, '-')
+    const slug = slugify(title)
 
     return (
         <div className="mb-3">
@@ -95,7 +107,7 @@ function FacetValueButton({
             disabledReason={isZero && !selected ? 'No matching spans for the current filters' : undefined}
             icon={<LemonCheckbox checked={selected} className="pointer-events-none" />}
             onClick={() => onToggle(option.value)}
-            data-attr={`tracing-facet-${slug}-${option.value}`}
+            data-attr={`tracing-facet-${slug}-${slugify(option.value)}`}
         >
             <span className="flex items-center gap-2 min-w-0 w-full">
                 <span className="truncate flex-1">{option.label}</span>

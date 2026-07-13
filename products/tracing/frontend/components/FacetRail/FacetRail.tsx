@@ -55,12 +55,16 @@ export function FacetRail(): JSX.Element {
         // Selection: the service facet reads the dedicated serviceNames field; everything else reads
         // its property filter out of the group (see facetSelectedValues).
         const selected = facetSelectedValues(filters.filterGroup, serviceNames, source)
-        // Values + counts come from the cross-filtered endpoint, keyed by facet.key.
-        const fetched: FacetOption[] = (facetValues[facet.key] ?? []).map((row) => ({
-            value: row.value,
-            label: row.value,
-            count: row.count,
-        }))
+        // Values + counts come from the cross-filtered endpoint, keyed by facet.key. Drop the
+        // empty-value bucket (spans missing the attribute): it renders as a blank, label-less row
+        // that the selection reader can't track, so it would become a stuck, un-toggleable filter.
+        const fetched: FacetOption[] = (facetValues[facet.key] ?? [])
+            .filter((row) => row.value !== '')
+            .map((row) => ({
+                value: row.value,
+                label: row.value,
+                count: row.count,
+            }))
         const onToggle = (value: string): void => toggleFacetValue(source, value)
         const onToggleCollapsed = (): void => toggleFacetCollapsed(facet.key)
         const collapsed = collapsedFacets.includes(facet.key)
