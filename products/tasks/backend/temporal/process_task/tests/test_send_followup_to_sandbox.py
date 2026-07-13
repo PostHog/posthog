@@ -3,9 +3,12 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from temporalio.exceptions import ApplicationError
+
 from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     REFRESH_RETRY_DELAY_SECONDS,
+    SEND_FOLLOWUP_MAX_ATTEMPTS,
     SendFollowupToSandboxInput,
     _refresh_sandbox_mcp,
     send_followup_to_sandbox,
@@ -40,6 +43,10 @@ def _make_mcp_config(name: str = "posthog", token: str = "tok") -> McpServerConf
 def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state: dict | None = None) -> MagicMock:
     task = MagicMock()
     task.created_by_id = created_by_id
+    if created_by_id is not None:
+        task.created_by = MagicMock(id=created_by_id, distinct_id=f"user-{created_by_id}")
+    else:
+        task.created_by = None
     task_run = MagicMock()
     task_run.id = "run-1"
     task_run.team_id = team_id
@@ -60,7 +67,9 @@ class TestRefreshSandboxMcp:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_success_path_single_call(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
@@ -70,7 +79,7 @@ class TestRefreshSandboxMcp:
         task_run = _make_task_run_mock()
         _refresh_sandbox_mcp(task_run, "read_only", auth_token="jwt")
 
-        mock_oauth.assert_called_once_with(task_run.task, scopes="read_only")
+        mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only")
         mock_ph_configs.assert_called_once_with(
             token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
         )
@@ -91,7 +100,9 @@ class TestRefreshSandboxMcp:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_retries_once_on_first_failure(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, mock_sleep
     ):
@@ -116,7 +127,9 @@ class TestRefreshSandboxMcp:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_two_failures_are_non_fatal(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
     ):
@@ -137,7 +150,9 @@ class TestRefreshSandboxMcp:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_token_mint_failure_is_non_fatal_and_skips_send(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
     ):
@@ -156,7 +171,9 @@ class TestRefreshSandboxMcp:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_skips_send_when_no_mcp_configs_resolved(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
     ):
@@ -175,7 +192,9 @@ class TestRefreshSandboxMcp:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_user_mcp_configs_skipped_when_no_creator(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
     ):
@@ -195,7 +214,9 @@ class TestRefreshSandboxMcp:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_scopes_propagate_to_oauth_and_configs(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
     ):
@@ -206,7 +227,7 @@ class TestRefreshSandboxMcp:
 
         _refresh_sandbox_mcp(_make_task_run_mock(), "full", auth_token=None)
 
-        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], scopes="full")
+        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], None, scopes="full")
         mock_ph_configs.assert_called_once_with(
             token="fresh-token", project_id=7, scopes="full", interaction_origin=None, task_id="task-1"
         )
@@ -218,7 +239,9 @@ class TestRefreshIntervalGate:
     contacting the sandbox."""
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_skipped_when_token_recently_issued(self, mock_oauth, mock_send_refresh):
         mark_mcp_token_issued("run-1")
 
@@ -234,7 +257,9 @@ class TestRefreshIntervalGate:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_marks_after_successful_refresh(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
@@ -254,7 +279,9 @@ class TestRefreshIntervalGate:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_marks_after_successful_retry(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
     ):
@@ -278,7 +305,9 @@ class TestRefreshIntervalGate:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_does_not_mark_after_two_failures(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
     ):
@@ -367,3 +396,125 @@ class TestSendFollowupActivityRefreshOrdering:
 
         args, _kwargs = _patches["refresh"].call_args
         assert args[1] == "read_only"
+
+
+class TestSendFollowupTurnTimeout:
+    """A read timeout (turn_in_flight) means the message was delivered and the
+    turn is still running — the activity must not fail the run or write stream
+    markers. A 504 *response* leaves delivery unknown and must retry; any other
+    delivery failure stays fatal."""
+
+    @pytest.fixture
+    def _patches(self):
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.TaskRun"
+            ) as mock_task_run_cls,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_sandbox_connection_token"
+            ) as mock_conn_token,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp"
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message"
+            ) as mock_user_msg,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._write_turn_complete"
+            ) as mock_turn_complete,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._write_error_and_complete"
+            ) as mock_error,
+        ):
+            task_run = _make_task_run_mock()
+            task_run.task.created_by = MagicMock(id=42, distinct_id="u42")
+            mock_task_run_cls.objects.select_related.return_value.get.return_value = task_run
+            mock_conn_token.return_value = "jwt"
+
+            yield {
+                "user_msg": mock_user_msg,
+                "turn_complete": mock_turn_complete,
+                "error": mock_error,
+            }
+
+    def test_read_timeout_is_non_fatal_and_writes_no_markers(self, _patches):
+        # Regression: a turn longer than FOLLOWUP_TIMEOUT_SECONDS used to fail
+        # the run and destroy a healthy sandbox mid-work.
+        _patches["user_msg"].return_value = CommandResult(
+            success=False, status_code=504, error="Sandbox request timed out", retryable=True, turn_in_flight=True
+        )
+
+        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        _patches["error"].assert_not_called()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_undelivered_message_stays_fatal(self, _patches):
+        # The non-fatal carve-out must stay scoped to delivered-but-running —
+        # a connection failure means the user's message never arrived.
+        _patches["user_msg"].return_value = CommandResult(
+            success=False, status_code=502, error="Connection to sandbox failed", retryable=True
+        )
+
+        with pytest.raises(ApplicationError, match="Connection to sandbox failed") as exc_info:
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        assert exc_info.value.non_retryable is True
+        _patches["error"].assert_called_once()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_response_504_retries_without_sentinel(self, _patches):
+        # Regression: a genuine 504 *response* (tunnel gateway timeout,
+        # delivery unknown) used to be conflated with the read-timeout case
+        # and silently treated as delivered — losing the user's message.
+        _patches["user_msg"].return_value = CommandResult(
+            success=False, status_code=504, error="Sandbox returned 504", retryable=True
+        )
+
+        with pytest.raises(ApplicationError, match="delivery unknown") as exc_info:
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        assert exc_info.value.non_retryable is False
+        _patches["error"].assert_not_called()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_response_504_final_attempt_writes_sentinel_and_fails(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(
+            success=False, status_code=504, error="Sandbox returned 504", retryable=True
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._current_attempt",
+                return_value=SEND_FOLLOWUP_MAX_ATTEMPTS,
+            ),
+            pytest.raises(ApplicationError, match="send_followup failed") as exc_info,
+        ):
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        assert exc_info.value.non_retryable is True
+        _patches["error"].assert_called_once()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_duplicate_delivery_skips_markers(self, _patches):
+        # A retried attempt whose message the agent-server already accepted
+        # must not write a synthetic turn_complete — the turn is still running
+        # and the event stream owns its completion.
+        _patches["user_msg"].return_value = CommandResult(
+            success=True,
+            status_code=200,
+            data={"result": {"duplicate": True, "stopReason": "duplicate_delivery"}},
+        )
+
+        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
+
+        _patches["error"].assert_not_called()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_message_id_forwarded_to_sandbox(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
+
+        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
+
+        _, kwargs = _patches["user_msg"].call_args
+        assert kwargs["message_id"] == "m-1"

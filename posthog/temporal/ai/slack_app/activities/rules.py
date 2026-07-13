@@ -23,10 +23,10 @@ def handle_posthog_code_rules_command_activity(
 ) -> PostHogCodeRulesCommandResult:
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.slack_app.backend.api import _parse_rules_command
+    from products.slack_app.backend.api import parse_rules_command
     from products.slack_app.backend.services.commands import dispatch_rules_command
 
-    command = _parse_rules_command(inputs.event.get("text", ""))
+    command = parse_rules_command(inputs.event.get("text", ""))
     if not command:
         return PostHogCodeRulesCommandResult(status="not_a_command")
     # Picker flow is unique to this workflow; the command service can't drive a
@@ -119,17 +119,18 @@ def handle_posthog_code_slack_mention_command_activity(
 ) -> PostHogCodeSlackMentionCommandResult:
     from posthog.models.integration import SlackIntegration
 
-    from products.slack_app.backend.api import _parse_rules_command
+    from products.slack_app.backend.api import parse_rules_command
     from products.slack_app.backend.services.commands import dispatch_rules_command, resolve_command_target
 
     event = inputs.event
     channel = event.get("channel")
-    thread_ts = event.get("thread_ts") or event.get("ts")
+    # Empty anchor posts at the channel root — correct for a slash command invoked outside a thread.
+    thread_ts = event.get("thread_ts") or event.get("ts") or ""
     slack_user_id = event.get("user")
-    if not channel or not thread_ts or not slack_user_id:
+    if not channel or not slack_user_id:
         return PostHogCodeSlackMentionCommandResult(status="done")
 
-    command = _parse_rules_command(event.get("text", ""))
+    command = parse_rules_command(event.get("text", ""))
     if command is None:
         return PostHogCodeSlackMentionCommandResult(status="done")
 
@@ -154,7 +155,7 @@ def handle_posthog_code_slack_mention_command_activity(
         else:
             text = (
                 "This Slack workspace is connected to multiple PostHog projects. "
-                "Use `@PostHog project <id>` to set a default first, then re-run your command."
+                f"Use `{inputs.command_prefix} project <id>` to set a default first, then re-run your command."
             )
         SlackIntegration(candidates[0]).client.chat_postEphemeral(
             channel=channel,
@@ -187,5 +188,6 @@ def handle_posthog_code_slack_mention_command_activity(
         slack_workspace_id=inputs.slack_team_id,
         user_id=user_id,
         workspace_candidates=candidates,
+        command_prefix=inputs.command_prefix,
     )
     return PostHogCodeSlackMentionCommandResult(status="done")

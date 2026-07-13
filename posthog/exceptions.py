@@ -82,8 +82,15 @@ class ClickHouseQueryTimeOut(APIException):
 
 
 class ClickHouseQueryMemoryLimitExceeded(APIException):
-    status_code = 504
-    default_detail = "Query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize."
+    # Custom code in the actionable-validation family (400/512/513) the frontend routes to the
+    # "problem with this query" panel. Distinct from 512 (query-too-slow) so an out-of-memory
+    # failure is never mistaken for a timeout on either the client or in status-based alerting.
+    status_code = 513
+    # Stable machine-readable code so the frontend can recognise out-of-memory failures without
+    # matching on the (translatable, changeable) detail copy. Keep in sync with the frontend
+    # CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant.
+    default_code = "clickhouse_memory_limit_exceeded"
+    default_detail = "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries"
 
 
 class ExceptionContext(TypedDict):

@@ -2,8 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "calculation_interval": {
-            "description": "How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
-            "enum": ["every_15_minutes", "hourly", "daily", "weekly", "monthly"],
+            "description": "How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
+            "enum": ["real_time", "every_15_minutes", "hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
         "condition": {
@@ -2229,6 +2229,7 @@
         },
         "name": {
             "description": "Human-readable name for the alert.",
+            "maxLength": 255,
             "type": "string"
         },
         "schedule_restriction": {
@@ -2351,6 +2352,7 @@
                 },
                 "name": {
                     "description": "Optional name for the threshold.",
+                    "maxLength": 255,
                     "type": "string"
                 }
             },

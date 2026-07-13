@@ -5,7 +5,7 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { roundToDecimal } from 'lib/utils/numbers'
@@ -14,11 +14,11 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
 import { retentionModalLogic } from 'scenes/retention/retentionModalLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import {
@@ -56,11 +56,10 @@ function resolveGroupTypeLabel(
 
 export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     const {
         hasValidBreakdown,
@@ -175,10 +174,18 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
 
     const goalLines = retentionFilter?.goalLines ?? EMPTY_GOAL_LINES
 
-    const lineConfig = useMemo(
-        () =>
-            buildRetentionLineChartConfig({ isPercentage, goalLines, showTrendLines, series, tooltip: TOOLTIP_CONFIG }),
-        [isPercentage, goalLines, showTrendLines, series, TOOLTIP_CONFIG]
+    const lineConfig = useChartConfig(
+        () => ({
+            ...buildRetentionLineChartConfig({
+                isPercentage,
+                goalLines,
+                showTrendLines,
+                series,
+                tooltip: TOOLTIP_CONFIG,
+            }),
+            curve: chartStyleCurve(retentionFilter?.chartStyle),
+        }),
+        [isPercentage, goalLines, showTrendLines, series, TOOLTIP_CONFIG, retentionFilter?.chartStyle]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

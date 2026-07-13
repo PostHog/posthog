@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -21,6 +21,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
@@ -49,7 +50,7 @@ interface StickinessLineChartProps {
 const handleChartError = makeChartErrorHandler('stickiness-line-chart')
 
 export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.Element | null {
-    const theme = useMemo(() => buildTheme(), [])
+    const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
@@ -69,6 +70,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         currentPeriodResult,
         breakdownFilter,
         trendsFilter,
+        stickinessFilter,
         formula,
         labelGroupType,
         hasPersonsModal,
@@ -115,7 +117,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         [indexedResults, display, getTrendsColor, getTrendsHidden, getLabel, showMultipleYAxes, quillLegendEnabled]
     )
 
-    const chartConfig: TimeSeriesLineChartConfig = useMemo(
+    const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
         () => ({
             ...buildStickinessLineTimeSeriesConfig({
                 yAxisScaleType,
@@ -123,10 +125,11 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 showCrosshair: true,
                 tooltip: tooltipConfig,
             }),
+            curve: chartStyleCurve(stickinessFilter?.chartStyle),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig]
+        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -193,7 +196,13 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="line"
+            />
+        )
     }
 
     return (

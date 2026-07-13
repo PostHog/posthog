@@ -8,6 +8,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
+import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from '../types'
 import { useTaxonomicFilter } from './useTaxonomicFilter'
 import { __clearTaxonomicResourceCache } from './useTaxonomicResource'
@@ -16,16 +17,19 @@ jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
 }))
 
-jest.mock('lib/api', () => ({
-    __esModule: true,
-    default: { get: jest.fn().mockResolvedValue({ results: [], count: 0 }) },
-}))
+jest.mock('lib/api', () =>
+    require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock({
+        get: jest.fn().mockResolvedValue({ results: [], count: 0 }),
+    })
+)
 
 const wrapper = ({ children }: { children: ReactNode }): JSX.Element => <Provider>{children}</Provider>
 
 describe('useTaxonomicFilter', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
+        // Recents persist to localStorage — clear so no test depends on what ran before it.
+        localStorage.clear()
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({
             get: { '/api/projects/:team/event_definitions': { results: [], count: 0 } },
@@ -79,6 +83,26 @@ describe('useTaxonomicFilter', () => {
     ])('$name', ({ requested }) => {
         const { result } = renderHook(() => useTaxonomicFilter({ taxonomicGroupTypes: requested }), { wrapper })
         expect(result.current.groupTypes).not.toContain(TaxonomicFilterGroupType.SuggestedFilters)
+    })
+
+    // Mirrors the legacy `taxonomicGroupTypes` selector cases in taxonomicFilterLogic.test.ts —
+    // both surfaces must lead with the sole group, then Recent/Pinned, and drop any prepended All.
+    it.each([
+        {
+            name: 'single substantive group leads, Recent/Pinned follow (no All)',
+            requested: [TaxonomicFilterGroupType.Events],
+        },
+        {
+            name: 'single substantive group drops an explicitly-prepended All and still leads',
+            requested: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+        },
+    ])('$name', ({ requested }) => {
+        const { result } = renderHook(() => useTaxonomicFilter({ taxonomicGroupTypes: requested }), { wrapper })
+        expect(result.current.groupTypes).toEqual([
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.RecentFilters,
+            TaxonomicFilterGroupType.PinnedFilters,
+        ])
     })
 
     it('auto-injects SuggestedFilters as the default for a multi-content picker', () => {
@@ -164,7 +188,12 @@ describe('useTaxonomicFilter', () => {
         const { result } = renderHook(
             () =>
                 useTaxonomicFilter({
-                    taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                    // Two substantive groups so "All" is retained — a single substantive group drops it
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.SuggestedFilters,
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.Actions,
+                    ],
                 }),
             { wrapper }
         )
@@ -266,6 +295,48 @@ describe('useTaxonomicFilter', () => {
         act(() => result.current.selectItem(eventsGroup, 'evt', { name: 'evt' }))
         expect(onChange).toHaveBeenCalledWith(eventsGroup, 'evt', { name: 'evt' })
         expect(result.current.searchQuery).toBe('')
+    })
+
+    it('selectItem records recents under an option-declared group, not the curated tab group', async () => {
+        // Mirrors legacy `getItemGroup` resolution: without the remap, an MCP-tab pick is
+        // recorded as `mcp_properties` while legacy records `event_properties`, and the
+        // shared recents storage grows near-duplicate rows across the two variants.
+        // Drain deferred recents writes scheduled by earlier tests first — they are
+        // skipped while the logic is unmounted, but would land once we mount it.
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+        recentTaxonomicFiltersLogic.mount()
+        try {
+            const { result } = renderHook(
+                () =>
+                    useTaxonomicFilter({
+                        // Only the curated tab — its canonical EventProperties group isn't a
+                        // visible tab, so the remap must resolve against ALL group definitions.
+                        taxonomicGroupTypes: [TaxonomicFilterGroupType.MCPProperties],
+                        eventNames: ['$mcp_tool_call'],
+                    }),
+                { wrapper }
+            )
+            const mcpGroup = result.current.groups.find((g) => g.type === TaxonomicFilterGroupType.MCPProperties)!
+            const option = {
+                name: '$mcp_tool_name',
+                value: '$mcp_tool_name',
+                group: TaxonomicFilterGroupType.EventProperties,
+            }
+            act(() => result.current.selectItem(mcpGroup, '$mcp_tool_name', option))
+            // The recents write is deferred one tick — flush the macrotask queue.
+            await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+            expect(recentTaxonomicFiltersLogic.values.recentFilters).toContainEqual(
+                expect.objectContaining({
+                    groupType: TaxonomicFilterGroupType.EventProperties,
+                    value: '$mcp_tool_name',
+                })
+            )
+            expect(
+                recentTaxonomicFiltersLogic.values.recentFilters.map((f: { groupType: string }) => f.groupType)
+            ).not.toContain(TaxonomicFilterGroupType.MCPProperties)
+        } finally {
+            recentTaxonomicFiltersLogic.unmount()
+        }
     })
 
     it('Escape key clears search', () => {

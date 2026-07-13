@@ -261,13 +261,15 @@ tools:
             Create a signal source config for the current project, switching an inbox signal source on. A source ties a
             `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay,
             llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid
-            `source_type` values: session_analysis_cluster, evaluation, issue, ticket, issue_created, issue_reopened,
-            issue_spiking, cross_source_issue, alert_state_change. The Signals scout source is ON BY DEFAULT — scout
-            findings reach the inbox with no config row needed. The only reason to create a
-            `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with
-            `enabled=false` (the per-scout `emit` flag is set separately via `signals-scout-config-update`). There is at
-            most one config per (source_product, source_type) per project; if one already exists, update it instead.
-            Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.
+            `source_type` values: session_analysis_cluster, evaluation, evaluation_report, issue, ticket, issue_created,
+            issue_reopened, issue_spiking, cross_source_issue, alert_state_change. To surface AI observability
+            evaluation report findings in the inbox, create `source_product=llm_analytics`,
+            `source_type=evaluation_report`. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox
+            with no config row needed. The only reason to create a `source_product=signals_scout`,
+            `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit`
+            flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product,
+            source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster
+            source requires the organization to have approved AI data processing.
     inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false
@@ -341,6 +343,9 @@ tools:
             session_analysis_cluster source requires the organization to have approved AI data processing.
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
+        enabled: false
+    signals-reports-signals-retrieve:
+        operation: signals_reports_signals_retrieve
         enabled: false
     signals-scout-config-create:
         operation: signals_scout_config_create
@@ -520,9 +525,9 @@ tools:
             enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the
             newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
             `skill-get`) to orient on the team in one tool call instead of paginating through
-            `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
-            `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
-            scout's inferred learnings.
+            `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`.
+            Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad
+            is the scout's inferred learnings.
     signals-scout-run-now:
         operation: signals_scout_config_run
         enabled: true

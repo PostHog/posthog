@@ -30,6 +30,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -314,7 +315,14 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     @cached_property
     def conversion_goal_expr(self) -> Optional[ast.Expr]:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
+            try:
+                action = Action.objects.get(
+                    pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id
+                )
+            except Action.DoesNotExist:
+                raise QueryError(
+                    f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
+                )
             return action_to_expr(action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             return ast.CompareOperation(
@@ -595,12 +603,20 @@ WHERE
 
         return apply_path_cleaning(path_expr, self.team)
 
-    def _get_traffic_type_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
-        return get_traffic_type_expr(user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]))
+    def _get_traffic_type_expr(
+        self, user_agent_expr: ast.Expr | None = None, ip_expr: ast.Expr | None = None
+    ) -> ast.Expr:
+        return get_traffic_type_expr(
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
+            ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
+        )
 
-    def _get_traffic_category_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+    def _get_traffic_category_expr(
+        self, user_agent_expr: ast.Expr | None = None, ip_expr: ast.Expr | None = None
+    ) -> ast.Expr:
         return get_traffic_category_expr(
-            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"])
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
+            ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
         )
 
     def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):

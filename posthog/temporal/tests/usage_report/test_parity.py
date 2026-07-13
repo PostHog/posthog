@@ -213,6 +213,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     # ---- Temporal path ----
     ctx = WorkflowContext(
         run_id="e2e-parity-test",
+        workflow_started_at=period_start,
         period_start=period_start,
         period_end=period_end,
         date_str=period_start.strftime("%Y-%m-%d"),

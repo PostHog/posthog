@@ -15,6 +15,7 @@ import {
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
@@ -38,7 +39,6 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -66,6 +66,8 @@ export interface ProjectTreeProps {
     checkedItemsOverride?: Record<string, boolean>
     /** Override the onItemChecked handler from the internal logic */
     onItemCheckedOverride?: (id: string, checked: boolean) => void
+    /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
+    isActiveInPanel?: boolean
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
@@ -126,6 +128,7 @@ export function ProjectTree({
     selectModeOverride,
     checkedItemsOverride,
     onItemCheckedOverride,
+    isActiveInPanel,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
@@ -167,7 +170,7 @@ export function ProjectTree({
     const selectMode = selectModeOverride ?? projectTreeSelectMode
     const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
-    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
+    const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
@@ -307,10 +310,6 @@ export function ProjectTree({
             }
         }
     }
-
-    useEffect(() => {
-        setPanelTreeRef(treeRef)
-    }, [treeRef, setPanelTreeRef])
 
     useEffect(() => {
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
@@ -577,7 +576,8 @@ export function ProjectTree({
                         <>
                             {suggestedProductBaseTooltipText}
                             <br />
-                            Right-click to remove from sidebar.
+                            <br />
+                            Open the three-dot menu to remove from the sidebar.
                             <br />
                             <br />
                         </>
@@ -750,7 +750,12 @@ export function ProjectTree({
         <PanelLayoutPanel
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                    <TreeSearchField
+                        root={root}
+                        placeholder={searchPlaceholder}
+                        treeRef={treeRef}
+                        isActive={isActiveInPanel}
+                    />
                 </BindLogic>
             }
             filterDropdown={

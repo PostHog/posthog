@@ -21,6 +21,7 @@ from products.ai_observability.backend.api import (
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
     ParserRecipeViewSet,
+    PersonalSpendInternalViewSet,
     PersonalSpendViewSet,
     ReviewQueueItemViewSet,
     ReviewQueueViewSet,
@@ -36,6 +37,8 @@ def register_routes(routers: RouterRegistry) -> None:
     # CLOUD/DEBUG/TEST gate the registration carried inline.
     if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
         routers.root.register(r"llm_analytics/@me/spend", PersonalSpendViewSet, "personal_spend")
+        # HMAC-authenticated receiver for the EU→US personal-spend proxy.
+        routers.root.register(r"llm_analytics/internal/spend", PersonalSpendInternalViewSet, "personal_spend_internal")
 
     routers.projects.register(
         r"llm_analytics/parser_recipes", ParserRecipeViewSet, "project_llm_analytics_parser_recipes", ["team_id"]

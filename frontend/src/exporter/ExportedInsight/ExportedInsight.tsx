@@ -3,7 +3,7 @@ import './ExportedInsight.scss'
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
 
-import { Logo } from 'lib/brand/Logo'
+import { Logo } from 'lib/brand'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import {
@@ -92,12 +92,12 @@ export function ExportedInsight({
                             {description && <div className="ExportedInsight__header-description">{description}</div>}
                         </div>
 
-                        {!whitelabel && <Logo />}
+                        {!whitelabel && <Logo size="xs" className="shrink-0 ml-3" />}
                     </div>
                 )}
                 {showWatermark && (
                     <div className="ExportedInsight__watermark">
-                        <Logo />
+                        <Logo size="xs" />
                     </div>
                 )}
                 <div

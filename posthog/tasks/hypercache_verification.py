@@ -18,6 +18,7 @@ from django.core.cache import cache as django_cache
 
 import structlog
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.exceptions_capture import capture_exception
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
@@ -44,6 +45,16 @@ LOCK_TIMEOUT_SECONDS = 25 * 60  # 25 minutes
 # its finally block. Each variant runs hourly (without-cohorts at minute 10, with-cohorts
 # at minute 50), so a 30-minute lock expiry guarantees at most 1 run is skipped after a crash.
 FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
+
+
+def _log_soft_time_limit_exceeded(cache_type: str, start_time: float) -> None:
+    # Not a failure: the run wound down early because it ran out of time.
+    # Unverified teams are picked up on the next scheduled cycle.
+    logger.warning(
+        "Cache verification wound down early, time limit reached",
+        cache_type=cache_type,
+        duration_seconds=time.time() - start_time,
+    )
 
 
 def _run_flag_definitions_verification(
@@ -81,6 +92,9 @@ def _run_flag_definitions_verification(
                 cache_type=cache_type,
                 chunk_size=settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE,
             )
+        except SoftTimeLimitExceeded:
+            _log_soft_time_limit_exceeded(cache_type, start_time)
+            return
         except Exception as e:
             logger.exception("Failed cache verification", cache_type=cache_type, error=str(e))
             capture_exception(e)
@@ -135,6 +149,9 @@ def _run_cache_verification(cache_type: CacheType, chunk_size: int) -> None:
             _run_verification_for_cache(
                 config=config, verify_team_fn=verify_fn, cache_type=cache_type, chunk_size=chunk_size
             )
+        except SoftTimeLimitExceeded:
+            _log_soft_time_limit_exceeded(cache_type, start_time)
+            return
         except Exception as e:
             logger.exception("Failed cache verification", cache_type=cache_type, error=str(e))
             capture_exception(e)

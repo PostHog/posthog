@@ -2,12 +2,28 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SlackChannelType, UserBasicType } from '~/types'
 
+import { TicketChannel } from '../../types'
 import type { supportSettingsLogicType } from './supportSettingsLogicType'
+
+const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
+
+export function aiAllChannelsForFeatureFlags(featureFlags: Record<string, boolean | string>): TicketChannel[] {
+    const channels: TicketChannel[] = [...BASE_AI_CHANNELS]
+    if (featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]) {
+        channels.push('teams')
+    }
+    if (featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_GITHUB_CHANNEL]) {
+        channels.push('github')
+    }
+    return channels
+}
 
 export interface EmailConfigStatus {
     id: string
@@ -22,7 +38,7 @@ export interface EmailConfigStatus {
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamLoading']],
+        values: [teamLogic, ['currentTeam', 'currentTeamLoading'], featureFlagLogic, ['featureFlags']],
         actions: [
             teamLogic,
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure', 'loadCurrentTeam'],
@@ -62,6 +78,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         saveSlackBotSettings: true,
         setSlackNotifyOnJoin: (enabled: boolean) => ({ enabled }),
         setSlackNotifyOnLeave: (enabled: boolean) => ({ enabled }),
+        setSlackNudgeEnabled: (enabled: boolean) => ({ enabled }),
         setSlackAlertChannel: (channelId: string | null) => ({ channelId }),
         disconnectSlack: true,
         // Teams channel settings
@@ -110,7 +127,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
         setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
         setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
-        setAiResolutionChannels: (channels: string[]) => ({ channels }),
+        setAiResolutionChannels: (channels: TicketChannel[]) => ({ channels }),
         setAiReplyMode: (channel: string, ticketType: string, mode: 'private_note' | 'bot_reply') => ({
             channel,
             ticketType,
@@ -443,6 +460,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_notify_on_leave,
         ],
+        slackNudgeEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => currentTeam?.conversations_settings?.slack_nudge_enabled ?? true,
+        ],
         slackAlertChannelId: [
             (s) => [s.currentTeam],
             (currentTeam): string | null => currentTeam?.conversations_settings?.slack_alert_channel_id ?? null,
@@ -515,12 +536,12 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         ],
         aiEnabledChannels: [
             (s) => [s.currentTeam, s.emailConfigs],
-            (currentTeam, emailConfigs): string[] => {
+            (currentTeam, emailConfigs): TicketChannel[] => {
                 const cs = currentTeam?.conversations_settings
                 if (!cs) {
                     return []
                 }
-                const channels: string[] = []
+                const channels: TicketChannel[] = []
                 channels.push('widget')
                 if (cs.slack_enabled) {
                     channels.push('slack')
@@ -537,14 +558,21 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 return channels
             },
         ],
+        aiAllChannels: [
+            (s) => [s.featureFlags],
+            (featureFlags): TicketChannel[] => aiAllChannelsForFeatureFlags(featureFlags),
+        ],
         aiResolutionChannels: [
-            (s) => [s.currentTeam, s.aiEnabledChannels],
-            (currentTeam, aiEnabledChannels): string[] => {
+            (s) => [s.currentTeam, s.aiEnabledChannels, s.aiAllChannels],
+            (currentTeam, aiEnabledChannels, aiAllChannels): TicketChannel[] => {
+                const allowed = aiEnabledChannels.filter((channel) => aiAllChannels.includes(channel))
                 const stored = currentTeam?.conversations_settings?.ai_resolution_channels
                 if (Array.isArray(stored)) {
-                    return stored.filter((ch: string) => aiEnabledChannels.includes(ch))
+                    return stored.filter((channel: string): channel is TicketChannel =>
+                        allowed.includes(channel as TicketChannel)
+                    )
                 }
-                return aiEnabledChannels
+                return allowed
             },
         ],
         aiReplyModes: [
@@ -679,6 +707,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     slack_notify_on_leave: enabled,
+                },
+            })
+        },
+        setSlackNudgeEnabled: ({ enabled }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    slack_nudge_enabled: enabled,
                 },
             })
         },
@@ -944,10 +980,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             })
         },
         setAiResolutionChannels: ({ channels }) => {
+            const allowed = new Set(values.aiAllChannels)
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    ai_resolution_channels: channels,
+                    ai_resolution_channels: channels.filter((channel) => allowed.has(channel)),
                 },
             })
         },

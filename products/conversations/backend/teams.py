@@ -687,6 +687,8 @@ def create_or_update_teams_ticket(
         teams_service_url=service_url,
         teams_tenant_id=tenant_id,
         unread_team_count=0 if is_team_member else 1,
+        # Created from a signature-validated Teams webhook — platform-attested identity.
+        identity_verified=True,
     )
 
     Comment.objects.create(

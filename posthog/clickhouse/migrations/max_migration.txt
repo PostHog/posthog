@@ -1,1 +1,1 @@
-0284_message_assets
+0287_events_recent_inserted_at_not_nullable

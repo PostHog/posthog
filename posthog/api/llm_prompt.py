@@ -290,6 +290,7 @@ class LLMPromptViewSet(
                 prompt_payload=payload.validated_data.get("prompt"),
                 edits=payload.validated_data.get("edits"),
                 base_version=payload.validated_data["base_version"],
+                version_description=payload.validated_data.get("version_description"),
             )
         except LLMPromptNotFoundError:
             return self._prompt_not_found_response(prompt_name)

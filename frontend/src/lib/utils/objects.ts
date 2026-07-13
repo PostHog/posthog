@@ -11,6 +11,36 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
 
+/**
+ * Reuse the previous list's object reference for any item whose content is unchanged. Polled
+ * endpoints return freshly parsed objects on every cycle, so without this every item's reference
+ * changes each poll and every memoized row re-renders even when nothing changed. Matching by id
+ * and reusing the old reference when deep-equal keeps identity stable through selectors, so
+ * `React.memo` on the rows can actually bite.
+ */
+export function reconcileById<T>(
+    previous: T[],
+    next: T[],
+    getId: (item: T) => string,
+    // Items whose rendering depends on wall-clock time (e.g. an in-flight run's ticking duration)
+    // must NOT be reused: a preserved reference lets a memoized row skip the poll's re-render and freeze.
+    isReusable: (item: T) => boolean = () => true
+): T[] {
+    if (previous.length === 0) {
+        return next
+    }
+    const previousById = new Map(previous.map((item) => [getId(item), item]))
+    const result = next.map((item) => {
+        const existing = previousById.get(getId(item))
+        return existing && isReusable(item) && objectsEqual(existing, item) ? existing : item
+    })
+    // Keep the collection itself reference-stable too: consumers that diff by reference
+    // (e.g. ReactFlow's controlled nodes/edges props) must see an unchanged reconcile as
+    // unchanged, or every rebuild re-syncs them and can amplify churn into an update loop.
+    const unchanged = result.length === previous.length && result.every((item, index) => item === previous[index])
+    return unchanged ? previous : result
+}
+
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
 export function objectClean<T extends Record<string | number | symbol, unknown>>(
     obj: T,

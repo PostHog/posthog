@@ -7,6 +7,8 @@ use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use common_types::cohort::TeamAllowlist;
 use envconfig::Envconfig;
 
+use crate::consumer::ShufflerSettings;
+
 const POOL_NAME: &str = "posthog_cohort";
 
 #[derive(Envconfig, Clone, Debug)]
@@ -80,11 +82,36 @@ pub struct Config {
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
 
-    #[envconfig(default = "1000")]
-    pub recv_batch_size: usize,
+    /// Cap on unresolved forwards; intake pauses here while acks and commits keep draining. Sized
+    /// so this count cap — not librdkafka's `kafka_producer_queue_mib` byte queue — is the binding
+    /// backpressure limit: at the 64 MiB queue default it stays under the byte budget for forwards
+    /// up to ~16 KiB serialized, so a slow-ack burst pauses intake cleanly instead of spilling into
+    /// the churnier `QueueFull` retry path. Larger-event bursts still fall back to that path. Keep
+    /// the two knobs in step (`max_inflight_forwards × avg_forward_bytes ≲ kafka_producer_queue_mib`)
+    /// so the in-flight gate stays the one that actually governs. Steady state sits in the low
+    /// hundreds, far below this ceiling.
+    #[envconfig(default = "4000")]
+    pub max_inflight_forwards: usize,
 
-    #[envconfig(default = "500")]
-    pub recv_batch_timeout_ms: u64,
+    /// Also bounds the crash-replay window: interval × consume rate events per pod, deduped
+    /// downstream via `source_partition`/`source_offset`.
+    #[envconfig(default = "5000")]
+    pub commit_interval_ms: u64,
+
+    /// Base of the capped-exponential backoff when the producer queue is full.
+    #[envconfig(default = "100")]
+    pub queue_full_backoff_ms: u64,
+
+    /// WarpStream-recommended linger.
+    #[envconfig(default = "100")]
+    pub kafka_producer_linger_ms: u32,
+
+    /// OOM guard: librdkafka's buffer must stay far below the 1Gi pod limit.
+    #[envconfig(default = "64")]
+    pub kafka_producer_queue_mib: u32,
+
+    #[envconfig(default = "100000")]
+    pub kafka_producer_queue_messages: u32,
 }
 
 impl Config {
@@ -92,8 +119,12 @@ impl Config {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
 
-    pub fn recv_batch_timeout(&self) -> Duration {
-        Duration::from_millis(self.recv_batch_timeout_ms)
+    pub fn shuffler_settings(&self) -> ShufflerSettings {
+        ShufflerSettings {
+            max_inflight_forwards: self.max_inflight_forwards,
+            commit_interval: Duration::from_millis(self.commit_interval_ms),
+            queue_full_backoff: Duration::from_millis(self.queue_full_backoff_ms),
+        }
     }
 
     pub fn team_index_refresh_interval(&self) -> Duration {
@@ -128,12 +159,18 @@ impl Config {
             kafka_client_id: self.kafka_client_id.clone(),
             kafka_compression_codec: self.kafka_compression_codec.clone(),
             kafka_producer_partitioner: Some(self.kafka_producer_partitioner.clone()),
-            kafka_producer_linger_ms: 20,
-            kafka_producer_queue_mib: 400,
-            kafka_producer_queue_messages: 10_000_000,
+            kafka_producer_linger_ms: self.kafka_producer_linger_ms,
+            kafka_producer_queue_mib: self.kafka_producer_queue_mib,
+            kafka_producer_queue_messages: self.kafka_producer_queue_messages,
             kafka_message_timeout_ms: 20_000,
             kafka_producer_batch_size: None,
             kafka_producer_batch_num_messages: None,
+            // Idempotence stays off: librdkafka retries can reorder, but the pipeline is
+            // at-least-once and the downstream processor dedups on `source_partition`/
+            // `source_offset`, so per-partition produce ordering is never relied on. A deliberate
+            // steady-state tradeoff, not a temporary shortcut — enabling it
+            // (enable.idempotence=true) would cap max.in.flight.requests.per.connection at 5 and
+            // throttle the pipeline for an ordering guarantee nothing downstream needs.
             kafka_producer_enable_idempotence: None,
             kafka_producer_max_in_flight_requests_per_connection: None,
             kafka_producer_topic_metadata_refresh_interval_ms: None,
@@ -142,8 +179,11 @@ impl Config {
         }
     }
 
-    /// Auto-commit is disabled: the loop stores offsets manually only after envelopes are ack'd,
-    /// then commits per batch (at-least-once ordering).
+    /// Auto-commit is disabled: the pipeline commits explicit per-partition next-offsets computed
+    /// by its [`crate::ledger::Ledger`] (at-least-once; only ack-covered offsets are committed).
+    /// Load-bearing: `recv_with` still auto-STORES offsets for empty payloads, so enabling
+    /// auto-commit would commit those stores past unacked forwards and silently break
+    /// at-least-once. A unit test pins the flag.
     pub fn build_consumer_config(&self) -> ConsumerConfig {
         ConsumerConfig {
             kafka_consumer_group: self.kafka_consumer_group.clone(),
@@ -191,8 +231,12 @@ mod tests {
             team_index_refresh_secs: 300,
             team_index_refresh_jitter_secs: 60,
             team_allowlist: TeamAllowlist::All,
-            recv_batch_size: 1000,
-            recv_batch_timeout_ms: 500,
+            max_inflight_forwards: 10_000,
+            commit_interval_ms: 5000,
+            queue_full_backoff_ms: 100,
+            kafka_producer_linger_ms: 100,
+            kafka_producer_queue_mib: 64,
+            kafka_producer_queue_messages: 100_000,
         }
     }
 

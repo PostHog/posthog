@@ -15,6 +15,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 k8s-openapi = { version = "0.24", features = ["latest"] }
@@ -26,7 +27,6 @@ testcontainers = { workspace = true }
 testcontainers-modules = { version = "0.15", features = ["k3s"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
-uuid = { workspace = true }
 
 [lints]
 workspace = true

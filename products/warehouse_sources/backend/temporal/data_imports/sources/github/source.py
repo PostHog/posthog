@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
+    WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,12 +41,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GithubSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
+    ORG_SCOPED_ENDPOINTS,
     GithubEgressIdentity,
     GithubResumeConfig,
+    check_org_endpoint_permission,
     create_repo_webhook,
     delete_repo_webhook,
     get_repo_webhook_info,
     github_source,
+    update_repo_webhook,
     validate_credentials as validate_github_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
@@ -60,6 +64,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
     "workflow_jobs": "workflow_job",
     "workflow_runs": "workflow_run",
+    "reviews": "pull_request_review",
 }
 
 
@@ -157,7 +162,7 @@ class GithubSource(
 3. Paste the webhook URL shown below into the **Payload URL** field
 4. Set **Content type** to **application/json**
 5. Enter a **Secret** and add the same value to the **Signing secret** field below
-6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs** and **Workflow runs**
+6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, and **Pull request reviews**
 7. Click **Add webhook**
 
 If automatic creation failed, your token needs webhook permissions — the **admin:repo_hook** scope on a classic token, or **Repository webhooks: read and write** on a fine-grained token. Add it and reconnect, or set the webhook up manually using the steps above.""",
@@ -246,9 +251,9 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     def _schema_for_endpoint(endpoint: str) -> SourceSchema:
         webhook_capable = endpoint in GITHUB_WEBHOOK_RESOURCE_MAP
         # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0,
-        # i.e. workflow_jobs) can only ever be populated by the webhook — the per-run
-        # fan-out is too expensive to backfill at run volume. Offer it as webhook-only so
-        # users can't pick a poll mode that would sync an empty table forever. workflow_runs
+        # i.e. workflow_jobs and reviews) can only ever be populated by the webhook: the
+        # per-parent fan-out is too expensive to backfill at volume. Offer it as webhook-only
+        # so users can't pick a poll mode that would sync an empty table forever. workflow_runs
         # keeps its poll backfill; the webhook just replaces re-polling for it.
         webhook_only = webhook_capable and GITHUB_ENDPOINTS[endpoint].initial_lookback_days == 0
         supports_poll = bool(INCREMENTAL_FIELDS.get(endpoint)) and not webhook_only
@@ -259,6 +264,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             supports_webhooks=webhook_capable,
             webhook_only=webhook_only,
             incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+            should_sync_default=GITHUB_ENDPOINTS[endpoint].should_sync_default,
         )
 
     def get_schemas(
@@ -274,6 +280,43 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
+
+    def get_endpoint_permissions(
+        self, config: GithubSourceConfig, team_id: int, endpoints: list[str]
+    ) -> dict[str, str | None]:
+        # Only the org-scoped tables (teams, team_members) can be denied by a missing org grant; the
+        # repo-scoped tables are already covered by validate_credentials at create. Probe the org
+        # endpoint once and report the same reason for whichever org tables were requested, so a
+        # repo-scoped connection sees exactly which tables need the extra grant and can deselect them.
+        result: dict[str, str | None] = dict.fromkeys(endpoints)
+        org_endpoints = [name for name in endpoints if name in ORG_SCOPED_ENDPOINTS]
+        if not org_endpoints:
+            return result
+        try:
+            access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
+        except Exception as e:
+            # A broken credential (deleted integration, suspended installation) must become a
+            # per-table reason here rather than propagate: the schema-picker caller swallows
+            # exceptions and falls back to "all reachable", which would show the org tables as
+            # available and defer the failure to sync time. Reuse the curated wording, like
+            # validate_credentials does.
+            raw = str(e)
+            credential_reason = next(
+                (
+                    friendly
+                    for pattern, friendly in self.get_non_retryable_errors().items()
+                    if friendly and pattern in raw
+                ),
+                raw,
+            )
+            for name in org_endpoints:
+                result[name] = credential_reason
+            return result
+        reason = check_org_endpoint_permission(access_token, config.repository, egress_identity)
+        for name in org_endpoints:
+            result[name] = reason
+        return result
 
     def validate_credentials(
         self, config: GithubSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -312,20 +355,47 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         # hook's config.secret, and return it via extra_inputs so it lands on the hog function for
         # signature verification. (Contrast Stripe, which generates and returns its own secret.)
         secret = secrets.token_hex(32)
-        # Always subscribe to the full workflow event pair, not just the enabled schemas: jobs fan
-        # out under runs, so the two travel together and we want both regardless of which is synced.
+        # Always subscribe to every webhook-capable event, not just the enabled schemas: jobs fan
+        # out under runs so the workflow pair travels together, and an unmapped event no-ops in the
+        # hog function anyway, so over-subscribing is harmless while enabling a table later is free.
         events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
         return create_repo_webhook(access_token, config.repository, webhook_url, events, secret=secret)
 
+    def sync_webhook_events(
+        self,
+        config: GithubSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        eligible_schema_names: list[str],
+    ) -> WebhookSyncResult:
+        access_token = self._get_access_token(config, team_id)
+        # Every mapped event, not just the enabled schemas': mirrors create_webhook's stance
+        # (over-subscribing is harmless, unmapped events no-op in the hog function) and auto-heals
+        # webhooks created before GITHUB_WEBHOOK_RESOURCE_MAP gained new events. Thread the
+        # installation identity so the hook list and PATCH draw from the same shared egress
+        # budget as the data plane; PAT sources resolve to an empty identity (record-only).
+        desired_events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
+        return update_repo_webhook(
+            access_token,
+            config.repository,
+            webhook_url,
+            desired_events,
+            egress_identity=self._egress_identity(config, team_id),
+        )
+
     def delete_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
         access_token = self._get_access_token(config, team_id)
-        return delete_repo_webhook(access_token, config.repository, webhook_url)
+        return delete_repo_webhook(
+            access_token, config.repository, webhook_url, egress_identity=self._egress_identity(config, team_id)
+        )
 
     def get_external_webhook_info(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int
     ) -> ExternalWebhookInfo:
         access_token = self._get_access_token(config, team_id)
-        return get_repo_webhook_info(access_token, config.repository, webhook_url)
+        return get_repo_webhook_info(
+            access_token, config.repository, webhook_url, egress_identity=self._egress_identity(config, team_id)
+        )
 
     def source_for_pipeline(
         self,

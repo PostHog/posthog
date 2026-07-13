@@ -305,7 +305,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
-        filters: zod.unknown().optional(),
+        filters: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a \'type\' of one of: \'event\', \'hogql\', \'person\' (e.g. {\"key\": \"$browser\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Firefox\"]}).'
+            ),
         timezone: zod
             .string()
             .nullish()
@@ -872,7 +877,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
-        filters: zod.unknown().optional(),
+        filters: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a \'type\' of one of: \'event\', \'hogql\', \'person\' (e.g. {\"key\": \"$browser\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Firefox\"]}).'
+            ),
         timezone: zod
             .string()
             .nullish()
@@ -1196,7 +1206,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
-        filters: zod.unknown().optional(),
+        filters: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a \'type\' of one of: \'event\', \'hogql\', \'person\' (e.g. {\"key\": \"$browser\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Firefox\"]}).'
+            ),
         timezone: zod
             .string()
             .nullish()

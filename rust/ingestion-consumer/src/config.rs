@@ -121,6 +121,13 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
+    /// Upper bound on retrying a batch's deferred messages (held because no
+    /// worker was routable) before failing the batch (milliseconds). Bounds how
+    /// long a full worker outage holds offsets before the process exits and
+    /// restarts.
+    #[envconfig(default = "60000")]
+    pub consumer_deferred_flush_timeout_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]

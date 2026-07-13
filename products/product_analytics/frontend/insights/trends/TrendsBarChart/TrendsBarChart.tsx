@@ -12,7 +12,7 @@ import {
 } from '@posthog/quill-charts'
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
@@ -51,6 +51,7 @@ import {
     buildTrendsBarAggregatedSeries,
     buildTrendsBarTimeSeries,
     buildTrendsBarTimeSeriesConfig,
+    pickAggregatedTooltipSeriesData,
 } from './trendsBarChartTransforms'
 
 interface TrendsBarChartProps {
@@ -89,7 +90,7 @@ export function TrendsBarChart({
     inSharedMode = false,
     embedded = false,
 }: TrendsBarChartProps): JSX.Element | null {
-    const theme = useMemo(() => buildTheme(), [])
+    const theme = useChartTheme()
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const TIME_SERIES_TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
@@ -216,7 +217,7 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const timeSeriesConfig: TimeSeriesBarChartConfig = useMemo(
+    const timeSeriesConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildTrendsBarTimeSeriesConfig({
                 trendsFilter,
@@ -252,7 +253,7 @@ export function TrendsBarChart({
             showValuesOnSeries,
             valueLabelFormatter,
             legendConfig,
-            quillTooltipEnabled,
+            TIME_SERIES_TOOLTIP_CONFIG,
         ]
     )
 
@@ -261,7 +262,7 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const aggregatedConfig: BarChartConfig = useMemo(() => {
+    const aggregatedConfig: BarChartConfig = useChartConfig(() => {
         // Band keys are synthetic per-series; render the human label via the categorical-axis
         // formatter and skip repeats so band-shared breakdown rows don't double-paint.
         let xTickFormatter: BarChartConfig['xTickFormatter']
@@ -362,13 +363,15 @@ export function TrendsBarChart({
         [isAggregated, clickDeps]
     )
 
+    // Time-series layouts only — the aggregated bar-value layout has categorical labels, not dates.
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            // BarTooltip already put the cursor-visible segment at seriesData[0] — keep just that.
             const tooltipCtx: TooltipContext<TrendsSeriesMeta> = isAggregated
                 ? {
                       ...ctx,
-                      seriesData: ctx.seriesData.slice(0, 1),
+                      seriesData: pickAggregatedTooltipSeriesData(ctx),
                   }
                 : ctx
             const onRowClick = canHandleClick
@@ -423,7 +426,13 @@ export function TrendsBarChart({
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="bar"
+            />
+        )
     }
 
     if (isAggregated) {
@@ -477,6 +486,7 @@ export function TrendsBarChart({
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-bar-graph"
             onError={handleChartError}
