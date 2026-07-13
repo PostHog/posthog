@@ -3632,6 +3632,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -5027,6 +5029,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -5856,6 +5860,7 @@ export namespace Schemas {
       Resources: 'resources',
       ErrorTrackingProperties: 'error_tracking_properties',
       ActivityLogProperties: 'activity_log_properties',
+      McpProperties: 'mcp_properties',
       MaxAiContext: 'max_ai_context',
       WorkflowVariables: 'workflow_variables',
       SuggestedFilters: 'suggested_filters',
@@ -8929,7 +8934,10 @@ export namespace Schemas {
     export interface Threshold {
       readonly id: string;
       readonly created_at: string;
-      /** Optional name for the threshold. */
+      /**
+         * Optional name for the threshold.
+         * @maxLength 255
+         */
       name?: string;
       /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
       configuration: InsightThreshold;
@@ -9317,7 +9325,10 @@ export namespace Schemas {
       readonly created_at: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight: number;
-      /** Human-readable name for the alert. */
+      /**
+         * Human-readable name for the alert.
+         * @maxLength 255
+         */
       name?: string;
       /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
       subscribed_users: number[];
@@ -14732,6 +14743,65 @@ export namespace Schemas {
       NoChange: 'no_change',
     } as const;
 
+    export interface PromptEvaluationResult {
+      /** The rated session that was re-run with the suggested prompt. */
+      session_id: string;
+      /** The original rated observation the comparison is against. */
+      observation_id: string;
+      /** The team's rating of the original output (thumbs up = true). */
+      rated_correct: boolean;
+      /**
+         * The original output's primary outcome.
+         * @nullable
+         */
+      before: string | null;
+      /**
+         * The suggested prompt's outcome for the same session. Null when the run errored or returned no discrete outcome (e.g. a classifier with no tags).
+         * @nullable
+         */
+      after: string | null;
+      /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), or error. */
+      outcome: string;
+      /**
+         * Why this session's re-run failed, when it did.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface PromptEvaluationSummary {
+      /** Thumbs-up sessions whose output is unchanged. */
+      kept: number;
+      /** Thumbs-up sessions whose output changed. */
+      regressed: number;
+      /** Thumbs-down sessions whose output changed. */
+      fixed: number;
+      /** Thumbs-down sessions whose output is unchanged. */
+      still_wrong: number;
+      /** Sessions whose re-run failed. */
+      errors: number;
+    }
+
+    export interface PromptSuggestionEvaluation {
+      /** running, succeeded, or failed. */
+      status: string;
+      /** When the evaluation started. */
+      started_at: string;
+      /**
+         * When the evaluation finished, if it has.
+         * @nullable
+         */
+      finished_at: string | null;
+      /** How many rated sessions are being re-run. */
+      total: number;
+      /** The rated set the evaluation ran against. */
+      labels_fingerprint: string;
+      /** Per-session outcomes, in completion order. */
+      results: PromptEvaluationResult[];
+      /** Outcome counts. Null while the evaluation is running. */
+      summary: PromptEvaluationSummary | null;
+    }
+
     export interface ReplayScannerPromptSuggestion {
       readonly id: string;
       /** pending (current), applied, dismissed, or superseded by a newer suggestion.
@@ -14761,6 +14831,8 @@ export namespace Schemas {
       readonly applied_at: string | null;
       /** User who applied this suggestion to the scanner; null unless applied. */
       readonly applied_by: UserBasic | null;
+      /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
+      readonly evaluation: PromptSuggestionEvaluation | null;
     }
 
     export interface CurrentPromptSuggestion {
@@ -14770,6 +14842,8 @@ export namespace Schemas {
       stale: boolean;
       /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
       rated_count: number;
+      /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
+      evaluation_session_cap: number;
     }
 
     /**
@@ -16910,6 +16984,7 @@ export namespace Schemas {
      * * `Vultr` - Vultr
      * * `Windmill` - Windmill
      * * `Zep` - Zep
+     * * `Hex` - Hex
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -17668,6 +17743,7 @@ export namespace Schemas {
       Vultr: 'Vultr',
       Windmill: 'Windmill',
       Zep: 'Zep',
+      Hex: 'Hex',
     } as const;
 
     /**
@@ -18439,7 +18515,8 @@ export namespace Schemas {
        * * `Vellum` - Vellum
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
-       * * `Zep` - Zep */
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -21589,6 +21666,15 @@ export namespace Schemas {
       sampling_rate: number;
     }
 
+    export interface EvaluatePromptSuggestionRequest {
+      /**
+         * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
+         * @minimum 1
+         * @maximum 100
+         */
+      session_limit?: number;
+    }
+
     /**
      * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
@@ -23499,11 +23585,6 @@ export namespace Schemas {
       /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
       readonly results: readonly MetricRecalculationResult[];
       /**
-         * Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)
-         * @nullable
-         */
-      running_metrics?: number | null;
-      /**
          * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
          * @nullable
          */
@@ -23513,16 +23594,6 @@ export namespace Schemas {
          * @nullable
          */
       estimated_rows_total?: number | null;
-      /**
-         * Bytes read by the run's metric queries so far, both finished and currently running
-         * @nullable
-         */
-      bytes_read?: number | null;
-      /**
-         * Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and currently running
-         * @nullable
-         */
-      active_cpu_time?: number | null;
     }
 
     export type ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType];
@@ -23604,6 +23675,49 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    /**
+     * One experiment whose feature flag a session recording saw.
+     */
+    export interface ExperimentSessionContextItem {
+      /** ID of the experiment whose feature flag the session saw. */
+      experiment_id: number;
+      /** Name of the experiment. */
+      experiment_name: string;
+      /** Key of the experiment's feature flag. */
+      flag_key: string;
+      /** Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one exists, otherwise from the $feature/<key> property stamped on the session's events. */
+      variant: string;
+      /** All distinct variant values observed for this flag during the session, sorted alphabetically. Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. More than one value means the session saw multiple variants — a signal of multi-exposure bias. */
+      variants_seen: string[];
+      /** True when the session saw more than one variant of this flag. */
+      multiple_variants: boolean;
+      /**
+         * Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> properties (e.g. the assignment carried over from an earlier session). For experiments with custom exposure criteria this is not the experiment's exposure moment.
+         * @nullable
+         */
+      first_flag_evaluation_timestamp: string | null;
+      /**
+         * When the experiment was launched.
+         * @nullable
+         */
+      experiment_start_date: string | null;
+      /**
+         * When the experiment ended. Null while the experiment is still running.
+         * @nullable
+         */
+      experiment_end_date: string | null;
+    }
+
+    /**
+     * Experiment/variant context for a session recording.
+     */
+    export interface ExperimentSessionContextResponse {
+      /** ID of the session recording the context was resolved for. */
+      session_id: string;
+      /** Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched experiment's run window overlaps the recording or no flag data was observed in the session. */
+      results: ExperimentSessionContextItem[];
     }
 
     /**
@@ -24855,7 +24969,8 @@ export namespace Schemas {
        * * `Vellum` - Vellum
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
-       * * `Zep` - Zep */
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -25362,6 +25477,33 @@ export namespace Schemas {
          * @nullable
          */
       readonly modified_by: number | null;
+    }
+
+    export interface FeedbackThemeSession {
+      /** Observation whose feedback comment backs this theme. */
+      observation_id: string;
+      /** Session recording the feedback comment was about. */
+      session_id: string;
+    }
+
+    export interface FeedbackTheme {
+      /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
+      theme: string;
+      /** How many feedback comments describe this failure mode. */
+      count: number;
+      /** Up to two short representative quotes from the feedback comments. */
+      examples: string[];
+      /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
+      sessions: FeedbackThemeSession[];
+    }
+
+    export interface FeedbackThemes {
+      /** Recurring failure modes, most frequent first. */
+      themes: FeedbackTheme[];
+      /** Number of thumbs-down feedback comments the summary was generated from. */
+      feedback_count: number;
+      /** When the summary was generated. */
+      generated_at: string;
     }
 
     /**
@@ -26781,6 +26923,9 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface HogFlow {
       readonly id: string;
       /**
@@ -26824,6 +26969,11 @@ export namespace Schemas {
       readonly billable_action_types: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -26926,6 +27076,9 @@ export namespace Schemas {
       current_action_id?: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface HogFlowMinimal {
       readonly id: string;
       /** @nullable */
@@ -26946,6 +27099,11 @@ export namespace Schemas {
       readonly abort_action: string | null;
       readonly variables: unknown;
       readonly billable_action_types: unknown;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -27977,11 +28135,24 @@ export namespace Schemas {
       scope?: MetricsAttributeScope | null;
     }
 
+    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
+
+
+    export const MetricsOtelType = {
+      Gauge: 'gauge',
+      Sum: 'sum',
+      Histogram: 'histogram',
+      ExponentialHistogram: 'exponential_histogram',
+      Summary: 'summary',
+    } as const;
+
     export interface MetricsQueryClause {
       aggregation: MetricsAggregation;
       filters?: MetricsQueryFilter[] | null;
       groupBy?: MetricsQueryGroupBy[] | null;
       metricName: string;
+      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
+      metricType?: MetricsOtelType | null;
       /** Alias a formula refers to (e.g. "a"); must be unique within the query */
       name: string;
       /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
@@ -29607,6 +29778,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -29651,6 +29823,7 @@ export namespace Schemas {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
+      Snowflake: 'snowflake',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
@@ -29695,6 +29868,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `slack-posthog-code` - Slack Posthog Code
        * * `snapchat` - Snapchat
+       * * `snowflake` - Snowflake
        * * `stripe` - Stripe
        * * `tiktok-ads` - Tiktok Ads
        * * `twilio` - Twilio
@@ -32592,6 +32766,8 @@ export namespace Schemas {
       up: number;
       /** Thumbs-down ratings on this version's observations. */
       down: number;
+      /** Succeeded (ratable) observations this version produced, rated or not. */
+      total: number;
     }
 
     export interface ObservationLabelStats {
@@ -32694,6 +32870,7 @@ export namespace Schemas {
     /**
      * * `schedule` - Schedule
      * * `on_demand` - On demand
+     * * `retry` - Retry
      */
     export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
 
@@ -32701,6 +32878,7 @@ export namespace Schemas {
     export const ObservationTriggerEnum = {
       Schedule: 'schedule',
       OnDemand: 'on_demand',
+      Retry: 'retry',
     } as const;
 
     /**
@@ -32803,6 +32981,16 @@ export namespace Schemas {
       Regex: 'regex',
       NotRegex: 'not_regex',
     } as const;
+
+    export interface OpenToMergeBucket {
+      /** Bucket start, aligned to open_to_merge_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Median merged_at - created_at seconds over PRs merged in this bucket, bots and drafts excluded. Null when nothing merged in the bucket (a gap, not instant merges).
+         * @nullable
+         */
+      p50_seconds: number | null;
+    }
 
     /**
      * * `quarantine` - QUARANTINE
@@ -35053,10 +35241,11 @@ export namespace Schemas {
       readonly scanner_snapshot: ScannerSnapshot | null;
       /** Result data persisted on success; null until the observation succeeds. */
       readonly scanner_result: ScannerResult | null;
-      /** Whether this observation came from the schedule or an on-demand request.
+      /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.
        *
        * * `schedule` - Schedule
-       * * `on_demand` - On demand */
+       * * `on_demand` - On demand
+       * * `retry` - Retry */
       readonly triggered_by: ObservationTriggerEnum;
       /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
@@ -35071,12 +35260,12 @@ export namespace Schemas {
          */
       readonly recording_subject_email: string | null;
       /**
-         * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
+         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
          * @nullable
          */
       readonly previous_observation_id: string | null;
       /**
-         * Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.
+         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
          * @nullable
          */
       readonly next_observation_id: string | null;
@@ -35177,6 +35366,8 @@ export namespace Schemas {
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
       readonly updated_at: string;
+      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+      readonly feedback_themes: FeedbackThemes | null;
     }
 
     export interface PaginatedReplayScannerList {
@@ -37177,7 +37368,10 @@ export namespace Schemas {
     export interface ThresholdWithAlert {
       readonly id: string;
       readonly created_at: string;
-      /** Optional name for the threshold. */
+      /**
+         * Optional name for the threshold.
+         * @maxLength 255
+         */
       name?: string;
       /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
       configuration: InsightThreshold;
@@ -38322,6 +38516,16 @@ export namespace Schemas {
       results: WizardSessionDTO[];
     }
 
+    export interface PassRateBucket {
+      /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Fraction (0-1) of completed runs started in this bucket that succeeded. Null when the bucket had no completed run (a gap, not a 0% pass rate).
+         * @nullable
+         */
+      success_rate: number | null;
+    }
+
     /**
      * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
@@ -38565,7 +38769,10 @@ export namespace Schemas {
       readonly created_at?: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight?: number;
-      /** Human-readable name for the alert. */
+      /**
+         * Human-readable name for the alert.
+         * @maxLength 255
+         */
       name?: string;
       /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
       subscribed_users?: number[];
@@ -40670,6 +40877,9 @@ export namespace Schemas {
      */
     export type PatchedHogFlowVariablesItem = {[key: string]: string};
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedHogFlow {
       readonly id?: string;
       /**
@@ -40713,6 +40923,11 @@ export namespace Schemas {
       readonly billable_action_types?: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules?: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedHogFlowGraphUpdate {
@@ -43024,6 +43239,8 @@ export namespace Schemas {
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
       readonly updated_at?: string;
+      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+      readonly feedback_themes?: FeedbackThemes | null;
     }
 
     export interface PatchedReviewQueueItemUpdate {
@@ -47365,6 +47582,22 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    export interface PushCISample {
+      /** Head commit SHA of this push (CI round). */
+      head_sha: string;
+      /** Earliest workflow-run start on this push. */
+      started_at: string;
+      /**
+         * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
+         * @nullable
+         */
+      wall_seconds: number | null;
+      /** True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'. */
+      failed: boolean;
+      /** True when any latest-per-workflow run on this push hasn't completed yet. */
+      pending: boolean;
+    }
+
     export interface PullRequestListItem {
       /** The pull request author. */
       author: Author;
@@ -47372,6 +47605,8 @@ export namespace Schemas {
       repo: RepoRef;
       /** CI status from the latest workflow runs on the head SHA. */
       ci: CIStatusRollup;
+      /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
+      push_history: PushCISample[];
       /** Pull request number within the repository. */
       number: number;
       /** Pull request title. */
@@ -48225,6 +48460,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -48700,6 +48937,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -50126,9 +50365,25 @@ export namespace Schemas {
       recording_active_seconds?: number | null;
     }
 
+    export interface TimeToGreenBucket {
+      /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+         * @nullable
+         */
+      p50_seconds: number | null;
+    }
+
     export interface RepoOverview {
       /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
       cost_series: CostPerMergeBucket[];
+      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+      time_to_green_series: TimeToGreenBucket[];
+      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null. */
+      success_rate_series: PassRateBucket[];
+      /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null. */
+      open_to_merge_series: OpenToMergeBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
       run_count: number;
       /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -50183,6 +50438,12 @@ export namespace Schemas {
       default_branch: string;
       /** Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'. */
       cost_series_granularity: string;
+      /** Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'. */
+      time_to_green_series_granularity: string;
+      /** Bucket width of the success_rate_series trend: 'hour', 'day', or 'week'. */
+      success_rate_series_granularity: string;
+      /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
+      open_to_merge_series_granularity: string;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
@@ -52917,7 +53178,8 @@ export namespace Schemas {
        * * `Vellum` - Vellum
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
-       * * `Zep` - Zep */
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -53715,7 +53977,8 @@ export namespace Schemas {
        * * `Vellum` - Vellum
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
-       * * `Zep` - Zep */
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -54505,7 +54768,8 @@ export namespace Schemas {
        * * `Vellum` - Vellum
        * * `Vultr` - Vultr
        * * `Windmill` - Windmill
-       * * `Zep` - Zep */
+       * * `Zep` - Zep
+       * * `Hex` - Hex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -57839,6 +58103,8 @@ export namespace Schemas {
       head_branch: string;
       /** Attributed pull request number, or 0 when unattributed. */
       pr_number: number;
+      /** Head commit SHA of the run/commit, or '' when unknown. */
+      head_sha: string;
     }
 
     export interface WorkflowRunActivity {
@@ -62260,6 +62526,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -62315,6 +62582,7 @@ export namespace Schemas {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
+      Snowflake: 'snowflake',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
@@ -64087,13 +64355,48 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
      * Session recording id to return observations for.
      */
     session_id: string;
+    };
+
+    export type EnvironmentsVisionObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
     export type EnvironmentsVisionScannersListParams = {
@@ -64145,7 +64448,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
@@ -64165,7 +64468,42 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
+
+    export type EnvironmentsVisionScannersObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -64200,7 +64538,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -67703,6 +68041,13 @@ export namespace Schemas {
       description: string;
     };
 
+    export type ExperimentsSessionContextRetrieveParams = {
+    /**
+     * ID of the session recording to resolve experiment context for.
+     */
+    session_id: string;
+    };
+
     export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -69497,6 +69842,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -69552,6 +69898,7 @@ export namespace Schemas {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
+      Snowflake: 'snowflake',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
@@ -72348,13 +72695,48 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
      * Session recording id to return observations for.
      */
     session_id: string;
+    };
+
+    export type VisionObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
     export type VisionScannersListParams = {
@@ -72406,7 +72788,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
@@ -72426,7 +72808,42 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
+
+    export type VisionScannersObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**
@@ -72461,7 +72878,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string;
     /**

@@ -265,14 +265,16 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
         # through to the raw stats query and the paths preagg table stays cold.
         if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE):
             query["includeBounceRate"] = True
-        # EXIT_PAGE is served by the simple precompute, which bakes the cleaned-or-raw
-        # path into the stored breakdown value and the job hash (unlike PAGE/INITIAL_PAGE,
-        # whose paths precompute stores raw paths and cleans at read time). The End-paths
-        # tile sends `doPathCleaning=isPathCleaningEnabled` (true for teams with cleaning
-        # rules), so without this the warmer fills the raw variant while the dashboard
-        # reads the cleaned one and misses. True is a no-op for teams without cleaning
-        # rules (`apply_path_cleaning` returns the bare expression → identical hash).
-        if breakdown == WebStatsBreakdown.EXIT_PAGE:
+        # Every path breakdown bakes the cleaned-or-raw path into the stored breakdown
+        # value at INSERT time (#65660 for PAGE/INITIAL_PAGE via the paths precompute,
+        # and the simple precompute for EXIT_PAGE), so cleaned and raw are distinct job
+        # hashes. The dashboard tiles send `doPathCleaning=isPathCleaningEnabled` (true
+        # for teams with cleaning rules); without matching it here the warmer fills the
+        # raw variant while those teams' dashboards read the cleaned one and stay
+        # permanently cold, rebuilding synchronously on every real load. True is a
+        # no-op for teams without cleaning rules (`apply_path_cleaning` returns the
+        # bare expression, so the hash is identical).
+        if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.EXIT_PAGE):
             query["doPathCleaning"] = True
         queries.append(query)
 

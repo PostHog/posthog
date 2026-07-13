@@ -33,6 +33,11 @@ export const DEFAULT_ORDER_BY: LogsOrderBy = 'latest'
 export type LogsViewerViewMode = 'logs' | 'patterns' | 'group'
 export const DEFAULT_VIEW_MODE: LogsViewerViewMode = 'logs'
 
+// Patterns compare-mode baseline: 'lastWeek' omits the explicit range so the backend defaults
+// to the same window one week earlier (absorbs daily/weekly cycles); 'preceding' compares
+// against the window immediately before the current one (the post-deploy / spike comparison).
+export type PatternsBaselineMode = 'lastWeek' | 'preceding'
+
 export interface LogsViewerGroupBy {
     key: string
     // Where the key lives, in the group-by endpoint's vocabulary: "log" / "resource"
@@ -61,6 +66,12 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         setFacetRailCollapsed: (facetRailCollapsed: boolean) => ({ facetRailCollapsed }),
         setViewMode: (viewMode: LogsViewerViewMode) => ({ viewMode }),
         setGroupBy: (groupBy: LogsViewerGroupBy | null) => ({ groupBy }),
+        setCompareEnabled: (enabled: boolean) => ({ enabled }),
+        setBaselineMode: (mode: PatternsBaselineMode) => ({ mode }),
+        // One-click "explain this window": open the Patterns view in compare mode against the
+        // given baseline. Atomic so callers in other views (Logs toolbar, alert scenes) can't
+        // half-configure the pivot.
+        openPatternsComparison: (mode: PatternsBaselineMode) => ({ mode }),
 
         // Typed columns (unified column model)
         setColumns: (columns: LogsColumnConfig[]) => ({ columns }),
@@ -113,6 +124,24 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             DEFAULT_VIEW_MODE as LogsViewerViewMode,
             {
                 setViewMode: (_, { viewMode }) => viewMode,
+                openPatternsComparison: () => 'patterns' as LogsViewerViewMode,
+            },
+        ],
+        // Compare state lives here (not in logsPatternsLogic) so views other than Patterns can
+        // arm the comparison before the patterns logic mounts, and the choice survives
+        // Logs↔Patterns switches within a visit. Not persisted, like viewMode and groupBy.
+        compareEnabled: [
+            false,
+            {
+                setCompareEnabled: (_, { enabled }) => enabled,
+                openPatternsComparison: () => true,
+            },
+        ],
+        baselineMode: [
+            'lastWeek' as PatternsBaselineMode,
+            {
+                setBaselineMode: (_, { mode }) => mode,
+                openPatternsComparison: (_, { mode }) => mode,
             },
         ],
         columns: [

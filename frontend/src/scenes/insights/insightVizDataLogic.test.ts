@@ -479,16 +479,24 @@ describe('insightVizDataLogic', () => {
 
     describe('zoomDateRange', () => {
         it.each([
-            ['2024-06-10', '2024-06-12', false],
-            ['2024-06-10 08:00:00', '2024-06-10 14:00:00', true],
-        ])('zooms %s..%s with explicitDate=%s', async (dateFrom, dateTo, explicitDate) => {
+            // [interval, dateFrom, dateTo (bucket start), expected date_to, explicitDate]
+            ['day', '2024-06-10', '2024-06-12', '2024-06-12', false],
+            // Coarser-than-day buckets: the end widens to the bucket's last day, so a
+            // single-bucket drag (e.g. over one monthly bar) zooms into the whole bucket.
+            ['week', '2024-06-09', '2024-06-09', '2024-06-15', false],
+            ['month', '2024-04-01', '2024-04-01', '2024-04-30', false],
+            // Sub-day buckets widen to the bucket's last second and pin explicitDate.
+            ['hour', '2024-06-10 08:00:00', '2024-06-10 14:00:00', '2024-06-10 14:59:59', true],
+        ])('zooms %s buckets %s..%s', async (interval, dateFrom, dateTo, expectedDateTo, explicitDate) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ interval } as Partial<TrendsQuery>)
+
             await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.zoomDateRange(dateFrom, dateTo)
             }).toFinishAllListeners()
 
             expect(builtInsightVizDataLogic.values.dateRange).toEqual({
                 date_from: dateFrom,
-                date_to: dateTo,
+                date_to: expectedDateTo,
                 explicitDate,
             })
         })
@@ -1131,22 +1139,10 @@ describe('insightVizDataLogic', () => {
             [FunnelVizType.TimeToConvert, true],
             // FLOW is excluded — the backend ignores compare for it.
             [FunnelVizType.Flow, false],
-        ] as [FunnelVizType, boolean][])('flag on, %s viz → %s', (funnelVizType, expected) => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]: true,
-            })
+        ] as [FunnelVizType, boolean][])('%s viz → %s', (funnelVizType, expected) => {
             setFunnelVizType(funnelVizType)
 
             expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
-        })
-
-        it('flag off → compare unsupported even for steps viz', () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]: false,
-            })
-            setFunnelVizType(FunnelVizType.Steps)
-
-            expect(builtInsightVizDataLogic.values.supportsCompare).toBe(false)
         })
     })
 })
