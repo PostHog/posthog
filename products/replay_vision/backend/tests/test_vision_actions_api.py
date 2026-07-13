@@ -98,6 +98,34 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(action.delivery_config[0]["integration_id"], self.integration.id)
         self.assertIsNotNone(action.next_run_at)
 
+    def test_targeting_a_scanner_the_editor_cannot_read_is_rejected(self) -> None:
+        # The engine reads observations as the action's CREATOR, so a lower-privileged editor
+        # re-pointing an action at a scanner they can't read would exfiltrate that scanner's data
+        # via the delivery channel. Targeting writes must be checked against the requesting user.
+        hidden = self._create_scanner(name="restricted")
+        with patch(
+            "products.replay_vision.backend.scanner_access.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            resp = self.client.post(self.actions_url, data=self._create_payload(scanner=str(hidden.id)), format="json")
+            self.assertEqual(resp.status_code, 400, resp.content)
+            self.assertIn("access", resp.json()["detail"])
+
+            # An action a privileged creator already pointed at the hidden scanner: an edit that
+            # doesn't touch targeting (rename) stays allowed, but touching targeting re-checks.
+            theirs = VisionAction.all_teams.create(
+                team=self.team,
+                scanner=hidden,
+                name="theirs",
+                trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+            )
+            resp = self.client.patch(f"{self.actions_url}{theirs.id}/", data={"name": "renamed"}, format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            resp = self.client.patch(
+                f"{self.actions_url}{theirs.id}/", data={"selection": {"verdict": ["yes"]}}, format="json"
+            )
+            self.assertEqual(resp.status_code, 400, resp.content)
+
     def test_enabled_alert_cap_per_scanner(self) -> None:
         # Alerts evaluate on every scanner sweep, so unbounded fan-out multiplies sweep work — the
         # cap must reject the N+1th enabled alert while still allowing a disabled one.

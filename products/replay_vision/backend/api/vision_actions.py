@@ -35,6 +35,7 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRunStatus,
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
+from products.replay_vision.backend.scanner_access import readable_scanner_ids
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
 logger = structlog.get_logger(__name__)
@@ -316,7 +317,31 @@ class VisionActionSerializer(serializers.ModelSerializer):
         self._validate_unique_name(attrs)
         self._validate_unique_digest(attrs)
         self._validate_alert(attrs)
+        self._validate_scanner_access(attrs)
         return attrs
+
+    def _validate_scanner_access(self, attrs: dict[str, Any]) -> None:
+        # The engine reads observations as the action's CREATOR (fail-closed run-time gate in
+        # scanner_access.readable_scanner_ids). Without this write-time check, an editor with less
+        # scanner access than the creator could re-point a creator-privileged action at data the
+        # editor can't read and receive it via the delivery channel. Only re-check when the
+        # targeting actually changes, so unrelated edits (rename, disable) don't require it.
+        if "scanner" not in attrs and "selection" not in attrs:
+            return
+        scanner = attrs.get("scanner", getattr(self.instance, "scanner", None))
+        selection = attrs.get("selection", getattr(self.instance, "selection", None)) or {}
+        requested = [str(s) for s in (selection.get("scanner_ids") or ([scanner.id] if scanner else []))]
+        if not requested:
+            return
+        request = self.context.get("request")
+        if request is None or not getattr(request.user, "is_authenticated", False):
+            return
+        team = self.context["get_team"]()
+        readable = set(readable_scanner_ids(request.user, team, requested))
+        if set(requested) - readable:
+            raise serializers.ValidationError(
+                {"scanner": "You don't have access to one or more scanners this action targets."}
+            )
 
     def _validate_alert(self, attrs: dict[str, Any]) -> None:
         mode = attrs.get("mode", getattr(self.instance, "mode", ActionMode.GROUP_SUMMARY))

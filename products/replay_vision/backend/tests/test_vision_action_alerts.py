@@ -115,6 +115,21 @@ class TestVisionActionAlerts(BaseTest):
             run.refresh_from_db()
             self.assertEqual(run.synthesized_markdown, "")
 
+    def test_slack_output_escapes_mrkdwn_control_sequences(self) -> None:
+        # Freeform tags are observation-derived untrusted text that the alert message interpolates
+        # verbatim; Slack treats <...> as control sequences, so an unescaped `<!channel>` tag would
+        # ping the whole channel from inside a report.
+        scanner = self._scanner(scanner_type=ScannerType.CLASSIFIER, name="tagger-evil")
+        action = self._alert(scanner, {"frequency": "every_match", "metric": "count"})
+        self._observation(scanner, {"tags": [], "tags_freeform": ["<!channel> pwned"]})
+
+        result, run = self._evaluate(action)
+
+        self.assertEqual(result.status, AlertStatus.FIRED)
+        run.refresh_from_db()
+        self.assertIn("&lt;!channel&gt;", run.output["slack"])
+        self.assertNotIn("<!channel>", run.output["slack"])
+
     def test_selection_predicate_gates_what_counts(self) -> None:
         # "Alert me whenever a user gets tag X": the shared targeting predicate is the match; a
         # dropped predicate would make every alert fire on all observations.

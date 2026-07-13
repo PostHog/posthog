@@ -29,11 +29,11 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRunStatus,
 )
 from products.replay_vision.backend.observation_formatting import describe_output
+from products.replay_vision.backend.scanner_access import readable_scanner_ids
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_actions.synthesis import (
     MAX_OBSERVATIONS,
     _markdown_to_slack,
-    _readable_scanner_ids,
     apply_observation_predicate,
 )
 from products.replay_vision.backend.temporal.vision_actions.types import (
@@ -81,7 +81,7 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
     # Same creator-RBAC gate as synthesis: the alert surfaces observation outcomes, so it must not read
     # a scanner its creator can't access.
     creator = action.created_by
-    scanner_ids = _readable_scanner_ids(creator, team, requested_scanner_ids) if creator is not None else []
+    scanner_ids = readable_scanner_ids(creator, team, requested_scanner_ids) if creator is not None else []
     if not scanner_ids:
         return EvaluateAlertResult(status=AlertStatus.NOT_BREACHED, observation_count=0)
 
