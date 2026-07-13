@@ -50,28 +50,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
-# Partitioned incremental merges run per CHUNK of partition values (a static
-# `IN (...)` list prunes exactly like the per-partition `= literal` it replaced,
-# verified via num_target_files_skipped_during_scan on deltalake 1.4.0), so a batch
-# spanning P partitions pays the planning/commit overhead once per chunk instead of
-# P times — benchmark: 200 partitions over a 1,000-file table went from 200
-# merges/37.7s (the old per-partition behavior) to 0.9s at 8 merges.
-#
-# Chunks are packed by the partitions' on-disk size, not just count: a merge's peak
-# memory tracks the decompressed rewrite working set of the partitions in its chunk
-# (measured ~6x parquet size for one ~200 MB partition, and co-resident when two big
-# partitions share a chunk), so the byte cap is the memory bound. A partition bigger
-# than the cap gets a chunk of its own — exactly the old per-partition behavior. The
-# count cap only bounds predicate size and planner/writer fan-out; it carries no
-# memory safety.
+# Partitioned incremental merges run per chunk of partition values (static `IN (...)`
+# prunes like the per-partition `= literal` it replaced), paying merge planning/commit
+# overhead once per chunk instead of once per partition. The byte cap is the memory
+# bound — a merge's peak RSS tracks the rewrite working set of its chunk, and a
+# partition exceeding the cap merges alone (the old behavior). The count cap only
+# bounds predicate size and planner/writer fan-out. Benchmarks in PR #70495.
 MERGE_PARTITION_CHUNK_SIZE = 100
 MERGE_CHUNK_MAX_TARGET_BYTES = 512 * 1024 * 1024
 
 
 def _pack_partition_chunks(partition_values: list[Any], sizes_on_disk: dict[str, int]) -> list[list[Any]]:
-    """Greedily pack partition values into merge chunks, capped by cumulative on-disk
-    bytes and by count. Unknown partitions (no files yet, e.g. brand-new values that
-    only insert) count as 0 bytes."""
+    """Greedy pack by cumulative on-disk bytes and count; fileless partitions cost 0."""
     chunks: list[list[Any]] = []
     current: list[Any] = []
     current_bytes = 0
@@ -370,8 +360,8 @@ class DeltaTableHelper:
         return await asyncio.to_thread(delta_table.file_uris)
 
     async def _partition_sizes_on_disk(self, delta_table: deltalake.DeltaTable) -> dict[str, int]:
-        """Sum of parquet bytes per partition value, from the delta log's add actions.
-        Fail-open to {} — packing then degrades to the count cap, never blocks the merge."""
+        """Parquet bytes per partition value, from the delta log. Fails open to {} so a
+        bad size read degrades packing to the count cap instead of blocking the merge."""
 
         def _sizes() -> dict[str, int]:
             adds = pa.table(delta_table.get_add_actions(flatten=True))
@@ -482,9 +472,6 @@ class DeltaTableHelper:
             if use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
-                # Group the table by the partition key and merge once per chunk of partition
-                # values with streamed_exec=True for optimised merging. The static IN list
-                # prunes like the single-partition literal did, at 1/chunk the merge count.
                 unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
                 partition_sizes = await self._partition_sizes_on_disk(existing_delta_table)
                 partition_chunks = _pack_partition_chunks(unique_partitions.to_pylist(), partition_sizes)
@@ -493,16 +480,14 @@ class DeltaTableHelper:
                     f"Running {len(partition_chunks)} optimised merges over {len(unique_partitions)} partitions"
                 )
 
-                # Only tag the FINAL chunk merge with `commit_properties`. Intermediate
-                # merges must remain untagged so a crash mid-loop doesn't leave behind a
-                # tagged commit that would cause `has_batch_been_committed` to skip the
-                # remaining chunks on Kafka redelivery (which would lose data).
+                # Tag only the FINAL chunk merge: a tagged intermediate commit would make
+                # `has_batch_been_committed` skip the remaining chunks on redelivery
+                # after a mid-loop crash, losing data.
                 last_chunk_index = len(partition_chunks) - 1
                 for i, partition_values in enumerate(partition_chunks):
                     chunk_predicate_ops = predicate_ops.copy()
                     if len(partition_values) == 1:
-                        # Not just style: e2e pins assert this exact legacy `=` shape, and it
-                        # keeps chunk-size-1 byte-identical to the old per-partition behavior.
+                        # e2e pins assert this exact legacy `=` shape — not just style.
                         chunk_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition_values[0]}'")
                     else:
                         in_list = ", ".join(f"'{value}'" for value in partition_values)

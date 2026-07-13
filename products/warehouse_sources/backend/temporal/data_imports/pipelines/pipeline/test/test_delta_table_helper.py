@@ -983,9 +983,8 @@ class TestChunkedPartitionMerges:
     @pytest.mark.asyncio
     async def test_same_pk_in_two_partitions_of_one_chunk(self, tmp_path: Path) -> None:
         delta_path = str(tmp_path / "table")
-        # (PK, partition) is row identity: seed the same id into both partitions. Both
-        # land in one chunk, so the merge predicate must keep the source=target partition
-        # equality — with only the IN pruning term this multi-matches and corrupts/errors.
+        # Same PK seeded into two partitions of one chunk: the predicate must keep the
+        # source=target partition equality or the merge multi-matches.
         seed = pa.table(
             {
                 "id": pa.array([0, 0], type=pa.int64()),
@@ -1055,10 +1054,8 @@ class TestChunkedPartitionMerges:
         partitions = ["a", "b", "c"]
         version_before = _seed_partitioned_table(delta_path, partitions).version()
 
-        # Every seeded partition has files, so a 1-byte cap forces one merge per
-        # partition. Canary for the size-reading wiring: if get_add_actions parsing
-        # silently breaks (e.g. a deltalake upgrade renames the partition column),
-        # sizes come back empty, everything packs into one chunk, and this fails.
+        # A 1-byte cap forces one merge per partition — fails if the add-actions size
+        # read silently breaks (empty sizes would pack everything into one chunk).
         monkeypatch.setattr(dth_module, "MERGE_CHUNK_MAX_TARGET_BYTES", 1)
 
         batch = pa.table(
