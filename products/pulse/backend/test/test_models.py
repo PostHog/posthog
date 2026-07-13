@@ -174,8 +174,9 @@ class TestEvidenceRef:
         assert EvidenceRef(type=EvidenceType.EVENT, ref="$pageview", label="l").metric_ref is None
 
     def test_type_coerced_from_string(self) -> None:
-        # The plain string that survives the Temporal round-trip rebuilds back into the enum.
-        assert EvidenceRef(type="insight", ref="abc", label="l").is_insight
+        # The plain string that survives the Temporal round-trip rebuilds back into the enum;
+        # passing a str here is the behaviour under test, so the type mismatch is expected.
+        assert EvidenceRef(type="insight", ref="abc", label="l").is_insight  # type: ignore[arg-type]
 
     def test_source_item_survives_asdict_json_roundtrip(self) -> None:
         # The gather activity returns dataclasses.asdict(item); synthesize rebuilds SourceItem(**item)

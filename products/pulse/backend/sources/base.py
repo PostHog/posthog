@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Protocol
+from typing import Any, Protocol
 
 from posthog.models.team import Team
 
@@ -32,10 +32,12 @@ class EvidenceRef:
     url: str = ""  # deep link into the app; "" when the ref has no navigable target
 
     def __post_init__(self) -> None:
-        # Coerce the plain string that survives the Temporal round-trip (asdict -> JSON -> **) back
-        # into the enum, so the properties below can rely on `type` being an EvidenceType.
-        if not isinstance(self.type, EvidenceType):
-            object.__setattr__(self, "type", EvidenceType(self.type))
+        # The value crossing the Temporal boundary arrives as the enum's string (activity returns
+        # asdict(item); synthesize rebuilds via SourceItem(**item)). Coerce it back so `type` is
+        # always a real EvidenceType. `raw` is Any so the coercion isn't seen as dead code.
+        raw: Any = self.type
+        if not isinstance(raw, EvidenceType):
+            object.__setattr__(self, "type", EvidenceType(raw))
 
     @property
     def key(self) -> tuple[EvidenceType, str]:
@@ -75,12 +77,15 @@ class SourceItem:
     fingerprint_hint: str = ""
 
     def __post_init__(self) -> None:
-        # Rebuild the enum / nested dataclasses from the dicts that come back across the Temporal
-        # boundary (the gather activity returns asdict(item); synthesize rebuilds SourceItem(**item)).
-        if not isinstance(self.kind, SourceItemKind):
-            object.__setattr__(self, "kind", SourceItemKind(self.kind))
-        if self.evidence and not isinstance(self.evidence[0], EvidenceRef):
-            object.__setattr__(self, "evidence", [EvidenceRef(**e) for e in self.evidence])
+        # Same Temporal-boundary coercion as EvidenceRef: rebuild the enum and nested EvidenceRefs
+        # from the strings/dicts that come back via asdict(item) -> SourceItem(**item). The `raw`
+        # locals are Any so the type checker doesn't treat the coercion as unreachable.
+        raw_kind: Any = self.kind
+        if not isinstance(raw_kind, SourceItemKind):
+            object.__setattr__(self, "kind", SourceItemKind(raw_kind))
+        raw_evidence: list[Any] = list(self.evidence)
+        if raw_evidence and not isinstance(raw_evidence[0], EvidenceRef):
+            object.__setattr__(self, "evidence", [EvidenceRef(**e) for e in raw_evidence])
 
 
 def build_evidence_index(items: list[SourceItem]) -> dict[str, EvidenceRef]:

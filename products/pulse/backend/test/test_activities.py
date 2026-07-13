@@ -17,7 +17,7 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation
 
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
-from products.pulse.backend.sources.base import SourceItem
+from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
     gather_brief_inputs_activity,
     resolve_period,
@@ -37,11 +37,13 @@ class _StubSource:
         return [
             SourceItem(
                 source="stub",
-                kind="movement",
+                kind=SourceItemKind.MOVEMENT,
                 title="Pageviews dropped 30%",
                 description="d",
                 metrics={"pct_change": -30.0},
-                evidence=[{"type": "insight", "ref": "abc", "label": "Pageviews", "url": "/project/1/insights/abc"}],
+                evidence=[
+                    EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label="Pageviews", url="/project/1/insights/abc")
+                ],
                 fingerprint_hint="abc:0",
             )
         ]

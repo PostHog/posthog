@@ -146,10 +146,9 @@ def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[Sour
             # ignore_conflicts lets a concurrent persist that inserted the same (team, fingerprint)
             # between the dedup read above and here win the race without erroring.
             team_opportunities.bulk_create(new_opportunities, ignore_conflicts=True)
-            # Opportunity ids are client-generated (uuid7), so a lost race leaves our in-memory id
-            # uninserted while the persisted row carries the winner's id. Linking against our phantom
-            # id would violate the ResourceLink FK and abort the whole brief — so re-read and link only
-            # the opportunities we actually inserted; the winner owns the rest (and its own links).
+            # A lost (team, fingerprint) race skips our insert, yet our in-memory opportunity keeps
+            # its id — linking against it would dangle the ResourceLink FK and abort the whole brief.
+            # So re-read and link only the opportunities we actually inserted; the winner owns the rest.
             persisted_ids = dict(
                 team_opportunities.filter(fingerprint__in=[o.fingerprint for o in new_opportunities]).values_list(
                     "fingerprint", "id"

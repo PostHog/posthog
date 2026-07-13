@@ -10,7 +10,7 @@ from products.pulse.backend.generation.prompts import SYNTHESIZE_PROMPT, _get_ma
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.generation.synthesize import apply_say_less_gate, synthesize_brief
 from products.pulse.backend.models import BriefConfig
-from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem
+from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 
 _START = dt.date(2026, 1, 1)
 _END = dt.date(2026, 1, 8)
@@ -35,7 +35,7 @@ def _opportunity(confidence: float) -> OpportunityOut:
 def _item() -> SourceItem:
     return SourceItem(
         source="anchored_insights",
-        kind="movement",
+        kind=SourceItemKind.MOVEMENT,
         title="t",
         description="d",
         metrics={"pct_change": -30.0},

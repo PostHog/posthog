@@ -14,9 +14,9 @@ from products.pulse.backend.models import (
     ResourceLink,
     ResourceType,
 )
-from products.pulse.backend.sources.base import SourceItem
+from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 
-_EVIDENCE = {"type": "insight", "ref": "abc", "label": "Pageviews", "url": "/project/1/insights/abc"}
+_EVIDENCE = EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label="Pageviews", url="/project/1/insights/abc")
 
 
 def _out(fingerprint_hint: str = "abc:0", evidence_refs: list[str] | None = None) -> BriefOut:
@@ -40,7 +40,7 @@ def _out(fingerprint_hint: str = "abc:0", evidence_refs: list[str] | None = None
 def _item(fingerprint_hint: str = "abc:0") -> SourceItem:
     return SourceItem(
         source="anchored_insights",
-        kind="movement",
+        kind=SourceItemKind.MOVEMENT,
         title="Pageviews dropped 30%",
         description="d",
         metrics={"pct_change": -30.0, "baseline_total": 700.0, "current_total": 490.0},
@@ -101,11 +101,11 @@ class TestPersistBriefOutput(BaseTest):
         # link stores cached columns only (resource_type=event, every FK null).
         event_item = SourceItem(
             source="anchored_insights",
-            kind="movement",
+            kind=SourceItemKind.MOVEMENT,
             title="Signups from $pageview",
             description="d",
             metrics={},
-            evidence=[{"type": "event", "ref": "$pageview", "label": "Pageview", "url": ""}],
+            evidence=[EvidenceRef(type=EvidenceType.EVENT, ref="$pageview", label="Pageview", url="")],
             fingerprint_hint="evt:0",
         )
         persist_brief_output(brief=self._brief(), out=_out(fingerprint_hint="evt:0"), items=[event_item])
