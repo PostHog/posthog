@@ -3,7 +3,7 @@
 Every product-analytics event Pulse emits, with its properties and the dashboard panel(s) that consume it.
 This is the contract the Pulse health dashboard (and the future feedback-driven tuning loop) builds against — treat property renames as breaking changes and update this file in the same PR.
 The contract is maintained by hand (deliberate for 7 events): emission _shapes_ are pinned by tests (`test_feedback_api.py`, `test_activities.py`), so a property rename fails tests; keeping this file in sync is part of those PRs.
-The dashboard is defined as code in `terraform/us/project-2/team-analytics-platform/pulse-health/`; its README carries the panel ↔ event table this file's "Dashboard panels" lines mirror.
+The dashboard is defined as code in `terraform/us/project-2/team-analytics-platform/pulse-health/`; each insight's `description` and section comment there records the events and properties it consumes, mirroring this file's "Dashboard panels" lines.
 
 All events are captured against the acting user's distinct id.
 Backend request-context events go through `report_user_action` (which merges request analytics properties); the generation event goes through `ph_scoped_capture` because it fires from a Temporal worker.
@@ -26,7 +26,7 @@ Skipped when the brief has no creating user (no distinct id to attribute to).
 | `new_opportunity_count` | int        | Opportunities persisted by this run (post-dedup).                                                                                                                                 |
 | `emit_failed_count`     | int        | Opportunity→signals emits that failed in this run. Carried here (instead of a dedicated event) because the failures are already counted in the emit loop and only matter per run. |
 
-Dashboard panels: Brief generation volume (`status`, `trigger`), Opportunity action rate (`new_opportunity_count`), Signal emit failure rate (`new_opportunity_count`, `emit_failed_count`).
+Dashboard panels: Brief generation volume (`status`, `trigger`), Opportunity action rate (`new_opportunity_count`), Opportunity engagement (`new_opportunity_count`), Signal emit failure rate (`new_opportunity_count`, `emit_failed_count`).
 Future tuning loop — not yet charted: goal adoption (`has_goal`), period mix (`period_days`), `has_config` split.
 
 ## Attention
@@ -59,8 +59,8 @@ Emitted from `api/opportunity.py` on each successful lifecycle transition.
 | `status`         | str        | The status after the transition.                                   |
 | `goal_relevant`  | bool       | Whether the opportunity was marked as advancing the config's goal. |
 
-Dashboard panels: Opportunity action rate (7d) — `opportunity_acted` + `opportunity_dismissed` event counts against generated opportunities; no properties consumed.
-Future tuning loop — not yet charted: by-kind act/dismiss rates (`kind`), goal-relevant split (`goal_relevant`), reopen churn (`opportunity_reopened`).
+Dashboard panels: Opportunity action rate (7d) and Opportunity engagement — `opportunity_acted` + `opportunity_dismissed` event counts against generated opportunities; Opportunity actions by kind (`kind`).
+Future tuning loop — not yet charted: goal-relevant split (`goal_relevant`), reopen churn (`opportunity_reopened`).
 
 ## Helpfulness feedback
 
