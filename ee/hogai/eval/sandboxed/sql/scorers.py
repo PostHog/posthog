@@ -14,13 +14,10 @@ placeholder is dropped: the sandboxed run doesn't surface a schema dump
 to scorers, and the judge has the user prompt + reference SQL to anchor
 on without it.
 
-The shared judge plumbing (``JudgedScorer``, ``parser_for``,
-``user_prompt``, alignment constants, ``JUDGE_MODEL``) is cross-imported
-from ``product_analytics/scorers.py``.
-That's a layering smell — they're general-purpose helpers tied to a
-domain folder by accident — but with only this one new consumer, the
-fix-up belongs in a follow-up refactor when a third general-purpose eval
-(warehouse, system tables, persons CRUD) lands. Don't lift speculatively.
+The shared judge plumbing (``JudgedScorer``, alignment constants,
+``JUDGE_MODEL``) lives in ``ee/hogai/eval/sandboxed/scorers/``; only the
+log-extraction helpers (``parser_for``, ``user_prompt``) and the query
+rubric are still cross-imported from ``product_analytics/scorers.py``.
 """
 
 from __future__ import annotations
@@ -30,14 +27,8 @@ from typing import Any
 from braintrust import Score
 from braintrust_core.score import Scorer
 
-from ee.hogai.eval.sandboxed.product_analytics.scorers import (
-    GRADED_ALIGNMENT_CHOICE_SCORES,
-    GRADED_ALIGNMENT_RUBRIC,
-    JUDGE_MODEL,
-    JudgedScorer,
-    parser_for,
-    user_prompt,
-)
+from ee.hogai.eval.sandboxed.product_analytics.scorers import GRADED_ALIGNMENT_RUBRIC, parser_for, user_prompt
+from ee.hogai.eval.sandboxed.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 
 QUERY_SQL_TOOL_NAME = "execute-sql"
 _MAX_RESULT_CHARS_FOR_JUDGE = 12_000
@@ -98,13 +89,7 @@ class AnswerQueryRan(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _evaluate(self, output: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         if extract_last_execute_sql_query(output) is None:

@@ -6,11 +6,11 @@ import re
 import json
 from typing import Any
 
-from autoevals.llm import LLMClassifier
 from braintrust import Score
 from braintrust_core.score import Scorer
 
 from ee.hogai.eval.sandboxed.log_parser import LogParser, ToolCall
+from ee.hogai.eval.sandboxed.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 
 SURVEY_CREATE_TOOL_NAME = "survey-create"
 SURVEY_FORBIDDEN_WRITE_TOOLS = frozenset(
@@ -30,15 +30,6 @@ SURVEY_FORBIDDEN_WRITE_TOOLS = frozenset(
     }
 )
 
-GRADED_ALIGNMENT_CHOICE_SCORES = {
-    "perfect": 1.0,
-    "near_perfect": 0.9,
-    "slightly_off": 0.75,
-    "somewhat_misaligned": 0.5,
-    "strongly_misaligned": 0.25,
-    "useless": 0.0,
-}
-
 GRADED_ALIGNMENT_RUBRIC = """
 How would you rate the alignment of the generated survey-create payload with the expected survey? Choose one:
 - perfect: The payload fully matches the expected survey on every material aspect.
@@ -51,32 +42,8 @@ How would you rate the alignment of the generated survey-create payload with the
 Details matter greatly here, especially question type, launch state, targeting, and feature-flag variant conditions.
 """.strip()
 
-_JUDGE_MODEL = "gpt-5.4"
 _UUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 _ID_FIELD_RE = re.compile(r"\bid\s*[:=]\s*['\"]?([0-9a-fA-F-]{32,36})")
-
-
-class _JudgedScorer(LLMClassifier):
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        prepared = self._prepare(output, expected)
-        if isinstance(prepared, Score):
-            return prepared
-        try:
-            return await super()._run_eval_async(prepared["output"], prepared["expected"], **kwargs)
-        except Exception as exc:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        prepared = self._prepare(output, expected)
-        if isinstance(prepared, Score):
-            return prepared
-        try:
-            return super()._run_eval_sync(prepared["output"], prepared["expected"], **kwargs)
-        except Exception as exc:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
-
-    def _prepare(self, output, expected) -> dict[str, Any] | Score:
-        raise NotImplementedError
 
 
 def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
@@ -287,13 +254,7 @@ class SurveyCreationSuccess(Scorer):
     def _name(self) -> str:
         return "survey_created"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> Score:
+    def _run_eval_sync(self, output: dict[str, Any] | None, expected: dict[str, Any] | None = None, **kwargs) -> Score:
         spec = _expected_spec(expected, self._name()) or {}
         should_create = spec.get("should_create", True)
         successful_call = _last_survey_create_call(output, successful=True)
@@ -334,13 +295,7 @@ class SurveyCreateOutcome(Scorer):
     def _name(self) -> str:
         return "survey_create_outcome"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> Score:
+    def _run_eval_sync(self, output: dict[str, Any] | None, expected: dict[str, Any] | None = None, **kwargs) -> Score:
         spec = _expected_spec(expected, "survey_created") or {}
         should_create = spec.get("should_create", True)
         parser = _parser_for(output)
@@ -411,13 +366,7 @@ class SurveyCreateReturnedId(Scorer):
     def _name(self) -> str:
         return "survey_create_returned_id"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> Score:
+    def _run_eval_sync(self, output: dict[str, Any] | None, expected: dict[str, Any] | None = None, **kwargs) -> Score:
         spec = _expected_spec(expected, "survey_created") or {}
         if spec.get("should_create", True) is not True:
             return Score(name=self._name(), score=None, metadata={"reason": "Survey ID not expected"})
@@ -442,13 +391,7 @@ class SurveyIdInFinalMessage(Scorer):
     def _name(self) -> str:
         return "survey_id_in_final_message"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> Score:
+    def _run_eval_sync(self, output: dict[str, Any] | None, expected: dict[str, Any] | None = None, **kwargs) -> Score:
         spec = _expected_spec(expected, self._name())
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No ID-in-final-message expectation"})
@@ -485,13 +428,7 @@ class SurveyCreateRejected(Scorer):
     def _name(self) -> str:
         return "survey_create_rejected"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> Score:
+    def _run_eval_sync(self, output: dict[str, Any] | None, expected: dict[str, Any] | None = None, **kwargs) -> Score:
         spec = _expected_spec(expected, self._name())
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No rejection expectation"})
@@ -536,7 +473,7 @@ class SurveyCreateRejected(Scorer):
         )
 
 
-class SurveyCreateSchemaAlignment(_JudgedScorer):
+class SurveyCreateSchemaAlignment(JudgedScorer):
     """Graded score: how well does the actual survey-create input match the expected survey?"""
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
@@ -606,7 +543,7 @@ Penalize:
             + "\n\n"
             + GRADED_ALIGNMENT_RUBRIC,
             choice_scores=GRADED_ALIGNMENT_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )

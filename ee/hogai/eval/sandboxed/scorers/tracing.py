@@ -20,6 +20,7 @@ from braintrust_core.score import Scorer
 from posthoganalytics import Posthog
 
 from ..trace_events import DISTINCT_ID
+from .judged import AsyncOnlyScorerMixin
 
 # Context var for injecting per-scorer-invocation trace properties
 # into the traced OpenAI client's ``create()`` calls.
@@ -111,7 +112,7 @@ def create_traced_scorer_clients(posthog_client: Posthog) -> TracedClients:
     )
 
 
-class TracedScorer(Scorer):
+class TracedScorer(AsyncOnlyScorerMixin, Scorer):
     """Wraps a Scorer to trace LLM calls and collect per-invocation trace IDs.
 
     For LLM-based scorers (those with a ``client`` attribute), injects a
@@ -176,15 +177,9 @@ class TracedScorer(Scorer):
     async def _run_eval_async(self, output, expected=None, **kwargs):
         case_name = _case_name_from_kwargs(kwargs)
         with self._invocation_context(case_name) as is_llm_scorer:
-            result = await self._inner._run_eval_async(output, expected, **kwargs)
-        if not is_llm_scorer and self._posthog_client:
-            self._emit_scorer_span(case_name, result)
-        return result
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        case_name = _case_name_from_kwargs(kwargs)
-        with self._invocation_context(case_name) as is_llm_scorer:
-            result = self._inner._run_eval_sync(output, expected, **kwargs)
+            # eval_async, not _run_eval_async: sync-only inner scorers rely on
+            # the base class's async-to-sync delegation.
+            result = await self._inner.eval_async(output, expected, **kwargs)
         if not is_llm_scorer and self._posthog_client:
             self._emit_scorer_span(case_name, result)
         return result

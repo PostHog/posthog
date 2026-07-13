@@ -117,13 +117,7 @@ class CalledTargetTool(Scorer):
     def _name(self) -> str:
         return "called_target_tool"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         target = _read_tool(expected, self._name())
@@ -184,13 +178,7 @@ class RecoveredToCorrectTool(Scorer):
     def _name(self) -> str:
         return "recovered_to_correct_tool"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = _read_spec(expected, self._name())
         if not spec:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
@@ -250,13 +238,7 @@ class DrilledIntoSchema(Scorer):
     def _name(self) -> str:
         return "drilled_into_schema"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = _read_spec(expected, self._name())
         if not spec:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
@@ -322,13 +304,7 @@ class RetrievedSchemaPath(Scorer):
     def _name(self) -> str:
         return "retrieved_schema_path"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = _read_spec(expected, self._name())
         if not spec:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
@@ -404,13 +380,7 @@ class PreferredSearchOverTools(Scorer):
     def _name(self) -> str:
         return "preferred_search_over_tools"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if _read_spec(expected, self._name()) is None:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
 
@@ -473,13 +443,7 @@ class InfoBeforeCall(Scorer):
     def _name(self) -> str:
         return "info_before_call"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         target = _read_tool(expected, self._name())
         if not target:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.tool on case"})
@@ -542,13 +506,7 @@ class VerifiedEventBeforeQuery(Scorer):
     def _name(self) -> str:
         return "verified_event_before_query"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = _read_spec(expected, self._name())
         if not spec:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
@@ -618,13 +576,7 @@ class UsedJsonOutputFormat(Scorer):
     def _name(self) -> str:
         return "used_json_output_format"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         target = _read_tool(expected, self._name())
         if not target:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.tool on case"})
@@ -682,13 +634,7 @@ class SurfacedGeneratedAppUrl(Scorer):
     def _name(self) -> str:
         return "surfaced_generated_app_url"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if _read_spec(expected, self._name()) is None:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
 
@@ -742,13 +688,7 @@ class RanPythonPostProcessing(Scorer):
     def _name(self) -> str:
         return "ran_python_post_processing"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if _read_spec(expected, self._name()) is None:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
 
@@ -810,13 +750,7 @@ class RenderedEntityUi(Scorer):
     def _name(self) -> str:
         return "rendered_entity_ui"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = _read_spec(expected, self._name())
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
@@ -875,19 +809,13 @@ class ExecBeforeRender(Scorer):
     def _name(self) -> str:
         return "exec_before_render"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
     @staticmethod
     def _is_exec_action(call: ToolCall) -> bool:
         if call.is_error:
             return False
         return call.is_exec_unwrapped or call.name == EXEC_TOOL_NAME or call.name.startswith(INFO_SYNTHETIC_PREFIX)
 
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if _read_spec(expected, self._name()) is None:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
 
@@ -935,13 +863,7 @@ class DidNotRenderUi(Scorer):
     def _name(self) -> str:
         return "did_not_render_ui"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = _read_spec(expected, self._name())
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})

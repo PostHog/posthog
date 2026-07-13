@@ -132,19 +132,19 @@ def _make_output(
 
 def test_information_schema_queried_passes_when_info_schema_hit():
     out = _make_output(sql_calls=[("SELECT table_name FROM system.information_schema.tables", "rows")])
-    score = InformationSchemaQueried()._evaluate(out, {"information_schema_queried": {}})
+    score = InformationSchemaQueried()._run_eval_sync(out, {"information_schema_queried": {}})
     assert score.score == 1.0
 
 
 def test_information_schema_queried_fails_without_info_schema():
     out = _make_output(sql_calls=[("SELECT 1 FROM stripe_charges", "rows")])
-    score = InformationSchemaQueried()._evaluate(out, {"information_schema_queried": {}})
+    score = InformationSchemaQueried()._run_eval_sync(out, {"information_schema_queried": {}})
     assert score.score == 0.0
 
 
 def test_information_schema_queried_skips_when_not_requested():
     out = _make_output(sql_calls=[("SELECT 1 FROM system.information_schema.tables", "rows")])
-    score = InformationSchemaQueried()._evaluate(out, {})
+    score = InformationSchemaQueried()._run_eval_sync(out, {})
     assert score.score is None
 
 
@@ -158,7 +158,7 @@ def test_before_answer_passes_when_discovery_precedes_answer():
             ("SELECT * FROM pg_orders LIMIT 5", "rows"),
         ]
     )
-    score = InformationSchemaBeforeAnswer()._evaluate(out, {"information_schema_before_answer": {}})
+    score = InformationSchemaBeforeAnswer()._run_eval_sync(out, {"information_schema_before_answer": {}})
     assert score.score == 1.0
 
 
@@ -169,13 +169,13 @@ def test_before_answer_fails_when_answer_precedes_discovery():
             ("SELECT column_name FROM system.information_schema.columns", "rows"),
         ]
     )
-    score = InformationSchemaBeforeAnswer()._evaluate(out, {"information_schema_before_answer": {}})
+    score = InformationSchemaBeforeAnswer()._run_eval_sync(out, {"information_schema_before_answer": {}})
     assert score.score == 0.0
 
 
 def test_before_answer_skips_when_no_answer_query():
     out = _make_output(sql_calls=[("SELECT table_name FROM system.information_schema.tables", "rows")])
-    score = InformationSchemaBeforeAnswer()._evaluate(out, {"information_schema_before_answer": {}})
+    score = InformationSchemaBeforeAnswer()._run_eval_sync(out, {"information_schema_before_answer": {}})
     assert score.score is None
 
 
@@ -186,13 +186,13 @@ def test_agentic_search_passes_for_filtered_query():
     out = _make_output(
         sql_calls=[("SELECT table_name FROM system.information_schema.tables WHERE table_name = 'pg_orders'", "rows")]
     )
-    score = AgenticSearchUsed()._evaluate(out, {"agentic_search_used": {}})
+    score = AgenticSearchUsed()._run_eval_sync(out, {"agentic_search_used": {}})
     assert score.score == 1.0
 
 
 def test_agentic_search_fails_for_unfiltered_dump():
     out = _make_output(sql_calls=[("SELECT table_name FROM system.information_schema.tables", "rows")])
-    score = AgenticSearchUsed()._evaluate(out, {"agentic_search_used": {}})
+    score = AgenticSearchUsed()._run_eval_sync(out, {"agentic_search_used": {}})
     assert score.score == 0.0
 
 
@@ -204,8 +204,8 @@ def test_agentic_search_require_pattern_needs_like():
         sql_calls=[("SELECT table_name FROM system.information_schema.tables WHERE description ILIKE '%mrr%'", "rows")]
     )
     spec = {"agentic_search_used": {"require_pattern": True}}
-    assert AgenticSearchUsed()._evaluate(where_eq, spec).score == 0.0
-    assert AgenticSearchUsed()._evaluate(where_like, spec).score == 1.0
+    assert AgenticSearchUsed()._run_eval_sync(where_eq, spec).score == 0.0
+    assert AgenticSearchUsed()._run_eval_sync(where_like, spec).score == 1.0
 
 
 # -- NeedleTableIdentified ----------------------------------------------------
@@ -213,7 +213,7 @@ def test_agentic_search_require_pattern_needs_like():
 
 def test_needle_table_identified_via_final_message():
     out = _make_output(final_text="The canonical MRR table is pg_ext_4471.")
-    score = NeedleTableIdentified()._evaluate(out, {"needle_table_identified": {"table": "pg_ext_4471"}})
+    score = NeedleTableIdentified()._run_eval_sync(out, {"needle_table_identified": {"table": "pg_ext_4471"}})
     assert score.score == 1.0
 
 
@@ -221,13 +221,13 @@ def test_needle_table_identified_resolves_seed_key():
     out = _make_output(
         final_text="It's hubspot_sync_meta.", seed={"column_type_needle": {"table": "hubspot_sync_meta"}}
     )
-    score = NeedleTableIdentified()._evaluate(out, {"needle_table_identified": {"seed_key": "column_type_needle"}})
+    score = NeedleTableIdentified()._run_eval_sync(out, {"needle_table_identified": {"seed_key": "column_type_needle"}})
     assert score.score == 1.0
 
 
 def test_needle_table_identified_fails_when_absent():
     out = _make_output(final_text="I could not find it.")
-    score = NeedleTableIdentified()._evaluate(out, {"needle_table_identified": {"table": "pg_ext_4471"}})
+    score = NeedleTableIdentified()._run_eval_sync(out, {"needle_table_identified": {"table": "pg_ext_4471"}})
     assert score.score == 0.0
 
 
@@ -240,13 +240,13 @@ def test_needle_value_retrieved_from_sql_result():
         final_text="The secret_code is HEDGE-7731.",
         seed={"retrieval_needle": {"queryable": True, "answer": "HEDGE-7731"}},
     )
-    score = NeedleValueRetrieved()._evaluate(out, {"needle_value_retrieved": {}})
+    score = NeedleValueRetrieved()._run_eval_sync(out, {"needle_value_retrieved": {}})
     assert score.score == 1.0
 
 
 def test_needle_value_retrieved_skips_when_not_queryable():
     out = _make_output(seed={"retrieval_needle": {"queryable": False, "answer": "HEDGE-7731"}})
-    score = NeedleValueRetrieved()._evaluate(out, {"needle_value_retrieved": {}})
+    score = NeedleValueRetrieved()._run_eval_sync(out, {"needle_value_retrieved": {}})
     assert score.score is None
 
 
@@ -256,7 +256,7 @@ def test_needle_value_retrieved_honors_value_override():
         final_text="Largest is 24990.",
         seed={"retrieval_needle": {"queryable": True, "answer": "HEDGE-7731"}},
     )
-    score = NeedleValueRetrieved()._evaluate(out, {"needle_value_retrieved": {"value": "24990"}})
+    score = NeedleValueRetrieved()._run_eval_sync(out, {"needle_value_retrieved": {"value": "24990"}})
     assert score.score == 1.0
 
 
@@ -271,7 +271,7 @@ def test_relationship_discovery_passes_with_relationships_query_and_named_pair()
         final_text="pg_orders_2023 joins salesforce_acct_xref on account_ref.",
         seed={"relationship_needle": {"source": "pg_orders_2023", "target": "salesforce_acct_xref"}},
     )
-    score = RelationshipDiscovery()._evaluate(out, {"relationship_discovery": {}})
+    score = RelationshipDiscovery()._run_eval_sync(out, {"relationship_discovery": {}})
     assert score.score == 1.0
 
 
@@ -280,7 +280,7 @@ def test_relationship_discovery_fails_without_discovery():
         final_text="They are probably related somehow.",
         seed={"relationship_needle": {"source": "pg_orders_2023", "target": "salesforce_acct_xref"}},
     )
-    score = RelationshipDiscovery()._evaluate(out, {"relationship_discovery": {}})
+    score = RelationshipDiscovery()._run_eval_sync(out, {"relationship_discovery": {}})
     assert score.score == 0.0
 
 
@@ -297,19 +297,19 @@ def test_stale_table_avoided_passes_when_current_recommended_and_stale_flagged()
         ),
         seed=_RELEVANCY_SEED,
     )
-    score = StaleTableAvoided()._evaluate(out, {"stale_table_avoided": {}})
+    score = StaleTableAvoided()._run_eval_sync(out, {"stale_table_avoided": {}})
     assert score.score == 1.0
 
 
 def test_stale_table_avoided_passes_when_only_current_named():
     out = _make_output(final_text="You should use dim_accounts_snapshot for current reporting.", seed=_RELEVANCY_SEED)
-    score = StaleTableAvoided()._evaluate(out, {"stale_table_avoided": {}})
+    score = StaleTableAvoided()._run_eval_sync(out, {"stale_table_avoided": {}})
     assert score.score == 1.0
 
 
 def test_stale_table_avoided_fails_when_stale_recommended():
     out = _make_output(final_text="Use dim_accounts_snapshot_2023 for your accounts reporting.", seed=_RELEVANCY_SEED)
-    score = StaleTableAvoided()._evaluate(out, {"stale_table_avoided": {}})
+    score = StaleTableAvoided()._run_eval_sync(out, {"stale_table_avoided": {}})
     assert score.score == 0.0
 
 
@@ -319,13 +319,13 @@ def test_stale_table_avoided_fails_when_stale_named_without_deprecation_cue():
         final_text="There's dim_accounts_snapshot and dim_accounts_snapshot_2023; either has accounts.",
         seed=_RELEVANCY_SEED,
     )
-    score = StaleTableAvoided()._evaluate(out, {"stale_table_avoided": {}})
+    score = StaleTableAvoided()._run_eval_sync(out, {"stale_table_avoided": {}})
     assert score.score == 0.0
 
 
 def test_stale_table_avoided_skips_when_not_requested():
     out = _make_output(final_text="anything", seed=_RELEVANCY_SEED)
-    score = StaleTableAvoided()._evaluate(out, {})
+    score = StaleTableAvoided()._run_eval_sync(out, {})
     assert score.score is None
 
 
@@ -351,7 +351,7 @@ def test_join_path_traversed_passes_with_relationships_query_and_all_tables_name
         ),
         seed=_CHAIN_SEED,
     )
-    score = JoinPathTraversed()._evaluate(out, {"join_path_traversed": {}})
+    score = JoinPathTraversed()._run_eval_sync(out, {"join_path_traversed": {}})
     assert score.score == 1.0
     assert score.metadata["keys_named"] == ["account_ref", "owner_id"]
 
@@ -364,7 +364,7 @@ def test_join_path_traversed_fails_when_only_first_hop_found():
         final_text="pg_orders_2023 joins salesforce_acct_xref on account_ref.",
         seed=_CHAIN_SEED,
     )
-    score = JoinPathTraversed()._evaluate(out, {"join_path_traversed": {}})
+    score = JoinPathTraversed()._run_eval_sync(out, {"join_path_traversed": {}})
     assert score.score == 0.0
 
 
@@ -373,13 +373,13 @@ def test_join_path_traversed_fails_without_relationships_query():
         final_text="pg_orders_2023, salesforce_acct_xref and salesforce_acct_owners are probably related.",
         seed=_CHAIN_SEED,
     )
-    score = JoinPathTraversed()._evaluate(out, {"join_path_traversed": {}})
+    score = JoinPathTraversed()._run_eval_sync(out, {"join_path_traversed": {}})
     assert score.score == 0.0
 
 
 def test_join_path_traversed_skips_when_not_requested():
     out = _make_output(final_text="anything", seed=_CHAIN_SEED)
-    score = JoinPathTraversed()._evaluate(out, {})
+    score = JoinPathTraversed()._run_eval_sync(out, {})
     assert score.score is None
 
 
@@ -388,19 +388,19 @@ def test_join_path_traversed_skips_when_not_requested():
 
 def test_answer_query_ran_true_for_real_answer():
     out = _make_output(sql_calls=[("SELECT * FROM pg_orders LIMIT 5", "rows")])
-    score = AnswerQueryRanWhenExpected()._evaluate(out, {"answer_query_ran": {}})
+    score = AnswerQueryRanWhenExpected()._run_eval_sync(out, {"answer_query_ran": {}})
     assert score.score == 1.0
 
 
 def test_answer_query_ran_false_for_discovery_only():
     out = _make_output(sql_calls=[("SELECT table_name FROM system.information_schema.tables", "rows")])
-    score = AnswerQueryRanWhenExpected()._evaluate(out, {"answer_query_ran": {}})
+    score = AnswerQueryRanWhenExpected()._run_eval_sync(out, {"answer_query_ran": {}})
     assert score.score == 0.0
 
 
 def test_answer_query_ran_skips_when_not_requested():
     out = _make_output(sql_calls=[("SELECT * FROM pg_orders", "rows")])
-    score = AnswerQueryRanWhenExpected()._evaluate(out, {})
+    score = AnswerQueryRanWhenExpected()._run_eval_sync(out, {})
     assert score.score is None
 
 

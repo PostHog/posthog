@@ -14,13 +14,7 @@ class ExitCodeZero(Scorer):
     def _name(self) -> str:
         return "exit_code_zero"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _evaluate(self, output: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No output"})
         exit_code = output.get("exit_code", -1)
@@ -54,13 +48,7 @@ class NoToolCall(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _evaluate(self, output: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         raw_log = output.get("raw_log")
@@ -108,13 +96,7 @@ class LastToolCallNot(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _evaluate(self, output: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         raw_log = output.get("raw_log")
@@ -158,13 +140,7 @@ class RequiredToolCall(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _evaluate(self, output: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         raw_log = output.get("raw_log")

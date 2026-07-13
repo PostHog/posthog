@@ -20,11 +20,11 @@ import re
 import json
 from typing import Any
 
-from autoevals.llm import LLMClassifier
 from braintrust import Score
 from braintrust_core.score import Scorer
 
 from ee.hogai.eval.sandboxed.log_parser import LogParser, ToolCall
+from ee.hogai.eval.sandboxed.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 
 __all__ = [
     "BINARY_CHOICE_SCORES",
@@ -66,9 +66,6 @@ QUERY_ISSUE_TOOL = "query-error-tracking-issue"
 QUERY_ISSUE_EVENTS_TOOL = "query-error-tracking-issue-events"
 SESSION_RECORDINGS_LIST_TOOL = "query-session-recordings-list"
 
-BINARY_CHOICE_SCORES = {"yes": 1.0, "no": 0.0}
-
-_JUDGE_MODEL = "gpt-5.4"
 _SESSION_ID_TEXT_RE = re.compile(r"""["']?\$?session_id["']?\s*[:=]\s*["']?([^"',\s}\]]+)""")
 _TOON_NON_EMPTY_RESULTS_RE = re.compile(r"""(?m)^\s*results\[[1-9]\d*\](?:\{[^}]*\})?:""")
 
@@ -249,13 +246,7 @@ class _ToolUsedScorer(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output)
-
-    def _evaluate(self, output: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log to parse"})
@@ -321,11 +312,11 @@ class EventsToolUsed(_ToolUsedScorer):
 # ---------------------------------------------------------------------------
 
 
-class _AlignmentClassifier(LLMClassifier):
+class _AlignmentClassifier(JudgedScorer):
     """Shared boilerplate for binary alignment classifiers.
 
     Subclasses provide the prompt template, the per-tool input extractor,
-    and the expected-payload key on ``case.expected``. The base class
+    and the expected-payload key on ``case.expected``. This base
     handles the "agent never ran the tool" / "no expected provided"
     short-circuits by returning ``Score(score=None, ...)`` before
     delegating to the LLM judge — scoring uncalled tools as 0 would
@@ -337,24 +328,6 @@ class _AlignmentClassifier(LLMClassifier):
 
     def _extract_actual(self, output: dict[str, Any] | None) -> dict[str, Any] | None:
         raise NotImplementedError
-
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        prepared = self._prepare(output, expected)
-        if isinstance(prepared, Score):
-            return prepared
-        try:
-            return await super()._run_eval_async(prepared["output"], prepared["expected"], **kwargs)
-        except Exception as exc:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        prepared = self._prepare(output, expected)
-        if isinstance(prepared, Score):
-            return prepared
-        try:
-            return super()._run_eval_sync(prepared["output"], prepared["expected"], **kwargs)
-        except Exception as exc:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
 
     def _prepare(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> dict[str, Any] | Score:
         actual = self._extract_actual(output)
@@ -429,7 +402,7 @@ Ignore `filterTestAccounts`, `volumeResolution`, `limit`, `offset` unless EXPECT
 Does the actual input match the expected one on the material fields above? Answer `yes` or `no`.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
@@ -469,7 +442,7 @@ Ignore `issueId` for this check (covered by a separate scorer). Ignore `filterTe
 Does the actual issue input match the expected one on the material fields above? Answer `yes` or `no`.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
@@ -578,7 +551,7 @@ Ignore `issueId` for this check (covered by a separate scorer). Ignore `filterTe
 Are all actual events arguments consistent with the expected ones? Answer `yes` or `no`.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
@@ -645,13 +618,7 @@ class IssueIdMatchesTarget(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         target = _resolve_target_issue(output.get("seed"), expected)
@@ -747,13 +714,7 @@ class IssueDrilldownOrder(Scorer):
     def _name(self) -> str:
         return self._label
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
-
-    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         parser = _parser_for(output)
