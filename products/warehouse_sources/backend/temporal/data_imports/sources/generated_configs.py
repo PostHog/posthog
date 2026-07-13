@@ -1329,7 +1329,7 @@ class FireboltSourceConfig(config.Config):
 
 @config.config
 class FirecrawlSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
