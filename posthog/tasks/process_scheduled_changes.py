@@ -378,12 +378,14 @@ def process_scheduled_changes() -> None:
 
                     scheduled_change.save()
 
-                    # An orphaned target (the target record was deleted after the change was
-                    # scheduled) is expected drift, already handled via the row's failure_reason
-                    # above, so reporting it to error tracking is pure noise. Other unrecoverable
-                    # errors — invalid payload, unsupported operation, mismatched variant data, or
-                    # a missing bound ChangeRequest — indicate either a broken payload or a data
-                    # integrity issue, and should stay visible in error tracking.
+                    # orphaned_target covers any target row missing for this record_id/team_id —
+                    # most commonly deleted after the change was scheduled, but also a record_id
+                    # that never existed for this team. Either way it's expected drift, already
+                    # handled via the row's failure_reason above, so reporting it to error tracking
+                    # is pure noise. Other unrecoverable errors — invalid payload, unsupported
+                    # operation, mismatched variant data, or a missing bound ChangeRequest —
+                    # indicate either a broken payload or a data integrity issue, and should stay
+                    # visible in error tracking.
                     if orphaned_target:
                         logger.info(
                             "Scheduled change skipped: target record not found",
