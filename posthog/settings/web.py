@@ -95,6 +95,7 @@ PRODUCTS_APPS = [
     "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
     "products.approvals.backend.apps.ApprovalsConfig",
+    "products.data_catalog.backend.apps.DataCatalogConfig",
 ]
 
 INSTALLED_APPS = [
@@ -419,6 +420,14 @@ def static_varies_origin(headers, path, url):
 
 WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
 
+# Non-hashed static files (notably the posthog-js SDK bundles served to
+# end-user browsers) otherwise fall back to whitenoise's 60s default and
+# generate constant 304 revalidation churn (~a third of /static traffic).
+# Hashed manifest assets are unaffected — whitenoise already serves those
+# with far-future caching. One hour bounds how long a client that does not
+# cache-bust can hold a stale SDK bundle after a release.
+WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
+
 # Per-IP signup throttle rate (see posthog.rate_limit.SignupIPThrottle). Overridable per-env so
 # non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
 SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
@@ -538,6 +547,7 @@ SPECTACULAR_SETTINGS = {
         ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        "MCPInstallationScopeEnum": ["personal", "shared"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
@@ -555,6 +565,9 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # The metrics query's OTel metric-type filter; without a pinned name it
+        # collides with the experiments MetricTypeEnum (funnel/ratio/...).
+        "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
         # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
