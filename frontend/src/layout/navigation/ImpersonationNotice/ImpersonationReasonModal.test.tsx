@@ -40,7 +40,7 @@ describe('ImpersonationReasonModal', () => {
             />
         )
 
-        fireEvent.click(screen.getByRole('button', { name: 'Upgrade' }))
+        fireEvent.click(screen.getByText('Upgrade'))
 
         expect(onConfirm).toHaveBeenCalledWith('support ticket #123')
     })
