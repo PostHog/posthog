@@ -2238,8 +2238,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 # Pool slots are quota'd per team; tiles beyond the quota run inline below.
                 futures = []
                 inline_tiles = []
+                team_id = team.id
                 for order, tile in enumerate(sorted_tiles):
-                    if try_acquire_tile_pool_slot(team.id):
+                    if try_acquire_tile_pool_slot(team_id):
                         future = _tile_serialize_executor.submit(
                             contextvars.copy_context().run,
                             serialize_tile_in_worker,
@@ -2250,7 +2251,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         )
                         # done callbacks fire on cancellation too, so a slot can't leak when the
                         # collection deadline cancels unstarted work.
-                        future.add_done_callback(lambda _future, _team_id=team.id: release_tile_pool_slot(_team_id))
+                        future.add_done_callback(lambda _future: release_tile_pool_slot(team_id))
                         futures.append(future)
                     else:
                         inline_tiles.append((order, tile))
