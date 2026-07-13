@@ -80,7 +80,7 @@ from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
-from posthog.models.oauth import find_oauth_refresh_token
+from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -1567,6 +1567,13 @@ def toolbar_oauth_callback(request):
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
     except ToolbarOAuthError as exc:
         return HttpResponse(exc.detail, status=exc.status_code)
+
+    # The first-party auto-approval path issues this grant with an org-wide
+    # scoped_teams=[] (unrestricted across every team in the org), since the generic
+    # /oauth/authorize/ view has no notion of which team a toolbar launch was verified
+    # for. Narrow it to the verified team here, before the client can exchange the code,
+    # so the resulting tokens can't be replayed against a team where toolbar access is denied.
+    OAuthGrant.objects.filter(code=code, application=oauth_app, user=request.user).update(scoped_teams=[team.id])
 
     # Re-validate app_url from the signed state against the team's allowlist.
     # validate_and_consume_toolbar_oauth_state already does this, but repeating

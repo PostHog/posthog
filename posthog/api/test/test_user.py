@@ -25,10 +25,11 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_token_generator
+from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -2230,6 +2231,48 @@ class TestToolbarAccessControl(APIBaseTest):
         response = self.client.get("/toolbar_oauth/callback?code=abc123&state=fake-state")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_toolbar_oauth_callback_narrows_grant_to_verified_team(self):
+        """The generic first-party OAuth auto-approval issues the grant with scoped_teams=[]
+        (unrestricted across every team in the org) since it has no notion of which team a toolbar
+        launch was verified for. The callback must narrow it to that team, or the resulting tokens
+        could be replayed against a different team in the same org where toolbar access is denied."""
+        oauth_app = OAuthApplication.objects.create(
+            name="Test Toolbar OAuth App",
+            client_id="test_toolbar_client_id_scoping",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        grant = OAuthGrant.objects.create(
+            application=oauth_app,
+            user=self.user,
+            code="test-grant-code",
+            expires=timezone.now() + timedelta(minutes=10),
+            redirect_uri="https://example.com/callback",
+            scope="openid",
+            code_challenge="abc",
+            code_challenge_method="S256",
+            scoped_teams=[],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        signed_state, _ = build_toolbar_oauth_state(
+            ToolbarOAuthState(
+                nonce=new_state_nonce(),
+                user_id=self.user.id,
+                team_id=self.team.id,
+                app_url="http://127.0.0.1:8010",
+            )
+        )
+
+        with patch("posthog.api.user.get_or_create_toolbar_oauth_application", return_value=oauth_app):
+            response = self.client.get(f"/toolbar_oauth/callback?code={grant.code}&state={signed_state}")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        grant.refresh_from_db()
+        self.assertEqual(grant.scoped_teams, [self.team.id])
 
     def test_toolbar_oauth_refresh_denied_after_access_revoked(self):
         """A refresh token minted before access was revoked must not be usable to mint new
