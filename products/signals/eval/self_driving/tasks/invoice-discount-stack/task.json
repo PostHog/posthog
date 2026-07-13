@@ -1,0 +1,48 @@
+{
+  "task_id": "invoice-discount-stack",
+  "title": "Best-of discount selection applies the worst discount instead",
+  "family": "logic",
+  "difficulty": "T3",
+  "repo_full_name": "acme/invoice-discount-stack",
+  "signal_type": "zendesk",
+  "product_summary": "Acme Billing Engine - invoices with non-stacking best-of discounts (Node/Express)",
+  "ground_truth": {
+    "root_cause": "pickBestDiscount() in src/discounts.js sorts eligible discount candidates by savings ascending ((a, b) => a.savings - b.savings) and then takes candidates[0], so customers holding multiple codes get the SMALLEST discount; the comment above it still claims candidates are sorted best-first. The comparator must sort descending (or take the max).",
+    "culprit_files": ["src/discounts.js"],
+    "fix_contract": "With multiple eligible codes the single best discount is applied, verified on exact amounts: a 12000-cent cart with SAVE10+FLAT5 gets SAVE10 (1200 off, total 10800, '$108.00'); a 3000-cent cart with FLAT5+SAVE10 gets FLAT5 (500 off, total 2500); an 8000-cent cart with SAVE10+WELCOME15 gets WELCOME15 (1200 off, total 6800). Eligibility rules (expiry, minimum subtotal, unknown codes), the no-stacking policy, tax, and currency formatting are unchanged.",
+    "expected_evidence": [
+      "discount_applied events overwhelmingly carrying the smaller savings_cents (e.g. FLAT5's 500) on accounts that also hold percentage codes",
+      "invoice_created events whose discount_code skews to FLAT5 despite SAVE10/WELCOME15 being live campaigns"
+    ],
+    "distractors": [
+      "the recent formatCents rewrite in src/money.js flagged in the changelog and by a customer (innocent; output is unchanged)",
+      "the stale comment in src/discounts.js claiming candidates are sorted best-first",
+      "regional tax computation in src/tax.js"
+    ],
+    "immediately_actionable": true,
+    "priority": "P1"
+  },
+  "seed": {
+    "days": 5,
+    "streams": [
+      {
+        "kind": "custom",
+        "event": "discount_applied",
+        "properties": { "code": "FLAT5", "savings_cents": 500 },
+        "daily": 70
+      },
+      {
+        "kind": "custom",
+        "event": "discount_applied",
+        "properties": { "code": "SAVE10", "savings_cents": 1200 },
+        "daily": 25
+      },
+      {
+        "kind": "custom",
+        "event": "invoice_created",
+        "properties": { "discount_code": "FLAT5" },
+        "daily": 90
+      }
+    ]
+  }
+}

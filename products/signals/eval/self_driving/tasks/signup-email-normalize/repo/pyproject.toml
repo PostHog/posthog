@@ -1,0 +1,9 @@
+[project]
+name = "acme-accounts"
+version = "0.9.3"
+description = "Acme accounts service: signup, login, password reset"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+acme-accounts = "acme_accounts.server:main"

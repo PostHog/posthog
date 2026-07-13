@@ -1,0 +1,41 @@
+{
+  "task_id": "feature-flag-stale-cache",
+  "title": "Flag values cached at first read with no TTL — kill-switch toggles never take effect",
+  "family": "config",
+  "difficulty": "T2",
+  "repo_full_name": "acme/feature-flag-stale-cache",
+  "signal_type": "github",
+  "product_summary": "Acme storefront config service (Node/Express): serves feature flag values (promo banner, maintenance mode) fetched from a hosted flag provider",
+  "ground_truth": {
+    "root_cause": "createFlagCache() in src/flags.js fetches provider values only when fetchedAt === 0 (first read) and never again: getFlag() ignores the ttlMs option entirely, so flag toggles at the provider (e.g. disabling the promo banner kill-switch) only reach served values after a process restart. The provider and any CDN in front of /api/config are fine.",
+    "culprit_files": ["src/flags.js"],
+    "fix_contract": "Served flag values reflect provider-side changes within at most 60 seconds: the cache honors its ttlMs option (default no higher than 60s) or re-reads per request. With an injected clock, toggling the provider value and advancing past the TTL changes the value returned by getFlag(); values fetched successfully keep being served for reads inside the TTL, and unknown flags still fall back.",
+    "expected_evidence": [
+      "config_served events reporting promo_banner=true for hours after the provider-side toggle",
+      "flags_refreshed firing only a handful of times per day, lining up with process starts/deploys rather than any refresh interval"
+    ],
+    "distractors": [
+      "the hosted flag provider's API or CDN serving stale values",
+      "load balancer or CDN caching of /api/config responses"
+    ],
+    "immediately_actionable": true,
+    "priority": "P2"
+  },
+  "seed": {
+    "days": 3,
+    "streams": [
+      {
+        "kind": "custom",
+        "event": "config_served",
+        "properties": { "promo_banner": true },
+        "daily": 1600
+      },
+      {
+        "kind": "custom",
+        "event": "flags_refreshed",
+        "properties": { "flag_count": 3 },
+        "daily": 3
+      }
+    ]
+  }
+}

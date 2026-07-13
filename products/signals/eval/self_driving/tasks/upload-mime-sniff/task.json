@@ -1,0 +1,40 @@
+{
+  "task_id": "upload-mime-sniff",
+  "title": "CSV uploads from Excel/Windows rejected with 415 at POST /api/imports",
+  "family": "api-contract",
+  "difficulty": "T1",
+  "repo_full_name": "acme/upload-mime-sniff",
+  "signal_type": "github",
+  "product_summary": "Acme Importer - bulk CSV/JSON import API (Node/Express)",
+  "ground_truth": {
+    "root_cause": "isAllowedUpload() in src/validation.js whitelist-matches the content-type header with an exact string comparison against ['text/csv', 'application/json', 'text/plain'], so Windows/Excel CSV uploads (application/vnd.ms-excel) and any type carrying a parameter (text/csv;charset=utf-8) fail validation and POST /api/imports returns 415 for valid CSV files.",
+    "culprit_files": ["src/validation.js"],
+    "fix_contract": "POST /api/imports must accept CSV uploads sent as application/vnd.ms-excel (with a .csv filename) and as text/csv with a charset parameter, returning 201 and queuing the import; genuinely disallowed types such as text/html (with or without a charset parameter) and empty content types must still be rejected with 415 and not queued.",
+    "expected_evidence": [
+      "import_rejected events whose content_type property is application/vnd.ms-excel with .csv filenames",
+      "the import_uploaded -> import_processed funnel staying healthy for text/csv uploads, showing the parser itself is fine"
+    ],
+    "distractors": [
+      "the CSV parser in src/processor.js (never reached; rejection happens at validation before parsing)",
+      "client-side tooling of the reporting integrator (macOS uploads of the same files succeed)"
+    ],
+    "immediately_actionable": true,
+    "priority": "P2"
+  },
+  "seed": {
+    "days": 4,
+    "streams": [
+      {
+        "kind": "funnel",
+        "events": ["import_uploaded", "import_processed"],
+        "daily": [140, 132]
+      },
+      {
+        "kind": "custom",
+        "event": "import_rejected",
+        "properties": { "content_type": "application/vnd.ms-excel", "filename": "orders.csv" },
+        "daily": 45
+      }
+    ]
+  }
+}

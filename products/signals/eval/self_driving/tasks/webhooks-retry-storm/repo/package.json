@@ -1,0 +1,13 @@
+{
+  "name": "acme-webhooks",
+  "version": "2.3.1",
+  "description": "Outbound webhook delivery service for Acme platform events",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "posthog-node": "^4.0.0"
+  }
+}

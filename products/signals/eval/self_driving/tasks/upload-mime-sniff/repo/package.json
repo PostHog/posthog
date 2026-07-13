@@ -1,0 +1,14 @@
+{
+  "name": "acme-importer",
+  "version": "2.1.0",
+  "description": "Acme Importer - bulk data imports for back-office tooling",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "posthog-node": "^4.2.0"
+  }
+}

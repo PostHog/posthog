@@ -1,0 +1,56 @@
+{
+  "task_id": "signup-email-normalize",
+  "title": "Mixed-case signups can never log in or reset their password",
+  "family": "data-integrity",
+  "difficulty": "T2",
+  "repo_full_name": "acme/signup-email-normalize",
+  "signal_type": "zendesk",
+  "product_summary": "Acme accounts service (Python, stdlib HTTP): signup, login, password reset",
+  "ground_truth": {
+    "root_cause": "AccountService.create_user() in acme_accounts/accounts.py stores the email verbatim (only stripped), while authenticate() and request_password_reset() lowercase the email before looking it up. Accounts created with any uppercase character — which mobile keyboards produce by title-casing the first letter — are keyed under the raw casing and can never be found at login or password reset. The reset email pipeline is fine; the lookup never finds the account.",
+    "culprit_files": ["acme_accounts/accounts.py"],
+    "fix_contract": "Email handling is case-insensitive end to end: creating 'Ana@Example.com' then authenticating as 'ana@example.com' (or any other casing) succeeds, and password reset finds the account. Two casings of the same address cannot become separate accounts, while genuinely distinct addresses remain distinct. Same-case signup/login flows keep working.",
+    "expected_evidence": [
+      "burst of login_failed events with reason=invalid_credentials starting with the mobile app 2.4 release",
+      "burst of password_reset_failed events with reason=account_not_found over the same window",
+      "signup-to-login funnel conversion dropping while signups stay flat"
+    ],
+    "distractors": [
+      "password reset email deliverability / the reset token service (acme_accounts/tokens.py)",
+      "the mobile app 2.4 release itself (it only changed keyboard capitalization defaults)"
+    ],
+    "immediately_actionable": true,
+    "priority": "P1"
+  },
+  "seed": {
+    "days": 7,
+    "streams": [
+      {
+        "kind": "funnel",
+        "events": ["user_signed_up", "login_succeeded"],
+        "daily": [130, 88],
+        "drop_after": { "event": "user_signed_up", "from_hours_ago": 96, "to_daily": 41 }
+      },
+      {
+        "kind": "custom",
+        "event": "login_failed",
+        "properties": { "reason": "invalid_credentials" },
+        "daily": 45,
+        "burst": { "from_hours_ago": 96, "count": 700 }
+      },
+      {
+        "kind": "custom",
+        "event": "password_reset_failed",
+        "properties": { "reason": "account_not_found" },
+        "daily": 12,
+        "burst": { "from_hours_ago": 96, "count": 260 }
+      },
+      {
+        "kind": "custom",
+        "event": "password_reset_requested",
+        "properties": {},
+        "daily": 60
+      }
+    ]
+  }
+}

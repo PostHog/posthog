@@ -1,0 +1,14 @@
+{
+  "name": "acme-directory",
+  "version": "1.4.2",
+  "description": "Acme Directory - find local pros, view their profiles, request contact",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "posthog-node": "^4.2.0"
+  }
+}

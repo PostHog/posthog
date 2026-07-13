@@ -1,0 +1,14 @@
+[
+  {
+    "id": "3712209981",
+    "title": "POST /api/imports returns 415 for valid CSV files uploaded from Excel on Windows",
+    "body": "We embed Acme Importer in our back-office tooling and a whole class of our users can't upload CSVs.\n\nWhat happens:\n\n- User saves a file from Excel on Windows as `orders.csv`\n- Our client posts it to `POST /api/imports`\n- Response: `415 {\"error\":\"Unsupported content type: application/vnd.ms-excel\"}`\n\nWindows registers the `.csv` extension to Excel with the `application/vnd.ms-excel` MIME type, so that's what our HTTP layer sends. The exact same file uploaded from macOS goes through fine as `text/csv`.\n\nWhile testing this we also noticed uploads fail when the client appends a charset (`text/csv;charset=utf-8`) - some of our fetch paths add that automatically.\n\nCould the endpoint accept the standard aliases/parameters for CSV? Happy to open a PR if you point me at the right place.",
+    "html_url": "https://github.com/acme/upload-mime-sniff/issues/87",
+    "number": 87,
+    "labels": "[{\"color\":\"d73a4a\",\"default\":true,\"description\":\"Something isn't working\",\"id\":208045000,\"name\":\"bug\",\"node_id\":\"MDU6TGFiZWwyMDgwNDUwMDA=\",\"url\":\"https://api.github.com/repos/acme/upload-mime-sniff/labels/bug\"},{\"color\":\"0e8a16\",\"default\":false,\"description\":\"Import pipeline\",\"id\":3120044120,\"name\":\"area/imports\",\"node_id\":\"MDU6TGFiZWwzMTIwMDQ0MTIw\",\"url\":\"https://api.github.com/repos/acme/upload-mime-sniff/labels/area/imports\"}]",
+    "created_at": "2026-07-09T08:17:40Z",
+    "updated_at": "2026-07-09T15:02:11Z",
+    "locked": false,
+    "state": "open"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "9932011",
+    "title": "GET /api/projects never returns the first 10 records — page=1 starts at proj_011",
+    "body": "### Bug report\n\nOur nightly sync pulls all projects through the paginated list endpoint and we noticed records are missing on our side. Repro against production:\n\n```bash\n$ curl -s \"https://api.acme.dev/api/projects?page=1&page_size=10\" | jq '.items[].id'\n\"proj_011\"\n\"proj_012\"\n...\n\"proj_020\"\n\n$ curl -s \"https://api.acme.dev/api/projects?page=2&page_size=10\" | jq '.items[].id'\n\"proj_021\"\n...\n\"proj_025\"\n```\n\nThe response says `\"total\": 25`, but paging through every page only ever yields 15 distinct records — `proj_001` through `proj_010` are never returned on any page or page size we tried. Docs say pages are 1-indexed, so page=1 should start at the first record. `page=0` does return the first ten, but the validation clamps it back to 1 on some routes so we can't rely on that.\n\nOur integration is currently missing 10 projects for every customer we sync.",
+    "html_url": "https://github.com/acme/pagination-offset-drift/issues/412",
+    "number": 412,
+    "labels": "[{\"color\":\"d73a4a\",\"default\":true,\"description\":\"Something isn't working\",\"id\":208045946,\"name\":\"bug\",\"node_id\":\"MDU6TGFiZWwyMDgwNDU5NDY=\",\"url\":\"https://api.github.com/repos/acme/pagination-offset-drift/labels/bug\"},{\"color\":\"0e8a16\",\"default\":false,\"description\":\"Public REST API\",\"id\":3040401122,\"name\":\"api\",\"node_id\":\"MDU6TGFiZWwzMDQwNDAxMTIy\",\"url\":\"https://api.github.com/repos/acme/pagination-offset-drift/labels/api\"}]",
+    "created_at": "2026-07-08T07:44:19Z",
+    "updated_at": "2026-07-09T15:02:44Z",
+    "locked": false,
+    "state": "open"
+  },
+  {
+    "id": "9938877",
+    "title": "Pagination: page=2 with page_size=10 returns only 5 items when total is 25",
+    "body": "### Bug report\n\nExpected page 2 to contain items 11–20 of our 25 projects, but the API returns the last 5 instead and `hasMore` is already false:\n\n```json\n{\n  \"items\": [\"proj_021\", \"proj_022\", \"proj_023\", \"proj_024\", \"proj_025\"],\n  \"page\": 2,\n  \"pageSize\": 10,\n  \"total\": 25,\n  \"hasMore\": false\n}\n```\n\n(ids elided from the item objects for brevity)\n\nLooks like an off-by-one-page somewhere — everything we get is shifted one full page forward. Breaks our paging UI, which shows empty pages at the end and never shows the earliest projects.",
+    "html_url": "https://github.com/acme/pagination-offset-drift/issues/415",
+    "number": 415,
+    "labels": "[{\"color\":\"d73a4a\",\"default\":true,\"description\":\"Something isn't working\",\"id\":208045946,\"name\":\"bug\",\"node_id\":\"MDU6TGFiZWwyMDgwNDU5NDY=\",\"url\":\"https://api.github.com/repos/acme/pagination-offset-drift/labels/bug\"}]",
+    "created_at": "2026-07-09T12:26:05Z",
+    "updated_at": "2026-07-09T12:26:05Z",
+    "locked": false,
+    "state": "open"
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "name": "acme-notifier",
+  "version": "1.7.3",
+  "description": "Acme Notifier - scheduled digest emails",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "posthog-node": "^4.2.0"
+  }
+}

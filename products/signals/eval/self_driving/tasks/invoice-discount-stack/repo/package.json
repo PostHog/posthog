@@ -1,0 +1,14 @@
+{
+  "name": "acme-billing-engine",
+  "version": "2.3.1",
+  "description": "Acme billing engine - invoices, discounts, regional tax",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "posthog-node": "^4.2.0"
+  }
+}

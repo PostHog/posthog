@@ -14,5 +14,5 @@
         "MD045": false,
         "MD029": false,
     },
-    "ignores": ["products/desktop/**", "**/fixtures/**"],
+    "ignores": ["products/desktop/**", "**/fixtures/**", "products/signals/eval/self_driving/tasks/**"],
 }

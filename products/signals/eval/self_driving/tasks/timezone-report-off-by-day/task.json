@@ -1,0 +1,48 @@
+{
+  "task_id": "timezone-report-off-by-day",
+  "title": "Daily summary reports off by a day for west-of-UTC merchants",
+  "family": "data-integrity",
+  "difficulty": "T2",
+  "repo_full_name": "acme/timezone-report-off-by-day",
+  "signal_type": "zendesk",
+  "product_summary": "Acme Reports - daily merchant summary emails (Python, stdlib only)",
+  "ground_truth": {
+    "root_cause": "generate_daily_report() in acme_reports/reports.py computes the report date and day boundaries from the UTC calendar date (now.date() plus a UTC-midnight window) while each account has an IANA timezone; for accounts west of UTC the evening report covers the wrong day (labeled tomorrow's date, missing the day's orders), and east-of-UTC accounts drift the other way. Boundaries must be the account-local day converted to UTC (zoneinfo).",
+    "culprit_files": ["acme_reports/reports.py"],
+    "fix_contract": "With an injected clock and an account timezone, the report must cover the account's local calendar day: for an America/Los_Angeles account at 2026-03-10T01:30Z the report is dated 2026-03-09 and contains exactly the orders placed within the LA-local Mar 9 (including ones with UTC timestamps on Mar 10), and for an Asia/Tokyo account at 2026-03-09T22:00Z the report is dated 2026-03-10 with the Tokyo-local day's orders. UTC accounts keep their current behavior.",
+    "expected_evidence": [
+      "report_generated events with order_count 0 concentrated on accounts whose account_timezone is west of UTC (e.g. America/Los_Angeles), while the same merchants clearly have orders",
+      "report_generated report_date values one day ahead of the account-local date at generation time"
+    ],
+    "distractors": [
+      "data pipeline sync timing blamed by the customer (orders are already committed when the report runs)",
+      "email delivery delay / send scheduling (the report content itself is wrong, not late)",
+      "the emailer template in acme_reports/emailer.py (renders whatever the report contains)"
+    ],
+    "immediately_actionable": true,
+    "priority": "P2"
+  },
+  "seed": {
+    "days": 5,
+    "streams": [
+      {
+        "kind": "custom",
+        "event": "report_generated",
+        "properties": { "order_count": 0, "account_timezone": "America/Los_Angeles" },
+        "daily": 40
+      },
+      {
+        "kind": "custom",
+        "event": "report_generated",
+        "properties": { "order_count": 12, "account_timezone": "Europe/Berlin" },
+        "daily": 120
+      },
+      {
+        "kind": "custom",
+        "event": "report_emailed",
+        "properties": {},
+        "daily": 160
+      }
+    ]
+  }
+}

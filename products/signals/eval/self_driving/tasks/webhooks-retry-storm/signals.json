@@ -1,0 +1,24 @@
+[
+  {
+    "id": "71203",
+    "subject": "Your webhooks sent our endpoint 4k requests in a minute and took our API down",
+    "description": "We consume your order.updated webhooks at https://hooks.example-retail.com/acme. This morning around 08:40 UTC our monitoring fired because your service sent us just under 4,000 POST requests in under a minute, all for the same handful of events. Our gateway rate-limits inbound traffic at 60 requests per minute per source, and once it started returning 429s to you the flood got dramatically worse, not better. We had to block your IPs at the firewall to keep our API up, which means we're now missing order events entirely. Please look at whatever does your retry handling. We can share our access logs if useful.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/71203.json",
+    "type": "incident",
+    "tags": "[\"webhooks\",\"integration\",\"partner\",\"escalated\",\"platform\"]",
+    "created_at": "2026-07-10T10:12:33+00:00",
+    "priority": "urgent",
+    "status": "open"
+  },
+  {
+    "id": "71187",
+    "subject": "Duplicate webhook deliveries - same event delivered dozens of times",
+    "description": "Since Tuesday we've been receiving duplicate webhook deliveries from your platform. The same event ID (e.g. evt_8fa2c91d3b04) arrives at our endpoint 30-50 times within a couple of minutes, identical payload and signature every time. Our processing is not idempotent yet, so every duplicate creates a duplicate row on our side and we've spent two days cleaning up. Our endpoint does briefly rate-limit during our nightly batch window, if that matters. First-line support told us the duplicates were probably caused by our server timing out and asked us to check our own infrastructure, but the payloads are acknowledged fine outside the batch window. Can someone check the delivery logs for our endpoint?",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/71187.json",
+    "type": "problem",
+    "tags": "[\"webhooks\",\"duplicates\",\"integration\",\"end-customer\"]",
+    "created_at": "2026-07-09T16:48:02+00:00",
+    "priority": "high",
+    "status": "open"
+  }
+]

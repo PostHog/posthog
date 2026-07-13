@@ -1,0 +1,13 @@
+{
+  "name": "acme-billing",
+  "version": "5.2.0",
+  "description": "Acme billing service: cart pricing, invoicing, and payment capture",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "posthog-node": "^4.0.0"
+  }
+}

@@ -95,6 +95,7 @@
         "products/desktop/**/*.mdx",
         "products/desktop/pnpm-lock.yaml",
         "products/desktop/apps/code/snapshots.yml",
+        "products/signals/eval/self_driving/tasks/**",
         "venv",
         "env",
         ".venv",

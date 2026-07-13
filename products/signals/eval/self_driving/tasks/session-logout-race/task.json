@@ -1,0 +1,40 @@
+{
+  "task_id": "session-logout-race",
+  "title": "Logout undone by in-flight session refresh (stale async write)",
+  "family": "frontend-state",
+  "difficulty": "T2",
+  "repo_full_name": "acme/session-logout-race",
+  "signal_type": "zendesk",
+  "product_summary": "Acme Portal - vanilla-JS customer portal SPA with a module-level session store",
+  "ground_truth": {
+    "root_cause": "logout() in src/state/session.js clears the module-level store synchronously, but refreshUser() applies its fetched user unconditionally after its await; the portal auto-refreshes the session every 60s (src/ui/app.js), so a refresh in flight when the user clicks log out resolves afterwards and re-populates state.user, making the account reappear. Stale async writes need to be discarded after logout (session epoch/generation counter or request abort).",
+    "culprit_files": ["src/state/session.js"],
+    "fix_contract": "A refreshUser() call that resolves after logout() must not restore the user: after logout the store stays signed out (getUser() null, isAuthenticated() false) even when the in-flight refresh settles. The normal lifecycle keeps working: login signs in, an uninterrupted refresh applies updated user data, and login plus refresh after a logout behave normally.",
+    "expected_evidence": [
+      "the user_logged_out -> session_refreshed funnel showing most logouts are followed by a session_refreshed event in the same session",
+      "session replays / tickets describing the header flipping to signed-out and the account reappearing moments later"
+    ],
+    "distractors": [
+      "cookie or local-storage caching blamed by customers (the auth token is cleared correctly on logout)",
+      "src/api/client.js request layer (returns correct data; the staleness bug is in how session state applies it)"
+    ],
+    "immediately_actionable": true,
+    "priority": "P1"
+  },
+  "seed": {
+    "days": 7,
+    "streams": [
+      {
+        "kind": "funnel",
+        "events": ["user_logged_out", "session_refreshed"],
+        "daily": [130, 95]
+      },
+      {
+        "kind": "custom",
+        "event": "user_logged_in",
+        "properties": {},
+        "daily": 420
+      }
+    ]
+  }
+}

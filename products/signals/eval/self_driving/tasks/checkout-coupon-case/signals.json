@@ -1,0 +1,24 @@
+[
+  {
+    "id": "70412",
+    "subject": "Discount code save10 from your email doesn't work - checkout errors out",
+    "description": "Hi, I got your spring campaign email this morning with the code save10 for 10% off. I typed it exactly like it's written in the email at checkout and the page just shows \"Something went wrong\" in red and my total doesn't change. Tried three times, also in a private window, same thing every time. I was going to buy the candle bundle but I'm not paying full price when I have a valid code. Can you fix this or apply the discount for me some other way?",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/70412.json",
+    "type": "problem",
+    "tags": "[\"checkout\",\"coupon\",\"spring-campaign\",\"end-customer\"]",
+    "created_at": "2026-07-09T14:22:10+00:00",
+    "priority": "normal",
+    "status": "open"
+  },
+  {
+    "id": "70468",
+    "subject": "Escalation: ~30 tickets since yesterday about coupon errors at checkout (spring campaign)",
+    "description": "Escalating from CX. Since the spring campaign email went out yesterday morning we've had roughly 30 tickets from customers saying the discount code from the email throws an error at checkout. They all describe the same thing: they enter the code save10, the page shows a generic error, and no discount is applied. One customer said it worked when they retyped the code from the homepage banner instead of copying it from the email, so there may be something specific to how the code appears in the email. Campaign conversion looks way down on the dashboard. Can engineering take a look ASAP? The campaign is still running through Sunday.",
+    "url": "https://acmehelp.zendesk.com/api/v2/tickets/70468.json",
+    "type": "incident",
+    "tags": "[\"escalated\",\"checkout\",\"coupon\",\"spring-campaign\",\"cx-escalation\"]",
+    "created_at": "2026-07-10T09:05:41+00:00",
+    "priority": "high",
+    "status": "open"
+  }
+]

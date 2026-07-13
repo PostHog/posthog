@@ -1,0 +1,13 @@
+{
+  "name": "acme-portal",
+  "version": "3.2.1",
+  "description": "Acme customer portal - vanilla JS single-page app",
+  "type": "module",
+  "main": "serve.js",
+  "scripts": {
+    "start": "node serve.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

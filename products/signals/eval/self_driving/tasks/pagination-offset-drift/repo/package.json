@@ -1,0 +1,13 @@
+{
+  "name": "acme-projects-api",
+  "version": "3.1.0",
+  "description": "Acme projects REST API",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "posthog-node": "^4.0.0"
+  }
+}
