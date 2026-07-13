@@ -1517,11 +1517,11 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
             "Connection mode: 'warehouse' (import) or 'direct' (live query).\n\n\* `warehouse` - warehouse\n\* `direct` - direct"
         ),
     created_via: zod
-        .enum(['web', 'api', 'mcp', 'wizard'])
-        .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard')
+        .enum(['web', 'api', 'mcp'])
+        .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
         .default(externalDataSourcesCreateBodyCreatedViaDefault)
         .describe(
-            'Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard. Defaults to `api`.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard'
+            'Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
         ),
     direct_query_enabled: zod
         .boolean()

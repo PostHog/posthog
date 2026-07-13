@@ -1259,12 +1259,20 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        choices=ExternalDataSource.CreatedVia.values,
+        # `wizard` is intentionally omitted: it is never accepted from a caller (that would let any
+        # client self-label as wizard-created). It is derived server-side by upgrading a
+        # machine-injected `mcp` value when the request comes from the wizard transport.
+        choices=[
+            ExternalDataSource.CreatedVia.WEB,
+            ExternalDataSource.CreatedVia.API,
+            ExternalDataSource.CreatedVia.MCP,
+        ],
         required=False,
         default=ExternalDataSource.CreatedVia.API,
         help_text=(
             "Where the request came from: `web` for the in-app UI, `api` for direct API callers, "
-            "`mcp` for agent/MCP tool calls, `wizard` for the setup wizard. Defaults to `api`."
+            "`mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived "
+            "server-side for wizard-driven MCP calls. Defaults to `api`."
         ),
     )
     direct_query_enabled = serializers.BooleanField(

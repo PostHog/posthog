@@ -418,13 +418,20 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == ExternalDataSource.CreatedVia.API
 
-    def test_create_external_data_source_rejects_invalid_created_via(self):
+    @parameterized.expand(
+        [
+            ("garbage_value", "hacker"),
+            # `wizard` is derived server-side; a caller must not be able to self-label as wizard-created.
+            ("wizard_is_not_caller_settable", ExternalDataSource.CreatedVia.WIZARD),
+        ]
+    )
+    def test_create_external_data_source_rejects_invalid_created_via(self, _name, created_via):
         # created_via choice validation happens before credentials, so no StripeSource mock is needed here.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
-                "created_via": "hacker",
+                "created_via": created_via,
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [

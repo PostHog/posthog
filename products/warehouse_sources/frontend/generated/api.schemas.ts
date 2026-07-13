@@ -368,9 +368,10 @@ export interface PatchedExternalDataSchemaApi {
  * * `mcp` - mcp
  * * `wizard` - wizard
  */
-export type CreatedViaEnumApi = (typeof CreatedViaEnumApi)[keyof typeof CreatedViaEnumApi]
+export type ExternalDataSourceSerializersCreatedViaEnumApi =
+    (typeof ExternalDataSourceSerializersCreatedViaEnumApi)[keyof typeof ExternalDataSourceSerializersCreatedViaEnumApi]
 
-export const CreatedViaEnumApi = {
+export const ExternalDataSourceSerializersCreatedViaEnumApi = {
     Web: 'web',
     Api: 'api',
     Mcp: 'mcp',
@@ -1946,7 +1947,7 @@ export interface ExternalDataSourceSerializersApi {
      * * `api` - api
      * * `mcp` - mcp
      * * `wizard` - wizard */
-    created_via?: CreatedViaEnumApi | null
+    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
     readonly status: string
     client_secret: string
     account_id: string
@@ -2002,6 +2003,20 @@ export interface PaginatedExternalDataSourceSerializersListApi {
  * Connection credentials and a 'schemas' array. Keys depend on source_type.
  */
 export type ExternalDataSourceCreateApiPayload = { [key: string]: unknown }
+
+/**
+ * * `web` - web
+ * * `api` - api
+ * * `mcp` - mcp
+ */
+export type ExternalDataSourceCreateCreatedViaEnumApi =
+    (typeof ExternalDataSourceCreateCreatedViaEnumApi)[keyof typeof ExternalDataSourceCreateCreatedViaEnumApi]
+
+export const ExternalDataSourceCreateCreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+} as const
 
 export interface ExternalDataSourceCreateApi {
     /** The source type (e.g. 'Postgres', 'Stripe').
@@ -2782,13 +2797,12 @@ export interface ExternalDataSourceCreateApi {
      * * `warehouse` - warehouse
      * * `direct` - direct */
     access_method?: AccessMethodEnumApi
-    /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard. Defaults to `api`.
+    /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
      *
      * * `web` - web
      * * `api` - api
-     * * `mcp` - mcp
-     * * `wizard` - wizard */
-    created_via?: CreatedViaEnumApi
+     * * `mcp` - mcp */
+    created_via?: ExternalDataSourceCreateCreatedViaEnumApi
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
 }
@@ -2809,7 +2823,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `api` - api
      * * `mcp` - mcp
      * * `wizard` - wizard */
-    created_via?: CreatedViaEnumApi | null
+    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
     account_id?: string

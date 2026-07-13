@@ -14687,22 +14687,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `web` - web
-     * * `api` - api
-     * * `mcp` - mcp
-     * * `wizard` - wizard
-     */
-    export type CreatedViaEnum = typeof CreatedViaEnum[keyof typeof CreatedViaEnum];
-
-
-    export const CreatedViaEnum = {
-      Web: 'web',
-      Api: 'api',
-      Mcp: 'mcp',
-      Wizard: 'wizard',
-    } as const;
-
-    /**
      * * `default` - Default
      * * `template` - Template
      * * `duplicate` - Duplicate
@@ -24319,6 +24303,20 @@ export namespace Schemas {
      */
     export type ExternalDataSourceCreatePayload = { [key: string]: unknown };
 
+    /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     */
+    export type ExternalDataSourceCreateCreatedViaEnum = typeof ExternalDataSourceCreateCreatedViaEnum[keyof typeof ExternalDataSourceCreateCreatedViaEnum];
+
+
+    export const ExternalDataSourceCreateCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+    } as const;
+
     export interface ExternalDataSourceCreate {
       /** The source type (e.g. 'Postgres', 'Stripe').
        *
@@ -25098,13 +25096,12 @@ export namespace Schemas {
        * * `warehouse` - warehouse
        * * `direct` - direct */
       access_method?: AccessMethodEnum;
-      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard. Defaults to `api`.
+      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
-       * * `mcp` - mcp
-       * * `wizard` - wizard */
-      created_via?: CreatedViaEnum;
+       * * `mcp` - mcp */
+      created_via?: ExternalDataSourceCreateCreatedViaEnum;
       /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
     }
@@ -25144,6 +25141,22 @@ export namespace Schemas {
     export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
     /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     */
+    export type ExternalDataSourceSerializersCreatedViaEnum = typeof ExternalDataSourceSerializersCreatedViaEnum[keyof typeof ExternalDataSourceSerializersCreatedViaEnum];
+
+
+    export const ExternalDataSourceSerializersCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+      Wizard: 'wizard',
+    } as const;
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface ExternalDataSourceSerializers {
@@ -25157,7 +25170,7 @@ export namespace Schemas {
        * * `api` - api
        * * `mcp` - mcp
        * * `wizard` - wizard */
-      created_via?: CreatedViaEnum | null;
+      created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -40745,7 +40758,7 @@ export namespace Schemas {
        * * `api` - api
        * * `mcp` - mcp
        * * `wizard` - wizard */
-      created_via?: CreatedViaEnum | null;
+      created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
