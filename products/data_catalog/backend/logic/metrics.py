@@ -37,6 +37,9 @@ class _Unset:
 
 _UNSET = _Unset()
 
+# The columns _reset_to_proposed touches, so a lifecycle reset can be scoped into update_fields.
+_APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
+
 
 def _capture(user: Optional[User], team: Team, event: str, metric: Metric) -> None:
     if user is None:
@@ -227,12 +230,16 @@ def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields)
     for key, value in fields.items():
         setattr(metric, key, value)
 
+    changed_fields = set(fields.keys())
     if _definition_hash(metric.definition) != old_definition_hash and metric.status == MetricStatus.APPROVED:
         # The definition now computes something different, so its approval no longer holds.
         _reset_to_proposed(metric)
+        changed_fields |= _APPROVAL_FIELDS
 
     with team_scope(team.id):
-        metric.save()
+        # Persist only the columns this request touched: the instance was loaded before validation,
+        # so a full-row save would clobber a concurrent relink/edit with this stale row's values.
+        metric.save(update_fields=[*changed_fields, "updated_at"])
     _capture(user, team, "data catalog metric updated", metric)
     return metric
 
@@ -247,7 +254,9 @@ def approve_metric(metric: Metric, user: Optional[User]) -> Metric:
     metric.approved_by = user
     metric.approved_at = timezone.now()
     with team_scope(metric.team_id):
-        metric.save()
+        # Scope the write to the approval columns so it can't clobber a concurrent relink/edit that
+        # changed the definition or source link on the row this stale instance was loaded from.
+        metric.save(update_fields=[*_APPROVAL_FIELDS, "updated_at"])
     _capture(user, metric.team, "data catalog metric approved", metric)
     return metric
 
@@ -271,11 +280,13 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User]) -> Metric:
     metric.definition = canonical_def
     metric.referenced_table_names = referenced
     metric.source_insight_query_hash = new_hash
+    changed_fields = {"definition", "referenced_table_names", "source_insight_query_hash"}
     if changed and metric.status == MetricStatus.APPROVED:
         _reset_to_proposed(metric)
+        changed_fields |= _APPROVAL_FIELDS
 
     with team_scope(metric.team_id):
-        metric.save()
+        metric.save(update_fields=[*changed_fields, "updated_at"])
     _capture(user, metric.team, "data catalog metric updated", metric)
     return metric
 
@@ -284,7 +295,7 @@ def soft_delete_metric(metric: Metric, user: Optional[User] = None) -> None:
     metric.deleted = True
     metric.deleted_at = timezone.now()
     with team_scope(metric.team_id):
-        metric.save()
+        metric.save(update_fields=["deleted", "deleted_at", "updated_at"])
     _capture(user, metric.team, "data catalog metric deleted", metric)
 
 

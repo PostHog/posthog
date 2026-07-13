@@ -295,6 +295,7 @@ class TestUpdateInsightLink(BaseTest):
 
         assert updated.status == MetricStatus.PROPOSED
         assert updated.source_insight_short_id == insight_b.short_id
+        assert updated.definition is not None
         assert "persons" in updated.definition["query"]
         assert compute_drift([updated])[updated.id] is False
 
