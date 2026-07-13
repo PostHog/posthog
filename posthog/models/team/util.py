@@ -16,11 +16,18 @@ from products.batch_exports.backend.service import BatchExportServiceScheduleNot
 logger = structlog.get_logger(__name__)
 
 # Batch size for the personhog batch-delete RPCs on the largest team-scoped tables
-# (personless distinct IDs, persons, hash-key-overrides). Kept well below 10000 so each
-# DELETE commits comfortably inside the personhog gRPC deadline on multi-billion-row
-# tables; otherwise a batch that overruns the deadline is rolled back wholesale and the
-# activity retries with zero forward progress.
+# (personless distinct IDs, persons, hash-key-overrides). Kept well below 10000 to bound
+# how much work a single DELETE holds locks for.
 TEAM_DELETE_BATCH_SIZE = 2000
+
+# gRPC deadline for the team-deletion bulk-delete RPCs. Their default is the 5s client
+# deadline meant for point lookups, but a single batch DELETE against a multi-billion-row,
+# delete-churned table (personless distinct IDs, persons, groups, hash-key-overrides) can
+# transiently take seconds when autovacuum lags — enough to blow a 5s deadline. A
+# DEADLINE_EXCEEDED there fails the whole activity, which then retries the batched loop from
+# scratch, so give these deletes a generous per-call deadline and let the activity-level
+# timeout be the real bound instead.
+TEAM_DELETE_RPC_TIMEOUT_SECONDS = 120 * 60
 
 actions_that_require_current_team = [
     "rotate_secret_token",
@@ -109,7 +116,8 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
     def _fn() -> None:
         while True:
             resp = client.delete_hash_key_overrides_by_teams(
-                DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=TEAM_DELETE_BATCH_SIZE)
+                DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=TEAM_DELETE_BATCH_SIZE),
+                timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
             )
             if resp.deleted_count == 0:
                 break
@@ -142,7 +150,8 @@ def _delete_personless_distinct_ids_for_team_via_personhog(team_id: int) -> None
 
     while True:
         resp = client.delete_personless_distinct_ids_batch_for_team(
-            DeletePersonlessDistinctIdsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE)
+            DeletePersonlessDistinctIdsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE),
+            timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
         )
         if resp.deleted_count == 0:
             break
@@ -182,7 +191,8 @@ def _delete_persons_for_team_via_personhog(team_id: int) -> None:
 
     while True:
         resp = client.delete_persons_batch_for_team(
-            DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE)
+            DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE),
+            timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
         )
         if resp.deleted_count == 0:
             break
@@ -199,7 +209,8 @@ def _delete_groups_for_teams(team_ids: list[int]) -> None:
         def _fn(tid: int = team_id) -> None:
             while True:
                 resp = client.delete_groups_batch_for_team(
-                    DeleteGroupsBatchForTeamRequest(team_id=tid, batch_size=10000)
+                    DeleteGroupsBatchForTeamRequest(team_id=tid, batch_size=10000),
+                    timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
                 )
                 if resp.deleted_count == 0:
                     break
@@ -218,7 +229,8 @@ def _delete_group_type_mappings_for_teams(team_ids: list[int]) -> None:
         def _fn(tid: int = team_id) -> None:
             while True:
                 resp = client.delete_group_type_mappings_batch_for_team(
-                    DeleteGroupTypeMappingsBatchForTeamRequest(team_id=tid, batch_size=10000)
+                    DeleteGroupTypeMappingsBatchForTeamRequest(team_id=tid, batch_size=10000),
+                    timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
                 )
                 if resp.deleted_count == 0:
                     break
@@ -237,7 +249,7 @@ def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int])
     for team_id in team_ids:
         team_cohort_ids = list(Cohort.objects.filter(team_id=team_id, id__in=cohort_ids).values_list("id", flat=True))
         if team_cohort_ids:
-            delete_cohort_members_bulk(team_id, team_cohort_ids)
+            delete_cohort_members_bulk(team_id, team_cohort_ids, timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS)
 
 
 def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
