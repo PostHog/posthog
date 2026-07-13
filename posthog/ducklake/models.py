@@ -149,10 +149,9 @@ class DuckgresDailyUsage(UUIDModel):
         constraints = [
             # Keyed on team_id (not org): team_id is globally unique per region and org is
             # derivable from it, matching how the rest of billing keys usage. organization_id
-            # is kept as a stored attribute for traceability, not identity. Caveat: duckgres
-            # emits team_id 0 ("no default team") when it can't resolve an org's default team,
-            # and two such orgs would collide here — a known gap fixed on the duckgres side so
-            # 0 is never sent; until then the loss is at most under-billing those orgs.
+            # is kept as a stored attribute for traceability, not identity. duckgres only
+            # emits usage for a resolved default team — unattributable "no default team"
+            # usage is skipped upstream — so team_id is always a real, collision-free key.
             models.UniqueConstraint(
                 fields=["date", "team_id", "query_source", "cpu", "mem_gib"],
                 name="duckgres_daily_usage_key",
