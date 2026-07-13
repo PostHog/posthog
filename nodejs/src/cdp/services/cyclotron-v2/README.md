@@ -38,7 +38,18 @@ Responsibilities:
 
 - **Cleanup** — bounded `DELETE` of terminal jobs older than a grace period
 - **Stalled job recovery** — reset jobs with stale heartbeats back to `available`
-- **Poison pill detection** — fail jobs that have been reset too many times (`janitor_touch_count`)
+- **Poison pill recovery** — give up on jobs that have been reset too many times
+  (`janitor_touch_count`), but never silently: each is recorded as a `failed`,
+  replayable invocation result on `hog_invocation_results` (discoverable in the
+  Invocations UI, re-runnable by the rerun tooling) _before_ the cyclotron row is
+  deleted. Workers reset `janitor_touch_count = 0` on every deliberate release, so
+  the budget counts CONSECUTIVE stalls — long-lived waits don't accrue touches for
+  life.
+- **Fleet-health gating** — during a fleet-wide outage every in-flight job stalls
+  at once; giving up then would drop work a recovered fleet could still run. While
+  stalls dominate completions over a rolling window (and exceed an absolute floor)
+  the give-up is paused — the janitor only resets/retries — and resumes once stalls
+  return to baseline.
 - **Queue depth metrics** — Prometheus gauges per queue
 
 ## Integration
@@ -52,8 +63,13 @@ It's enabled via `CDP_CYCLOTRON_NODE_ENABLED=true` and routed alongside the exis
 
 Failed jobs are deleted by the janitor along with completed and canceled jobs.
 There is no dead-letter queue — a DLQ would fill the database exponentially
-since failed jobs often produce more failed jobs on retry.
-Errors are captured via logs and metrics before the job reaches terminal status.
+since failed jobs often produce more failed jobs on retry, and it would be a
+second recovery path operators have to learn alongside rerun.
+Errors are captured via logs and metrics before the job reaches terminal status,
+and poison-pill give-ups converge on the existing rerun system: they are written
+as `failed` rows on `hog_invocation_results` (the table rerun already reads) and
+deleted only once that row is durably enqueued, so a lost invocation is always
+recoverable via the standard rerun tooling rather than a bespoke table.
 
 ## Future work
 

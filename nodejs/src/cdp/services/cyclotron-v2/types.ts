@@ -128,11 +128,21 @@ export type CyclotronV2JanitorConfig = {
     stallTimeoutMs?: number
     maxTouchCount?: number
     cleanupGraceMs?: number
+    // Fleet-health gate: giving up on poison pills is paused while stalls look
+    // fleet-wide (an outage) rather than isolated (a genuinely bad job).
+    fleetStallRatioThreshold?: number
+    fleetHealthWindowMs?: number
+    fleetMinStalledCount?: number
 }
 
 export type CyclotronV2CleanupResult = {
     deleted: number
     stalled: number
+    // Jobs the janitor gave up on this cycle (recorded as failed, replayable
+    // invocation results before deletion). Empty while poisoning is paused.
     poisoned: number
+    poisonedIds: string[]
+    // True when the give-up pass was skipped because the fleet looked unhealthy.
+    poisoningPaused: boolean
     depths: Map<string, number>
 }
