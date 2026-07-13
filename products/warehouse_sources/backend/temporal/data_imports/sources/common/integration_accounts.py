@@ -26,3 +26,20 @@ class IntegrationAccount:
     """Grouping for hierarchical platforms (e.g. the owning customer name)."""
     secondary_text: str | None = None
     """Extra searchable identifier shown in parentheses, e.g. the account number."""
+
+
+def filter_integration_accounts(accounts: list[IntegrationAccount], search: str | None) -> list[IntegrationAccount]:
+    """Case-insensitive substring filter across the fields a user would search by. Applied generically by
+    the OAuth accounts endpoint so sources returning a full list still get search; sources whose provider
+    supports server-side search (e.g. GitHub repositories) additionally push the query down for scale, and
+    this filter is then a no-op on their already-matching results."""
+    query = (search or "").strip().lower()
+    if not query:
+        return accounts
+    return [
+        account
+        for account in accounts
+        if query in account.display_name.lower()
+        or query in account.value.lower()
+        or (account.secondary_text is not None and query in account.secondary_text.lower())
+    ]
