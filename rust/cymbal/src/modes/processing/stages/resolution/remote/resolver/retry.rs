@@ -27,11 +27,12 @@ use super::{RemoteResolutionContext, RemoteWorkItem, ResolvedRemoteItem};
 /// Terminal outcome of resolving a single work item once its retry budget or
 /// deadline is exhausted.
 pub(super) enum RemoteItemError {
-    /// Transient remote-pool backpressure: every routable endpoint was ejected
-    /// or draining, or kept returning per-item overload, so the item never got
-    /// served. This is expected load-shedding, not a bug — the caller degrades
-    /// gracefully (falls back to local resolution) rather than failing the
-    /// batch and capturing an exception.
+    /// Transient remote-pool backpressure: item attempts ended hitting an empty
+    /// pool — every routable endpoint was ejected (after overload), draining,
+    /// or lacked a fresh load snapshot — so the item never got served. This is
+    /// expected load-shedding, not a bug — the caller degrades gracefully
+    /// (falls back to local resolution) rather than failing the batch and
+    /// capturing an exception.
     Backpressure(String),
     /// A genuine failure that should fail the batch.
     Fatal(UnhandledError),
@@ -47,9 +48,9 @@ pub(super) async fn resolve_work_item(
     let mut last_error: Option<String> = None;
     let mut attempts_used = 0u32;
     let mut routing_permit = None;
-    // Tracks whether the most recent failure was transient pool backpressure
-    // (empty pool or per-item overload). Determines how an exhausted/expired
-    // item is classified at the end of the loop.
+    // Tracks whether the most recent failure was an empty pool (transient
+    // backpressure). Determines how an exhausted/expired item is classified at
+    // the end of the loop: an empty pool degrades, anything else fails.
     let mut last_was_backpressure = false;
 
     for attempt in 0..max_attempts {
@@ -204,9 +205,12 @@ pub(super) async fn resolve_work_item(
                     "remote resolution returned item overload; rerouting with overload policy"
                 );
                 ctx.pool.eject_overloaded(endpoint).await;
-                // Persistent per-item overload across the pool is load-shedding,
-                // so an item that exhausts its budget this way is degradable.
-                last_was_backpressure = true;
+                // A per-item overload is a reroute signal, not itself the
+                // terminal backpressure condition — the mux also maps genuine
+                // transport/stream failures to this kind. Only an empty pool
+                // (the state ejection eventually produces) is treated as
+                // degradable backpressure below.
+                last_was_backpressure = false;
                 excluded_endpoints.push(endpoint);
                 last_error = Some(format!(
                     "per-item Overloaded outcome from {endpoint}: {message}"

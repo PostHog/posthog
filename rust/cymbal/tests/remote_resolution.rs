@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use common::{
-    build_event, local_stage, make_ctx, make_ctx_with_sample_rate, process_one, remote_stage,
-    spawn_recording_stub_server, spawn_stub_server, ServerBehavior,
+    build_event, local_stage, make_ctx, make_ctx_with_overload_ejection, make_ctx_with_sample_rate,
+    process_one, remote_stage, spawn_recording_stub_server, spawn_stub_server, ServerBehavior,
 };
 
 use cymbal::error::{ResolveError, UnhandledError};
@@ -630,13 +630,19 @@ async fn empty_pool_degrades_to_local_resolution() {
 
 #[tokio::test]
 async fn pool_exhausted_by_overload_degrades_to_local_resolution() {
-    // Reproduces the reported symptom: the only routable endpoint keeps
-    // shedding load via per-item Overloaded outcomes, so the item exhausts its
-    // reroute budget against an exhausted pool. This transient backpressure
-    // must degrade to local resolution rather than fail the batch as a 5xx and
-    // capture an UnhandledError.
+    // Reproduces the reported symptom: the only routable endpoint sheds load
+    // via a per-item Overloaded outcome, which ejects it from routing; the
+    // item's remaining attempts then hit an empty pool (AllEndpointsEjected).
+    // This transient backpressure must degrade to local resolution rather than
+    // fail the batch as a 5xx and capture an UnhandledError.
     let (overloaded_addr, _items) = spawn_stub_server(ServerBehavior::Overloaded).await;
-    let ctx = make_ctx(&[overloaded_addr], 2, Duration::from_secs(5)).await;
+    let ctx = make_ctx_with_overload_ejection(
+        &[overloaded_addr],
+        3,
+        Duration::from_secs(5),
+        Duration::from_millis(50),
+    )
+    .await;
     let evt = build_event(1);
 
     let resolved = process_one(remote_stage(ctx), evt)

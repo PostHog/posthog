@@ -378,6 +378,26 @@ pub async fn make_ctx(
     RemoteResolutionContext::new(pool, config)
 }
 
+/// Build a context whose pool ejects endpoints for `ejection` after an
+/// overload outcome. With a single overloaded endpoint this reproduces the
+/// production scenario where overload ejects the only pod and later selections
+/// see an empty pool.
+pub async fn make_ctx_with_overload_ejection(
+    addrs: &[SocketAddr],
+    max_retries: u32,
+    deadline: Duration,
+    ejection: Duration,
+) -> RemoteResolutionContext {
+    let mut config = make_config(max_retries, deadline);
+    config.overload_ejection_initial = ejection;
+    config.overload_ejection_max = ejection;
+    let pool = EndpointPool::from_addrs(config.clone(), addrs).expect("build pool");
+    if !addrs.is_empty() {
+        wait_until_routable(&pool).await;
+    }
+    RemoteResolutionContext::new(pool, config)
+}
+
 pub async fn make_ctx_with_sample_rate(
     addrs: &[SocketAddr],
     max_retries: u32,
