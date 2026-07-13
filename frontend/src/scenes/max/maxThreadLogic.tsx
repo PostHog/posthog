@@ -1293,10 +1293,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return false
                 }
                 const activeSceneLogic = sceneLogic.values.activeSceneLogic
+                if (!activeSceneLogic) {
+                    // No dashboard scene logic to wait on — its key hasn't resolved or it can't be
+                    // built. Nothing will land, so don't block: send now rather than stalling for the
+                    // full cap and shipping without context anyway.
+                    return false
+                }
                 if (!activeSceneLogicHasMaxContext(activeSceneLogic)) {
-                    // Still on the dashboard scene but its logic isn't ready to read yet — building,
-                    // or briefly unmounted mid dashboard→dashboard navigation. Keep waiting (the cap
-                    // above bounds it) so context collection picks up the dashboard once it mounts.
+                    // The logic exists but isn't mounted yet — building, or briefly unmounted mid
+                    // dashboard→dashboard navigation. Keep waiting (bounded by the cap) so context
+                    // collection picks up the dashboard once it mounts.
                     return true
                 }
                 return !(activeSceneLogic.values as { dashboard?: unknown }).dashboard
