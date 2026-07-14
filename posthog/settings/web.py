@@ -840,6 +840,9 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/organizations/@current/plugins/?$",
                 "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
                 "^/?api/(environments|projects)/\\d+/query/?$",
+                # Deploy-static source catalog (no user input or secrets reflected): several
+                # hundred KB of JSON that compresses ~7x.
+                "^/?api/(environments|projects)/\\d+/external_data_sources/wizard/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]
