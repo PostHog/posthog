@@ -155,4 +155,34 @@ mod tests {
             assert_eq!(warning.pipeline_step(), "capture_validation");
         }
     }
+
+    /// Guards the cross-language contract: warnings are emitted as
+    /// `$$client_ingestion_warning` envelopes that the Node.js `clientwarnings`
+    /// consumer types from its own registry. A Rust type absent there silently
+    /// falls back to the generic `client_ingestion_warning` type, so every
+    /// `WarningType` must exist as a key in nodejs `INGESTION_WARNING_TYPES`.
+    #[test]
+    fn every_rust_type_is_registered_in_nodejs() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../nodejs/src/ingestion/common/ingestion-warnings.ts"
+        );
+        let src = std::fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("read nodejs registry at {path}: {e}"));
+        // Registry entries look like `    missing_event_name: { category: ... }`,
+        // so a type appearing as a `key:` prefix means it is registered — this
+        // won't trip on the same string inside a comment or value.
+        let keys: std::collections::HashSet<&str> = src
+            .lines()
+            .filter_map(|line| line.trim().split_once(':').map(|(key, _)| key.trim()))
+            .collect();
+        for warning in WarningType::ALL {
+            assert!(
+                keys.contains(warning.as_str()),
+                "Rust WarningType `{}` is not registered in nodejs INGESTION_WARNING_TYPES; \
+                 the clientwarnings consumer would fall back to the generic type",
+                warning.as_str()
+            );
+        }
+    }
 }
