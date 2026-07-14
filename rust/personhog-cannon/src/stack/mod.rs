@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -34,6 +35,9 @@ pub struct StackConfig {
     pub persons_db_url: String,
     /// Writer flush cadence. Short by default so gate quiesce is quick.
     pub writer_flush_interval_ms: u64,
+    /// Leader in-memory cache capacity (entries). Lower it below the seeded
+    /// person count to put the cache under eviction pressure.
+    pub cache_memory_capacity: usize,
 }
 
 /// A locally-spawned personhog stack: replica, writer, N leaders, and a
@@ -41,9 +45,15 @@ pub struct StackConfig {
 /// docker-compose Kafka/etcd/Postgres but isolated from the dev stack via
 /// their own ports, etcd prefix, and per-run changelog topic.
 pub struct Stack {
-    procs: Vec<ServiceProcess>,
+    config: StackConfig,
+    infra: Vec<ServiceProcess>,
+    /// Live leaders, keyed by the pod name they registered with.
+    leaders: Vec<(String, ServiceProcess)>,
+    /// Leaders removed by chaos (killed or shutting down); their exit is
+    /// expected, so they are excluded from liveness checks.
+    retired: Vec<ServiceProcess>,
+    next_leader_index: u32,
     store: PersonhogStore,
-    kafka_hosts: String,
     topic: String,
     pub router_url: String,
     pub log_dir: PathBuf,
@@ -86,9 +96,9 @@ impl Stack {
         etcd::reset(&store, config.partitions).await?;
         kafka::create_topic(&config.kafka_hosts, &topic, config.partitions).await?;
 
-        let mut procs = Vec::new();
+        let mut infra = Vec::new();
 
-        procs.push(ServiceProcess::spawn(
+        infra.push(ServiceProcess::spawn(
             "replica",
             &config.bin_dir.join("personhog-replica"),
             &[
@@ -99,7 +109,7 @@ impl Stack {
             &log_dir,
         )?);
 
-        procs.push(ServiceProcess::spawn(
+        infra.push(ServiceProcess::spawn(
             "writer",
             &config.bin_dir.join("personhog-writer"),
             &[
@@ -120,33 +130,7 @@ impl Stack {
             &log_dir,
         )?);
 
-        for i in 0..config.leaders {
-            let grpc_port = LEADER_GRPC_BASE_PORT + i as u16;
-            // POD_NAME carries the explicit host:port so the router's
-            // resolver dials each local leader on its own port.
-            let pod_name = format!("127.0.0.1:{grpc_port}");
-            procs.push(ServiceProcess::spawn(
-                &format!("leader-{i}"),
-                &config.bin_dir.join("personhog-leader"),
-                &[
-                    ("GRPC_ADDRESS", pod_name.clone()),
-                    ("POD_NAME", pod_name),
-                    ("CACHE_MEMORY_CAPACITY", "100000".to_string()),
-                    ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
-                    ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
-                    ("KAFKA_HOSTS", config.kafka_hosts.clone()),
-                    ("KAFKA_PERSON_STATE_TOPIC", topic.clone()),
-                    ("FALLBACK_DATABASE_URL", config.persons_db_url.clone()),
-                    (
-                        "METRICS_PORT",
-                        (LEADER_METRICS_BASE_PORT + i as u16).to_string(),
-                    ),
-                ],
-                &log_dir,
-            )?);
-        }
-
-        procs.push(ServiceProcess::spawn(
+        infra.push(ServiceProcess::spawn(
             "router-leader",
             &config.bin_dir.join("personhog-router"),
             &[
@@ -167,20 +151,137 @@ impl Stack {
 
         let router_url = format!("http://127.0.0.1:{ROUTER_GRPC_PORT}");
         let mut stack = Self {
-            procs,
+            config,
+            infra,
+            leaders: Vec::new(),
+            retired: Vec::new(),
+            next_leader_index: 0,
             store,
-            kafka_hosts: config.kafka_hosts,
             topic,
             router_url,
             log_dir,
         };
 
+        for _ in 0..stack.config.leaders {
+            stack.spawn_leader()?;
+        }
+
+        let (partitions, leaders) = (stack.config.partitions, stack.config.leaders);
         stack
-            .wait_ready(config.partitions, config.leaders)
+            .wait_ready(partitions, leaders)
             .await
             .inspect_err(|_| stack.dump_recent_logs())?;
 
         Ok(stack)
+    }
+
+    /// Spawn one more leader. The pod registers with an explicit host:port
+    /// name, which the router's resolver dials as-is.
+    pub fn spawn_leader(&mut self) -> Result<String> {
+        let index = self.next_leader_index;
+        self.next_leader_index += 1;
+
+        let grpc_port = LEADER_GRPC_BASE_PORT + index as u16;
+        let pod_name = format!("127.0.0.1:{grpc_port}");
+        let proc = ServiceProcess::spawn(
+            &format!("leader-{index}"),
+            &self.config.bin_dir.join("personhog-leader"),
+            &[
+                ("GRPC_ADDRESS", pod_name.clone()),
+                ("POD_NAME", pod_name.clone()),
+                (
+                    "CACHE_MEMORY_CAPACITY",
+                    self.config.cache_memory_capacity.to_string(),
+                ),
+                ("ETCD_ENDPOINTS", self.config.etcd_endpoints.clone()),
+                ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
+                ("KAFKA_HOSTS", self.config.kafka_hosts.clone()),
+                ("KAFKA_PERSON_STATE_TOPIC", self.topic.clone()),
+                ("FALLBACK_DATABASE_URL", self.config.persons_db_url.clone()),
+                (
+                    "METRICS_PORT",
+                    (LEADER_METRICS_BASE_PORT + index as u16).to_string(),
+                ),
+            ],
+            &self.log_dir,
+        )?;
+
+        self.leaders.push((pod_name.clone(), proc));
+        Ok(pod_name)
+    }
+
+    /// SIGKILL the leader owning the most partitions (a crash, maximum
+    /// blast radius). With `fast`, also revoke its etcd lease so the
+    /// coordinator reacts immediately instead of waiting out the lease TTL.
+    pub async fn kill_leader(&mut self, fast: bool) -> Result<String> {
+        let victim = self.busiest_leader().await?;
+        let position = self
+            .leaders
+            .iter()
+            .position(|(name, _)| *name == victim)
+            .context("victim leader not tracked")?;
+        let (pod_name, mut proc) = self.leaders.remove(position);
+
+        proc.kill_now().await;
+        tracing::info!(pod = %pod_name, fast, "killed leader");
+        if fast {
+            etcd::revoke_pod_lease(&self.store, &pod_name).await?;
+        }
+        self.retired.push(proc);
+        Ok(pod_name)
+    }
+
+    /// SIGTERM the busiest leader and let it drain: it transitions to
+    /// Draining, the coordinator hands its partitions off, and the process
+    /// exits on its own while traffic continues.
+    pub async fn shutdown_leader(&mut self) -> Result<String> {
+        let victim = self.busiest_leader().await?;
+        let position = self
+            .leaders
+            .iter()
+            .position(|(name, _)| *name == victim)
+            .context("victim leader not tracked")?;
+        let (pod_name, proc) = self.leaders.remove(position);
+
+        proc.sigterm();
+        tracing::info!(pod = %pod_name, "requested graceful shutdown");
+        self.retired.push(proc);
+        Ok(pod_name)
+    }
+
+    /// The live leader owning the most partitions; falls back to the first
+    /// live leader when assignments are empty.
+    async fn busiest_leader(&self) -> Result<String> {
+        if self.leaders.is_empty() {
+            bail!("no live leaders to target");
+        }
+
+        let assignments = self.store.list_assignments().await.unwrap_or_default();
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for assignment in &assignments {
+            *counts.entry(assignment.owner.as_str()).or_default() += 1;
+        }
+
+        let busiest = self
+            .leaders
+            .iter()
+            .map(|(name, _)| name)
+            .max_by_key(|name| (counts.get(name.as_str()).copied().unwrap_or(0), *name));
+        Ok(busiest.expect("leaders is non-empty").clone())
+    }
+
+    /// One-line snapshot of coordination state, for chaos event logging.
+    pub async fn coordination_report(&self) -> String {
+        let pods = self.store.list_pods().await.unwrap_or_default();
+        let assignments = self.store.list_assignments().await.unwrap_or_default();
+        let handoffs = self.store.list_handoffs().await.unwrap_or_default();
+        format!(
+            "pods {}, partitions assigned {}/{}, handoffs in flight {}",
+            pods.len(),
+            assignments.len(),
+            self.config.partitions,
+            handoffs.len()
+        )
     }
 
     async fn wait_ready(&mut self, partitions: u32, leaders: u32) -> Result<()> {
@@ -220,9 +321,14 @@ impl Stack {
         Ok(())
     }
 
-    /// Fail if any spawned service has exited.
+    /// Fail if any spawned service has exited (retired leaders excluded —
+    /// their exit is the point).
     pub fn check_alive(&mut self) -> Result<()> {
-        for proc in &mut self.procs {
+        let procs = self
+            .infra
+            .iter_mut()
+            .chain(self.leaders.iter_mut().map(|(_, proc)| proc));
+        for proc in procs {
             if let Some(status) = proc.exited() {
                 let tail = proc.log_tail(30);
                 bail!(
@@ -235,7 +341,11 @@ impl Stack {
     }
 
     fn dump_recent_logs(&self) {
-        for proc in &self.procs {
+        let procs = self
+            .infra
+            .iter()
+            .chain(self.leaders.iter().map(|(_, proc)| proc));
+        for proc in procs {
             tracing::error!(
                 service = %proc.name,
                 log = %proc.log_path.display(),
@@ -251,12 +361,14 @@ impl Stack {
         // wiped on the next bring-up), so services stop concurrently with a
         // short grace rather than draining through handoffs.
         let terminations = self
-            .procs
+            .infra
             .into_iter()
+            .chain(self.leaders.into_iter().map(|(_, proc)| proc))
+            .chain(self.retired)
             .map(|proc| proc.terminate(SHUTDOWN_GRACE));
         futures::future::join_all(terminations).await;
 
-        kafka::delete_topic(&self.kafka_hosts, &self.topic).await?;
+        kafka::delete_topic(&self.config.kafka_hosts, &self.topic).await?;
         Ok(())
     }
 }

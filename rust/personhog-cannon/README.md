@@ -36,6 +36,34 @@ Service logs land in `<bin-dir>/cannon-logs/<run_id>/`.
 
 Multiple local leaders work because each registers with a `host:port` pod name, which the router's address resolver dials as-is (bare pod names still resolve via DNS on the fleet-wide leader port).
 
+### Chaos disruptions
+
+Disruptions fire mid-traffic, scheduled relative to the start of the traffic phase (spawned stack only).
+The invariant is unchanged: failed writes were never acked, but everything acked through the disruption must still be visible afterwards.
+
+```bash
+# Crash the busiest leader 5s in (SIGKILL + etcd lease revoke for instant detection)
+target/debug/personhog-cannon gate --leaders 3 --duration 15s --kill-after 5s
+
+# Let the coordinator discover the crash via lease TTL expiry instead
+target/debug/personhog-cannon gate --leaders 3 --duration 60s --kill-after 5s --kill-fast false
+
+# Graceful shutdown: SIGTERM, drain, partitions hand off while traffic flows
+target/debug/personhog-cannon gate --leaders 3 --duration 15s --shutdown-after 5s
+
+# Scale out mid-traffic, then crash the busiest leader
+target/debug/personhog-cannon gate --leaders 2 --duration 20s --scale-up-after 5s --kill-after 12s
+```
+
+### Eviction pressure
+
+`--cache-capacity` sets the leader cache size in entries.
+Setting it below `--persons` forces eviction of dirty entries under writer lag, which currently loses acked writes (the known cache-eviction hazard documented in `personhog-leader/src/cache/persons.rs`) — expect the gate to go red until that is fixed:
+
+```bash
+target/debug/personhog-cannon gate --persons 50 --cache-capacity 10 --duration 10s
+```
+
 ## `seed` / `cleanup` — manage traffic targets
 
 ```bash

@@ -24,6 +24,44 @@ pub async fn reset(store: &PersonhogStore, partitions: u32) -> Result<()> {
     Ok(())
 }
 
+/// Revoke the etcd lease attached to a pod's registration. Deleting the key
+/// through the lease makes the coordinator detect the pod's death
+/// immediately instead of waiting out the lease TTL — the "fast" half of a
+/// kill.
+pub async fn revoke_pod_lease(store: &PersonhogStore, pod_name: &str) -> Result<()> {
+    let prefix = store.inner().prefix();
+    let key = format!("{prefix}pods/{pod_name}");
+
+    let resp = store
+        .inner()
+        .client()
+        .clone()
+        .get(key, None)
+        .await
+        .context("reading pod key from etcd")?;
+
+    let kv = resp
+        .kvs()
+        .first()
+        .with_context(|| format!("pod {pod_name} not registered in etcd"))?;
+
+    let lease_id = kv.lease();
+    if lease_id == 0 {
+        anyhow::bail!("pod {pod_name} has no lease attached");
+    }
+
+    store
+        .inner()
+        .client()
+        .clone()
+        .lease_revoke(lease_id)
+        .await
+        .context("revoking pod lease")?;
+
+    tracing::info!(pod = pod_name, lease_id, "revoked etcd lease");
+    Ok(())
+}
+
 /// One readiness probe: the coordinator has assigned every partition and
 /// initial handoffs have completed — N registered pods, all partitions
 /// Active, no in-flight handoffs. Returns `None` when ready, or a progress

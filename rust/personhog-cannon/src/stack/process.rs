@@ -66,19 +66,34 @@ impl ServiceProcess {
         }
     }
 
+    /// Send SIGTERM without waiting — the process drains and exits on its
+    /// own schedule (used by chaos graceful shutdowns, where traffic keeps
+    /// flowing while the leader hands its partitions off).
+    pub fn sigterm(&self) {
+        let Some(pid) = self.child.id() else {
+            return;
+        };
+        // tokio's Child only exposes SIGKILL; SIGTERM goes through kill(1)
+        // to avoid pulling in a signals dependency for one call.
+        if let Err(e) = std::process::Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()
+        {
+            tracing::warn!(service = %self.name, error = %e, "failed to send SIGTERM");
+        }
+    }
+
+    /// SIGKILL immediately — a crash, not a shutdown.
+    pub async fn kill_now(&mut self) {
+        if let Err(e) = self.child.kill().await {
+            tracing::warn!(service = %self.name, error = %e, "failed to kill");
+        }
+    }
+
     /// Ask the process to shut down gracefully (SIGTERM), then wait up to
     /// `grace` before killing it outright.
     pub async fn terminate(mut self, grace: Duration) -> Result<()> {
-        if let Some(pid) = self.child.id() {
-            // tokio's Child only exposes SIGKILL; SIGTERM goes through kill(1)
-            // to avoid pulling in a signals dependency for one call.
-            if let Err(e) = std::process::Command::new("kill")
-                .args(["-TERM", &pid.to_string()])
-                .status()
-            {
-                tracing::warn!(service = %self.name, error = %e, "failed to send SIGTERM");
-            }
-        }
+        self.sigterm();
 
         match tokio::time::timeout(grace, self.child.wait()).await {
             Ok(status) => {

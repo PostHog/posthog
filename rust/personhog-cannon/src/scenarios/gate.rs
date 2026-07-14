@@ -19,12 +19,55 @@ use crate::stats::StatsCollector;
 /// before declaring them lost.
 const QUIESCE_DEADLINE: Duration = Duration::from_secs(60);
 
+/// A chaos disruption scheduled relative to the start of the traffic phase.
+enum ChaosEvent {
+    Kill { fast: bool },
+    Shutdown,
+    ScaleUp,
+}
+
+impl std::fmt::Display for ChaosEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChaosEvent::Kill { fast: true } => write!(f, "kill (fast lease revoke)"),
+            ChaosEvent::Kill { fast: false } => write!(f, "kill (lease TTL expiry)"),
+            ChaosEvent::Shutdown => write!(f, "graceful shutdown"),
+            ChaosEvent::ScaleUp => write!(f, "scale up"),
+        }
+    }
+}
+
+fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
+    let mut events = Vec::new();
+    if let Some(after) = args.kill_after {
+        events.push((
+            after,
+            ChaosEvent::Kill {
+                fast: args.kill_fast,
+            },
+        ));
+    }
+    if let Some(after) = args.shutdown_after {
+        events.push((after, ChaosEvent::Shutdown));
+    }
+    if let Some(after) = args.scale_up_after {
+        events.push((after, ChaosEvent::ScaleUp));
+    }
+    events.sort_by_key(|(after, _)| *after);
+    events
+}
+
 /// The full e2e correctness gate: bring up an isolated stack (or target a
-/// running one), seed persons, drive update traffic through the router,
-/// then assert every acked write is visible via strong reads AND lands in
-/// Postgres with the acked version. Exits non-zero on any violation, so it
-/// can gate CI.
+/// running one), seed persons, drive update traffic through the router —
+/// optionally disrupting the stack mid-traffic — then assert every acked
+/// write is visible via strong reads AND lands in Postgres with the acked
+/// version. Exits non-zero on any violation, so it can gate CI.
 pub async fn run(args: GateArgs) -> Result<()> {
+    let chaos = chaos_timeline(&args);
+    if args.external_router_url.is_some() && !chaos.is_empty() {
+        bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
+    }
+
     let mut stack = match &args.external_router_url {
         Some(_) => None,
         None => {
@@ -45,6 +88,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     etcd_endpoints: args.etcd_endpoints.clone(),
                     persons_db_url: args.persons_db_url.clone(),
                     writer_flush_interval_ms: 1000,
+                    cache_memory_capacity: args.cache_capacity,
                 })
                 .await?,
             )
@@ -79,20 +123,55 @@ pub async fn run(args: GateArgs) -> Result<()> {
     );
     let collector = Arc::new(StatsCollector::new());
     let state = PersonState::new();
-    blast::run_traffic(
-        &client,
-        args.team_id,
-        person_ids.clone(),
-        args.duration,
-        args.concurrency,
-        "cannon_gate_",
-        &collector,
-        &state,
-    )
-    .await?;
+    let traffic = {
+        let client = client.clone();
+        let person_ids = person_ids.clone();
+        let collector = collector.clone();
+        let state = state.clone();
+        let (team_id, duration, concurrency) = (args.team_id, args.duration, args.concurrency);
+        tokio::spawn(async move {
+            blast::run_traffic(
+                &client,
+                team_id,
+                person_ids,
+                duration,
+                concurrency,
+                "cannon_gate_",
+                &collector,
+                &state,
+            )
+            .await
+        })
+    };
+
+    // Fire scheduled disruptions while traffic flows. Failures aren't
+    // journaled, so the invariant is untouched: whatever the leader acked
+    // through the disruption must still be visible afterwards.
+    let traffic_start = Instant::now();
+    for (after, event) in chaos {
+        let stack = stack.as_mut().expect("chaos requires a spawned stack");
+        tokio::time::sleep_until((traffic_start + after).into()).await;
+        let pod = match event {
+            ChaosEvent::Kill { fast } => Some(stack.kill_leader(fast).await?),
+            ChaosEvent::Shutdown => Some(stack.shutdown_leader().await?),
+            ChaosEvent::ScaleUp => Some(stack.spawn_leader()?),
+        };
+        println!(
+            "Chaos at {:.1}s: {event} → pod {} | {}",
+            traffic_start.elapsed().as_secs_f64(),
+            pod.as_deref().unwrap_or("-"),
+            stack.coordination_report().await,
+        );
+    }
+
+    traffic.await.context("traffic task panicked")??;
 
     if let Some(stack) = stack.as_mut() {
         stack.check_alive()?;
+        println!(
+            "Post-traffic coordination: {}",
+            stack.coordination_report().await
+        );
     }
 
     println!("Verifying strong reads...");

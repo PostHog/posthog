@@ -145,6 +145,29 @@ pub struct GateArgs {
     #[arg(long, default_value = "http://localhost:2379")]
     pub etcd_endpoints: String,
 
+    /// Kill (SIGKILL) the busiest leader this long into the traffic phase.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub kill_after: Option<Duration>,
+
+    /// With --kill-after: also revoke the pod's etcd lease so the
+    /// coordinator reacts immediately instead of waiting out the lease TTL.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub kill_fast: bool,
+
+    /// Gracefully shut down (SIGTERM + drain) the busiest leader this long
+    /// into the traffic phase.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub shutdown_after: Option<Duration>,
+
+    /// Spawn an additional leader this long into the traffic phase.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub scale_up_after: Option<Duration>,
+
+    /// Leader cache capacity in entries. Set below --persons to put the
+    /// cache under eviction pressure.
+    #[arg(long, default_value_t = 100_000)]
+    pub cache_capacity: usize,
+
     /// Leave the spawned stack running after the gate finishes (for
     /// poking at it manually). Ignored with --external-router-url.
     #[arg(long, default_value_t = false)]
