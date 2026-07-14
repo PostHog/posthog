@@ -119,13 +119,22 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
     return response.json()
 
 
-def validate_credentials(api_key: str) -> bool:
+def validate_credentials(api_key: str) -> tuple[bool, int | None]:
+    """Probe /indexes to confirm the API key is genuine.
+
+    Returns ``(ok, status_code)``. ``status_code`` is ``None`` on a transport error so the caller
+    can tell a rejected key (401/403) apart from a transient outage (429/5xx/network) and avoid
+    reporting a valid key as invalid during a rate-limit or downtime window.
+    """
     url = _build_url("/indexes", {"page": 1, "page_limit": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
+        # Redact the key from tracked telemetry and refuse redirects so a 30x can never replay the
+        # `x-api-key` header to another origin.
+        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+        response = session.get(url, headers=_get_headers(api_key), timeout=10)
     except Exception:
-        return False
+        return False, None
+    return response.status_code == 200, response.status_code
 
 
 def _iter_index_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[str]:
@@ -227,8 +236,9 @@ def get_rows(
     config = TWELVE_LABS_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across every page (and, for fan-out, every index) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. The key is redacted from tracked
+    # telemetry and redirects are refused so a 30x can't replay `x-api-key` to another origin.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
     base_params = _build_params(
         config, 1, should_use_incremental_field, db_incremental_field_last_value, incremental_field

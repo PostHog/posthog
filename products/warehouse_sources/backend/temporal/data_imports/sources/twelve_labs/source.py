@@ -115,10 +115,15 @@ You can create an API key in your [Twelve Labs dashboard](https://playground.twe
     def validate_credentials(
         self, config: TwelveLabsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_twelve_labs_credentials(config.api_key):
+        ok, status_code = validate_twelve_labs_credentials(config.api_key)
+        if ok:
             return True, None
 
-        return False, "Invalid Twelve Labs API key"
+        # Only a 401/403 means the key is genuinely bad. A 429/5xx or transport error is transient,
+        # so tell the user to retry rather than telling them to replace a key that may be valid.
+        if status_code in (401, 403):
+            return False, "Invalid Twelve Labs API key"
+        return False, "Could not connect to Twelve Labs. Check your connection and try again."
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TwelveLabsResumeConfig]:
         return ResumableSourceManager[TwelveLabsResumeConfig](inputs, TwelveLabsResumeConfig)

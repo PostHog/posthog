@@ -3,6 +3,8 @@ from unittest.mock import patch
 import structlog
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TwelveLabsSourceConfig
@@ -42,6 +44,7 @@ class TestTwelveLabsSource:
         fields = self.source.get_source_config.fields
         assert len(fields) == 1
         api_key = fields[0]
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.name == "api_key"
         assert api_key.required is True
         assert api_key.secret is True
@@ -77,11 +80,40 @@ class TestTwelveLabsSource:
         schemas = self.source.get_schemas(TwelveLabsSourceConfig(api_key="x"), team_id=1, names=["tasks"])
         assert [s.name for s in schemas] == ["tasks"]
 
-    @parameterized.expand([("valid", True, True), ("invalid", False, False)])
-    def test_validate_credentials(self, _name: str, api_ok: bool, expected: bool) -> None:
-        with patch.object(source_module, "validate_twelve_labs_credentials", return_value=api_ok):
-            ok, _err = self.source.validate_credentials(TwelveLabsSourceConfig(api_key="x"), team_id=1)
-        assert ok is expected
+    @parameterized.expand(
+        [
+            ("valid", (True, 200), True, None),
+            ("rejected_key", (False, 401), False, "Invalid Twelve Labs API key"),
+            ("forbidden_key", (False, 403), False, "Invalid Twelve Labs API key"),
+            # A transient outage must not be reported as a bad key, or a user gets told to replace a
+            # key that is actually valid.
+            (
+                "rate_limited",
+                (False, 429),
+                False,
+                "Could not connect to Twelve Labs. Check your connection and try again.",
+            ),
+            (
+                "server_error",
+                (False, 500),
+                False,
+                "Could not connect to Twelve Labs. Check your connection and try again.",
+            ),
+            (
+                "network_error",
+                (False, None),
+                False,
+                "Could not connect to Twelve Labs. Check your connection and try again.",
+            ),
+        ]
+    )
+    def test_validate_credentials(
+        self, _name: str, api_result: tuple[bool, int | None], expected_ok: bool, expected_err: str | None
+    ) -> None:
+        with patch.object(source_module, "validate_twelve_labs_credentials", return_value=api_result):
+            ok, err = self.source.validate_credentials(TwelveLabsSourceConfig(api_key="x"), team_id=1)
+        assert ok is expected_ok
+        assert err == expected_err
 
     def test_resumable_manager_bound_to_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(_inputs("indexes"))

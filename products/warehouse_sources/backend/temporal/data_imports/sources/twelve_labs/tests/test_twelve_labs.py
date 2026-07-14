@@ -121,13 +121,27 @@ class TestValidateCredentials:
         session = MagicMock()
         session.get.return_value = _mock_response({}, status_code=status_code)
         with patch.object(twelve_labs, "make_tracked_session", return_value=session):
-            assert validate_credentials("tlk_key") is expected
+            ok, returned_status = validate_credentials("tlk_key")
+        assert ok is expected
+        # The caller relies on the status code to tell a rejected key from a transient outage.
+        assert returned_status == status_code
 
-    def test_network_error_is_falsey(self) -> None:
+    def test_network_error_reports_no_status(self) -> None:
         session = MagicMock()
         session.get.side_effect = Exception("boom")
         with patch.object(twelve_labs, "make_tracked_session", return_value=session):
-            assert validate_credentials("tlk_key") is False
+            ok, returned_status = validate_credentials("tlk_key")
+        assert ok is False
+        assert returned_status is None
+
+    def test_credentialed_session_redacts_key_and_refuses_redirects(self) -> None:
+        # The x-api-key value must never reach tracked telemetry, and a 30x must not replay it to
+        # another host, so validation builds the session with both guards on.
+        session = MagicMock()
+        session.get.return_value = _mock_response({}, status_code=200)
+        with patch.object(twelve_labs, "make_tracked_session", return_value=session) as make_session:
+            validate_credentials("tlk_key")
+        make_session.assert_called_once_with(redact_values=("tlk_key",), allow_redirects=False)
 
 
 class TestGetRowsPagination:
