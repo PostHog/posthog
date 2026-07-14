@@ -5,9 +5,11 @@ description: >
   pull-requests (PR list with CI status), workflow-health (per-workflow CI trends), and pr-lifecycle (a single PR's
   timeline). Use when asked whether CI is getting faster or slower, which GitHub Actions workflow is the slow or
   flaky long-pole, how long PRs take from open to merge, how an author's merge time compares to the cohort, which
-  open PRs have failing or pending CI, or where a specific pull request is stuck. Triggers on "engineering
-  analytics", "is CI getting slower", "slow workflow", "flaky CI", "time to merge", "cycle time", "PR throughput",
-  "failing checks", "where is PR <n> stuck", "CI long pole", "what's holding up this PR".
+  open PRs have failing or pending CI, or where a specific pull request is stuck. Also routes CI health to owning
+  teams: which team owns the flakiest test surfaces, and whether one team's CI signal is getting better or worse.
+  Triggers on "engineering analytics", "is CI getting slower", "slow workflow", "flaky CI", "time to merge",
+  "cycle time", "PR throughput", "failing checks", "where is PR <n> stuck", "CI long pole", "what's holding up
+  this PR", "which team owns", "team CI health".
 ---
 
 # Diagnosing CI and merge bottlenecks
@@ -44,6 +46,18 @@ autonomous agents (e.g. PostHog Code) reasoning about their own PRs.
   flaky right now" and picks quarantine candidates; `xfailed_count > 0` means already quarantined but still
   failing. Counts are absolute signal, never rates — passing runs are mostly not emitted, so there is no honest
   denominator.
+- **`engineering-analytics-team-ci-health`**: the per-owning-team roster over a window (`date_from` default
+  `-14d`, max 30 days): flaky-test count (the leaderboard's qualification bar applied per team), failed/error
+  and pass-on-retry span counts, each with an equal-length previous-window twin (`*_prior`) for honest deltas.
+  Answers "which team owns the flakiest surfaces" and routes a CI finding to its owning team. Ownership is
+  stamped on each test span at CI emission time from the repo's ownership map (products/\*/product.yaml +
+  CODEOWNERS); a nonempty `unowned` row means ownership gaps, not a real team. Teams own code surfaces, never
+  authors.
+- **`engineering-analytics-team-ci-activity`**: one team's drill-down: the daily signal series over the window
+  plus per-test current-vs-prior signal pairs, capped at `test_limit` (`truncated_tests` set when more
+  qualified). Answers "is this team's CI health getting better or worse, and which tests moved". Pass
+  `owner_team` exactly as the roster returned it (including `unowned`); each test row carries the pytest nodeid
+  and a runnable selector.
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).
@@ -68,17 +82,23 @@ These are structural limits of today's snapshot data — state them, don't paper
   match, and there is no repo or limit filter to narrow the call. When `truncated` is `true`, any percentile or
   count you derive covers only the newest page — not the whole window — so say so and shrink `date_from` until the
   real set fits under the cap.
+- **Team attribution is capture-time ownership.** Test spans are stamped with the owning team when CI emits them,
+  so a test is attributed to whoever owned it when it ran, and spans emitted before the stamp existed (or from
+  paths with no owner) aggregate under `unowned`. Report a growing `unowned` row as an ownership gap to fix, never
+  as a team.
 
 ## Choosing a tool
 
-| The question                                           | Tool                                | How                                                                                                                                                                                                                                                                                            |
-| ------------------------------------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Is CI getting slower? Which workflow is the long pole? | `workflow-health`                   | Call over two adjacent windows (e.g. `date_from=-14d`, then `date_from=-28d` `date_to=-14d`); compare `p50_seconds` and `p95_seconds` per workflow. Lead with the median but always check p95 separately — they move independently.                                                            |
-| Which open PRs have failing or pending CI?             | `pull-requests`                     | Keep rows where `ci.failing > 0` or `ci.pending > 0`. `pending` means unsettled (or stale) — not a settled failure.                                                                                                                                                                            |
-| Which PRs are stuck open longest?                      | `pull-requests`                     | Keep `state = open`, not `is_draft`, not `author.is_bot`; sort by `created_at` ascending (oldest first).                                                                                                                                                                                       |
-| How long are PRs taking to merge? Per author?          | `pull-requests`                     | Over merged rows (`merged_at` set, not bot, not draft), aggregate `open_to_merge_seconds` — median and p95. Group by `author.handle` for **cohort context, not a ranking** (per-developer surveillance is an explicit non-goal). Trend it by calling with two `date_from` windows.             |
-| Where is PR N stuck?                                   | `pr-lifecycle`                      | Walk the sorted events: `opened → first CI started`, the CI span (first start → last finish; one pair per workflow), `last CI finished → merged`. The largest gap is the bottleneck. A long open→merge with quick CI points at review/idle time the `partial` data can't itemize yet — say so. |
-| Which tests are flaky? What should be quarantined?     | `engineering-analytics-flaky-tests` | Default window is `-7d`; rows are already ranked by `rerun_passed_count` + `failed_pr_count`. Report counts, never rates. A no-rerun lane surfaces flakes as plain failures — that's what `failed_pr_count` catches.                                                                           |
+| The question                                           | Tool                                     | How                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Is CI getting slower? Which workflow is the long pole? | `workflow-health`                        | Call over two adjacent windows (e.g. `date_from=-14d`, then `date_from=-28d` `date_to=-14d`); compare `p50_seconds` and `p95_seconds` per workflow. Lead with the median but always check p95 separately — they move independently.                                                            |
+| Which open PRs have failing or pending CI?             | `pull-requests`                          | Keep rows where `ci.failing > 0` or `ci.pending > 0`. `pending` means unsettled (or stale) — not a settled failure.                                                                                                                                                                            |
+| Which PRs are stuck open longest?                      | `pull-requests`                          | Keep `state = open`, not `is_draft`, not `author.is_bot`; sort by `created_at` ascending (oldest first).                                                                                                                                                                                       |
+| How long are PRs taking to merge? Per author?          | `pull-requests`                          | Over merged rows (`merged_at` set, not bot, not draft), aggregate `open_to_merge_seconds` — median and p95. Group by `author.handle` for **cohort context, not a ranking** (per-developer surveillance is an explicit non-goal). Trend it by calling with two `date_from` windows.             |
+| Where is PR N stuck?                                   | `pr-lifecycle`                           | Walk the sorted events: `opened → first CI started`, the CI span (first start → last finish; one pair per workflow), `last CI finished → merged`. The largest gap is the bottleneck. A long open→merge with quick CI points at review/idle time the `partial` data can't itemize yet — say so. |
+| Which tests are flaky? What should be quarantined?     | `engineering-analytics-flaky-tests`      | Default window is `-7d`; rows are already ranked by `rerun_passed_count` + `failed_pr_count`. Report counts, never rates. A no-rerun lane surfaces flakes as plain failures — that's what `failed_pr_count` catches.                                                                           |
+| Which team owns the flakiest CI surfaces?              | `engineering-analytics-team-ci-health`   | Default window is `-14d`. Rank by `flaky_test_count` + `failed_count`; compare each figure to its `*_prior` twin for the trend. Report a nonempty `unowned` row as an ownership gap, not a team.                                                                                               |
+| Is team X's CI getting better or worse? What moved?    | `engineering-analytics-team-ci-activity` | Pass `owner_team` from the roster verbatim. Compare `signal_count` vs `signal_count_prior` per test; the daily series shows when it moved. Use each row's selector to run the test locally.                                                                                                    |
 
 ## The high-value chain
 
@@ -92,6 +112,17 @@ workflow-health  (find the slow/flaky long-pole workflow)
 
 "CI median rose because `e2e-playwright` p95 doubled; that workflow is the long pole on PR #1234, which sat 47m in
 CI before merging."
+
+For routing flaky-test health to owners, the chain runs roster to drill-down:
+
+```text
+team-ci-health  (which team owns the flakiest surfaces; is 'unowned' growing)
+   → team-ci-activity  (that team's daily trend and the specific tests that moved)
+      → engineering-analytics-flaky-tests  (cross-team context for the same tests)
+```
+
+"batch-exports holds 4 of the top 10 flaky tests, flat vs the prior window; team-replay is the mover, 2 to 3
+qualifying tests, driven by test_snapshot_batching (9 signal spans vs 2 prior)."
 
 ## Output expectations
 

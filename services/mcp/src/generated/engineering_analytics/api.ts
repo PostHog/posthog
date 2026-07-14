@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -186,6 +186,42 @@ export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * One owning team's CI test activity: the daily signal series over the window plus per-test current-vs-prior signal pairs (the before/after comparison behind a slope chart). Signal = failed + error + pass-on-retry spans on the team's owned tests. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ */
+export const EngineeringAnalyticsTeamCiActivityParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EngineeringAnalyticsTeamCiActivityQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe(
+            "Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window feeds the *_prior twins."
+        ),
+    date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    owner_team: zod
+        .string()
+        .describe(
+            "Owning team slug to scope to (as returned by team_ci_health), e.g. 'team-replay', or the literal 'unowned' for tests with no ownership stamp."
+        ),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+    test_limit: zod
+        .number()
+        .optional()
+        .describe('Maximum number of per-test signal rows to return (1-100). Defaults to 25.'),
 })
 
 /**

@@ -10,6 +10,7 @@ import {
     EngineeringAnalyticsPrLifecycleQueryParams,
     EngineeringAnalyticsPullRequestsQueryParams,
     EngineeringAnalyticsRunFailureLogsQueryParams,
+    EngineeringAnalyticsTeamCiActivityQueryParams,
     EngineeringAnalyticsTeamCiHealthQueryParams,
     EngineeringAnalyticsWorkflowHealthQueryParams,
     EngineeringAnalyticsWorkflowJobsQueryParams,
@@ -146,6 +147,31 @@ const engineeringAnalyticsSources = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/sources/`,
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')
+    },
+})
+
+const EngineeringAnalyticsTeamCiActivitySchema = EngineeringAnalyticsTeamCiActivityQueryParams
+
+const engineeringAnalyticsTeamCiActivity = (): ToolBase<
+    typeof EngineeringAnalyticsTeamCiActivitySchema,
+    Schemas.TeamCIActivity
+> => ({
+    name: 'engineering-analytics-team-ci-activity',
+    schema: EngineeringAnalyticsTeamCiActivitySchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsTeamCiActivitySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TeamCIActivity>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/team_ci_activity/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                owner_team: params.owner_team,
+                source_id: params.source_id,
+                test_limit: params.test_limit,
+            },
+        })
+        return result
     },
 })
 
@@ -307,6 +333,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'engineering-analytics-pr-cost': engineeringAnalyticsPrCost,
     'engineering-analytics-run-failure-logs': engineeringAnalyticsRunFailureLogs,
     'engineering-analytics-sources': engineeringAnalyticsSources,
+    'engineering-analytics-team-ci-activity': engineeringAnalyticsTeamCiActivity,
     'engineering-analytics-team-ci-health': engineeringAnalyticsTeamCiHealth,
     'engineering-analytics-workflow-jobs': engineeringAnalyticsWorkflowJobs,
     'engineering-analytics-workflow-runner-costs': engineeringAnalyticsWorkflowRunnerCosts,

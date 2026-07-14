@@ -2739,6 +2739,21 @@
         },
         "feature_flag": "engineering-analytics"
     },
+    "engineering-analytics-team-ci-activity": {
+        "description": "One team's CI test-health detail over a window (date_from default -14d, maximum 30 days): the daily signal series (failed/error, pass-on-retry, and quarantined-but-still-failing counts per day) plus per-test current-vs-prior signal pairs (signal_count vs signal_count_prior over equal-length windows), capped at test_limit with truncated_tests set when more qualified. Call it after the team-ci-health roster points at a team, passing owner_team exactly as the roster returned it (including the literal 'unowned', which holds spans with no ownership stamp). Each test row carries the pytest nodeid and a runnable selector for reproducing locally. Counts are absolute signal, never rates: fast passing runs are not emitted, so there is no honest denominator.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "One team's CI test activity",
+        "title": "One team's CI test activity",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "engineering-analytics"
+    },
     "engineering-analytics-team-ci-health": {
         "description": "Per-owning-team rollup of the CI test surfaces each team owns, over a window (date_from default -14d, maximum 30 days): flaky-test count (same qualification bar as the flaky-test leaderboard), failed/error span count, and pass-on-retry count, each with an equal-length previous-window twin (*_prior) for honest deltas. Use this for \"which team owns the flakiest surfaces right now\" and to route a flaky-test or CI Signal to its owning team. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); spans without a stamp aggregate under the literal team 'unowned' (a nonempty 'unowned' row means ownership gaps, not a real team). Teams are organizational owners of code surfaces, never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted, so there is no honest denominator.",
         "category": "Engineering analytics",

@@ -169,7 +169,24 @@ tools:
         feature_flag: engineering-analytics
     engineering-analytics-team-ci-activity:
         operation: engineering_analytics_team_ci_activity
-        enabled: false
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: One team's CI test activity
+        description: >
+            One team's CI test-health detail over a window (date_from default -14d, maximum 30 days): the daily
+            signal series (failed/error, pass-on-retry, and quarantined-but-still-failing counts per day) plus
+            per-test current-vs-prior signal pairs (signal_count vs signal_count_prior over equal-length windows),
+            capped at test_limit with truncated_tests set when more qualified. Call it after the team-ci-health
+            roster points at a team, passing owner_team exactly as the roster returned it (including the literal
+            'unowned', which holds spans with no ownership stamp). Each test row carries the pytest nodeid and a
+            runnable selector for reproducing locally. Counts are absolute signal, never rates: fast passing runs
+            are not emitted, so there is no honest denominator.
+        feature_flag: engineering-analytics
     engineering-analytics-team-ci-health:
         operation: engineering_analytics_team_ci_health
         enabled: true
