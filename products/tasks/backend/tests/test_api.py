@@ -13,7 +13,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 from django.conf import settings
 from django.db import connection
 from django.http import StreamingHttpResponse
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
 
@@ -34,6 +34,8 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
+    cloud_usage_limit_response,
+    code_access_required_response,
     get_posthog_code_usage,
 )
 from products.tasks.backend.logic.services.connection_token import (
@@ -3342,6 +3344,27 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         self.assertEqual(automation.cron_expression, "0 9 * * *")
         mock_sync_schedule.assert_called_once_with(automation)
 
+    @patch("products.tasks.backend.automation_service.sync_automation_schedule")
+    def test_create_automation_requires_code_access(self, mock_sync_schedule):
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.post(
+            "/api/projects/@current/task_automations/",
+            {
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "Europe/London",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertFalse(TaskAutomation.objects.exists())
+        mock_sync_schedule.assert_not_called()
+
     def test_list_automations(self):
         automation = self.create_automation()
 
@@ -3454,6 +3477,25 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         self.assertFalse(automation.enabled)
         mock_sync_schedule.assert_called_once_with(automation)
 
+    @patch("products.tasks.backend.automation_service.sync_automation_schedule")
+    def test_enable_automation_requires_code_access(self, mock_sync_schedule):
+        automation = self.create_automation()
+        automation.enabled = False
+        automation.save(update_fields=["enabled", "updated_at"])
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.patch(
+            f"/api/projects/@current/task_automations/{automation.id}/",
+            {"enabled": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        automation.refresh_from_db()
+        self.assertFalse(automation.enabled)
+        mock_sync_schedule.assert_not_called()
+
     @patch("products.tasks.backend.facade.api._sync_automation_schedule")
     def test_update_automation_rolls_back_automation_when_task_update_fails(self, mock_sync_schedule):
         automation = self.create_automation()
@@ -3491,6 +3533,17 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_run_task_automation.assert_called_once_with(str(automation.id))
+
+    @patch("products.tasks.backend.automation_service.run_task_automation")
+    def test_run_requires_code_access(self, mock_run_task_automation):
+        self.set_tasks_feature_flag(False)
+        automation = self.create_automation()
+
+        response = self.client.post(f"/api/projects/@current/task_automations/{automation.id}/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        mock_run_task_automation.assert_not_called()
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
@@ -7345,6 +7398,22 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_signal_followup.assert_called_once_with(run.workflow_id, "Change direction", [], steer=True)
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_user_message_requires_code_access(self, mock_signal_followup):
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        mock_signal_followup.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_without_active_sandbox(self, mock_signal_followup):
         task = self.create_task()
         run = TaskRun.objects.create(
@@ -8470,6 +8539,39 @@ class TestCloudUsageGate(BaseTaskAPITest):
             status=status_value,
         )
 
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    def test_warm_without_code_access_returns_403_before_provisioning(self, _mock_warm_enabled, mock_warm):
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"repository": "posthog/posthog", "github_integration": 123},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        mock_warm.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_without_code_access_returns_403_before_usage_check(self, mock_gate, mock_workflow):
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        mock_gate.assert_not_called()
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
         mock_gate.return_value = self.OVER_LIMIT
@@ -8651,6 +8753,28 @@ class TestGetPosthogCodeUsage(TestCase):
     def test_fails_open_when_no_gateway_url(self, mock_token):
         self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
         mock_token.assert_not_called()
+
+
+class TestCloudUsageGateResponse(SimpleTestCase):
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access")
+    def test_missing_code_access_returns_403_before_usage_check(self, mock_access, mock_usage):
+        mock_access.return_value = False
+
+        response = cloud_usage_limit_response(MagicMock(), 1)
+
+        assert response is not None
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "code_access_required")
+        mock_usage.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access", return_value=False)
+    def test_code_access_required_response_is_structured(self, _mock_access):
+        response = code_access_required_response(MagicMock())
+
+        assert response is not None
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "code_access_required")
 
 
 def _make_custom_image(*, team: Team, user: User, **kwargs) -> SandboxCustomImage:
