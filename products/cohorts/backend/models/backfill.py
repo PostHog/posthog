@@ -3,7 +3,7 @@ from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 
 
 class CohortBackfillKind(models.TextChoices):
@@ -99,8 +99,7 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
         ]
 
 
-class CohortBackfillRunCohort(TeamScopedRootMixin):
-    id = models.BigAutoField(primary_key=True)
+class CohortBackfillRunCohort(TeamScopedRootMixin, UUIDModel):
     run = models.ForeignKey(CohortBackfillRun, on_delete=models.CASCADE, related_name="run_cohorts")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.CASCADE, related_name="backfill_participations")
@@ -117,8 +116,7 @@ class CohortBackfillRunCohort(TeamScopedRootMixin):
         ]
 
 
-class CohortBackfillChunk(TeamScopedRootMixin):
-    id = models.BigAutoField(primary_key=True)
+class CohortBackfillChunk(TeamScopedRootMixin, UUIDModel):
     run = models.ForeignKey(CohortBackfillRun, on_delete=models.CASCADE, related_name="chunks")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     day = models.DateField()

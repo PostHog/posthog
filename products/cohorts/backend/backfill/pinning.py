@@ -10,8 +10,10 @@ _INTERVAL_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
 def derive_window_days(time_value: object, time_interval: object) -> int:
     if not isinstance(time_interval, str):
         return 0
+    if not isinstance(time_value, (int, float, str)):
+        return 0
     try:
-        normalized_time_value = max(0, int(time_value or 0))
+        normalized_time_value = max(0, int(time_value))
     except (TypeError, ValueError):
         return 0
     return normalized_time_value * _INTERVAL_DAYS.get(time_interval, 0)

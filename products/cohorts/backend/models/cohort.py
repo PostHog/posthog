@@ -250,27 +250,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def __str__(self):
         return self.name or "Untitled cohort"
 
-    def save(
-        self,
-        *args: Any,
-        force_insert: bool | tuple[type[models.Model], ...] = False,
-        force_update: bool = False,
-        using: str | None = None,
-        update_fields: Iterable[str] | None = None,
-    ) -> None:
-        positional_update_fields = args[3] if len(args) > 3 else update_fields
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
+        # or as a keyword. Intercept it so _maintain_behavioral_shape can extend the frozen set.
+        positional_update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
         maintained_update_fields = self._maintain_behavioral_shape(positional_update_fields)
         if len(args) > 3:
             args = (*args[:3], maintained_update_fields, *args[4:])
         else:
-            update_fields = maintained_update_fields
-        super().save(
-            *args,
-            force_insert=force_insert,
-            force_update=force_update,
-            using=using,
-            update_fields=update_fields,
-        )
+            kwargs["update_fields"] = maintained_update_fields
+        super().save(*args, **kwargs)
 
     def _maintain_behavioral_shape(self, update_fields: Iterable[str] | None) -> set[str] | None:
         self._leaf_shape_changed = False
