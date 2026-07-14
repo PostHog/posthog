@@ -80,6 +80,13 @@ class BriefConfig(PulseModel):
     focus_prompt = models.TextField(blank=True, default="", max_length=2000)
     # Shape: BriefAnchorsSerializer (api/brief.py) — {"dashboards": [int], "insights": [short_id str]}
     anchors = models.JSONField(default=dict)
+    # What the focus is driving toward, e.g. "increase subscription usage". User-authored
+    # free text — sanitized at the prompt-render boundary, never trusted raw in prompts.
+    goal = models.TextField(blank=True, default="")
+    # {"type": "insight", "insight_short_id": str} | null. Discriminated on "type" so non-insight
+    # goal sources (events, experiment conversions) can be added later without a migration; v1
+    # stores only "insight" (the insight's first series — no series_index).
+    goal_metric = models.JSONField(null=True, blank=True)
     # Per-config tunables overriding config.py defaults; shape/ranges: config.BriefSettings.
     settings = models.JSONField(default=dict)
     enabled = models.BooleanField(default=True)
@@ -117,6 +124,11 @@ class ProductBrief(PulseModel):
     sources_used = models.JSONField(default=list)
     error = models.TextField(null=True, blank=True)
     feedback = models.JSONField(default=dict)
+    # Frozen GoalStatus snapshot (generation/goal.py) computed at synthesis: a brief is a
+    # point-in-time artifact, so its goal figures are stored, never recomputed on read. Null for
+    # config-less briefs and briefs generated from an empty gather; a QUIET brief with items still
+    # carries one. Shape: asdict(GoalStatus).
+    goal_status = models.JSONField(null=True, blank=True)
 
     class Meta(PulseModel.Meta):
         # The stale-brief reaper sweeps GENERATING rows cross-team every few minutes on an
@@ -156,6 +168,8 @@ class Opportunity(PulseModel):
     metric_ref = models.JSONField(null=True, blank=True)
     # snapshot of metric value(s) at creation, for the future impact loop
     baseline = models.JSONField(null=True, blank=True)
+    # Set by goal-conditioned synthesis: this opportunity plausibly advances the focus goal.
+    goal_relevant = models.BooleanField(default=False)
     fingerprint = models.CharField(max_length=512)
     feedback = models.JSONField(default=dict)
 

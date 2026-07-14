@@ -14,6 +14,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.generation.accountability import OpportunityStatusLine
+from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief, ResourceLink, build_action
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, build_evidence_index
@@ -80,6 +81,7 @@ def _build_opportunity(
         action=build_action(opp.suggested_action),
         metric_ref=first_insight.metric_ref if first_insight else None,
         baseline=baseline,
+        goal_relevant=opp.goal_relevant,
         fingerprint=_fingerprint(opp.kind, opp.fingerprint_hint),
     )
 
@@ -157,6 +159,7 @@ def persist_brief_output(
     out: BriefOut,
     items: list[SourceItem],
     status_lines: list[OpportunityStatusLine] | None = None,
+    goal_status: GoalStatus | None = None,
 ) -> ProductBrief:
     team_opportunities = Opportunity.objects.for_team(brief.team_id)
     items_by_hint = {item.fingerprint_hint: item for item in items}
@@ -171,7 +174,10 @@ def persist_brief_output(
         has_content = bool(out.sections or out.opportunities)
         brief.status = ProductBrief.Status.READY if has_content else ProductBrief.Status.QUIET
         brief.sources_used = sorted({item.source for item in items})
-        brief.save(update_fields=["sections", "accountability", "status", "sources_used", "updated_at"])
+        # Freeze the goal figures the brief was framed with, so the UI shows the same snapshot
+        # the synthesis prompt saw rather than a live re-read.
+        brief.goal_status = dataclasses.asdict(goal_status) if goal_status is not None else None
+        brief.save(update_fields=["sections", "accountability", "status", "sources_used", "goal_status", "updated_at"])
         seen = _existing_fingerprints(
             team_opportunities, [_fingerprint(o.kind, o.fingerprint_hint) for o in out.opportunities]
         )

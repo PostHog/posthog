@@ -9,7 +9,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { BriefConfigApi, ProductBriefListApi } from './generated/api.schemas'
+import type { BriefConfigApi, BriefGoalStatusApi, ProductBriefApi, ProductBriefListApi } from './generated/api.schemas'
 import { BRIEF_ALREADY_GENERATING_MESSAGE, MAX_CONSECUTIVE_POLL_FAILURES, pulseLogic } from './pulseLogic'
 
 const generatingBrief = {
@@ -46,6 +46,8 @@ const existingConfig: BriefConfigApi = {
     name: 'Flags team',
     focus_prompt: 'flags',
     anchors: { dashboards: [1], insights: ['abc123'] },
+    goal: 'Increase subscription usage',
+    goal_metric: { insight_short_id: 'abc123' },
     enabled: true,
     created_at: '2026-07-01T00:00:00Z',
     created_by: null,
@@ -61,6 +63,8 @@ describe('pulseLogic', () => {
                 '/api/projects/:team_id/pulse/brief_configs/': { count: 0, results: [] },
                 '/api/projects/:team_id/pulse/briefs/': { count: 0, results: [] },
                 '/api/projects/:team_id/pulse/briefs/:id/': readyBrief,
+                // The goal-metric picker loads trends insights when the config modal opens.
+                '/api/projects/:team_id/insights/': { count: 0, results: [] },
             },
             post: {
                 '/api/projects/:team_id/pulse/briefs/generate/': () => [201, generatingBrief],
@@ -215,13 +219,46 @@ describe('pulseLogic', () => {
         resumeKeaLoadersErrors()
     })
 
-    it.each<[string, BriefConfigApi | null, 'post' | 'patch', Record<string, unknown>]>([
-        ['create', null, 'post', { dashboards: [2] }],
-        // Insight anchors set through the API must survive a save from this dashboards-only form.
-        ['edit', existingConfig, 'patch', { dashboards: [2], insights: ['abc123'] }],
+    it.each<
+        [
+            string,
+            BriefConfigApi | null,
+            'post' | 'patch',
+            Record<string, unknown>,
+            Record<string, unknown>,
+            { goal: string; goal_metric: Record<string, string> | null },
+        ]
+    >([
+        [
+            'create',
+            null,
+            'post',
+            { dashboards: [2] },
+            // Whitespace-only entries must clear to null, and real entries must be trimmed.
+            { goal: '  Grow usage ', goal_metric_short_id: '  NewMetric1 ' },
+            { goal: 'Grow usage', goal_metric: { insight_short_id: 'NewMetric1' } },
+        ],
+        // Insight anchors set through the API must survive a save from this dashboards-only form,
+        // and the goal fields seeded from the config must round-trip unchanged.
+        [
+            'edit',
+            existingConfig,
+            'patch',
+            { dashboards: [2], insights: ['abc123'] },
+            {},
+            { goal: 'Increase subscription usage', goal_metric: { insight_short_id: 'abc123' } },
+        ],
+        [
+            'edit clearing the goal metric',
+            existingConfig,
+            'patch',
+            { dashboards: [2], insights: ['abc123'] },
+            { goal_metric_short_id: '   ' },
+            { goal: 'Increase subscription usage', goal_metric: null },
+        ],
     ])(
         'saving a config in %s mode hits the %s endpoint with the form payload',
-        async (_mode, editing, endpoint, expectedAnchors) => {
+        async (_mode, editing, endpoint, expectedAnchors, extraFormValues, expectedGoalPayload) => {
             const captured: Record<'post' | 'patch', Record<string, any> | null> = { post: null, patch: null }
             useMocks({
                 post: {
@@ -239,7 +276,7 @@ describe('pulseLogic', () => {
             })
 
             logic.actions.openConfigModal(editing)
-            logic.actions.setConfigFormValues({ name: 'Updated name', dashboards: [2] })
+            logic.actions.setConfigFormValues({ name: 'Updated name', dashboards: [2], ...extraFormValues })
             await expectLogic(logic, () => {
                 logic.actions.submitConfigForm()
             }).toDispatchActions(['configSaved'])
@@ -247,6 +284,9 @@ describe('pulseLogic', () => {
             expect(captured[endpoint === 'post' ? 'patch' : 'post']).toBeNull()
             expect(captured[endpoint]!.name).toEqual('Updated name')
             expect(captured[endpoint]!.anchors).toEqual(expectedAnchors)
+            // The goal is trimmed and the metric maps to the discriminated payload (or null when cleared).
+            expect(captured[endpoint]!.goal).toEqual(expectedGoalPayload.goal)
+            expect(captured[endpoint]!.goal_metric).toEqual(expectedGoalPayload.goal_metric)
             // A newly created config is auto-selected; editing an existing one leaves selection untouched.
             expect(logic.values.selectedConfigId).toEqual(endpoint === 'post' ? 'cfg-new' : null)
         }
@@ -282,5 +322,37 @@ describe('pulseLogic', () => {
         })
             .toDispatchActions(['configDeleted'])
             .toMatchValues({ selectedConfigId: null, briefConfigs: [] })
+    })
+
+    const blankGoalConfig: BriefConfigApi = { ...existingConfig, id: 'cfg-blank', goal: '   ', goal_metric: null }
+
+    it.each([
+        ['config with a goal', 'cfg-1', 'Increase subscription usage'],
+        ['config-less brief', null, null],
+        ['config with a blank goal', 'cfg-blank', null],
+    ])('briefDetailGoal resolves %s', async (_label, config, expected) => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadBriefConfigsSuccess([existingConfig, blankGoalConfig])
+        logic.actions.loadBriefDetailSuccess({ ...readyBrief, config } as ProductBriefApi)
+        expect(logic.values.briefDetailGoal).toBe(expected)
+    })
+
+    it.each([
+        ['ok', true],
+        ['none', false],
+        ['unavailable', false],
+    ])('briefDetailGoalStatus surfaces the snapshot only for metric_state %s', async (metricState, kept) => {
+        const goalStatus = {
+            goal: 'Increase subscription usage',
+            metric_state: metricState,
+            metric_label: 'Signups',
+            insight_short_id: 'abc123',
+            current_rate: '5.0/day avg',
+            previous_rate: '4.0/day avg',
+            delta_pct: 25.0,
+        } as BriefGoalStatusApi
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadBriefDetailSuccess({ ...readyBrief, goal_status: goalStatus } as ProductBriefApi)
+        expect(logic.values.briefDetailGoalStatus).toEqual(kept ? goalStatus : null)
     })
 })

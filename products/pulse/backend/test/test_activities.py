@@ -17,7 +17,7 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation
 
 from products.pulse.backend.config import MAX_ITEMS
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
-from products.pulse.backend.models import Opportunity, ProductBrief
+from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
     gather_brief_inputs_activity,
@@ -96,6 +96,15 @@ def _create_userless_brief(team) -> ProductBrief:
 
 
 @sync_to_async
+def _create_brief_with_goal(team, user, goal: str) -> ProductBrief:
+    with team_scope(team.pk, canonical=True):
+        config = BriefConfig.objects.create(team=team, name="cfg", goal=goal)
+        return ProductBrief.objects.create(
+            team=team, created_by=user, config=config, trigger=ProductBrief.Trigger.ON_DEMAND
+        )
+
+
+@sync_to_async
 def _reload_brief(brief_id) -> ProductBrief:
     return ProductBrief.objects.unscoped().get(id=brief_id)
 
@@ -117,6 +126,7 @@ def _confident_out() -> BriefOut:
                 evidence_refs=["c1"],
                 fingerprint_hint="abc:0",
                 confidence=0.9,
+                goal_relevant=False,
             )
         ],
     )
@@ -157,6 +167,23 @@ async def test_synthesize_activity_marks_ready(team, user) -> None:
     reloaded = await _reload_brief(brief.id)
     assert reloaded.status == ProductBrief.Status.READY
     assert await _opportunity_count(team) == 1
+
+
+async def test_synthesize_activity_persists_goal_status_from_config(team, user) -> None:
+    # The activity's config-present branch must compute the goal status and thread it into
+    # persistence; a qualitative goal (no metric) exercises the wiring without an insight read.
+    brief = await _create_brief_with_goal(team, user, "Grow activation")
+    env = ActivityEnvironment()
+    item = {"source": "stub", "kind": "movement", "title": "t", "description": "d"}
+    with patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()):
+        await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[item]),
+        )
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.goal_status is not None
+    assert reloaded.goal_status["goal"] == "Grow activation"
+    assert reloaded.goal_status["metric_state"] == "none"
 
 
 async def test_synthesize_activity_without_creating_user_raises(team) -> None:
