@@ -54,7 +54,6 @@ class NebiusAISource(ResumableSource[NebiusAISourceConfig, NebiusAIResumeConfig]
 You can create an API key in the [Nebius AI Studio console](https://studio.nebius.com/settings/api-keys). A key with read access is enough to sync models, files, batches, and fine-tuning jobs.""",
             iconPath="/static/services/nebius_ai.png",
             docsUrl="https://posthog.com/docs/cdp/sources/nebius-ai",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
