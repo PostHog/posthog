@@ -72,8 +72,8 @@ function WarmRunPanel(): JSX.Element {
                 <h3 className="mb-0">Warm-all run</h3>
                 <LemonTag type={stateTag.type}>{stateTag.label}</LemonTag>
                 {warmRun.is_stale && <LemonTag type="warning">Stale</LemonTag>}
-                <span className="text-secondary">
-                    {WARM_RUN_SCOPE_LABELS[warmRun.scope] ?? warmRun.scope} · started{' '}
+                <span className="flex items-baseline gap-1 text-secondary">
+                    {WARM_RUN_SCOPE_LABELS[warmRun.scope] ?? warmRun.scope} · started
                     <TZLabel time={warmRun.started_at} />
                 </span>
                 {warmRun.state === 'running' && !warmRun.is_stale && (
@@ -111,8 +111,9 @@ function WarmRunPanel(): JSX.Element {
                     {warmRun.processed.toLocaleString()}/{warmRun.total.toLocaleString()} teams ({percent}%) ·{' '}
                     {warmRun.successful.toLocaleString()} ok, {warmRun.failed.toLocaleString()} failed
                 </span>
-                <span className="ml-auto">
-                    Last heartbeat <TZLabel time={warmRun.updated_at} />
+                <span className="flex items-baseline gap-1 ml-auto">
+                    Last heartbeat
+                    <TZLabel time={warmRun.updated_at} />
                 </span>
             </div>
             {warmRun.is_stale && (
