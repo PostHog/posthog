@@ -378,6 +378,38 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         assert signals.slack_channel_url == "https://app.slack.com/client/T_TWO/C_SHARED"
         assert signals.slack_issue_count == 1
 
+    def test_null_workspace_channel_activity_stays_scoped_to_its_org(self):
+        own_activity = dt.datetime(2026, 6, 29, 12, 0, tzinfo=dt.UTC)
+        self._create_slack_ticket(channel_id="C_OWN", activity_at=own_activity, slack_team_id=None)
+        self._create_slack_ticket(
+            channel_id="C_SHARED_ID",
+            activity_at=dt.datetime(2026, 6, 29, 10, 0, tzinfo=dt.UTC),
+            slack_team_id=None,
+        )
+
+        # Another org in the batch has a newer ticket in a different team whose
+        # channel happens to reuse the same ID (channel IDs are only unique per
+        # workspace, and here the workspace is unknown).
+        other_org, other_user = self._create_member_of_other_org(f"other-{uuid.uuid4()}@posthog.com")
+        other_team = Team.objects.create(organization=other_org, name="other")
+        self._create_slack_ticket(
+            org_id=str(other_org.id),
+            channel_id="C_SHARED_ID",
+            activity_at=dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC),
+            slack_team_id=None,
+            distinct_id=other_user.distinct_id,
+            team=other_team,
+        )
+
+        alone = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
+        together = aggregate_conversations_slack_signals_for_orgs(
+            [self.org_id, str(other_org.id)], include_slack_user_count=False
+        )
+
+        assert together[self.org_id] == alone[self.org_id]
+        assert together[self.org_id].slack_channel_url == "https://app.slack.com/archives/C_OWN"
+        assert together[self.org_id].last_slack_activity == own_activity
+
     def test_get_slack_bot_token_resolves_by_workspace_then_team(self):
         TeamConversationsSlackConfig.objects.update_or_create(
             team=self.team, defaults={"slack_team_id": "TWORK", "slack_bot_token": "xoxb-test"}

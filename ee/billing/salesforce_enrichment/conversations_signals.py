@@ -206,7 +206,11 @@ def _fetch_trusted_slack_channel_activity_rows(
     return list(
         Ticket.objects.filter(channel_filters, channel_source=Channel.SLACK, identity_verified=True)
         .annotate(activity_at=_activity_at())
-        .values("slack_team_id", "slack_channel_id")
+        # Group by team as well as (workspace, channel): a team's Slack connection
+        # pins the workspace, so the key stays unambiguous even when slack_team_id
+        # is null — otherwise same-ID channels from unrelated orgs in the batch
+        # would merge into one group.
+        .values("team_id", "slack_team_id", "slack_channel_id")
         .annotate(last_slack_activity=Max("activity_at"))
     )
 
@@ -266,18 +270,28 @@ def aggregate_conversations_slack_signals_for_orgs(
     latest_ticket_rows = _fetch_latest_support_ticket_rows(org_ids)
 
     channel_activity_by_key = {
-        (row.get("slack_team_id"), row.get("slack_channel_id")): row.get("last_slack_activity")
+        (row.get("team_id"), row.get("slack_team_id"), row.get("slack_channel_id")): row.get("last_slack_activity")
         for row in channel_activity_rows
     }
 
     for row in rows:
-        channel_key = (row.get("slack_team_id"), row.get("slack_channel_id"))
-        trusted_channel_activity = channel_activity_by_key.get(channel_key)
+        team_ids = row.get("team_ids")
+        if not isinstance(team_ids, list):
+            continue
+        # Take the trusted max over the row's own team set, so activity stays scoped
+        # to the channel group that established it even when slack_team_id is null.
+        trusted_channel_activity: dt.datetime | None = None
+        for team_id in team_ids:
+            activity = channel_activity_by_key.get((team_id, row.get("slack_team_id"), row.get("slack_channel_id")))
+            if isinstance(activity, dt.datetime) and (
+                trusted_channel_activity is None or activity > trusted_channel_activity
+            ):
+                trusted_channel_activity = activity
         org_channel_activity = row.get("last_slack_activity")
         # The trusted set should cover every ticket behind the row's own max, so this
         # guard is insurance against the two queries drifting: never move activity
         # backwards.
-        if isinstance(trusted_channel_activity, dt.datetime) and (
+        if trusted_channel_activity is not None and (
             not isinstance(org_channel_activity, dt.datetime) or trusted_channel_activity > org_channel_activity
         ):
             row["last_slack_activity"] = trusted_channel_activity
