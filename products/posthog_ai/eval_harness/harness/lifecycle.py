@@ -35,9 +35,11 @@ from .requirements import Infra, infra_union
 from .services import (
     build_local_skills,
     ensure_personhog_binaries,
+    package_local_skills_archive,
     start_llm_gateway,
     start_mcp_server,
     start_personhog,
+    start_skill_archive_server,
     stop_all_subprocesses,
 )
 from .temporal_env import (
@@ -197,17 +199,28 @@ class SandboxedEvalHarness:
             self._stack.callback(start_llm_gateway(self._live_server.url))
         if Infra.MCP_SERVER in required:
             assert self._live_server is not None
-            self._stack.callback(start_mcp_server(self._live_server.url))
+
+            # Both delivery modes use rendered skills from this checkout, never a
+            # previously published bundle.
+            skills_dir = build_local_skills(set_bind_mount_env=self.options.provider == "docker")
+            skill_archive_url: str | None = None
+            if self.options.skill_delivery == "exec":
+                skill_archive = package_local_skills_archive(skills_dir)
+                skill_archive_url, stop_skill_archive = start_skill_archive_server(skill_archive)
+                self._stack.callback(stop_skill_archive)
+            self._stack.callback(
+                start_mcp_server(
+                    self._live_server.url,
+                    skill_archive_url,
+                    exec_skills_enabled=self.options.skill_delivery == "exec",
+                )
+            )
 
         if Infra.SANDBOX in required:
             assert self.provider is not None
             # Modal sandboxes live off-host, so the three services above have to be
             # publicly reachable before any settings pointing at them are computed.
             self.provider.start(self._stack)
-
-            # DockerSandbox bind-mounts the built skills; ModalSandbox bakes them into
-            # the image it builds from the local context, so it wants no host path.
-            build_local_skills(set_bind_mount_env=self.options.provider == "docker")
 
         self._posthog_client = get_client("US")
         if self._posthog_client is not None:
@@ -274,9 +287,10 @@ class SandboxedEvalHarness:
 
             if Infra.SANDBOX in required:
                 logger.info(
-                    "Running %d suite(s) on provider=%s with %d sandbox slot(s)",
+                    "Running %d suite(s) on provider=%s with skill_delivery=%s and %d sandbox slot(s)",
                     len(suites),
                     self.options.provider,
+                    self.options.skill_delivery,
                     self.options.max_sandboxes,
                 )
             else:
@@ -292,6 +306,7 @@ class SandboxedEvalHarness:
             provider_strategy=self.provider,
             agent_model=self.options.agent_model,
             agent_runtime=self.options.agent_runtime,
+            skill_delivery=self.options.skill_delivery,
             reasoning_effort=self.options.reasoning_effort,
             case_filter=self.options.case_filter,
             demo_data=self._demo_data,

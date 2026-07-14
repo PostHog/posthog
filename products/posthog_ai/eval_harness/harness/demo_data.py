@@ -12,7 +12,7 @@ from products.posthog_ai.eval_harness.data_setup import (
     create_core_memory,
     ensure_master_demo_team,
 )
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import ENV_DISABLE_BUNDLED_SKILLS, CustomPromptSandboxContext
 
 from ee.clickhouse.materialized_columns.columns import (
     backfill_materialized_columns,
@@ -51,20 +51,32 @@ class SandboxedDemoData:
         self.reasoning_effort = reasoning_effort
         self.sandbox_timeout_seconds = sandbox_timeout_seconds
 
-    def make_context(self, case_label: str) -> CustomPromptSandboxContext:
+    def make_context(self, case_label: str, *, disable_bundled_skills: bool = False) -> CustomPromptSandboxContext:
         CodeInvite = apps.get_model("tasks", "CodeInvite")
         CodeInviteRedemption = apps.get_model("tasks", "CodeInviteRedemption")
+        SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
 
         org, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
         create_core_memory(team, self._django_db_blocker)
+        sandbox_environment_id: str | None = None
         with self._django_db_blocker.unblock():
             invite, _ = CodeInvite.objects.get_or_create(code="eval-harness", max_redemptions=0, is_active=True)
             CodeInviteRedemption.objects.get_or_create(invite_code=invite, user=user, organization=org)
+            if disable_bundled_skills:
+                sandbox_environment = SandboxEnvironment.objects.create(
+                    team=team,
+                    created_by=user,
+                    name=f"Eval skill isolation: {case_label}",
+                    environment_variables={ENV_DISABLE_BUNDLED_SKILLS: "1"},
+                    internal=True,
+                )
+                sandbox_environment_id = str(sandbox_environment.id)
         logger.info("Case %r assigned team_id=%d user_id=%d", case_label, team.id, user.id)
         return CustomPromptSandboxContext(
             team_id=team.id,
             user_id=user.id,
             repository="posthog/hedgebox",
+            sandbox_environment_id=sandbox_environment_id,
             model=self.agent_model,
             runtime_adapter=self.agent_runtime,
             reasoning_effort=self.reasoning_effort,

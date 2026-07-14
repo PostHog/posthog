@@ -290,7 +290,7 @@ x-posthog-mcp-mode: tools
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
-Claude web and desktop impose an 18,000-character limit on each complete serialized tool entry.
+Claude web and desktop silently drop `exec` when its serialized `inputSchema` reaches 16,384 characters.
 In cli mode, the `posthog` tool keeps the guidance needed for routine calls in its schema.
 The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
 Optional, task-specific guidance is served through the same tool:
@@ -306,10 +306,12 @@ Optional, task-specific guidance is served through the same tool:
 - `learn <source>:<skill> <path> --lines <start>:<end>` reads an inclusive line range.
 
 Built-in guides are specific to Claude web and desktop. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
+When skill discovery is enabled, the inline prompt tells every non-plugin cli client, including Claude web and desktop, to search with `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before choosing tools. Trivial lookups and unrelated conversation skip this workflow.
 
 The skill bundle is cached in Redis with stale-while-revalidate behavior and a seven-day hard expiry.
 By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
 Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
+Custom archive URLs use separate Redis cache namespaces so a local bundle cannot read or overwrite the published bundle's cache entry.
 Project skills are read directly from the request-authenticated project and are not cached by the MCP server.
 Only latest, active, uncategorized skills are exposed through `learn`; category-specific skills such as scouts stay on their own surfaces.
 Project full-text search is bounded to 10 skills, two short snippets per skill, and a five-second database timeout.
