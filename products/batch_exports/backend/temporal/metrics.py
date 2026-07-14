@@ -555,8 +555,8 @@ class SLAWaiter:
         # Only log when the timer resolves live, not when it re-resolves from history during a
         # replay (worker recovery, cache eviction, queries).
         #
-        # This never drops a real breach. A breach that already happened was logged live the
-        # first time the timer fired; suppressing replays just avoids logging it again. A run
+        # A breach that already happened was logged closely to the first time the timer fired,
+        # so we don't expect a breach to be missed; suppressing replays just avoids logging it again. A run
         # that hasn't breached yet — including one recovering mid-flight — replays up to the
         # live edge and then fires its still-pending timer live, so it logs as normal.
         #
