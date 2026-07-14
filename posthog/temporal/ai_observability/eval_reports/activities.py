@@ -166,6 +166,7 @@ def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetim
     # would be coerced in the team's timezone and silently shift the comparison
     # by the team's offset.
     outcome_definition = get_outcome_definition(report.evaluation.output_type)
+    # nosemgrep: hogql-fstring-audit (the predicate comes from fixed internal output-type definitions)
     query = parse_select(
         f"""
         SELECT count() as total
@@ -210,6 +211,7 @@ def _find_nth_eval_timestamp(
     # Pass `before` as a datetime so HogQL serializes it as toDateTime64(..., 6, <team_tz>)
     # instead of a bare string that would be coerced in the team's timezone.
     outcome_definition = get_outcome_definition(output_type)
+    # nosemgrep: hogql-fstring-audit (the predicate comes from fixed internal output-type definitions)
     query = parse_select(
         f"""
         SELECT min(ts) FROM (
