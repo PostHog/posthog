@@ -442,7 +442,13 @@ class EagerWarmConfig(dagster.Config):
 def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWarmConfig) -> dict[str, int]:
     """Run the baseline tile matrix against every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting."""
     started = time.monotonic()
-    if context.job_name == "web_analytics_eager_backfill":
+    # `job_name` raises DagsterInvalidPropertyError on direct op invocation (tests);
+    # only real job runs need the backfill concurrency guard anyway.
+    try:
+        job_name = context.job_name
+    except Exception:
+        job_name = None
+    if job_name == "web_analytics_eager_backfill":
         _fail_on_concurrent_run(context)
     team_ids, gate_reason, diagnostics = _resolve_eager_audience(
         active_teams_pct=config.active_teams_pct, active_lookback_hours=config.active_lookback_hours
