@@ -248,7 +248,12 @@ class PipelineNonDLT(Generic[ResumableData]):
             await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
 
             await handle_reset_or_full_refresh(
-                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+                self._reset_pipeline,
+                should_resume,
+                self._schema,
+                self._delta_table_helper,
+                self._logger,
+                webhook_only=self._resource.webhook_only,
             )
 
             # If the schema has no DWH table, it's a first ever sync

@@ -159,6 +159,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     draft_manifest_sync,
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
+    filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
     manifest_request_hosts,
@@ -568,11 +569,31 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         choices=DIRECT_CONNECTION_ENGINE_CHOICES,
         help_text="Backend engine detected for the direct connection.",
     )
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        read_only=True,
+        help_text="The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').",
+    )
+    access_method = serializers.ChoiceField(
+        choices=ExternalDataSource.AccessMethod.choices,
+        read_only=True,
+        help_text="'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.",
+    )
+    supports_hogql = serializers.SerializerMethodField(
+        help_text="Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works.",
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_hogql(self, source: ExternalDataSource) -> bool:
+        # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
+        from posthog.hogql.direct_sql.capability import direct_supports_hogql  # noqa: PLC0415
+
+        return direct_supports_hogql(source)
 
     class Meta:
         model = ExternalDataSource
-        fields = ["id", "prefix", "engine"]
-        read_only_fields = ["id", "prefix", "engine"]
+        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
+        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
 
 
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
@@ -761,7 +782,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         required=False,
         help_text=(
             "Whether this synced source is also live-queryable via direct connection. "
-            "Defaults to true for new sources; ignored for pure direct-query sources."
+            "Defaults to false for new sources; ignored for pure direct-query sources."
         ),
     )
 
@@ -1277,10 +1298,10 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
     )
     direct_query_enabled = serializers.BooleanField(
         required=False,
-        default=True,
+        default=False,
         help_text=(
             "Whether a synced source should also be live-queryable via direct connection. "
-            "Defaults to true; ignored for pure direct-query sources."
+            "Defaults to false; ignored for pure direct-query sources."
         ),
     )
 
@@ -1318,10 +1339,10 @@ class SourceSetupSerializer(serializers.Serializer):
     )
     direct_query_enabled = serializers.BooleanField(
         required=False,
-        default=True,
+        default=False,
         help_text=(
             "Whether a synced source should also be live-queryable via direct connection. "
-            "Defaults to true; ignored for pure direct-query sources."
+            "Defaults to false; ignored for pure direct-query sources."
         ),
     )
 
@@ -1770,7 +1791,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
-            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
 
     @extend_schema(
@@ -1787,6 +1808,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 required=True,
                 description="The OAuth integration id whose accounts should be listed.",
             ),
+            OpenApiParameter(
+                name="search",
+                type=str,
+                required=False,
+                description="Optional case-insensitive filter over account name/value, for sources whose "
+                "resource list is large (e.g. GitHub repositories).",
+            ),
         ],
         responses={200: IntegrationAccountsResponseSerializer},
     )
@@ -1794,9 +1822,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def oauth_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the accounts/properties a connected OAuth integration exposes, in the shared
         IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
-        this endpoint just routes by source type and serializes the result."""
+        this endpoint just routes by source type, applies the optional search filter, and serializes."""
         source_type = request.query_params.get("source_type")
         integration_id = request.query_params.get("integration_id")
+        search = request.query_params.get("search") or None
         if not source_type or not integration_id:
             raise ValidationError("source_type and integration_id are required")
 
@@ -1813,13 +1842,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not isinstance(source, OAuthMixin):
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
 
-        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}"
+        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}/{search or ''}"
         cached = cache.get(cache_key)
         if cached is not None:
             return Response(cached)
 
         try:
-            accounts = source.get_oauth_accounts(integration_id_int, self.team_id)
+            accounts = source.get_oauth_accounts(integration_id_int, self.team_id, search=search)
         except NotImplementedError:
             # An OAuth source that hasn't implemented account listing yet (passes the isinstance check).
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
@@ -1829,6 +1858,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # ValueError from an internal bug) stays uncaught and becomes a 500 so monitors see it.
             raise ValidationError(str(e))
 
+        # Belt-and-suspenders: sources that support server-side search already return matching results;
+        # this filters sources that returned a full list and ignored `search`.
+        accounts = filter_integration_accounts(accounts, search)
         response_data = {"accounts": IntegrationAccountSerializer(accounts, many=True).data}
         # Don't cache an empty result: a transient provider hiccup that returns [] without raising would
         # otherwise poison the picker for 60s for every admin on the team.
@@ -1864,7 +1896,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description: str | None,
         access_method: str,
         created_via: str,
-        direct_query_enabled: bool = True,
+        direct_query_enabled: bool = False,
         skip_credential_validation: bool = False,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
@@ -3059,7 +3091,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
-            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
             skip_credential_validation=True,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
@@ -4163,11 +4195,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         queryset = (
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
-                access_method=ExternalDataSource.AccessMethod.DIRECT,
                 source_type__in=direct_capable_source_types(),
             )
+            # Pure-direct sources are always live; synced sources only when the toggle is on.
+            .filter(Q(access_method=ExternalDataSource.AccessMethod.DIRECT) | Q(direct_query_enabled=True))
             .exclude(deleted=True)
-            .only("id", "prefix", "connection_metadata")
+            .only("id", "prefix", "connection_metadata", "source_type", "access_method")
             .order_by(self.ordering)
         )
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset)

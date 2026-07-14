@@ -9,8 +9,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CertificationCreateApi,
+    DataCatalogCertificationApi,
+    DataCatalogCertificationsListParams,
     DataCatalogMetricApi,
+    DataCatalogMetricRunApi,
+    DataCatalogMetricRunRequestApi,
     DataCatalogMetricsListParams,
+    DataCatalogMetricsRunCreateParams,
+    PaginatedDataCatalogCertificationListApi,
     PaginatedDataCatalogMetricListApi,
     PatchedDataCatalogMetricApi,
 } from './api.schemas'
@@ -31,6 +38,134 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getDataCatalogCertificationsListUrl = (
+    projectId: string,
+    params?: DataCatalogCertificationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_catalog/certifications/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_catalog/certifications/`
+}
+
+/**
+ * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
+ */
+export const dataCatalogCertificationsList = async (
+    projectId: string,
+    params?: DataCatalogCertificationsListParams,
+    options?: RequestInit
+): Promise<PaginatedDataCatalogCertificationListApi> => {
+    return apiMutator<PaginatedDataCatalogCertificationListApi>(
+        getDataCatalogCertificationsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataCatalogCertificationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/certifications/`
+}
+
+/**
+ * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
+ */
+export const dataCatalogCertificationsCreate = async (
+    projectId: string,
+    certificationCreateApi?: CertificationCreateApi,
+    options?: RequestInit
+): Promise<DataCatalogCertificationApi> => {
+    return apiMutator<DataCatalogCertificationApi>(getDataCatalogCertificationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(certificationCreateApi),
+    })
+}
+
+export const getDataCatalogCertificationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_catalog/certifications/${id}/`
+}
+
+/**
+ * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
+ */
+export const dataCatalogCertificationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataCatalogCertificationApi> => {
+    return apiMutator<DataCatalogCertificationApi>(getDataCatalogCertificationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataCatalogCertificationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_catalog/certifications/${id}/`
+}
+
+/**
+ * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
+ */
+export const dataCatalogCertificationsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDataCatalogCertificationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getDataCatalogCertificationsCertifyCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_catalog/certifications/${id}/certify/`
+}
+
+/**
+ * Mark the target as certified (prefer this source).
+ */
+export const dataCatalogCertificationsCertifyCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataCatalogCertificationApi> => {
+    return apiMutator<DataCatalogCertificationApi>(getDataCatalogCertificationsCertifyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getDataCatalogCertificationsDeprecateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_catalog/certifications/${id}/deprecate/`
+}
+
+/**
+ * Mark the target as deprecated (avoid this source).
+ */
+export const dataCatalogCertificationsDeprecateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataCatalogCertificationApi> => {
+    return apiMutator<DataCatalogCertificationApi>(getDataCatalogCertificationsDeprecateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
 
 export const getDataCatalogMetricsListUrl = (projectId: string, params?: DataCatalogMetricsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -193,5 +328,43 @@ export const dataCatalogMetricsRefreshFromInsightCreate = async (
     return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsRefreshFromInsightCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDataCatalogMetricsRunCreateUrl = (
+    projectId: string,
+    name: string,
+    params?: DataCatalogMetricsRunCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_catalog/metrics/${name}/run/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_catalog/metrics/${name}/run/`
+}
+
+/**
+ * Execute the metric's definition and return the normalized result envelope.
+ */
+export const dataCatalogMetricsRunCreate = async (
+    projectId: string,
+    name: string,
+    dataCatalogMetricRunRequestApi?: DataCatalogMetricRunRequestApi,
+    params?: DataCatalogMetricsRunCreateParams,
+    options?: RequestInit
+): Promise<DataCatalogMetricRunApi> => {
+    return apiMutator<DataCatalogMetricRunApi>(getDataCatalogMetricsRunCreateUrl(projectId, name, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricRunRequestApi),
     })
 }

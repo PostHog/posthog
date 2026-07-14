@@ -285,7 +285,12 @@ class PipelineV3(Generic[ResumableData]):
                 await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
 
                 await handle_reset_or_full_refresh(
-                    self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+                    self._reset_pipeline,
+                    should_resume,
+                    self._schema,
+                    self._delta_table_helper,
+                    self._logger,
+                    webhook_only=self._resource.webhook_only,
                 )
 
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None

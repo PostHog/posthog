@@ -10,15 +10,75 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.schema_enums import IntervalType
 
 from ..facade import api
 from ..facade.enums import CreatedSource
-from ..facade.models import Metric
+from ..facade.models import Metric, TableCertification
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
 class MetricDefinitionField(serializers.JSONField):
     """A machine-readable query (HogQLQuery, TrendsQuery, event node, ...). Typed as a free object."""
+
+
+@extend_schema_field(OpenApiTypes.ANY)
+class _FreeJSONField(serializers.JSONField):
+    """A free-form JSON value (query results / query status shapes)."""
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricRun")
+class MetricRunResponseSerializer(serializers.Serializer):
+    """Normalized envelope returned by the metric-run endpoint."""
+
+    status = serializers.CharField(help_text="Lifecycle state of the metric that produced these results.")
+    is_drifted = serializers.BooleanField(
+        help_text="True when the definition has drifted from its linked source insight (or the insight is gone). "
+        "Only status 'approved' with is_drifted false is canonical."
+    )
+    unit = serializers.CharField(allow_null=True, help_text="Unit of the result, e.g. usd, percent.")
+    kind = serializers.CharField(allow_null=True, help_text="Query kind that was executed.")
+    results = _FreeJSONField(
+        allow_null=True, help_text="The query results, for an executable metric. Null for a markdown metric."
+    )
+    compiled_query = serializers.CharField(allow_null=True, help_text="The compiled HogQL, when available.")
+    query_status = _FreeJSONField(allow_null=True, help_text="Async query status, when the run is not blocking.")
+    posthog_url = serializers.CharField(
+        allow_null=True, help_text="Deep link to open the query in the app (SQL editor or insight)."
+    )
+    instructions = serializers.CharField(
+        allow_null=True,
+        help_text="For a markdown (agent-calculated) metric, the steps to follow to compute it. Null for an executable metric.",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricRunRequest")
+class MetricRunRequestSerializer(serializers.Serializer):
+    """Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name."""
+
+    date_from = serializers.CharField(
+        required=False,
+        help_text="Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL.",
+    )
+    date_to = serializers.CharField(required=False, help_text="Override the end of the query window.")
+    interval = serializers.ChoiceField(
+        choices=[t.value for t in IntervalType],
+        required=False,
+        help_text="Override the bucket interval. Rejected for HogQLQuery metrics.",
+    )
+    query_id = serializers.CharField(required=False, help_text="Client-supplied id to correlate or cancel the run.")
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricRunQuery")
+class MetricRunQuerySerializer(serializers.Serializer):
+    """Query params for the metric-run endpoint."""
+
+    refresh = serializers.ChoiceField(
+        choices=["blocking", "async", "lazy_async", "force_blocking", "force_async", "force_cache"],
+        required=False,
+        help_text="Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache "
+        "hit and calculate blocking when stale.",
+    )
 
 
 @extend_schema_serializer(component_name="DataCatalogMetric")
@@ -117,3 +177,62 @@ class MetricSerializer(serializers.ModelSerializer):
         if drift_map is not None and obj.id in drift_map:
             return drift_map[obj.id]
         return api.compute_drift([obj])[obj.id]
+
+
+@extend_schema_serializer(component_name="DataCatalogCertification")
+class CertificationSerializer(serializers.ModelSerializer):
+    status = serializers.CharField(
+        read_only=True, help_text="proposed, certified (prefer this source), or deprecated (avoid this source)."
+    )
+    target_type = serializers.SerializerMethodField(help_text="Whether the marked target is a 'table' or a 'view'.")
+    target_name = serializers.SerializerMethodField(help_text="Name of the marked table or view.")
+    certified_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who last set certified/deprecated, or null."
+    )
+
+    class Meta:
+        model = TableCertification
+        fields = [
+            "id",
+            "table",
+            "saved_query",
+            "target_type",
+            "target_name",
+            "status",
+            "notes",
+            "certified_by",
+            "certified_at",
+            "created_by",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "table",
+            "saved_query",
+            "status",
+            "certified_by",
+            "certified_at",
+            "created_by",
+            "created_at",
+        ]
+        extra_kwargs = {"notes": {"help_text": "Why this mark exists, e.g. 'canonical MRR source'."}}
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_target_type(self, obj: TableCertification) -> str:
+        return "table" if obj.table_id else "view"
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_target_name(self, obj: TableCertification) -> str:
+        if obj.table_id:
+            return obj.table.name if obj.table else ""
+        return obj.saved_query.name if obj.saved_query else ""
+
+
+class CertificationCreateSerializer(serializers.Serializer):
+    """Input for proposing a certification: address the target by id or (convenience) by name."""
+
+    table_id = serializers.UUIDField(required=False, help_text="Warehouse table id to certify (XOR the other targets).")
+    saved_query_id = serializers.UUIDField(required=False, help_text="Warehouse view (saved query) id to certify.")
+    table_name = serializers.CharField(required=False, help_text="Table name; 409 with candidates if ambiguous.")
+    view_name = serializers.CharField(required=False, help_text="View name; 409 with candidates if ambiguous.")
+    notes = serializers.CharField(required=False, allow_blank=True, help_text="Why this mark exists.")

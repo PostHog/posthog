@@ -62,6 +62,60 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface DataCatalogCertificationApi {
+    readonly id: string
+    /**
+     * The warehouse table this mark applies to (XOR saved_query).
+     * @nullable
+     */
+    readonly table: string | null
+    /**
+     * The warehouse view this mark applies to (XOR table).
+     * @nullable
+     */
+    readonly saved_query: string | null
+    /** Whether the marked target is a 'table' or a 'view'. */
+    readonly target_type: string
+    /** Name of the marked table or view. */
+    readonly target_name: string
+    /** proposed, certified (prefer this source), or deprecated (avoid this source). */
+    readonly status: string
+    /** Why this mark exists, e.g. 'canonical MRR source'. */
+    notes?: string
+    /** User who last set certified/deprecated, or null. */
+    readonly certified_by: UserBasicApi | null
+    /** @nullable */
+    readonly certified_at: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedDataCatalogCertificationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataCatalogCertificationApi[]
+}
+
+/**
+ * Input for proposing a certification: address the target by id or (convenience) by name.
+ */
+export interface CertificationCreateApi {
+    /** Warehouse table id to certify (XOR the other targets). */
+    table_id?: string
+    /** Warehouse view (saved query) id to certify. */
+    saved_query_id?: string
+    /** Table name; 409 with candidates if ambiguous. */
+    table_name?: string
+    /** View name; 409 with candidates if ambiguous. */
+    view_name?: string
+    /** Why this mark exists. */
+    notes?: string
+}
+
 /**
  * * `user` - user
  * * `ai_generated` - ai_generated
@@ -254,6 +308,103 @@ export interface PatchedDataCatalogMetricApi {
     readonly updated_at?: string | null
 }
 
+/**
+ * * `second` - second
+ * * `minute` - minute
+ * * `hour` - hour
+ * * `day` - day
+ * * `week` - week
+ * * `month` - month
+ * * `quarter` - quarter
+ * * `year` - year
+ */
+export type DataCatalogMetricRunRequestIntervalEnumApi =
+    (typeof DataCatalogMetricRunRequestIntervalEnumApi)[keyof typeof DataCatalogMetricRunRequestIntervalEnumApi]
+
+export const DataCatalogMetricRunRequestIntervalEnumApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+/**
+ * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
+ */
+export interface DataCatalogMetricRunRequestApi {
+    /** Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL. */
+    date_from?: string
+    /** Override the end of the query window. */
+    date_to?: string
+    /** Override the bucket interval. Rejected for HogQLQuery metrics.
+     *
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year */
+    interval?: DataCatalogMetricRunRequestIntervalEnumApi
+    /** Client-supplied id to correlate or cancel the run. */
+    query_id?: string
+}
+
+/**
+ * Normalized envelope returned by the metric-run endpoint.
+ */
+export interface DataCatalogMetricRunApi {
+    /** Lifecycle state of the metric that produced these results. */
+    status: string
+    /** True when the definition has drifted from its linked source insight (or the insight is gone). Only status 'approved' with is_drifted false is canonical. */
+    is_drifted: boolean
+    /**
+     * Unit of the result, e.g. usd, percent.
+     * @nullable
+     */
+    unit: string | null
+    /**
+     * Query kind that was executed.
+     * @nullable
+     */
+    kind: string | null
+    /** The query results, for an executable metric. Null for a markdown metric. */
+    results: unknown
+    /**
+     * The compiled HogQL, when available.
+     * @nullable
+     */
+    compiled_query: string | null
+    /** Async query status, when the run is not blocking. */
+    query_status: unknown
+    /**
+     * Deep link to open the query in the app (SQL editor or insight).
+     * @nullable
+     */
+    posthog_url: string | null
+    /**
+     * For a markdown (agent-calculated) metric, the steps to follow to compute it. Null for an executable metric.
+     * @nullable
+     */
+    instructions: string | null
+}
+
+export type DataCatalogCertificationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type DataCatalogMetricsListParams = {
     /**
      * Number of results to return per page.
@@ -264,3 +415,30 @@ export type DataCatalogMetricsListParams = {
      */
     offset?: number
 }
+
+export type DataCatalogMetricsRunCreateParams = {
+    /**
+     * Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.
+     *
+     * * `blocking` - blocking
+     * * `async` - async
+     * * `lazy_async` - lazy_async
+     * * `force_blocking` - force_blocking
+     * * `force_async` - force_async
+     * * `force_cache` - force_cache
+     * @minLength 1
+     */
+    refresh?: DataCatalogMetricsRunCreateRefresh
+}
+
+export type DataCatalogMetricsRunCreateRefresh =
+    (typeof DataCatalogMetricsRunCreateRefresh)[keyof typeof DataCatalogMetricsRunCreateRefresh]
+
+export const DataCatalogMetricsRunCreateRefresh = {
+    Blocking: 'blocking',
+    Async: 'async',
+    LazyAsync: 'lazy_async',
+    ForceBlocking: 'force_blocking',
+    ForceAsync: 'force_async',
+    ForceCache: 'force_cache',
+} as const

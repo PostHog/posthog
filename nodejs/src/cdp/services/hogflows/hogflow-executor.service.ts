@@ -114,6 +114,7 @@ export class HogFlowExecutorService {
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
+            function_push: hogFunctionHandler,
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
         }

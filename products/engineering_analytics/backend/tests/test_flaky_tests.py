@@ -11,6 +11,7 @@ from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, T
 
 from products.engineering_analytics.backend.logic.queries.flaky_tests import _selector_from_nodeid
 from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 T_PRS = "posthog/api/test/test_prs/TestPRs::test_flaky_on_prs"
 T_RERUN = "posthog/api/test/test_rerun/TestRerun::test_pass_on_retry"
@@ -19,6 +20,7 @@ T_TWO_PRS = "posthog/api/test/test_two/TestTwo::test_two_prs"
 T_XFAIL_ONLY = "posthog/api/test/test_xf/TestXF::test_xfail_only"
 T_OLD = "posthog/api/test/test_old/TestOld::test_old_flake"
 T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
+T_OTHER_REPO = "posthog/api/test/test_other_repo/TestOtherRepo::test_flaky"
 
 
 class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
@@ -35,7 +37,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        connect_github_source_without_data(cls.team, prefix="flaky")
+        connect_github_source_without_data(cls.team, prefix="flaky", repository="PostHog/posthog")
         sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
         sync_execute("DROP TABLE IF EXISTS trace_spans")
         sync_execute(TRACE_SPANS_TABLE_SQL())
@@ -72,6 +74,10 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(15, T_OLD, "rerun_passed", ts=old, pr="401", branch="old1"),
             # Would qualify on signal alone, but a non-CI service must never reach the leaderboard.
             cls._span(17, T_FOREIGN, "rerun_passed", ts=cls.recent, pr="501", branch="s1", service="other-service"),
+            # Would qualify on signal alone, but belongs to another connected repository.
+            cls._span(
+                18, T_OTHER_REPO, "rerun_passed", ts=cls.recent, pr="601", branch="r1", repo="PostHog/posthog.com"
+            ),
             # A job-root span carries no test.outcome and must never become a leaderboard row.
             cls._span(16, "Backend CI / core (1)", None, ts=cls.recent, branch="master"),
         ]
@@ -101,6 +107,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         branch: str = "",
         selector: str = "",
         service: str = "ci-backend",
+        repo: str = "PostHog/posthog",
     ) -> str:
         # Physical attributes carry a type suffix ('test.outcome__str'); the `attributes` ALIAS
         # column strips it. Resource attributes are stored as-is.
@@ -108,7 +115,11 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             [f"'test.selector__str', '{selector}'"] if selector else []
         )
         attrs = f"map({', '.join(attr_pairs)})" if attr_pairs else "map()"
-        resource_pairs = ([f"'ci.pr_number', '{pr}'"] if pr else []) + ([f"'ci.branch', '{branch}'"] if branch else [])
+        resource_pairs = [
+            f"'{key}', '{value}'"
+            for key, value in (("ci.pr_number", pr), ("ci.branch", branch), ("ci.repository", repo))
+            if value
+        ]
         resource = f"map({', '.join(resource_pairs)})" if resource_pairs else "map()"
         stamp = ts.strftime("%Y-%m-%d %H:%M:%S")
         return (
@@ -126,7 +137,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
 
         # Only the qualifying tests, strongest signal first (T_PRS scores 3 distinct PRs vs
         # T_RERUN's 2 retries); the 2-PR test, the xfail-only test, the out-of-window test, the
-        # outcome-less job-root span, and the foreign-service row are all excluded.
+        # outcome-less job-root span, foreign-service row, and other-repo row are all excluded.
         assert [item["nodeid"] for item in data["items"]] == [T_PRS, T_RERUN]
         assert data["truncated"] is False
         assert data["limit"] == 50
@@ -159,6 +170,15 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_wider_window_includes_older_signal(self):
         data = self._get(date_from="-30d")
         assert T_OLD in [item["nodeid"] for item in data["items"]]
+
+    def test_source_without_repository_fails_closed(self):
+        # A source with no repository identity can't be scoped, so the leaderboard must be empty
+        # rather than leak every connected repository's flaky spans (the qualifying rows are still
+        # seeded, so a fail-open regression would return them).
+        ExternalDataSource.objects.filter(team_id=self.team.id).update(job_inputs={})
+        data = self._get()
+        assert data["items"] == []
+        assert data["truncated"] is False
 
     def test_limit_caps_and_flags_truncation(self):
         data = self._get(limit="1")

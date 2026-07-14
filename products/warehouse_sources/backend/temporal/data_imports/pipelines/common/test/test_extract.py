@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
+    handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
     resolve_primary_keys,
@@ -322,3 +323,55 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is False
+
+
+# transaction=True: the webhook-first branch clears the reset flag via update_sync_type_config_keys,
+# which writes from the async thread pool and can't see an atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestHandleResetOrFullRefresh:
+    def _webhook_schema(self, team) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Github"
+        )
+        return ExternalDataSchema.objects.create(
+            name="workflow_jobs",
+            team=team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            sync_type_config={"reset_pipeline": True, "incremental_field_last_value": "2026-01-01T00:00:00"},
+            initial_sync_complete=True,
+        )
+
+    def test_webhook_only_reset_preserves_table_and_state(self, team):
+        # The data-loss regression: a reset on a webhook-only schema must not wipe the Delta
+        # table (the poll can't rebuild webhook-accumulated rows). The reset request is consumed,
+        # while the watermark and initial_sync_complete survive so webhook ingestion resumes.
+        schema = self._webhook_schema(team)
+        helper = MagicMock(reset_table=AsyncMock())
+
+        async_to_sync(handle_reset_or_full_refresh)(
+            True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=True
+        )
+
+        helper.reset_table.assert_not_awaited()
+        # In-memory config is cleared too — otherwise a later watermark save re-persists
+        # reset_pipeline and every subsequent run is treated as a reset.
+        assert "reset_pipeline" not in schema.sync_type_config
+        schema.refresh_from_db()
+        assert "reset_pipeline" not in schema.sync_type_config
+        assert schema.sync_type_config["incremental_field_last_value"] == "2026-01-01T00:00:00"
+        assert schema.initial_sync_complete is True
+
+    def test_poll_backfillable_reset_still_wipes(self, team):
+        # Guard against over-correction: a reset on a schema whose poll CAN rebuild the data
+        # must keep wiping so the re-crawl starts from a clean table.
+        schema = self._webhook_schema(team)
+        helper = MagicMock(reset_table=AsyncMock())
+
+        async_to_sync(handle_reset_or_full_refresh)(
+            True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=False
+        )
+
+        helper.reset_table.assert_awaited_once()
+        schema.refresh_from_db()
+        assert "reset_pipeline" not in schema.sync_type_config
