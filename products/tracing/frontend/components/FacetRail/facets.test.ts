@@ -106,4 +106,27 @@ describe('facets', () => {
             expect(mergeSelectedIntoOptions(fetched, ['api'])).toEqual(fetched)
         })
     })
+
+    describe('mergeSelectedIntoOptions', () => {
+        it('prepends a selected value absent from the fetched list with a zero count', () => {
+            const fetched = [{ value: 'api', label: 'api', count: 5 }]
+            expect(mergeSelectedIntoOptions(fetched, ['worker'])).toEqual([
+                { value: 'worker', label: 'worker', count: 0 },
+                { value: 'api', label: 'api', count: 5 },
+            ])
+        })
+
+        it('collapses duplicate selected values into one row so keys never collide', () => {
+            // A URL or saved view can carry the same value twice; two rows sharing a value would
+            // collide on their React key and toggle target.
+            expect(mergeSelectedIntoOptions([], ['worker', 'worker'])).toEqual([
+                { value: 'worker', label: 'worker', count: 0 },
+            ])
+        })
+
+        it('does not re-add a selected value already present in the fetched list', () => {
+            const fetched = [{ value: 'api', label: 'api', count: 5 }]
+            expect(mergeSelectedIntoOptions(fetched, ['api'])).toEqual(fetched)
+        })
+    })
 })
