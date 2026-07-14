@@ -89,10 +89,10 @@
   project: mtvzx98zjn
 
 # Internal web tool for the ingestion team (lag analysis, consumer debug
-# visualizer). Shares the ingestion-consumer Depot project for cache locality.
+# visualizer).
 - image: ingestion-control-plane
   dockerfile: ./rust/Dockerfile
-  project: mtvzx98zjn
+  project: x5whcmg6rl
 
 - image: kafka-deduplicator
   dockerfile: ./rust/Dockerfile
