@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 import pytest
 from unittest import mock
 
@@ -24,7 +26,10 @@ def test_webhook_only_poll_yields_no_rows_when_webhook_inactive(endpoint: str) -
             resumable_source_manager=_no_resume(),
             webhook_source_manager=webhook_source_manager,
         )
-        rows = list(response.items())
+        result = response.items()
+        # The webhook-only fallback must return a sync, empty iterator — not the async webhook stream.
+        assert isinstance(result, Iterable)
+        rows = list(result)
 
     assert rows == []
     fetch_page.assert_not_called()
