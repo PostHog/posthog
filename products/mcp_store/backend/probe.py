@@ -22,7 +22,7 @@ from django.conf import settings
 import requests
 import structlog
 
-from posthog.security.url_validation import is_url_allowed
+from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
 
 from .oauth import (
     TIMEOUT,
@@ -108,11 +108,6 @@ def _probe_redirect_uri() -> str:
 
 def _probe_initialize(url: str, result: ProbeResult) -> bool:
     """Run the MCP initialize handshake. Returns True when the server answered it without auth."""
-    allowed, reason = is_url_allowed(url)
-    if not allowed:
-        result.errors.append(f"MCP server URL blocked by SSRF protection: {reason}")
-        return False
-
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -128,12 +123,20 @@ def _probe_initialize(url: str, result: ProbeResult) -> bool:
         "Accept": "application/json, text/event-stream",
     }
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=TIMEOUT)
+        response = pinned_request("POST", url, json=payload, headers=headers, timeout=TIMEOUT)
+    except SSRFBlockedError as exc:
+        result.errors.append(f"MCP server URL blocked by SSRF protection: {exc}")
+        return False
     except requests.RequestException as exc:
         result.errors.append(f"MCP initialize request failed: {exc}")
         return False
 
     result.reachable = True
+    if 300 <= response.status_code < 400:
+        # A redirect target never went through SSRF validation, and a catalog URL
+        # should point at the MCP endpoint itself — refuse rather than follow.
+        result.errors.append(f"MCP initialize returned a redirect (HTTP {response.status_code}); not following it")
+        return False
     if response.status_code in _AUTH_REQUIRED_STATUSES:
         # Auth-gated servers reject initialize before speaking JSON-RPC; still plausibly MCP.
         result.speaks_mcp = True
@@ -255,12 +258,11 @@ def _check_authorize_endpoint(metadata: dict, client_id: str, result: ProbeResul
 
     current_url = authorize_url
     for _hop in range(MAX_AUTHORIZE_REDIRECTS + 1):
-        allowed, reason = is_url_allowed(current_url)
-        if not allowed:
-            result.errors.append(f"Authorization endpoint blocked by SSRF protection: {reason}")
-            return False
         try:
-            response = requests.get(current_url, timeout=TIMEOUT, allow_redirects=False)
+            response = pinned_request("GET", current_url, timeout=TIMEOUT)
+        except SSRFBlockedError as exc:
+            result.errors.append(f"Authorization endpoint blocked by SSRF protection: {exc}")
+            return False
         except requests.RequestException as exc:
             result.errors.append(f"Authorization endpoint request failed: {exc}")
             return False
