@@ -12,6 +12,7 @@ import {
     LemonSwitch,
     LemonTag,
     LemonTextArea,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
@@ -51,6 +52,8 @@ export interface SourceFormProps {
     showDescription?: boolean
     showAccessMethodSelector?: boolean
     showDirectQueryToggle?: boolean
+    /** When set, the live-queries toggle shows a link to the SQL editor with this connection preselected. */
+    directQueryEditorUrl?: string
     showCdcConfig?: boolean
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
@@ -62,19 +65,33 @@ export interface SourceFormProps {
     oauthRedirectUrl?: string
 }
 
+/** How a new source will be queried: synced only, synced + live queries, or live only. */
+export type SourceQueryMode = 'warehouse' | 'warehouse_and_direct' | 'direct'
+
+export function getSourceQueryMode(
+    accessMethod: 'warehouse' | 'direct',
+    directQueryEnabled: boolean | undefined
+): SourceQueryMode {
+    if (accessMethod === 'direct') {
+        return 'direct'
+    }
+    // New synced sources default to live queries enabled.
+    return directQueryEnabled === false ? 'warehouse' : 'warehouse_and_direct'
+}
+
 export function SourceAccessMethodSelector({
     value,
     onChange,
 }: {
-    value: 'warehouse' | 'direct'
-    onChange: (value: 'warehouse' | 'direct') => void
+    value: SourceQueryMode
+    onChange: (value: SourceQueryMode) => void
 }): JSX.Element {
     return (
         <LemonField.Pure label="How should PostHog query this source?">
             <LemonRadio
                 data-attr="postgres-access-method"
                 value={value}
-                onChange={(newValue) => onChange(newValue as 'warehouse' | 'direct')}
+                onChange={(newValue) => onChange(newValue as SourceQueryMode)}
                 options={[
                     {
                         value: 'warehouse',
@@ -83,6 +100,18 @@ export function SourceAccessMethodSelector({
                                 <div>Sync to warehouse</div>
                                 <div className="text-xs text-secondary">
                                     Sync selected tables into PostHog-managed storage for querying.
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 'warehouse_and_direct',
+                        label: (
+                            <div>
+                                <div>Sync and query live</div>
+                                <div className="text-xs text-secondary">
+                                    Sync selected tables into PostHog-managed storage, and also run live queries against
+                                    this database from the SQL editor.
                                 </div>
                             </div>
                         ),
@@ -98,8 +127,8 @@ export function SourceAccessMethodSelector({
                                     </LemonTag>
                                 </div>
                                 <div className="text-xs text-secondary">
-                                    Run queries live against this database connection. Data from this source can&apos;t
-                                    be joined with PostHog data.
+                                    Only run queries live against this database connection — nothing is synced. Data
+                                    from this source can&apos;t be joined with PostHog data.
                                 </div>
                             </div>
                         ),
@@ -704,6 +733,7 @@ export function SourceFormComponent({
     showDescription,
     showAccessMethodSelector = true,
     showDirectQueryToggle = false,
+    directQueryEditorUrl,
     showCdcConfig = true,
     jobInputs,
     initialAccessMethod,
@@ -771,14 +801,24 @@ export function SourceFormComponent({
             {!isUpdateMode && supportsDirectQuery(sourceConfig.name) && showAccessMethodSelector && (
                 <>
                     <LemonField name="access_method">
-                        {({ value, onChange }) => (
-                            <SourceAccessMethodSelector
-                                value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
-                                onChange={(nextValue) => {
-                                    setSelectedAccessMethod(nextValue)
-                                    onChange(nextValue)
-                                }}
-                            />
+                        {({ value: accessMethodValue, onChange: onChangeAccessMethod }) => (
+                            <LemonField name="direct_query_enabled">
+                                {({ value: directQueryEnabledValue, onChange: onChangeDirectQueryEnabled }) => (
+                                    <SourceAccessMethodSelector
+                                        value={getSourceQueryMode(
+                                            (accessMethodValue as 'warehouse' | 'direct' | undefined) ||
+                                                selectedAccessMethod,
+                                            directQueryEnabledValue
+                                        )}
+                                        onChange={(mode) => {
+                                            const nextAccessMethod = mode === 'direct' ? 'direct' : 'warehouse'
+                                            setSelectedAccessMethod(nextAccessMethod)
+                                            onChangeAccessMethod(nextAccessMethod)
+                                            onChangeDirectQueryEnabled(mode === 'warehouse_and_direct')
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
                         )}
                     </LemonField>
                     <LemonDivider />
@@ -792,13 +832,20 @@ export function SourceFormComponent({
                         help="Run live queries against this database from the SQL editor, in addition to syncing tables to the warehouse."
                     >
                         {({ value, onChange }) => (
-                            <LemonSwitch
-                                checked={value ?? !isUpdateMode}
-                                onChange={onChange}
-                                label="Enable live queries"
-                                bordered
-                                data-attr="direct-query-enabled-toggle"
-                            />
+                            <div className="flex items-center gap-3">
+                                <LemonSwitch
+                                    checked={!!value}
+                                    onChange={onChange}
+                                    label="Enable live queries"
+                                    bordered
+                                    data-attr="direct-query-enabled-toggle"
+                                />
+                                {directQueryEditorUrl && (
+                                    <Link to={directQueryEditorUrl} data-attr="direct-query-open-sql-editor">
+                                        Open in SQL editor
+                                    </Link>
+                                )}
+                            </div>
                         )}
                     </LemonField>
                 )}

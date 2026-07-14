@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -78,6 +79,9 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     showPrefix={false}
                     showDescription={true}
                     showDirectQueryToggle
+                    directQueryEditorUrl={
+                        source.direct_query_enabled ? urls.sqlEditor({ connectionId: source.id }) : undefined
+                    }
                     sourceConfig={sourceFieldConfig}
                     jobInputs={jobInputs}
                     initialAccessMethod={source.access_method ?? 'warehouse'}
