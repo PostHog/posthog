@@ -125,7 +125,6 @@ class DingConnectSource(ResumableSource[DingConnectSourceConfig, DingConnectResu
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="DingConnect",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your DingConnect API key to pull your DingConnect data into the PostHog Data warehouse.
 
 You can generate an API key under the **Developer** tab of your [DingConnect account settings](https://www.dingconnect.com/Account/Settings).""",

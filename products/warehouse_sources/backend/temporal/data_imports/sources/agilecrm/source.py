@@ -60,7 +60,6 @@ Your domain is the subdomain of your Agile CRM URL — for `https://acme.agilecr
 """,
             iconPath="/static/services/agilecrm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/agilecrm",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
