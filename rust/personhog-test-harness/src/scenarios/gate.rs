@@ -386,3 +386,66 @@ async fn verify_postgres(
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+    use crate::cli::{Cli, Command};
+
+    fn gate_args(extra: &[&str]) -> GateArgs {
+        let mut argv = vec!["personhog-test-harness", "gate"];
+        argv.extend_from_slice(extra);
+        match Cli::try_parse_from(argv)
+            .expect("gate args must parse")
+            .command
+        {
+            Command::Gate(args) => *args,
+            _ => unreachable!("gate subcommand parses to Gate"),
+        }
+    }
+
+    #[test]
+    fn chaos_timeline_is_empty_without_flags() {
+        assert!(chaos_timeline(&gate_args(&[])).is_empty());
+    }
+
+    /// Events must fire in offset order regardless of flag order, and the
+    /// paired disruptions (zombie, writer pause) must schedule their
+    /// resume at start + duration — a mis-built timeline silently runs a
+    /// different scenario than the flags describe.
+    #[test]
+    fn chaos_timeline_sorts_events_and_pairs_stop_with_resume() {
+        let args = gate_args(&[
+            "--kill-after",
+            "10s",
+            "--shutdown-after",
+            "5s",
+            "--zombie-after",
+            "7s",
+            "--zombie-duration",
+            "3s",
+            "--writer-pause-after",
+            "2s",
+            "--writer-pause-duration",
+            "1s",
+        ]);
+        let rendered: Vec<(u64, String)> = chaos_timeline(&args)
+            .iter()
+            .map(|(after, event)| (after.as_secs(), event.to_string()))
+            .collect();
+        let expected: Vec<(u64, String)> = [
+            (2, "writer pause (lag injection)"),
+            (3, "writer resume"),
+            (5, "graceful shutdown"),
+            (7, "zombie stop (SIGSTOP + lease revoke)"),
+            (10, "kill (fast lease revoke)"),
+            (10, "zombie resume (SIGCONT)"),
+        ]
+        .into_iter()
+        .map(|(after, event)| (after, event.to_string()))
+        .collect();
+        assert_eq!(rendered, expected);
+    }
+}

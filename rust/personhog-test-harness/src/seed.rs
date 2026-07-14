@@ -88,3 +88,27 @@ pub async fn cleanup_team(pool: &PgPool, team_id: i64) -> Result<u64> {
 
     Ok(persons)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::validate_table_name;
+
+    #[test]
+    fn validate_table_name_gates_what_reaches_sql_interpolation() {
+        for ok in ["posthog_person", "personhog_person_tmp", "t1"] {
+            assert!(validate_table_name(ok).is_ok(), "{ok} should be valid");
+        }
+        for bad in [
+            "",
+            "posthog_person; DROP TABLE posthog_person",
+            "table-name",
+            "table name",
+            "table\"quoted",
+        ] {
+            assert!(
+                validate_table_name(bad).is_err(),
+                "{bad:?} should be rejected"
+            );
+        }
+    }
+}

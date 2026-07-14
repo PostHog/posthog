@@ -116,6 +116,10 @@ impl PersonState {
     }
 }
 
+/// A false positive here fails good runs; a false negative passes runs
+/// that lost data. The e2e gate exercises this on every run but can only
+/// reveal false positives — a verifier that misses violations looks
+/// identical to a healthy stack — so the decision table is unit-tested.
 pub fn verify_properties(
     person_id: i64,
     expected: &HashMap<String, serde_json::Value>,
@@ -148,4 +152,91 @@ pub fn verify_properties(
     }
 
     violations
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn violation_keys(mut violations: Vec<ConsistencyViolation>) -> Vec<String> {
+        violations.sort_by(|a, b| a.key.cmp(&b.key));
+        violations.into_iter().map(|v| v.key).collect()
+    }
+
+    fn props(entries: &[(&str, &str)]) -> HashMap<String, serde_json::Value> {
+        entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), json!(v)))
+            .collect()
+    }
+
+    #[test]
+    fn verify_properties_flags_exactly_the_missing_and_mismatched_keys() {
+        let expected = props(&[("a", "1"), ("b", "2")]);
+        let cases: &[(serde_json::Value, &[&str])] = &[
+            // Everything acked is present; unrelated keys are ignored.
+            (json!({"a": "1", "b": "2", "other": true}), &[]),
+            // Present but wrong value.
+            (json!({"a": "1", "b": "wrong"}), &["b"]),
+            // Acked key absent entirely.
+            (json!({"a": "1"}), &["b"]),
+            // Non-object properties lose every acked key.
+            (json!(null), &["a", "b"]),
+        ];
+        for (actual, expected_keys) in cases {
+            let got = violation_keys(verify_properties(1, &expected, actual));
+            assert_eq!(got, *expected_keys, "actual={actual}");
+        }
+    }
+
+    #[tokio::test]
+    async fn journal_merges_keys_and_keeps_the_max_acked_version() {
+        let state = PersonState::new();
+        state.record_write(1, 1, props(&[("k1", "v1")])).await;
+        state.record_write(1, 2, props(&[("k2", "v2")])).await;
+
+        assert!(state.take_regressions().await.is_empty());
+        let snapshot = state.snapshot().await;
+        let person = &snapshot[&1];
+        assert_eq!(person.last_version, 2);
+        assert_eq!(person.written_properties.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn ack_version_regression_is_flagged_once_and_max_is_kept() {
+        let state = PersonState::new();
+        state.record_write(1, 5, props(&[("k1", "v1")])).await;
+        state.record_write(1, 3, props(&[("k2", "v2")])).await;
+
+        let regressions = state.take_regressions().await;
+        assert_eq!(
+            violation_keys(regressions),
+            vec!["__ack_version_regression"]
+        );
+        // Drained on take, and the regressed ack's key is still journaled
+        // under the surviving max version.
+        assert!(state.take_regressions().await.is_empty());
+        let snapshot = state.snapshot().await;
+        let person = &snapshot[&1];
+        assert_eq!(person.last_version, 5);
+        assert!(person.written_properties.contains_key("k2"));
+    }
+
+    #[tokio::test]
+    async fn strong_read_below_max_acked_version_is_a_violation() {
+        let state = PersonState::new();
+        state.record_write(1, 5, props(&[("k", "v")])).await;
+        let actual = json!({"k": "v"});
+
+        assert!(state.verify(1, &actual, 5).await.is_empty());
+        assert!(state.verify(1, &actual, 6).await.is_empty());
+        assert_eq!(
+            violation_keys(state.verify(1, &actual, 4).await),
+            vec!["__strong_read_version"]
+        );
+        // Unjournaled persons have nothing to verify against.
+        assert!(state.verify(2, &actual, 0).await.is_empty());
+    }
 }
