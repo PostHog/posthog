@@ -140,14 +140,25 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/icon/", data={"domain": bad_domain})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_icon_proxies_valid_domain(self):
+    @parameterized.expand(
+        [
+            ("no_theme", {}, None),
+            ("dark_theme", {"theme": "dark"}, "dark"),
+            ("unknown_theme_dropped", {"theme": "neon"}, None),
+        ]
+    )
+    def test_icon_proxies_valid_domain(self, _name, extra_params, expected_theme):
+        # The theme lands in the icon cache key, so the view must sanitize it — known values
+        # pass through, anything else is dropped rather than forwarded.
         with patch("products.mcp_store.backend.presentation.views.CDPIconsService") as service:
             service.return_value.get_icon_http_response.return_value = HttpResponse(b"png", content_type="image/png")
             response = self.client.get(
-                f"/api/environments/{self.team.id}/mcp_servers/icon/", data={"domain": "linear.app"}
+                f"/api/environments/{self.team.id}/mcp_servers/icon/", data={"domain": "linear.app", **extra_params}
             )
         assert response.status_code == status.HTTP_200_OK
-        service.return_value.get_icon_http_response.assert_called_once_with("linear.app")
+        service.return_value.get_icon_http_response.assert_called_once_with(
+            "linear.app", theme=expected_theme, fallback="404"
+        )
 
     def test_unauthenticated_access(self):
         client = APIClient()

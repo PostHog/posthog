@@ -203,7 +203,15 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
         domain = request.GET.get("domain", "")
         if not _ICON_DOMAIN_RE.fullmatch(domain):
             raise serializers.ValidationError("domain must be a bare hostname, e.g. linear.app")
-        return CDPIconsService().get_icon_http_response(domain)
+        theme = request.GET.get("theme")
+        return CDPIconsService().get_icon_http_response(
+            domain,
+            # The theme becomes part of the icon cache key, so only known values pass through —
+            # arbitrary strings would let one client mint unbounded cache entries.
+            theme=theme if theme in ("light", "dark") else None,
+            # ServerIcon renders its own generic fallback glyph on 404 instead of logo.dev's monogram.
+            fallback="404",
+        )
 
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):

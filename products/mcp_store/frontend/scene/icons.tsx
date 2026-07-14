@@ -1,6 +1,9 @@
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconServer } from '@posthog/icons'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 // Machine-facing subdomains stripped when deriving a brand domain from a server URL, so a custom
 // install at https://mcp.linear.app/mcp still resolves the vendor's brand (linear.app).
@@ -24,8 +27,9 @@ export function iconDomainFromServerUrl(serverUrl: string | null | undefined): s
     return host.includes('.') ? host : null
 }
 
-export function serverIconUrl(iconDomain: string): string {
-    return `/api/projects/@current/mcp_servers/icon/?domain=${encodeURIComponent(iconDomain)}`
+export function serverIconUrl(iconDomain: string, theme?: 'light' | 'dark'): string {
+    const themeSuffix = theme ? `&theme=${theme}` : ''
+    return `/api/projects/@current/mcp_servers/icon/?domain=${encodeURIComponent(iconDomain)}${themeSuffix}`
 }
 
 interface ServerIconProps {
@@ -38,6 +42,7 @@ interface ServerIconProps {
 }
 
 export function ServerIcon({ iconDomain, serverUrl, size = 32, className }: ServerIconProps): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
     const domain = iconDomain || iconDomainFromServerUrl(serverUrl)
     const [failedDomain, setFailedDomain] = useState<string | null>(null)
     const dimension = `${size}px`
@@ -49,7 +54,8 @@ export function ServerIcon({ iconDomain, serverUrl, size = 32, className }: Serv
                 style={{ width: dimension, height: dimension }}
             >
                 <img
-                    src={serverIconUrl(domain)}
+                    // logo.dev picks the logo variant suited to the active background theme.
+                    src={serverIconUrl(domain, isDarkModeOn ? 'dark' : 'light')}
                     alt=""
                     style={{ width: dimension, height: dimension }}
                     onError={() => setFailedDomain(domain)}
