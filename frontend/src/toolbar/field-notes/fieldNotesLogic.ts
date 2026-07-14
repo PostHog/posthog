@@ -6,6 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { inferSelector } from '~/toolbar/product-tours/elementInference'
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { ToolbarNotAuthenticatedError } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
@@ -243,6 +244,11 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
                 const { mediaId } = await captureAndUploadElementScreenshot(element)
                 actions.setScreenshotUrl(joinWithUiHost(values.uiHost, `/uploaded_media/${mediaId}`))
             } catch (e: any) {
+                if (e instanceof ToolbarNotAuthenticatedError) {
+                    // Expected in unauthenticated sessions — the screenshot is best-effort, so skip it quietly.
+                    toolbarLogger.warn('field-notes', 'Skipping screenshot: toolbar not authenticated')
+                    return
+                }
                 toolbarLogger.warn('field-notes', 'Failed to capture screenshot')
                 captureToolbarException(e, 'field_note_screenshot')
             }

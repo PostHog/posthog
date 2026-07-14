@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarFetch, ToolbarNotAuthenticatedError, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar logger mirrors intentional error/auth paths to the console (its job on
@@ -1428,13 +1428,15 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(callsToAttacker).toHaveLength(0)
         })
 
-        it('throws "Toolbar not authenticated" when no session exists, without firing tokenExpired', async () => {
+        it('throws a ToolbarNotAuthenticatedError when no session exists, without firing tokenExpired', async () => {
             const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
             logic.mount()
             ;(global.fetch as jest.Mock).mockClear()
 
             const file = new File(['data'], 'x.png', { type: 'image/png' })
-            await expect(toolbarUploadMedia(file)).rejects.toThrow('Toolbar not authenticated')
+            // The typed error lets best-effort callers (screenshot uploads) skip the no-auth
+            // case instead of reporting it to error tracking.
+            await expect(toolbarUploadMedia(file)).rejects.toThrow(ToolbarNotAuthenticatedError)
 
             // Should not have attempted any fetch (we bailed before toolbarFetch).
             const uploadAttempts = (global.fetch as jest.Mock).mock.calls.filter(
