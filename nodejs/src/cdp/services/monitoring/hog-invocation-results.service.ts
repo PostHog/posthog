@@ -111,8 +111,9 @@ const truncate = (value: string, max: number): string => {
 }
 
 // Best-effort error classification — keeps `error_kind` low-cardinality so the
-// status_idx skipping index stays small. The full message lands in
-// `error_message`, the full stack stays in log_entries.
+// status_idx skipping index stays small. Only the message lands in
+// `error_message`, never the stack trace — app-level executors pass the whole
+// `Error` here, and its stack would otherwise leak into the Invocations tab.
 const classifyError = (error: unknown): { kind: string; message: string } => {
     if (!error) {
         return { kind: '', message: '' }
@@ -121,7 +122,8 @@ const classifyError = (error: unknown): { kind: string; message: string } => {
         typeof error === 'string'
             ? error
             : error instanceof Error
-              ? error.stack || error.message
+              ? // fall back to the error name so an empty message doesn't blank the row (without the stack)
+                error.message || error.name
               : (() => {
                     try {
                         return JSON.stringify(error)

@@ -227,7 +227,8 @@ describe('HogInvocationResultsService', () => {
             expect(rows).toHaveLength(1)
             expect(rows[0].status).toBe('failed')
             expect(rows[0].error_kind).toBe('timeout')
-            expect(rows[0].error_message).toContain('timed out')
+            // Exact match: the message only, never the stack trace.
+            expect(rows[0].error_message).toBe('Request timed out after 30s')
         })
 
         it('produces no row for an in-flight result that has not finished and has no error', async () => {
