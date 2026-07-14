@@ -98,6 +98,17 @@ _KILL_SWITCH_EXEMPT_USERS = frozenset(
     }
 )
 
+# Callers that explicitly ask for one of these low-cost users (schema introspection and other
+# metadata lookups) are exempt from the product-based ch_user override below. These queries are
+# cheap and frequent, so routing them onto a product's constrained ClickHouse user (e.g. max_ai's
+# 10-query concurrency cap) would exhaust that scarce budget and break the product's real queries.
+_PRODUCT_OVERRIDE_EXEMPT_USERS = frozenset(
+    {
+        ClickHouseUser.HOGQL,
+        ClickHouseUser.META,
+    }
+)
+
 _KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
     KillSwitchLevel.LIGHT: {
         "max_execution_time": 30,
@@ -393,12 +404,13 @@ def sync_execute(
 
     add_fallback_query_tags(tags)
 
-    if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
-        ch_user = ClickHouseUser.MAX_AI
-    elif tags.product == Product.ENDPOINTS:
-        ch_user = ClickHouseUser.ENDPOINTS
-    elif tags.product == Product.BILLING:
-        ch_user = ClickHouseUser.BILLING
+    if ch_user not in _PRODUCT_OVERRIDE_EXEMPT_USERS:
+        if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
+            ch_user = ClickHouseUser.MAX_AI
+        elif tags.product == Product.ENDPOINTS:
+            ch_user = ClickHouseUser.ENDPOINTS
+        elif tags.product == Product.BILLING:
+            ch_user = ClickHouseUser.BILLING
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries
