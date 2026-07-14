@@ -216,8 +216,11 @@ analysis ("master went red at SHA X, authored by Y, via PR Z"). Composes the sam
   `JSONExtractString(…, 'author', 'name')` / `('author', 'email')` / `('message')`). The shared
   `workflow_runs` builder deliberately does **not** surface commit fields (other embedders don't
   need them); this view reads them through its own minimal projection over the raw runs table,
-  LEFT-JOINed on `(run_id, run_attempt)`, rather than widening the shared builder. `head_commit` is
-  a new Nullable(String) column on `WORKFLOW_RUNS_COLUMNS`.
+  LEFT-JOINed on `run_id` alone, rather than widening the shared builder. Joining on `run_attempt`
+  too would blank attribution for earlier-attempt jobs after a re-run: the runs snapshot upserts by
+  `id`, so only the newest attempt's row exists, and attribution is attempt-invariant anyway (a
+  re-run is the same commit). `head_commit` is a new Nullable(String) column on
+  `WORKFLOW_RUNS_COLUMNS`.
 
 #### `engineering_analytics_ci_failures`
 
