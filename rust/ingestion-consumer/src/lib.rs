@@ -1,5 +1,6 @@
 pub mod config;
 pub mod consumer;
+pub mod debug_recorder;
 pub mod discovery;
 pub mod dispatcher;
 pub mod kafka_config;
