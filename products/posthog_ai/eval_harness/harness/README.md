@@ -20,25 +20,25 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 
 ## Modules
 
-| Module             | Role                                                                                                                 |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `__main__.py`      | Entry point. Parses args, starts the transcript, configures Django, then hands off to `lifecycle`.                   |
-| `cli.py`           | `HarnessOptions` and the argparse builder. Resolves per-provider defaults.                                           |
-| `env_preflight.py` | Loads the repo-root `.env` (stdlib parser, shell wins) and validates per-kind env vars via pydantic models.          |
-| `ports.py`         | The six port constants. Deliberately free of Django imports.                                                         |
-| `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup. |
-| `tunnels.py`       | `NgrokTunnels`. Modal only: generates an ngrok config, starts the agent, waits for public URLs.                      |
-| `requirements.py`  | `SuiteKind`, `Infra`, and the kind → infrastructure mapping (with implication closure).                              |
-| `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                            |
-| `live_server.py`   | `EvalLiveServer`, a session-lifetime Uvicorn server for PostHog's full ASGI application.                             |
-| `services.py`      | Starts the LLM gateway, MCP server, and personhog subprocesses; builds local skills.                                 |
-| `temporal_env.py`  | Local Temporal dev server, stale-workflow cleanup, and the worker thread.                                            |
-| `demo_data.py`     | `SandboxedDemoData`: seeds the master Hedgebox team once, then mints an isolated team per case.                      |
-| `discovery.py`     | Walks the tree for `eval_*.py` and collects `eval_*` coroutines into `EvalSuite` objects.                            |
-| `context.py`       | `EvalContext`, the single object every suite receives.                                                               |
-| `reporting.py`     | `ProgressReporter`, the final summary table, and the quiet Braintrust reporter.                                      |
-| `transcript.py`    | Mirrors stdout and stderr to one run log, then publishes its absolute path as the final line.                        |
-| `lifecycle.py`     | `SandboxedEvalHarness`: orchestrates bootstrap, the run, and teardown.                                               |
+| Module             | Role                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `__main__.py`      | Entry point. Parses args, starts the transcript, configures Django, then hands off to `lifecycle`.                                |
+| `cli.py`           | `HarnessOptions` and the argparse builder. Resolves per-provider defaults.                                                        |
+| `env_preflight.py` | Loads the repo-root `.env` (stdlib parser, shell wins) and validates per-kind env vars via pydantic models.                       |
+| `ports.py`         | The six port constants. Deliberately free of Django imports.                                                                      |
+| `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup.              |
+| `tunnels.py`       | `NgrokTunnels`. Modal only: generates an ngrok config, starts the agent, waits for public URLs.                                   |
+| `requirements.py`  | `SuiteKind`, `Infra`, and the kind → infrastructure mapping (with implication closure).                                           |
+| `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                                         |
+| `live_server.py`   | `EvalLiveServer`, a session-lifetime Uvicorn server for PostHog's full ASGI application.                                          |
+| `services.py`      | Starts the LLM gateway, MCP server, and personhog subprocesses; builds local skills.                                              |
+| `temporal_env.py`  | Local Temporal dev server, stale-workflow cleanup, and the worker thread.                                                         |
+| `demo_data.py`     | `SandboxedDemoData`: seeds the master Hedgebox team once, then mints an isolated team per case.                                   |
+| `discovery.py`     | Walks the tree for `eval_*.py` and collects `eval_*` coroutines into `EvalSuite` objects.                                         |
+| `context.py`       | `EvalContext`, the single object every suite receives.                                                                            |
+| `reporting.py`     | `ProgressReporter` and the final summary table. The quiet Braintrust reporter lives with the engine (`../engines/braintrust.py`). |
+| `transcript.py`    | Mirrors stdout and stderr to one run log, then publishes its absolute path as the final line.                                     |
+| `lifecycle.py`     | `SandboxedEvalHarness`: orchestrates bootstrap, the run, and teardown.                                                            |
 
 ## Boot sequence
 

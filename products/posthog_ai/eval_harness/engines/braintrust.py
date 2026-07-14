@@ -6,10 +6,27 @@ from collections.abc import Sequence
 from typing import Any
 
 from braintrust import EvalAsync, EvalCase
-from braintrust.framework import EvalResultWithSummary
+from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
 
-from ..harness.reporting import QUIET_REPORTER
 from .base import EvalTaskFn
+
+
+def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
+    return True
+
+
+def _quiet_report_run(results: list[bool], verbose: bool, jsonl: bool) -> bool:
+    return True
+
+
+QUIET_REPORTER: ReporterDef = ReporterDef(
+    name="quiet",
+    report_eval=_quiet_report_eval,
+    report_run=_quiet_report_run,
+)
+"""Reporter that keeps Braintrust's per-experiment tables out of the shared stream.
+
+Its callbacks are called synchronously by ``EvalAsync`` and must not be coroutines."""
 
 
 class BraintrustEngine:

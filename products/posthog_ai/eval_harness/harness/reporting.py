@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
 from braintrust.logger import ExperimentSummary
 
 EVAL_RESULTS_JSONL = "eval_results.jsonl"
@@ -258,19 +257,3 @@ def _format_duration(seconds: float) -> str:
         return f"{int(minutes)}m {remaining:.1f}s"
     hours, minutes = divmod(int(minutes), 60)
     return f"{hours}h {minutes}m {remaining:.1f}s"
-
-
-def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
-    return True
-
-
-def _quiet_report_run(results: list[bool], verbose: bool, jsonl: bool) -> bool:
-    return True
-
-
-QUIET_REPORTER: ReporterDef = ReporterDef(
-    name="quiet",
-    report_eval=_quiet_report_eval,
-    report_run=_quiet_report_run,
-)
-"""Reporter that keeps Braintrust's per-experiment tables out of the shared stream."""
