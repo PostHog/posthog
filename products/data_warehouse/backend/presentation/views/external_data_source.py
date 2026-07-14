@@ -45,6 +45,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
@@ -238,6 +239,30 @@ def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
                 if option.fields:
                     sensitive.update(get_sensitive_field_names(option.fields))
     return sensitive
+
+
+def get_oauth_integration_kinds(fields: list[FieldType]) -> set[str]:
+    """The integration kinds a source connects with, declared by its `oauth` fields (`kind`) and its
+    `oauth-account-select` fields (`integrationKind`). Every OAuth account listing is served by one
+    endpoint that takes an integration id from the caller, so this is what the endpoint checks that id
+    against — a Google integration id must not be able to route its token into the LinkedIn Ads client
+    just because both rows belong to the caller's team.
+
+    Both field types are read because a source can list accounts without rendering a picker: GitHub
+    serves repositories to its own component off a plain `oauth` field."""
+    kinds: set[str] = set()
+    for field in fields:
+        if isinstance(field, SourceFieldOauthAccountSelectConfig):
+            kinds.add(field.integrationKind)
+        elif isinstance(field, SourceFieldOauthConfig):
+            kinds.add(field.kind)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            kinds.update(get_oauth_integration_kinds(field.fields))
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                if option.fields:
+                    kinds.update(get_oauth_integration_kinds(option.fields))
+    return kinds
 
 
 def _add_name_variants(target: set[str], name: str) -> None:
@@ -1843,6 +1868,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         if not isinstance(source, OAuthMixin):
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
+
+        # The integration id is caller-supplied and each source looks it up by (id, team_id) only, so
+        # without this a same-team integration of a different provider would be accepted here and its
+        # OAuth token handed to this source's provider. Pin it to the kind(s) the source's picker
+        # declares before any of that runs.
+        expected_kinds = get_oauth_integration_kinds(source.get_source_config.fields)
+        if not expected_kinds:
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
+        if not Integration.objects.filter(
+            id=integration_id_int, team_id=self.team_id, kind__in=expected_kinds
+        ).exists():
+            # One message for "gone" and "wrong kind" alike: from the UI both mean the picker is holding
+            # a connection this source can't use, and neither tells the caller anything about ids it
+            # isn't already allowed to see.
+            raise ValidationError(
+                f"No {source_type} connection was found for this integration. Please reconnect the integration."
+            )
 
         cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}/{search or ''}"
         cached = cache.get(cache_key)

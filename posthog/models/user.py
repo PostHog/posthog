@@ -202,6 +202,7 @@ class OnboardingSkippedReason(models.TextChoices):
     DELEGATED = "delegated", "Delegated to teammate"
     LATER = "later", "Skipped for later"
     OTHER = "other", "Other"
+    PROVISIONED = "provisioned", "Account provisioned by a partner"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
