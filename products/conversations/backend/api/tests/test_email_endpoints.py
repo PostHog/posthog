@@ -1808,3 +1808,91 @@ class TestEmailSendTestView(BaseTest):
 
         self.config.refresh_from_db()
         assert self.config.domain_verified is False
+
+
+class TestEmailDeliveryWebhookRegistration(BaseTest):
+    """Delivery webhooks (proof of delivery) must be registered whenever a domain
+    becomes usable, and their registration must never break connect/verify."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.force_login(self.user)
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="b" * 32,
+            from_email="support@ex.com",
+            from_name="Support",
+            domain="ex.com",
+            domain_verified=False,
+        )
+
+    def _verify(self):
+        return self.client.post(
+            "/api/conversations/v1/email/verify-domain",
+            {"config_id": str(self.config.id)},
+            content_type="application/json",
+        )
+
+    @parameterized.expand(
+        [
+            ("active_domain_syncs", "active", 1),
+            ("unverified_domain_skips", "unverified", 0),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_settings.mailgun_sync_delivery_webhooks")
+    @patch("products.conversations.backend.api.email_settings.mailgun_verify_domain")
+    def test_verify_domain_syncs_webhooks_only_when_active(
+        self,
+        _name: str,
+        state: str,
+        expected_sync_calls: int,
+        mock_verify: MagicMock,
+        mock_sync: MagicMock,
+    ):
+        mock_verify.return_value = {"state": state, "sending_dns_records": []}
+
+        response = self._verify()
+
+        assert response.status_code == 200
+        assert mock_sync.call_count == expected_sync_calls
+        if expected_sync_calls:
+            domain_arg, url_arg = mock_sync.call_args.args
+            assert domain_arg == "ex.com"
+            assert url_arg.endswith("/api/conversations/v1/email/events")
+
+    @patch(
+        "products.conversations.backend.api.email_settings.mailgun_sync_delivery_webhooks",
+        side_effect=Exception("mailgun down"),
+    )
+    @patch(
+        "products.conversations.backend.api.email_settings.mailgun_verify_domain",
+        return_value={"state": "active", "sending_dns_records": []},
+    )
+    def test_verify_domain_survives_webhook_sync_failure(self, _mock_verify: MagicMock, _mock_sync: MagicMock):
+        response = self._verify()
+
+        assert response.status_code == 200
+        assert response.json()["domain_verified"] is True
+        self.config.refresh_from_db()
+        assert self.config.domain_verified is True
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_sync_delivery_webhooks")
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_syncs_webhooks_for_new_domain(
+        self, _mock_setting: MagicMock, _mock_add: MagicMock, mock_sync: MagicMock
+    ):
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "help@newdomain.com", "from_name": "Help"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args.args[0] == "newdomain.com"

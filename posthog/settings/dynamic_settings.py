@@ -207,12 +207,12 @@ CONSTANCE_CONFIG = {
     ),
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY": (
         get_from_env("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY", default=""),
-        "HMAC signing key for validating inbound Mailgun webhook authenticity.",
+        "HMAC signing key for validating Mailgun webhook authenticity (inbound email and delivery events).",
         str,
     ),
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY": (
         get_from_env("CONVERSATIONS_EMAIL_MAILGUN_API_KEY", default=""),
-        "Mailgun API key for domain management (add/verify/delete sending domains).",
+        "Mailgun API key for domain management (add/verify/delete sending domains) and delivery webhook registration.",
         str,
     ),
     "GITHUB_WEBHOOK_SECRET": (

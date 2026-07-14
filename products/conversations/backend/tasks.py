@@ -12,8 +12,6 @@ from django.core import mail
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import F
-from django.db.models.fields.json import JSONField
-from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import requests
@@ -56,6 +54,7 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
+from products.conversations.backend.services.delivery_status import set_comment_delivery_status
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
@@ -620,24 +619,6 @@ EMAIL_OUTBOX_MAX_AGE = timedelta(days=5)  # give up past this (comfortably > a F
 EMAIL_OUTBOX_FLUSH_BATCH_SIZE = 100
 
 
-def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: str) -> None:
-    """Denormalize delivery status onto the comment's item_context so the agent UI can
-    show a sending/failed badge. Uses a queryset update to avoid re-firing Comment signals.
-
-    Merges at the DB level (JSONB ``||``) rather than read-modify-write: a concurrent
-    edit to another key (e.g. an agent flipping ``is_private``) must not be clobbered.
-    The dict values flow through ORM ``Value`` params, so this is fully parameterized.
-    """
-    merged = models.Func(
-        Coalesce("item_context", models.Value({}, output_field=JSONField())),
-        models.Value({"email_delivery_status": status_value}, output_field=JSONField()),
-        template="%(expressions)s",
-        arg_joiner=" || ",
-        output_field=JSONField(),
-    )
-    CommentModel.objects.filter(id=comment_id, team_id=team_id).update(item_context=merged)
-
-
 def _mark_outbox_sent(outbox: EmailOutboxMessage) -> None:
     outbox.status = EmailOutboxMessage.Status.SENT
     outbox.sent_at = timezone.now()
@@ -653,7 +634,7 @@ def _mark_outbox_sent(outbox: EmailOutboxMessage) -> None:
         )
     except Exception:
         logger.exception("email_reply_mapping_failed", outbox_id=str(outbox.id), message_id=outbox.message_id)
-    _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "sent")
+    set_comment_delivery_status(outbox.team_id, outbox.comment_id, "sent")
 
 
 def _mark_outbox_failed(outbox: EmailOutboxMessage, error: str) -> None:
@@ -661,7 +642,7 @@ def _mark_outbox_failed(outbox: EmailOutboxMessage, error: str) -> None:
     outbox.last_error = error[:2000]
     outbox.locked_until = None
     outbox.save(update_fields=["status", "last_error", "locked_until", "updated_at"])
-    _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "failed")
+    set_comment_delivery_status(outbox.team_id, outbox.comment_id, "failed")
 
 
 def _schedule_outbox_retry(outbox: EmailOutboxMessage, error: str) -> None:
@@ -674,7 +655,7 @@ def _schedule_outbox_retry(outbox: EmailOutboxMessage, error: str) -> None:
     outbox.last_error = error[:2000]
     outbox.locked_until = None
     outbox.save(update_fields=["attempts", "next_attempt_at", "last_error", "locked_until", "updated_at"])
-    _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "sending")
+    set_comment_delivery_status(outbox.team_id, outbox.comment_id, "sending")
 
 
 def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
