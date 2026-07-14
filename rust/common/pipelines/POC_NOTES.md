@@ -60,6 +60,26 @@ before the inner `apply` call. The design left the choice open ("`In: Clone` or
 takes-and-returns pattern — pick one"); `In: Clone` is the simpler of the two and
 all POC contexts are cheap to clone (`Bytes` refcounts, small structs).
 
+### `handle_results` awaits produces sequentially, not concurrently
+
+The design (§3.4) flushes all deferred effects into an `EffectQueue` and joins
+every produce future before the batch completes. The POC's `handle_results`
+awaits each DLQ/redirect produce in turn. This still satisfies the load-bearing
+property — every produce completes before the function returns, so a caller can
+gate commit on it — but does not exploit intra-batch produce concurrency. A
+future version can collect the futures and `join_all` them without changing the
+signature.
+
+### Two produce paths coexist: `EffectQueue` (plugins) and `handle_results` (verdicts)
+
+The design routes *everything* (plugin effects and verdict DLQ/redirect produces)
+through the `EffectQueue`, executed once at chunk end. The POC keeps them
+separate: plugin sinks flush into an `EffectQueue` (A4), while verdict-driven
+DLQ/redirect produces go straight through `handle_results` (A5) from the
+`ChunkOutcome` + aligned `RawRecord`s. A full harness (`harness.rs` in the
+design) would unify these; the POC omits that harness and lets the consumer wire
+the two pieces together, which is enough to prove both mechanisms.
+
 ### `EffectProducer` is built directly on rdkafka, not `common/kafka`
 
 The design (§3.10) layers the output registry over `common/kafka`'s

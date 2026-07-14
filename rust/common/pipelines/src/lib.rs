@@ -12,12 +12,17 @@
 pub mod effects;
 pub mod fail_open;
 pub mod metrics_consts;
+pub mod outputs;
 pub mod plugin;
 pub mod result;
 pub mod step;
 
 pub use effects::{DeferredProduce, EffectQueue, OutputRef};
 pub use fail_open::{FailOpen, FailOpenExt};
+pub use outputs::{
+    handle_results, EffectProducer, HandleSummary, MockProducer, OutputRegistry, OutputTarget,
+    RawRecord, RdKafkaEffectProducer, SentMessage,
+};
 pub use plugin::{HasSink, MetricsObserver, Observer, Plugin};
 pub use result::{NoOutputs, Outputs, StepError, StepResult};
 pub use step::{
