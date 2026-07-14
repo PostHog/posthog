@@ -243,7 +243,7 @@ class TestHandleResetOrFullRefresh:
         )
 
     def test_webhook_only_reset_preserves_table_and_state(self, team):
-        # The data-loss regression: a reset on a webhook-first schema must not wipe the Delta
+        # The data-loss regression: a reset on a webhook-only schema must not wipe the Delta
         # table (the poll can't rebuild webhook-accumulated rows). The reset request is consumed,
         # while the watermark and initial_sync_complete survive so webhook ingestion resumes.
         schema = self._webhook_schema(team)
@@ -254,6 +254,9 @@ class TestHandleResetOrFullRefresh:
         )
 
         helper.reset_table.assert_not_awaited()
+        # In-memory config is cleared too — otherwise a later watermark save re-persists
+        # reset_pipeline and every subsequent run is treated as a reset.
+        assert "reset_pipeline" not in schema.sync_type_config
         schema.refresh_from_db()
         assert "reset_pipeline" not in schema.sync_type_config
         assert schema.sync_type_config["incremental_field_last_value"] == "2026-01-01T00:00:00"
