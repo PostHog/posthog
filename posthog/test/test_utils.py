@@ -22,7 +22,7 @@ from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, Organization, PropertyDefinition, Team, User
+from posthog.models import EventDefinition, Organization, Project, PropertyDefinition, Team, User
 from posthog.settings.utils import get_from_env
 
 if TYPE_CHECKING:
@@ -42,6 +42,7 @@ from posthog.utils import (
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
     get_compare_period_dates,
+    get_context_for_template,
     get_default_event_info,
     get_default_event_name,
     get_dogfood_flags_team_id,
@@ -1224,6 +1225,28 @@ class TestTemplateContextHistogram(TestCase):
             get_context_for_template("index.html", request)
 
         assert self._count_for_labels("index.html", expected_label) == before + 1
+
+
+class TestTemplateContextDuringProjectDeletion(BaseTest):
+    def test_home_context_survives_project_row_removed_mid_deletion(self):
+        request = RequestFactory().get("/")
+        request.user = self.user
+
+        # Async project deletion removes the Project row via a Temporal workflow while the team
+        # still resolves, leaving the non-null project FK dangling for a brief window. Reproduce
+        # that state by pointing the team at a project id that no longer exists.
+        team = self.user.team
+        assert team is not None
+        team.project_id = 2**31 - 1
+        team._state.fields_cache.pop("project", None)
+        with self.assertRaises(Project.DoesNotExist):
+            _ = team.project
+
+        context = get_context_for_template("index.html", request)
+
+        app_context = json.loads(context["posthog_app_context"])
+        assert app_context["current_team"] is not None
+        assert app_context["current_project"] is None
 
 
 class TestResolveSelfCaptureTeam(TestCase):
