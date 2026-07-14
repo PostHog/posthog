@@ -8,18 +8,14 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 
 
-class _SyncThread:
-    def __init__(self, target, args=(), daemon=None):
-        self._target = target
-        self._args = args
-
-    def start(self):
-        self._target(*self._args)
+class _InlineExecutor:
+    def submit(self, fn, *args):
+        fn(*args)
 
 
 @pytest.fixture(autouse=True)
-def _run_dispatch_thread_inline():
-    with patch("posthog.temporal.signup_enrichment.trigger.threading.Thread", _SyncThread):
+def _run_dispatch_pool_inline():
+    with patch("posthog.temporal.signup_enrichment.trigger._dispatch_executor", _InlineExecutor()):
         yield
 
 
@@ -129,3 +125,29 @@ def test_duplicate_workflow_is_logged_not_captured():
         with patch("posthog.temporal.signup_enrichment.trigger.capture_exception") as capture_mock:
             start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
     capture_mock.assert_not_called()
+
+
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True)
+def test_dispatch_dropped_when_backlog_full():
+    import threading
+
+    full = threading.BoundedSemaphore(1)
+    full.acquire()
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    with patch("posthog.temporal.signup_enrichment.trigger._dispatch_slots", full):
+        with on_commit, connect as connect_mock, run, region, record:
+            start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
+    connect_mock.assert_not_called()
+
+
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True)
+def test_dispatch_slot_released_after_run():
+    import threading
+
+    single = threading.BoundedSemaphore(1)
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    with patch("posthog.temporal.signup_enrichment.trigger._dispatch_slots", single):
+        with on_commit, connect as connect_mock, run, region, record:
+            start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
+            start_signup_enrichment_workflow(organization_id="org-2", distinct_id="d2", email="ceo@vercel.com")
+    assert connect_mock.call_count == 2

@@ -9,6 +9,7 @@ for every signup so consumers can read it either way.
 
 import asyncio
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from email.utils import parseaddr
 
 from django.conf import settings
@@ -29,6 +30,16 @@ from products.growth.backend.enrichment.writer import record_signup_work_email
 logger = structlog.get_logger(__name__)
 
 _generic_emails = GenericEmails()
+
+# Bounded dispatch pool: a slow or unreachable Temporal must never let signup-triggered
+# threads accumulate on web pods. When the pool's backlog cap is hit, dispatch drops —
+# fire-and-forget degrades to "enrichment did not run", which the launch signal surfaces.
+_DISPATCH_MAX_WORKERS = 4
+_DISPATCH_MAX_PENDING = 64
+_dispatch_executor = ThreadPoolExecutor(
+    max_workers=_DISPATCH_MAX_WORKERS, thread_name_prefix="signup-enrichment-dispatch"
+)
+_dispatch_slots = threading.BoundedSemaphore(_DISPATCH_MAX_PENDING)
 
 
 def _domain_from_email(email: str) -> str | None:
@@ -62,9 +73,29 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str |
     inputs = SignupEnrichmentInputs(organization_id=str(organization_id), distinct_id=distinct_id, domain=domain)
     # on_commit so the worker never reads the org/enrichment rows before they are committed. The
     # callback fires inline on the signup request thread (it runs after that transaction commits),
-    # so dispatch goes on a daemon thread: building the Temporal client must not add latency to
-    # the signup response.
-    transaction.on_commit(lambda: threading.Thread(target=_dispatch, args=(inputs,), daemon=True).start())
+    # so dispatch goes to the bounded pool: building the Temporal client must not add latency to
+    # the signup response, and the pool caps how much a Temporal outage can pile up.
+    transaction.on_commit(lambda: _submit_dispatch(inputs))
+
+
+def _submit_dispatch(inputs: SignupEnrichmentInputs) -> None:
+    if not _dispatch_slots.acquire(blocking=False):
+        logger.warning(
+            "signup_enrichment_dispatch_dropped", organization_id=inputs.organization_id, reason="dispatch_backlog_full"
+        )
+        return
+    try:
+        _dispatch_executor.submit(_dispatch_and_release, inputs)
+    except Exception as e:
+        _dispatch_slots.release()
+        capture_exception(e)
+
+
+def _dispatch_and_release(inputs: SignupEnrichmentInputs) -> None:
+    try:
+        _dispatch(inputs)
+    finally:
+        _dispatch_slots.release()
 
 
 def _record_work_email(*, organization_id: str, work_email: bool) -> None:
