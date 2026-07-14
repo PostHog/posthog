@@ -225,7 +225,11 @@ class PipelineV3(Generic[ResumableData]):
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
         )
         self._person_property_sink = PersonPropertyRowSink(
-            team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
+            team_id=self._job.team_id,
+            schema_id=self._schema.id,
+            job_id=job_id,
+            logger=self._logger,
+            is_incremental=self._is_incremental,
         )
         self._accumulated_pa_schema = None
         self._shutdown_monitor = shutdown_monitor

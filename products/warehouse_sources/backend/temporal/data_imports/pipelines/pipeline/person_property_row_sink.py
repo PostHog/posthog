@@ -1,3 +1,4 @@
+import time
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -35,14 +36,24 @@ class PersonPropertyRowSink:
 
     Multiple job prefixes can coexist under a schema while the consumer lags, so the consumer
     must apply prefixes in job order (or last-write-wins per person key) — a lagged older job
-    applied after a newer one would regress properties to stale values.
+    applied after a newer one would regress properties to stale values. Within one job, staged
+    files from a retried attempt sort after the failed attempt's (attempt-timestamped names), so
+    per-person last-write-wins inside the job holds too.
     """
 
-    def __init__(self, team_id: int, schema_id: str, job_id: str, logger: FilteringBoundLogger) -> None:
+    def __init__(
+        self, team_id: int, schema_id: str, job_id: str, logger: FilteringBoundLogger, *, is_incremental: bool
+    ) -> None:
         self.team_id = team_id
         self.schema_id = schema_id
         self.job_id = job_id
         self.logger = logger
+        self._is_incremental = is_incremental
+        # Per-attempt token baked into staged filenames. An incremental retry resumes past the
+        # already-committed cursor, so its chunk indices restart at 0 while the earlier attempt's
+        # rows are never re-extracted — reusing plain `chunk_{n}` names would overwrite (and lose)
+        # them. Seconds-since-epoch keeps names lexicographically ordered across attempts.
+        self._attempt_token = str(int(time.time()))
         self._projection: list[PersonPropertySourceProjection] | None = None
         self._projection_resolved = False
 
@@ -103,26 +114,34 @@ class PersonPropertyRowSink:
         await asyncio.to_thread(
             write_table,
             projected,
-            f"{self._get_path_prefix()}/chunk_{chunk}.parquet",
+            f"{self._get_path_prefix()}/chunk_{self._attempt_token}_{chunk:06d}.parquet",
             filesystem=self._get_fs(),
             compression="zstd",
             use_dictionary=True,
         )
 
     async def clear_chunks(self) -> None:
-        """Drop this job's own staged files, plus any sibling job prefixes abandoned long enough.
+        """Drop this job's own staged files (full refresh only), plus sibling job prefixes
+        abandoned long enough.
 
-        Clearing our own prefix stops a retry of the same job from double-staging. Sibling
-        prefixes are NOT cleared wholesale: the downstream upsert job deletes them as it consumes
-        them, and a recent sibling may simply belong to a consumer that is lagging — wiping it
-        would lose that sync's delta. Only prefixes older than ``ABANDONED_STAGED_PREFIX_TTL``
-        are swept, as the backstop against a consumer that never ran.
+        Own-prefix clearing stops a retried job from leaving stale files behind, but it is only
+        safe when the retry re-extracts everything — i.e. a full refresh. An incremental retry
+        resumes past the cursor the failed attempt already committed, so its earlier staged files
+        are that data's only record and must survive; duplicates a full re-window would produce
+        are deduped downstream anyway (snapshot diff + last-write-wins).
+
+        Sibling prefixes are NOT cleared wholesale: the downstream upsert job deletes them as it
+        consumes them, and a recent sibling may simply belong to a consumer that is lagging —
+        wiping it would lose that sync's delta. Only prefixes older than
+        ``ABANDONED_STAGED_PREFIX_TTL`` are swept, as the backstop against a consumer that never
+        ran.
         """
         async with aget_s3_client() as s3_client:
-            try:
-                await s3_client._rm(f"s3://{self._get_path_prefix()}/", recursive=True)
-            except FileNotFoundError:
-                pass
+            if not self._is_incremental:
+                try:
+                    await s3_client._rm(f"s3://{self._get_path_prefix()}/", recursive=True)
+                except FileNotFoundError:
+                    pass
             await self._sweep_abandoned_sibling_prefixes(s3_client)
 
     async def _sweep_abandoned_sibling_prefixes(self, s3_client: Any) -> None:
