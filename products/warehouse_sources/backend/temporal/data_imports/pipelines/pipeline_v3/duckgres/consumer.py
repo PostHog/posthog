@@ -209,7 +209,7 @@ class DuckgresBatchConsumerAdapter:
             self._failing_schema_ids = await sync_to_async(compute_failing_schema_ids, thread_sensitive=False)(team_ids)
             # v3 allow-list: prod only. In dev (team_ids None) the sink stays
             # ungated, matching the team filter. Kept in the planner try so a
-            # transient app-DB/flag blip leaves the previous allow-list intact.
+            # transient app-DB blip leaves the previous allow-list intact.
             if team_ids is not None:
                 self._eligible_schema_ids = await sync_to_async(compute_eligible_schema_ids, thread_sensitive=False)(
                     team_ids

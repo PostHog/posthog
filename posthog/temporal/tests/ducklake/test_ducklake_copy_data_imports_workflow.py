@@ -126,10 +126,6 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
     # get_duckgres_server_by_team_org resolves the staging URI via its own module-level
     # is_dev_mode, so it needs the same override or it short-circuits to None in tests.
     monkeypatch.setattr("posthog.ducklake.common.is_dev_mode", lambda: False)
-    monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
-        lambda *args, **kwargs: True,  # duckgres-batch-sink on
-    )
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import create_job_model
 
     monkeypatch.setattr(
@@ -1156,8 +1152,6 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
     monkeypatch.setattr(
         ducklake_module,
         "feature_enabled_or_false",
-        # Key-aware: the gate checks the duckgres-batch-sink exclusion first,
-        # and a catch-all True would wrongly trip it.
         lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
@@ -1248,8 +1242,6 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
     monkeypatch.setattr(
         ducklake_module,
         "feature_enabled_or_false",
-        # Key-aware: the gate checks the duckgres-batch-sink exclusion first,
-        # and a catch-all True would wrongly trip it.
         lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
