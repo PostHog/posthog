@@ -126,8 +126,8 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
             .filter(id=refund.id, billing_synced_at__isnull=True)
             .update(billing_sync_error=str(exc)[:4000])
         )
-        capture_exception(exc, {"refund_id": str(refund.id), "team_id": refund.team_id})
         if recorded:
+            capture_exception(exc, {"refund_id": str(refund.id), "team_id": refund.team_id})
             _capture_refund_sync_event(refund, "signals_pr_refund_credit_failed", {"error": str(exc)[:1000]})
         return
 

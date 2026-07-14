@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0055_signalreportrefund"),
+        ("signals", "0057_signalreportrefund"),
     ]
 
     operations = [

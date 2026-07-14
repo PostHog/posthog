@@ -11,7 +11,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1251_alter_integration_kind"),
-        ("signals", "0054_alter_signalsourceconfig_source_type"),
+        ("signals", "0056_alter_signalreportartefact_type"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
