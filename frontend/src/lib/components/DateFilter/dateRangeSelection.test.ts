@@ -37,10 +37,9 @@ describe('date range selection mapping', () => {
 
     it('quarters resolve to roughly the right span, not a 7-day fabrication', () => {
         const selection = selectionForDateRange('-2q', null)
-        if (selection.kind !== 'custom') {
-            throw new Error('expected custom')
-        }
-        const days = (selection.end.getTime() - selection.start.getTime()) / 86_400_000
+        expect(selection.kind).toBe('custom')
+        const custom = selection as Extract<typeof selection, { kind: 'custom' }>
+        const days = (custom.end.getTime() - custom.start.getTime()) / 86_400_000
         expect(days).toBeGreaterThan(170)
         expect(days).toBeLessThan(190)
     })
@@ -72,5 +71,8 @@ describe('date range selection mapping', () => {
     it('falls back to a concrete last-7-days custom range for unparseable input', () => {
         const selection = selectionForDateRange('garbage', null)
         expect(selection.kind).toBe('custom')
+        const custom = selection as Extract<typeof selection, { kind: 'custom' }>
+        const days = (custom.end.getTime() - custom.start.getTime()) / 86_400_000
+        expect(days).toBeCloseTo(7, 0)
     })
 })

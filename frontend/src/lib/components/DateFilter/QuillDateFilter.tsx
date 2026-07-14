@@ -22,7 +22,6 @@ export interface QuillDateFilterProps {
     shortChips?: DateRangeChip[]
     namedChips?: string[]
     weekStartsOn?: 0 | 1
-    /** Extra host rows at the bottom of the presets panel (under "Custom range…"). */
     presetsFooter?: React.ReactNode
     portalProps?: DataAttributeProps
 }

@@ -22,7 +22,6 @@ export interface RelativeRangeValue {
 export interface RelativeRangeInputProps {
     value: RelativeRangeValue
     onChange: (value: RelativeRangeValue) => void
-    /** Units offered in the dropdown. Defaults to hours through years. */
     units?: RelativeRangeUnit[]
     min?: number
     max?: number

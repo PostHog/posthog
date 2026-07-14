@@ -25,13 +25,13 @@ export function dateFilterExclusionParts({ days, incomplete }: DateFilterExclusi
     const parts: string[] = []
     if (days.length > 0) {
         const sorted = [...days].sort().join(',')
-        parts.push(
-            sorted === '6,7'
-                ? 'weekends'
-                : sorted === '1,2,3,4,5'
-                  ? 'weekdays'
-                  : `${days.length} ${days.length === 1 ? 'day' : 'days'}`
-        )
+        if (sorted === '6,7') {
+            parts.push('weekends')
+        } else if (sorted === '1,2,3,4,5') {
+            parts.push('weekdays')
+        } else {
+            parts.push(`${days.length} ${days.length === 1 ? 'day' : 'days'}`)
+        }
     }
     if (incomplete) {
         parts.push('incomplete')

@@ -12,6 +12,7 @@ import {
 } from '@posthog/quill'
 
 import { dayjs, type Dayjs } from 'lib/dayjs'
+import { startOfWeek } from 'lib/utils/dateFilters'
 
 import { RelativeRangeInput, type RelativeRangeUnit, type RelativeRangeValue } from './RelativeRangeInput'
 
@@ -61,10 +62,8 @@ function rollingStart(count: number, unit: RelativeRangeUnit, now: Dayjs): Dayjs
     return now.subtract(count, unit)
 }
 
-function startOfWeek(date: Dayjs, weekStartsOn: 0 | 1): Dayjs {
-    const diff = (date.day() - weekStartsOn + 7) % 7
-    return date.subtract(diff, 'days').startOf('day')
-}
+// "All time" has no real start — seed the calendar with a span long enough to look unbounded.
+const ALL_TIME_SEED_YEARS = 10
 
 function fixedRange(name: string, now: Dayjs, weekStartsOn: 0 | 1): { start: Dayjs; end: Dayjs } {
     switch (name) {
@@ -85,11 +84,10 @@ function fixedRange(name: string, now: Dayjs, weekStartsOn: 0 | 1): { start: Day
         case 'Year to date':
             return { start: now.startOf('year'), end: now }
         default:
-            return { start: now.subtract(10, 'years'), end: now }
+            return { start: now.subtract(ALL_TIME_SEED_YEARS, 'years'), end: now }
     }
 }
 
-/** Projects a selection to a concrete range for seeding the calendar. */
 export function valueForSelection(selection: DateRangeSelection, now: Dayjs, weekStartsOn: 0 | 1): DateTimeValue {
     if (selection.kind === 'custom') {
         return { start: selection.start, end: selection.end, range: CUSTOM_RANGE }
@@ -142,9 +140,7 @@ export interface DateRangePresetsPanelProps {
     now: Dayjs
     weekStartsOn: 0 | 1
     calendarOpen: boolean
-    /** When set, renders the "Custom range…" expander row. */
     onCalendarOpenChange?: (open: boolean) => void
-    /** Extra host rows at the bottom of the panel. */
     footer?: React.ReactNode
     portalProps?: DataAttributeProps
 }

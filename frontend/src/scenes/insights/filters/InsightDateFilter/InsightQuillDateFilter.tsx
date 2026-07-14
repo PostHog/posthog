@@ -72,6 +72,16 @@ export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps
     const smoothingActive = isTrends && (trendsFilter?.smoothingIntervals ?? 1) > 1
     const showExcludedDays = isTrends && !smoothingActive
     const showIncompletePeriod = !isRetention
+
+    // Hiding the exclusions control (smoothing turned on, or the insight type changed away from
+    // trends) must also clear any daysOfWeek already on the query — otherwise it lingers with no
+    // UI left to remove it, and the backend rejects daysOfWeek alongside smoothing.
+    useEffect(() => {
+        if (!showExcludedDays && dateRange?.daysOfWeek?.length) {
+            updateQuerySource(computeDaysOfWeekUpdate([], dateRange))
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showExcludedDays])
     const exclusions: DateFilterExclusions = {
         days: isTrends ? excludedDays.map(String) : [],
         incomplete: !isRetention && !!dateRange?.excludeIncompletePeriods,
