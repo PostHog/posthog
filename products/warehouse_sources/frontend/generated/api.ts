@@ -948,7 +948,7 @@ export const getExternalDataSourcesOauthAccountsRetrieveUrl = (
 /**
  * List the accounts/properties a connected OAuth integration exposes, in the shared
  * IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
- * this endpoint just routes by source type and serializes the result.
+ * this endpoint just routes by source type, applies the optional search filter, and serializes.
  */
 export const externalDataSourcesOauthAccountsRetrieve = async (
     projectId: string,
