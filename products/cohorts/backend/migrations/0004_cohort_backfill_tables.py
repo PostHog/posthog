@@ -197,6 +197,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("filters_shape_hash", models.CharField(max_length=64)),
+                ("behavioral_filters_shape_hash", models.CharField(default="", max_length=64)),
                 ("pinned_filters", models.JSONField()),
                 ("stamped_at", models.DateTimeField(blank=True, null=True)),
                 ("superseded_at", models.DateTimeField(blank=True, null=True)),

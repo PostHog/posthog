@@ -288,3 +288,25 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         cohort.refresh_from_db()
         self.assertIsNone(cohort.last_backfill_events_at)
+
+    def test_hashing_failure_in_maintain_shape_does_not_break_save(self) -> None:
+        # _maintain_behavioral_shape swallows hashing errors so a hashing bug can't take down every
+        # realtime cohort save. The receiver-guard test above patches a different try/except in the
+        # signal path; this one exercises the save-path guard directly by making the hash raise.
+        cohort = self._cohort(7)
+        ready_at = timezone.now()
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=ready_at)
+        cohort.refresh_from_db()
+
+        with mock.patch(
+            "products.cohorts.backend.models.cohort.extract_leaf_shape_hash",
+            side_effect=RuntimeError("hash boom"),
+        ):
+            cohort.name = "renamed"
+            cohort.filters = self._filters(30)
+            cohort.save()
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "renamed")
+        # The guard bailed before the readiness-null branch, so events readiness is left intact.
+        self.assertEqual(cohort.last_backfill_events_at, ready_at)

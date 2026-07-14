@@ -91,6 +91,7 @@ def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: s
             return None
 
         filters_shape_hash = ensure_filters_shape_hash(cohort)
+        behavioral_filters_shape_hash = cohort.behavioral_filters_shape_hash or ""
         preconditions, missing = check_run_preconditions()
         status, blocked_reason = _run_status(missing)
         run = CohortBackfillRun.objects.for_team(team_id).create(
@@ -110,6 +111,7 @@ def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: s
             team_id=team_id,
             cohort=cohort,
             filters_shape_hash=filters_shape_hash,
+            behavioral_filters_shape_hash=behavioral_filters_shape_hash,
             pinned_filters=cohort.filters,
         )
         return run
@@ -145,7 +147,11 @@ def create_team_backfill_run(
         if conflicting_ids:
             raise ValueError(f"Cohorts already have active backfill runs: {sorted(conflicting_ids)}")
 
-        hashes = {cohort.id: ensure_filters_shape_hash(cohort) for cohort in cohorts}
+        hashes: dict[int, str] = {}
+        behavioral_hashes: dict[int, str] = {}
+        for cohort in cohorts:
+            hashes[cohort.id] = ensure_filters_shape_hash(cohort)
+            behavioral_hashes[cohort.id] = cohort.behavioral_filters_shape_hash or ""
         preconditions, missing = check_run_preconditions()
         status, blocked_reason = _run_status(missing)
         run = CohortBackfillRun.objects.for_team(team_id).create(
@@ -167,6 +173,7 @@ def create_team_backfill_run(
                     team_id=team_id,
                     cohort=cohort,
                     filters_shape_hash=hashes[cohort.id],
+                    behavioral_filters_shape_hash=behavioral_hashes[cohort.id],
                     pinned_filters=cohort.filters,
                 )
                 for cohort in cohorts

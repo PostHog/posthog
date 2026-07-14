@@ -44,6 +44,11 @@ def ensure_filters_shape_hash(cohort: Cohort) -> str:
 def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
     """CAS-stamp event readiness for one pinned cohort.
 
+    Keys on the behavioral shape hash, not the full one: edit-time invalidation only nulls
+    ``last_backfill_events_at`` when the behavioral leaves change (see ``_maintain_behavioral_shape``).
+    A person-property or cohort-reference edit mid-backfill shifts the full hash without touching
+    events readiness, so keying on the full hash would wrongly supersede a still-valid events backfill.
+
     This update intentionally bypasses signals. B5 must explicitly invalidate feature-flag and
     behavioral-cohort caches after a successful stamp.
     """
@@ -51,7 +56,7 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
     updated = Cohort.objects.filter(
         id=cohort_id,
         team_id=run.team_id,
-        filters_shape_hash=participation.filters_shape_hash,
+        behavioral_filters_shape_hash=participation.behavioral_filters_shape_hash,
         last_backfill_events_at__isnull=True,
     ).update(last_backfill_events_at=Now())
     if updated:
@@ -62,12 +67,12 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
 
     current_readiness = (
         Cohort.objects.filter(id=cohort_id, team_id=run.team_id)
-        .values_list("filters_shape_hash", "last_backfill_events_at")
+        .values_list("behavioral_filters_shape_hash", "last_backfill_events_at")
         .first()
     )
     if (
         current_readiness is not None
-        and current_readiness[0] == participation.filters_shape_hash
+        and current_readiness[0] == participation.behavioral_filters_shape_hash
         and current_readiness[1] is not None
     ):
         CohortBackfillRunCohort.objects.for_team(run.team_id).filter(id=participation.id).update(

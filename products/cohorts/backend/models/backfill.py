@@ -104,6 +104,7 @@ class CohortBackfillRunCohort(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.CASCADE, related_name="backfill_participations")
     filters_shape_hash = models.CharField(max_length=64)
+    behavioral_filters_shape_hash = models.CharField(max_length=64, default="")
     pinned_filters = models.JSONField()
     stamped_at = models.DateTimeField(null=True, blank=True)
     superseded_at = models.DateTimeField(null=True, blank=True)

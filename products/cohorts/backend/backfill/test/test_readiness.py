@@ -27,25 +27,31 @@ class TestBackfillReadiness(BaseTest):
         feature_patch.start()
         self.addCleanup(feature_patch.stop)
 
-    def _filters(self, window_days: int) -> dict:
-        return {
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "behavioral",
-                        "key": "$pageview",
-                        "event_type": "events",
-                        "value": "performed_event_multiple",
-                        "conditionHash": "same-condition-hash",
-                        "time_value": window_days,
-                        "time_interval": "day",
-                        "operator": "gte",
-                        "operator_value": 2,
-                    }
-                ],
+    def _filters(self, window_days: int, *, person_hash: str | None = None) -> dict:
+        values: list[dict] = [
+            {
+                "type": "behavioral",
+                "key": "$pageview",
+                "event_type": "events",
+                "value": "performed_event_multiple",
+                "conditionHash": "same-condition-hash",
+                "time_value": window_days,
+                "time_interval": "day",
+                "operator": "gte",
+                "operator_value": 2,
             }
-        }
+        ]
+        if person_hash is not None:
+            values.append(
+                {
+                    "type": "person",
+                    "key": "email",
+                    "value": ["person@example.com"],
+                    "operator": "exact",
+                    "conditionHash": person_hash,
+                }
+            )
+        return {"properties": {"type": "AND", "values": values}}
 
     def _cohort_and_run(self):
         cohort = Cohort.objects.create(
@@ -69,7 +75,7 @@ class TestBackfillReadiness(BaseTest):
         self.assertIsNotNone(participation.stamped_at)
         cohort_updates = [query["sql"] for query in queries if query["sql"].startswith('UPDATE "posthog_cohort"')]
         self.assertEqual(len(cohort_updates), 1)
-        self.assertIn('"filters_shape_hash"', cohort_updates[0])
+        self.assertIn('"behavioral_filters_shape_hash"', cohort_updates[0])
         self.assertIn('"last_backfill_events_at" IS NULL', cohort_updates[0])
 
     def test_edit_between_completion_and_stamp_fails_cas(self) -> None:
@@ -83,6 +89,34 @@ class TestBackfillReadiness(BaseTest):
         run.refresh_from_db()
         self.assertIsNone(cohort.last_backfill_events_at)
         self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
+
+    def test_person_only_edit_between_completion_and_stamp_stamps_readiness(self) -> None:
+        # A person-property edit shifts the full filters hash but not the behavioral one, and does
+        # not null events readiness. The events backfill is still valid, so the stamp must succeed
+        # rather than supersede the run (the sibling behavioral edit above correctly supersedes).
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            filters=self._filters(7, person_hash="person-a"),
+        )
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        old_full_hash = cohort.filters_shape_hash
+
+        cohort.filters = self._filters(7, person_hash="person-b")
+        cohort.save(update_fields=["filters"])
+        cohort.refresh_from_db()
+        self.assertNotEqual(cohort.filters_shape_hash, old_full_hash)
+
+        self.assertTrue(stamp_events_readiness(run, cohort.id))
+
+        cohort.refresh_from_db()
+        run.refresh_from_db()
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
+        self.assertIsNotNone(cohort.last_backfill_events_at)
+        self.assertIsNotNone(participation.stamped_at)
+        self.assertIsNone(participation.superseded_at)
+        self.assertEqual(run.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
 
     def test_already_stamped_readiness_is_not_overwritten(self) -> None:
         cohort, run = self._cohort_and_run()

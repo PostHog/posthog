@@ -102,6 +102,27 @@ class TestLeafShape(SimpleTestCase):
             extract_behavioral_leaf_shape_hash(integers),
         )
 
+    def test_leaves_nested_in_inner_groups_are_walked(self) -> None:
+        # Real cohorts nest leaves inside inner OR/AND groups; the hash must be identical to the
+        # flat form and non-empty, so a regression that stopped recursing past the top level
+        # (silently dropping nested leaves to an empty hash) is caught.
+        nested = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"type": "OR", "values": [self._behavioral()]},
+                        ],
+                    }
+                ],
+            }
+        }
+        flat_hash = extract_behavioral_leaf_shape_hash(self._filters(self._behavioral()))
+        self.assertNotEqual(flat_hash, "")
+        self.assertEqual(extract_behavioral_leaf_shape_hash(nested), flat_hash)
+
     def test_empty_or_null_group_values_are_safe(self) -> None:
         self.assertEqual(extract_leaf_shape_hash(None), "")
         self.assertEqual(extract_leaf_shape_hash(self._filters()), "")
