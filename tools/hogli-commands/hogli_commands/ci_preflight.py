@@ -202,7 +202,17 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     if shutil.which(cmd[0]) is None:
         return "skipped", f"{cmd[0]} not found"
     try:
-        result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=_CHECK_TIMEOUT_SECONDS)
+        # errors="replace": a timed-out child's partial output can be cut mid-character, and a
+        # strict decode then raises UnicodeDecodeError from inside run() before the
+        # TimeoutExpired handler below ever sees it — crashing the whole preflight.
+        result = subprocess.run(
+            cmd,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=_CHECK_TIMEOUT_SECONDS,
+        )
     except subprocess.TimeoutExpired:
         return "fail", f"`{cmd[0]}` timed out after {_CHECK_TIMEOUT_SECONDS}s"
     if result.returncode == 0:
@@ -225,7 +235,9 @@ _FETCH_TTL_SECONDS = 600  # skip re-fetching origin/master if refreshed this rec
 def _git_run(*args: str, timeout: float = 15.0) -> subprocess.CompletedProcess[str] | None:
     """Run a git command in the repo; None on OS error or timeout."""
     try:
-        return subprocess.run(["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(
+            ["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True, errors="replace", timeout=timeout
+        )
     except (OSError, subprocess.SubprocessError):
         return None
 

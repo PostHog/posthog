@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import json
 
 import pytest
@@ -7,9 +8,26 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
-from hogli_commands.ci_preflight import _staleness_risks
+from hogli_commands.ci_preflight import DiffCheck, _run_diff_check, _staleness_risks
 
 runner = CliRunner()
+
+
+class TestRunDiffCheck:
+    def test_survives_invalid_utf8_check_output(self) -> None:
+        # A timed-out (or otherwise misbehaving) child can emit output cut mid-character;
+        # a strict decode used to raise UnicodeDecodeError from inside subprocess.run —
+        # before the except clause could report the check — crashing preflight and, via
+        # the pre-push hook, blocking every push. The check must fail cleanly instead.
+        chk = DiffCheck(
+            key="bad-bytes",
+            label="emits invalid utf-8",
+            triggers=["*"],
+            verify=[sys.executable, "-c", r"import sys; sys.stdout.buffer.write(b'bad \xe2 byte'); sys.exit(1)"],
+        )
+        status, message = _run_diff_check(chk, do_fix=False)
+        assert status == "fail"
+        assert "bad" in message
 
 
 class TestKillSwitch:
