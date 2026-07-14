@@ -1,0 +1,101 @@
+import { fireEvent, waitFor } from '@testing-library/react'
+
+import type { ChartTheme, Series } from '../../core/types'
+import { renderHogChart } from '../../testing'
+import { dimensions } from '../../testing/jsdom'
+import { funnelFromCounts } from './funnel-data'
+import { FunnelChart, type FunnelStepClickData } from './FunnelChart'
+
+const THEME: ChartTheme = {
+    colors: ['#1f77b4', '#ff7f0e'],
+    backgroundColor: '#ffffff',
+    gridColor: '#eeeeee',
+    crosshairColor: '#888888',
+}
+
+const STEPS = ['Exposure', 'Purchase']
+const SERIES: Series[] = [
+    { key: 'control', label: 'control', data: [100, 22] },
+    { key: 'test', label: 'test', data: [100, 28] },
+]
+
+describe('FunnelChart', () => {
+    it('keeps steps with the same display name on separate bands', () => {
+        // Bands are keyed by step index; keying by name would collapse both `Pageview`
+        // steps into one d3 band slot and the funnel would lose a step.
+        const { chart } = renderHogChart(
+            <FunnelChart
+                steps={['Pageview', 'Pageview']}
+                series={[{ key: 'all', label: 'All', data: [100, 40] }]}
+                theme={THEME}
+            />
+        )
+        expect(chart.xTicks()).toEqual(['Pageview', 'Pageview'])
+    })
+
+    it('formats the value axis as percentages by default', () => {
+        const { chart } = renderHogChart(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} />)
+        const ticks = chart.yTicks()
+        expect(ticks.length).toBeGreaterThan(0)
+        expect(ticks.every((tick) => tick.endsWith('%'))).toBe(true)
+    })
+
+    it.each([
+        // Cursor near the plot top at step 2 is in the hatched track above the short bar.
+        { area: 'drop-off track', clientYOffset: 2, converted: false },
+        // Cursor near the baseline is inside the bar fill.
+        { area: 'bar fill', clientYOffset: dimensions.plotHeight - 2, converted: true },
+    ])('onStepClick maps a click on the $area to converted=$converted', ({ clientYOffset, converted }) => {
+        const onStepClick = jest.fn()
+        const { chart } = renderHogChart(
+            <FunnelChart steps={STEPS} series={SERIES} theme={THEME} onStepClick={onStepClick} />
+        )
+        const step = dimensions.plotWidth / STEPS.length
+        fireEvent.mouseMove(chart.element, {
+            clientX: dimensions.plotLeft + step * 1.3,
+            clientY: dimensions.plotTop + clientYOffset,
+        })
+        fireEvent.click(chart.element)
+        const click: FunnelStepClickData = onStepClick.mock.calls[0][0]
+        expect(click.stepIndex).toBe(1)
+        expect(click.converted).toBe(converted)
+    })
+
+    it('renders one step-footer cell per step and hides the axis step labels', async () => {
+        const { chart } = renderHogChart(
+            <FunnelChart
+                steps={STEPS}
+                series={SERIES}
+                theme={THEME}
+                stepFooter={(stepIndex) => <span>{STEPS[stepIndex]}</span>}
+            />
+        )
+        // Footer cells mount once the chart commits its measured band geometry.
+        await waitFor(() => {
+            const cells = document.querySelectorAll('[data-attr="hog-funnel-step-footer-cell"]')
+            expect(cells).toHaveLength(STEPS.length)
+        })
+        expect(chart.xTicks()).toHaveLength(0)
+    })
+
+    it.each<[string, { label: string; count: number }[], number[]]>([
+        [
+            'zero basis collapses to 0 instead of NaN',
+            [
+                { label: 'a', count: 0 },
+                { label: 'b', count: 5 },
+            ],
+            [0, 0],
+        ],
+        [
+            'counts convert to percent of the first step',
+            [
+                { label: 'a', count: 200 },
+                { label: 'b', count: 50 },
+            ],
+            [100, 25],
+        ],
+    ])('funnelFromCounts: %s', (_name, counts, expected) => {
+        expect(funnelFromCounts(counts).series[0].data).toEqual(expected)
+    })
+})
