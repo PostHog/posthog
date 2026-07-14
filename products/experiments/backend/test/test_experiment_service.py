@@ -407,6 +407,7 @@ class TestExperimentService(APIBaseTest):
 
         experiment = service.create_experiment(name="No Control", feature_flag_key="no-control")
 
+        assert experiment.stats_config is not None
         assert experiment.stats_config["baseline_variant_key"] == "baseline"
 
     def test_existing_flag_with_control_leaves_baseline_unset(self):
@@ -415,7 +416,7 @@ class TestExperimentService(APIBaseTest):
 
         experiment = service.create_experiment(name="With Control", feature_flag_key="with-control")
 
-        assert "baseline_variant_key" not in experiment.stats_config
+        assert "baseline_variant_key" not in (experiment.stats_config or {})
 
     def test_create_web_experiment_without_control_raises(self):
         # The toolbar editor and WebExperimentsAPISerializer hard-require 'control'.
@@ -460,6 +461,7 @@ class TestExperimentService(APIBaseTest):
 
         launched = service.launch_experiment(updated)
 
+        assert launched.stats_config is not None
         assert launched.stats_config["baseline_variant_key"] == "variant-a"
 
     def test_update_variants_reorder_pins_currently_effective_baseline(self):
@@ -490,6 +492,7 @@ class TestExperimentService(APIBaseTest):
             },
         )
 
+        assert updated.stats_config is not None
         assert updated.stats_config["baseline_variant_key"] == "variant-a"
 
     def test_update_variants_baseline_pin_survives_approval_gate(self):
@@ -535,6 +538,7 @@ class TestExperimentService(APIBaseTest):
             )
 
         experiment.refresh_from_db()
+        assert experiment.stats_config is not None
         assert experiment.stats_config["baseline_variant_key"] == "variant-a"
 
     @parameterized.expand(
@@ -2617,6 +2621,7 @@ class TestExperimentService(APIBaseTest):
 
         assert launched.start_date is not None
         experiment.refresh_from_db()
+        assert experiment.stats_config is not None
         assert experiment.stats_config["baseline_variant_key"] == "variant_a"
 
     def test_launch_via_start_date_patch_pins_baseline_for_control_less_flag(self):
@@ -2635,6 +2640,7 @@ class TestExperimentService(APIBaseTest):
         updated = self._service().update_experiment(experiment, {"start_date": timezone.now()})
 
         assert not updated.is_draft
+        assert updated.stats_config is not None
         assert updated.stats_config["baseline_variant_key"] == "variant_a"
 
     def test_launch_web_experiment_flag_modified_to_control_less_raises(self):
