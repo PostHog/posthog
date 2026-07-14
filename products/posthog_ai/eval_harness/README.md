@@ -200,8 +200,6 @@ async def eval_my_generation(ctx: EvalContext) -> None:
     )
 ```
 
-The reference one-shot suite is [`mcp_benchmark/eval_mcp_sql.py`](mcp_benchmark/eval_mcp_sql.py), which ports the `sql` category of the MCP agent-experience benchmark (`services/mcp/evals/benchmark/tasks.yaml`): one Anthropic generation produces a HogQL query, executed in-process against the master Hedgebox team and judged against the benchmark's success criteria.
-
 Bundle related cases into one suite function rather than splitting them across many.
 One suite is one Braintrust experiment, which is what makes cross-case comparison and `--eval` filtering useful.
 

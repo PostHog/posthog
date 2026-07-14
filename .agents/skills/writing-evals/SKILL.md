@@ -79,7 +79,6 @@ async def eval_my_generation(ctx: EvalContext) -> None:
 
 - The task function runs once per case under the global one-shot limiter with the standard per-case timeout, and its returned dict **is** the scorer `output` — each one-shot suite defines its own output shape, and its scorers read the keys they know about. The runner backfills `prompt`; an optional `last_message` feeds the local `.summary.txt`.
 - Cases are `BaseEvalCase` (no `repo_fixture`/`setup`); the shared master Hedgebox team is available as `ctx.demo_data.master_team_id` for read-only queries. A task that needs writes should copy a team via `products.posthog_ai.eval_harness.data_setup.copy_demo_data_to_new_team` under `ctx.demo_slots`.
-- The reference suite is `mcp_benchmark/eval_mcp_sql.py`, porting the sql category of the MCP agent-experience benchmark (`services/mcp/evals/benchmark/tasks.yaml`, read directly as the source of truth).
 - The sandbox-log scorer helpers (`LogParser`, `ExitCodeZero`, tool-call scorers) don't apply to one-shot outputs — write deterministic scorers against your own output dict, and reuse `JudgedScorer` for LLM judges.
 
 ## Case anatomy
