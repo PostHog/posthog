@@ -1,6 +1,8 @@
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
@@ -57,7 +59,7 @@ function createRealResults(): { service: HogInvocationResultsService; produce: j
 
 function parseProducedResult(produce: jest.Mock): Record<string, any> {
     const value = produce.mock.calls[0][1].value as Buffer
-    return JSON.parse(value.toString('utf-8'))
+    return parseJSON(value.toString('utf-8'))
 }
 
 function createJanitor(overrides?: Record<string, unknown>, results?: HogInvocationResultsService): CyclotronV2Janitor {

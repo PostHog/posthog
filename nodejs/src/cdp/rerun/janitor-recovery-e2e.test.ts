@@ -8,6 +8,7 @@ import { Pool } from 'pg'
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
@@ -27,7 +28,6 @@ import { CyclotronJobQueueKafka } from '../services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
 import { RerunJobManager } from './rerun-job.manager'
-import { RERUN_QUEUE_NAME } from './rerun-job.types'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
@@ -292,7 +292,7 @@ describe('CDP janitor poison-pill recovery e2e (janitor → ClickHouse → rerun
             )
             expect(res.rows).toHaveLength(1)
             expect(res.rows[0].queue_name).toBe('hogflow')
-            const parsed = JSON.parse(res.rows[0].state!.toString('utf-8'))
+            const parsed = parseJSON(res.rows[0].state!.toString('utf-8'))
             expect(parsed.state.currentAction?.id).toBe('wait_1')
             expect(parsed.state.variables).toEqual({ ticket_id: '4242' })
             expect(parsed.state.actionStepCount).toBe(2)
