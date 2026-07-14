@@ -11,7 +11,6 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { dayjs } from 'lib/dayjs'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
-import { cn } from 'lib/utils/css-classes'
 import { useInstallationComplete } from 'scenes/onboarding/legacy/sdks/hooks/useInstallationComplete'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
@@ -38,10 +37,6 @@ export const scene: SceneExport = {
 
 function captureQuickstartAction(action: string, productKey?: string): void {
     posthog.capture('quickstart action clicked', { action, ...(productKey ? { product_key: productKey } : {}) })
-}
-
-function SectionPanel({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
-    return <section className={cn('rounded-lg border bg-surface-secondary p-4 md:p-6', className)}>{children}</section>
 }
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }): JSX.Element {
@@ -86,7 +81,7 @@ function InstallHeroCard(): JSX.Element {
     const { showInviteModal } = useActions(inviteLogic)
 
     return (
-        <SectionPanel>
+        <LemonCard hoverEffect={false}>
             <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
                 <SectionHeader
                     title="Get your data flowing"
@@ -141,7 +136,7 @@ function InstallHeroCard(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-        </SectionPanel>
+        </LemonCard>
     )
 }
 
@@ -378,7 +373,8 @@ function PublicationRail({
             </div>
             <ScrollableShadows
                 direction="horizontal"
-                innerClassName="flex items-stretch gap-4 snap-x pb-1"
+                innerClassName="snap-x"
+                contentClassName="flex w-max min-w-full items-stretch gap-4 pb-1"
                 styledScrollbars
             >
                 {publications.map((publication) => (
@@ -431,7 +427,7 @@ function PublicationsSection(): JSX.Element | null {
     }
 
     return (
-        <SectionPanel className="flex flex-col gap-4">
+        <section className="flex flex-col gap-4">
             <SectionHeader title="Fresh from PostHog" subtitle="What we've been shipping and writing about." />
             <PublicationRail
                 feed="blog"
@@ -455,7 +451,7 @@ function PublicationsSection(): JSX.Element | null {
                 hasMore={publicationsHasMore.newsletter}
                 onLoadMore={loadMoreNewsletterPublications}
             />
-        </SectionPanel>
+        </section>
     )
 }
 
@@ -465,8 +461,8 @@ export function Quickstart(): JSX.Element {
     const installationComplete = useInstallationComplete('ingested_event')
 
     return (
-        <div className="flex flex-col gap-6 py-4">
-            <SectionPanel className="flex flex-col gap-3">
+        <div className="flex flex-col gap-8 py-4">
+            <section className="rounded-lg border bg-surface-secondary p-4 md:p-6 flex flex-col gap-3">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <Logomark size="xl" />
                     {installationComplete && <EventsFlowingStatus />}
@@ -480,11 +476,11 @@ export function Quickstart(): JSX.Element {
                         need them. No extra installs.
                     </p>
                 </div>
-            </SectionPanel>
+            </section>
 
             {!installationComplete && <InstallHeroCard />}
 
-            <SectionPanel>
+            <section>
                 <SectionHeader
                     title="Turn on your products"
                     subtitle="What most teams start with. Active products are already collecting or ready to use."
@@ -494,9 +490,9 @@ export function Quickstart(): JSX.Element {
                         <ProductCard key={product.key} product={product} />
                     ))}
                 </div>
-            </SectionPanel>
+            </section>
 
-            <SectionPanel>
+            <section>
                 <SectionHeader
                     title="Explore the rest of the platform"
                     subtitle="More tools that work on the same data, whenever you're ready for them."
@@ -506,9 +502,9 @@ export function Quickstart(): JSX.Element {
                         <ProductCard key={product.key} product={product} />
                     ))}
                 </div>
-            </SectionPanel>
+            </section>
 
-            <SectionPanel>
+            <section>
                 <SectionHeader title="Learn the ropes" />
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <LearnCard
@@ -540,7 +536,7 @@ export function Quickstart(): JSX.Element {
                         action="open_tutorials"
                     />
                 </div>
-            </SectionPanel>
+            </section>
 
             <PublicationsSection />
         </div>
