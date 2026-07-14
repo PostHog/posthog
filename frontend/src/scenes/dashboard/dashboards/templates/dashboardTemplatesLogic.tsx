@@ -133,7 +133,8 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         allTemplates: [
             [] as DashboardTemplateType[],
             {
-                getAllTemplates: async (_: void, breakpoint) => {
+                // diagnostic: loader reverted to baseline behavior to isolate the visual-regression failure
+                getAllTemplates: async () => {
                     const logicProps = props as DashboardTemplatesLogicProps
                     const featuredOnly = logicProps.listQuery?.is_featured === true
                     // Curated featured list (empty dashboards) must ignore `templateFilter` synced from the URL via
@@ -165,14 +166,6 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                         ...logicProps.listQuery,
                     }
                     const page = await api.dashboardTemplates.list(params)
-                    // The chooser/modal (and the Dashboards → Templates tab) that mount this logic can close or
-                    // navigate away mid-request, unmounting it. Without this guard the loader still dispatches
-                    // `getAllTemplatesSuccess` into the gone instance, throwing `[KEA] Can not find path`.
-                    // Scoped to genuine unmount (not supersession) via `breakpoint()`, so an in-flight lazy
-                    // load still settles normally while the logic is mounted.
-                    if (!dashboardTemplatesLogic.findMounted(props)) {
-                        breakpoint()
-                    }
                     if (!useSearch && listScope === undefined) {
                         return sortTemplatesTeamScopeBeforeOfficial(page.results, values.templateNameOrdering)
                     }

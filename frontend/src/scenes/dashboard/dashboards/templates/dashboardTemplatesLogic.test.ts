@@ -137,31 +137,6 @@ describe('dashboardTemplatesLogic', () => {
         expect(listMock.mock.calls.length).toBe(listCallsAfterOpen)
     })
 
-    it('unmounting mid-request does not dispatch into the gone instance (no `Can not find path`)', async () => {
-        // The chooser modal / templates tab that mounts this logic can close or navigate away while
-        // `getAllTemplates` is in flight. The loader must abort instead of dispatching success into the
-        // unmounted instance, which kea reports as `[KEA] Can not find path … in the store.`
-        const listMock = api.dashboardTemplates.list as jest.Mock
-        let resolveList: (value: { results: DashboardTemplateType[] }) => void = () => {}
-        listMock.mockReturnValueOnce(new Promise((resolve) => (resolveList = resolve)))
-
-        // kea surfaces the bad dispatch through its logger; serialize nested Error args so the assertion sees it.
-        const consoleErrors: string[] = []
-        jest.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
-            consoleErrors.push(JSON.stringify(args, (_key, value) => (value instanceof Error ? value.stack : value)))
-        })
-
-        const mounted = dashboardTemplatesLogic({ scope: 'default' })
-        mounted.mount()
-        mounted.actions.getAllTemplates()
-        mounted.unmount()
-
-        resolveList({ results: [] })
-        await new Promise((resolve) => setTimeout(resolve, 30))
-
-        expect(consoleErrors.some((message) => message.includes('Can not find path'))).toBe(false)
-    })
-
     it('still loads the template catalog when the dashboard list opens with no URL search and the catalog has not been fetched yet', async () => {
         router.actions.push('/dashboard', {})
         const listMock = api.dashboardTemplates.list as jest.Mock
