@@ -391,6 +391,17 @@ export class CyclotronV2Manager {
         return dequeueSeqs
     }
 
+    // "In flight" = jobs still owned by the queue: parked waits/delays ('available' with a future
+    // scheduled time) and jobs a worker currently holds ('running'). Terminal rows don't count.
+    async countInFlightJobs(teamId: number, functionId: string): Promise<number> {
+        const result = await this.pool.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM cyclotron_jobs
+             WHERE team_id = $1 AND function_id = $2 AND status IN ('available', 'running')`,
+            [teamId, functionId]
+        )
+        return result.rows[0].count
+    }
+
     async disconnect(): Promise<void> {
         await this.pool.end()
     }
