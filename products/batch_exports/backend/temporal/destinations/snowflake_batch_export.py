@@ -24,7 +24,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import Integration, SnowflakeIntegration, SnowflakeIntegrationError
+from posthog.models.integration import Integration, SnowflakeIntegration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -181,20 +181,15 @@ class SnowflakeIntegrationNotFoundError(Exception):
 async def _get_snowflake_integration(integration_id: int, team_id: int) -> SnowflakeIntegration:
     """Fetch a Snowflake integration from the database.
 
-    The kind is validated on create by the batch export serializer, so the wrong-kind branch is
-    purely defensive against an integration whose kind was changed out from under the export.
-    `SnowflakeIntegration` itself raises `SnowflakeIntegrationError` if the config is malformed.
+    `SnowflakeIntegration` raises `SnowflakeIntegrationError` if the config is malformed.
     """
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
+        integration = await Integration.objects.aget(
+            id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.SNOWFLAKE
+        )
     except Integration.DoesNotExist:
         raise SnowflakeIntegrationNotFoundError(integration_id, team_id)
 
-    if integration.kind != Integration.IntegrationKind.SNOWFLAKE:
-        raise SnowflakeIntegrationError(
-            f"Integration with ID '{integration_id}' for team '{team_id}' is not a Snowflake integration "
-            f"(kind='{integration.kind}')"
-        )
     return SnowflakeIntegration(integration)
 
 
@@ -1386,19 +1381,19 @@ async def insert_into_snowflake_activity_from_stage(
         inputs.table_name,
     )
 
-    # Integration-backed exports resolve account, user, auth type and credentials at run time;
-    # legacy exports carry them inline.
-    # TODO: require integration
-    if inputs.integration_id is not None:
-        integration = await _get_snowflake_integration(inputs.integration_id, inputs.team_id)
-        inputs.account = integration.account
-        inputs.user = integration.user
-        inputs.authentication_type = integration.authentication_type
-        inputs.password = integration.password
-        inputs.private_key = integration.private_key
-        inputs.private_key_passphrase = integration.private_key_passphrase
-
     async with Heartbeater():
+        # Integration-backed exports resolve account, user, auth type and credentials at run time;
+        # legacy exports carry them inline.
+        # TODO: require integration
+        if inputs.integration_id is not None:
+            integration = await _get_snowflake_integration(inputs.integration_id, inputs.team_id)
+            inputs.account = integration.account
+            inputs.user = integration.user
+            inputs.authentication_type = integration.authentication_type
+            inputs.password = integration.password
+            inputs.private_key = integration.private_key
+            inputs.private_key_passphrase = integration.private_key_passphrase
+
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None:
             model = inputs.batch_export_model

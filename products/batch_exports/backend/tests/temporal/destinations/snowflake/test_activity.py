@@ -5,7 +5,7 @@ These don't touch a real Snowflake instance, so (unlike test_activity_e2e.py) th
 
 import pytest
 
-from posthog.models.integration import Integration, SnowflakeIntegrationError
+from posthog.models.integration import Integration
 
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeIntegrationNotFoundError,
@@ -20,11 +20,11 @@ async def test_get_snowflake_integration_raises_when_not_found(ateam):
         await _get_snowflake_integration(2147483647, ateam.pk)
 
 
-async def test_get_snowflake_integration_rejects_wrong_kind(ateam):
-    """An integration whose kind isn't snowflake can't be resolved as one.
+async def test_get_snowflake_integration_ignores_wrong_kind(ateam):
+    """A non-snowflake integration doesn't match the kind-filtered lookup, so it reads as not found.
 
-    The serializer validates the kind on create/update, so this only happens if the integration's
-    kind is changed out from under an existing export.
+    Guards against the kind filter being dropped from the query, which would let an export resolve
+    an unrelated integration.
     """
     integration = await Integration.objects.acreate(
         team_id=ateam.pk,
@@ -33,7 +33,5 @@ async def test_get_snowflake_integration_rejects_wrong_kind(ateam):
         config={},
         sensitive_config={},
     )
-    with pytest.raises(SnowflakeIntegrationError) as exc_info:
+    with pytest.raises(SnowflakeIntegrationNotFoundError):
         await _get_snowflake_integration(integration.id, ateam.pk)
-    assert "not a Snowflake integration" in str(exc_info.value)
-    assert "kind='slack'" in str(exc_info.value)
