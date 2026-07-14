@@ -135,6 +135,24 @@ class TestValidateCredentials:
         assert error is not None and "boom" in error
 
 
+class TestSampleCaptureIsDisabled:
+    # Every response body is the store's arbitrary customer key/value contents, so both entry points
+    # must exclude their requests from HTTP sample capture. A regression to the default (capture=True)
+    # would persist customer store values to object storage, where the name-based scrubbers can't
+    # redact keys they don't recognize.
+    def test_get_rows_disables_capture(self) -> None:
+        with patch(f"{MODULE}.make_tracked_session") as factory:
+            factory.return_value.get.return_value = _response({"a": "1"})
+            list(get_rows(secret="s", logger=MagicMock()))
+        assert factory.call_args.kwargs["capture"] is False
+
+    def test_validate_credentials_disables_capture(self) -> None:
+        with patch(f"{MODULE}.make_tracked_session") as factory:
+            factory.return_value.get.return_value = _response({}, status_code=200)
+            validate_credentials("s")
+        assert factory.call_args.kwargs["capture"] is False
+
+
 class TestSourceResponse:
     def test_shape_is_full_refresh_keyed_by_store_key(self) -> None:
         response = zapier_supported_storage_source(secret="s", endpoint="records", logger=MagicMock())

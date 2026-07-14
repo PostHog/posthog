@@ -88,7 +88,10 @@ def _fetch_store(session: requests.Session, secret: str, logger: FilteringBoundL
 
 def get_rows(secret: str, logger: FilteringBoundLogger) -> Iterator[Any]:
     batcher = Batcher(logger=logger, chunk_size=5000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session(redact_values=(secret,))
+    # capture=False: the entire response body is the store's arbitrary key/value contents, so HTTP
+    # sample capture would serialize customer data to object storage where the name-based scrubbers
+    # can't redact keys they don't recognize. Requests are still metered and logged.
+    session = make_tracked_session(redact_values=(secret,), capture=False)
 
     # The store is fetched in a single call - there is no pagination or list endpoint.
     store = _fetch_store(session, secret, logger)
@@ -126,7 +129,9 @@ def validate_credentials(secret: str) -> tuple[bool, str | None]:
     - 400: the secret is not a valid UUID4 (Storage by Zapier rejects malformed secrets outright).
     - 401: the secret is missing or does not resolve to a store (invalid).
     """
-    session = make_tracked_session(redact_values=(secret,))
+    # capture=False for the same reason as get_rows: even a single-key probe response echoes stored
+    # customer data that the name-based sample-capture scrubbers can't be trusted to redact.
+    session = make_tracked_session(redact_values=(secret,), capture=False)
     # Limit the probe to a single key so we don't pull a whole store just to validate.
     url = f"{ZAPIER_SUPPORTED_STORAGE_URL}?{urlencode({'key': '__posthog_probe__'})}"
     try:
