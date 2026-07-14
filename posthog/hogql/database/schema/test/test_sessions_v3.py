@@ -817,6 +817,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
             ["Organic Social"],
             ["Organic Video"],
             ["Organic Shopping"],
+            ["AI"],
             ["Push"],
             ["SMS"],
             ["Audio"],
