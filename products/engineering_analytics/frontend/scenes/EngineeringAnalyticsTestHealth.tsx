@@ -19,6 +19,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -30,6 +31,7 @@ import { QuarantineTestModal } from '../components/QuarantineTestModal'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { StatCard } from '../components/StatCard'
 import {
+    BROKEN_TESTS_WINDOW_DAYS,
     BrokenTestRow,
     FlakyTestRow,
     FlakyTestWindow,
@@ -96,6 +98,65 @@ function RelativeTime({ iso }: { iso: string }): JSX.Element {
 // views by name (engineering_analytics_ci_failures + engineering_analytics_ci_job_history) through
 // two ad-hoc HogQL calls in the logic loader, then ranks failures with a temporary kea-side
 // classifier. The classifier moves server-side later — see engineeringAnalyticsLogic.
+function BrokenTestDrilldown({ row }: { row: BrokenTestRow }): JSX.Element {
+    const { runFailureLogsByRun, runFailureLogsByRunLoading } = useValues(engineeringAnalyticsLogic)
+    const logs = row.latestRunId ? runFailureLogsByRun[row.latestRunId] : undefined
+    const runUrl = row.repo && row.latestRunId ? `https://github.com/${row.repo}/actions/runs/${row.latestRunId}` : null
+
+    return (
+        <div className="flex flex-col gap-2 p-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-secondary">
+                <span>
+                    Latest failing run on <span className="font-mono">{row.latestBranch || 'unknown branch'}</span>
+                </span>
+                <span>·</span>
+                <span>
+                    {pluralize(row.occurrences, 'failure')} across {pluralize(row.branches, 'branch', 'branches')} in
+                    the last {BROKEN_TESTS_WINDOW_DAYS} days
+                </span>
+                {runUrl && (
+                    <Link to={runUrl} target="_blank" className="inline-flex items-center gap-1">
+                        View run on GitHub <IconExternal />
+                    </Link>
+                )}
+            </div>
+            {!row.latestRunId ? (
+                <span className="text-xs text-tertiary">No run id recorded for this failure — can't fetch logs.</span>
+            ) : runFailureLogsByRunLoading && !logs ? (
+                <LemonSkeleton className="h-24 w-full" />
+            ) : !logs || !logs.logs_available || logs.jobs.length === 0 ? (
+                <span className="text-xs text-tertiary">
+                    No failure logs for this run — it didn't fail, or the logs aged out of the short Logs retention.
+                </span>
+            ) : (
+                <div className="flex flex-col gap-3">
+                    {logs.jobs.map((job) => (
+                        <div key={job.job_id} className="flex flex-col gap-1">
+                            <div className="font-mono text-xs font-semibold text-secondary">
+                                {job.branch || 'unknown'} · job {job.job_id} · {job.conclusion}
+                                {job.truncated && ' · truncated'}
+                            </div>
+                            <pre className="m-0 overflow-x-auto rounded border bg-bg-3000 p-2 font-mono text-xs leading-snug">
+                                {job.lines.map((line, idx) => (
+                                    <div
+                                        key={idx}
+                                        className={cn(line.original_line === null && 'italic text-tertiary')}
+                                    >
+                                        <span className="mr-3 inline-block w-12 select-none text-right text-tertiary">
+                                            {line.original_line ?? ''}
+                                        </span>
+                                        {line.text}
+                                    </div>
+                                ))}
+                            </pre>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
 function BrokenTestsPanel(): JSX.Element {
     const {
         visibleBrokenTests,
@@ -105,8 +166,9 @@ function BrokenTestsPanel(): JSX.Element {
         breakingMasterJobs,
         hiddenBrokenTestCount,
         showPrOnlyBrokenTests,
+        sparklineByFingerprint,
     } = useValues(engineeringAnalyticsLogic)
-    const { setShowPrOnlyBrokenTests } = useActions(engineeringAnalyticsLogic)
+    const { setShowPrOnlyBrokenTests, loadRunFailureLogs } = useActions(engineeringAnalyticsLogic)
 
     const columns: LemonTableColumns<BrokenTestRow> = [
         {
@@ -184,6 +246,20 @@ function BrokenTestsPanel(): JSX.Element {
             sorter: (a, b) => a.lastSeen.localeCompare(b.lastSeen),
             render: (_, row) => <RelativeTime iso={row.lastSeen} />,
         },
+        {
+            title: 'Trend (24h)',
+            key: 'trend',
+            width: 140,
+            tooltip: 'Failures per hour over the last 24 hours — a climbing bar means it is escalating right now.',
+            render: (_, row) => {
+                const series = sparklineByFingerprint[row.fingerprint]
+                return series && series.some((n) => n > 0) ? (
+                    <Sparkline data={series} type="bar" color="danger" maximumIndicator={false} className="h-8 w-28" />
+                ) : (
+                    <span className="text-tertiary">—</span>
+                )
+            },
+        },
     ]
 
     return (
@@ -195,8 +271,9 @@ function BrokenTestsPanel(): JSX.Element {
                         <LemonTag type="highlight">Prototype</LemonTag>
                     </div>
                     <p className="m-0 max-w-2xl text-xs text-tertiary">
-                        Failures ranked by whether they're breaking trunk right now, resolving, or just flaky — inferred
-                        from CI logs + master job history.
+                        Failures over the last {BROKEN_TESTS_WINDOW_DAYS} days, grouped by whether they're breaking
+                        trunk right now, resolving, or just flaky — inferred from CI logs + master job history. Expand a
+                        row for the latest failing run's logs.
                     </p>
                 </div>
                 <LemonSwitch
@@ -234,6 +311,15 @@ function BrokenTestsPanel(): JSX.Element {
                         useURLForSorting={false}
                         emptyState="No broken tests to show. Nothing is breaking trunk right now."
                         nouns={['broken test', 'broken tests']}
+                        expandable={{
+                            noIndent: true,
+                            onRowExpand: (row) => {
+                                if (row.latestRunId) {
+                                    loadRunFailureLogs({ runId: row.latestRunId })
+                                }
+                            },
+                            expandedRowRender: (row) => <BrokenTestDrilldown row={row} />,
+                        }}
                     />
                     {hiddenBrokenTestCount > 0 && !showPrOnlyBrokenTests && (
                         <div className="text-xs text-tertiary">

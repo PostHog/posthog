@@ -19,6 +19,7 @@ import {
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsQuarantineRequest,
+    engineeringAnalyticsRunFailureLogs,
     engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
@@ -28,6 +29,7 @@ import type {
     PushCISampleApi,
     QuarantineRequestApi,
     QuarantineRequestResultApi,
+    RunFailureLogsApi,
 } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
@@ -494,6 +496,17 @@ export interface FailureFingerprint {
     occurrences: number
     branches: number
     masterHits: number
+    repo: string
+    // Most recent failing run for this fingerprint — the anchor the row expansion fetches logs for.
+    latestRunId: number
+    latestBranch: string
+}
+
+/** One (fingerprint, hour) failure count from Query C, folded into the row sparkline client-side. */
+export interface HourlyFailureBucket {
+    fingerprint: string
+    hour: string
+    count: number
 }
 
 /** Latest master status for one job group from Query B (engineering_analytics_ci_job_history). */
@@ -508,6 +521,7 @@ export interface MasterJobStatus {
 export interface BrokenTestsRaw {
     fingerprints: FailureFingerprint[]
     masterJobs: MasterJobStatus[]
+    hourlyBuckets: HourlyFailureBucket[]
 }
 
 export interface BrokenTestRow extends FailureFingerprint {
@@ -516,6 +530,14 @@ export interface BrokenTestRow extends FailureFingerprint {
 
 // Query A — failure fingerprints from the Logs-backed view. Different ClickHouse cluster than Query B,
 // so the two run as separate calls and merge in JS; a single joined query would cross clusters and fail.
+// Analytical window for the broken-tests aggregation. Two days keeps the scan light while still
+// spanning the classifier's boundaries: `flaky` needs a >24h span and `novel_burst` needs first-seen
+// <24h, both of which fit inside 48h. Widening this re-inflates the logs-cluster scan for little gain.
+export const BROKEN_TESTS_WINDOW_DAYS = 2
+
+// The new-column tail (repo / latest_run_id / latest_branch) is appended, not inserted, so the
+// existing positional indices in `toFailureFingerprint` don't shift. latest_run_id is the drill-down
+// anchor — the most recent failing run whose logs the row expansion fetches.
 export const FAILURE_FINGERPRINTS_QUERY = `SELECT
     fingerprint,
     any(test_id) AS test_id,
@@ -526,19 +548,35 @@ export const FAILURE_FINGERPRINTS_QUERY = `SELECT
     maxIf(timestamp, branch IN ('master','main')) AS last_master_seen,
     count() AS occurrences,
     uniqExact(branch) AS branches,
-    countIf(branch IN ('master','main')) AS master_hits
+    countIf(branch IN ('master','main')) AS master_hits,
+    any(repo) AS repo,
+    argMax(run_id, timestamp) AS latest_run_id,
+    argMax(branch, timestamp) AS latest_branch
 FROM engineering_analytics_ci_failures
-WHERE timestamp >= now() - INTERVAL 7 DAY
+WHERE timestamp >= now() - INTERVAL ${BROKEN_TESTS_WINDOW_DAYS} DAY
 GROUP BY fingerprint
 HAVING branches >= 2 OR master_hits > 0
 ORDER BY last_seen DESC
 LIMIT 200`
 
+// Query C — per-fingerprint hourly failure counts over the last 24h, for the row sparkline. Its own
+// tight 24h scan (not the 2-day window) because the sparkline answers "is this escalating right now";
+// buckets are folded into a fixed 24-slot array per fingerprint client-side.
+export const FAILURE_HOURLY_QUERY = `SELECT
+    fingerprint,
+    toStartOfHour(timestamp) AS hour,
+    count() AS c
+FROM engineering_analytics_ci_failures
+WHERE timestamp >= now() - INTERVAL 24 HOUR
+GROUP BY fingerprint, hour`
+
 // Query B — latest master job status from the warehouse view. `created_at_raw` is a raw ISO string the
 // warehouse can prune the scan on, so we floor it with a coarse date (8 days back, computed at build
 // time) and pair it with the precise now()-INTERVAL filter. The date is a code-controlled constant.
 export function masterJobStatusQuery(now: dayjs.Dayjs = dayjs()): string {
-    const floorDate = now.subtract(8, 'day').format('YYYY-MM-DD')
+    // One day of slack beyond the window so the raw-string floor never clips a run the precise
+    // now()-INTERVAL filter would keep.
+    const floorDate = now.subtract(BROKEN_TESTS_WINDOW_DAYS + 1, 'day').format('YYYY-MM-DD')
     return `SELECT
     job_name,
     argMaxIf(conclusion, (created_at, run_id), status = 'completed') AS latest_conclusion,
@@ -548,7 +586,7 @@ export function masterJobStatusQuery(now: dayjs.Dayjs = dayjs()): string {
 FROM engineering_analytics_ci_job_history
 WHERE head_branch = 'master'
   AND created_at_raw >= '${floorDate}'
-  AND created_at >= now() - INTERVAL 7 DAY
+  AND created_at >= now() - INTERVAL ${BROKEN_TESTS_WINDOW_DAYS} DAY
 GROUP BY job_name`
 }
 
@@ -564,6 +602,17 @@ function toFailureFingerprint(row: unknown[]): FailureFingerprint {
         occurrences: Number(row[7] ?? 0),
         branches: Number(row[8] ?? 0),
         masterHits: Number(row[9] ?? 0),
+        repo: String(row[10] ?? ''),
+        latestRunId: Number(row[11] ?? 0),
+        latestBranch: String(row[12] ?? ''),
+    }
+}
+
+function toHourlyBucket(row: unknown[]): HourlyFailureBucket {
+    return {
+        fingerprint: String(row[0] ?? ''),
+        hour: String(row[1] ?? ''),
+        count: Number(row[2] ?? 0),
     }
 }
 
@@ -574,6 +623,170 @@ function toMasterJobStatus(row: unknown[]): MasterJobStatus {
         latestCompletedAt: row[2] ? String(row[2]) : null,
         reds: Number(row[3] ?? 0),
         greens: Number(row[4] ?? 0),
+    }
+}
+
+// DEV-ONLY local iteration aid. Standalone OAuth mode (local frontend → prod) can't call /query/
+// — the endpoint resolves the request to empty required-scopes and rejects it regardless of token
+// scopes — so this seeds the panel with synthetic data covering every classifier state. Gated in the
+// loader behind NODE_ENV=development + the `ph_broken_tests_fixture` localStorage flag; the dev-only
+// branch is stripped from production builds. Remove once the broken_tests endpoint lands.
+export function brokenTestsFixtureRaw(now: dayjs.Dayjs = dayjs()): BrokenTestsRaw {
+    const iso = (d: dayjs.Dayjs): string => d.format('YYYY-MM-DDTHH:mm:ss')
+    const hourBucket = (hoursAgo: number): string => iso(now.subtract(hoursAgo, 'hour').startOf('hour'))
+    const fingerprints: FailureFingerprint[] = [
+        // breaking_master — hit master and master's latest run is still red
+        {
+            fingerprint: 'fx-breaking',
+            testId: 'test_checkout_flow',
+            errorSignature: 'AssertionError: expected 200, got 500',
+            jobName: 'ci-backend',
+            firstSeen: iso(now.subtract(2, 'day')),
+            lastSeen: iso(now.subtract(20, 'minute')),
+            occurrences: 41,
+            branches: 5,
+            masterHits: 6,
+            repo: 'PostHog/posthog',
+            latestRunId: 9001,
+            latestBranch: 'master',
+        },
+        // novel_burst — new within 24h, spreading across >=3 PR branches, not on master yet
+        {
+            fingerprint: 'fx-novel',
+            testId: 'test_new_serializer_contract',
+            errorSignature: 'KeyError: managed_viewset',
+            jobName: 'ci-backend',
+            firstSeen: iso(now.subtract(3, 'hour')),
+            lastSeen: iso(now.subtract(10, 'minute')),
+            occurrences: 9,
+            branches: 4,
+            masterHits: 0,
+            repo: 'PostHog/posthog',
+            latestRunId: 9002,
+            latestBranch: 'feat/data-catalog',
+        },
+        // potentially_resolved — hit master but master is green again
+        {
+            fingerprint: 'fx-resolved',
+            testId: 'test_flag_rollout',
+            errorSignature: 'Timeout waiting for flag',
+            jobName: 'ci-frontend',
+            firstSeen: iso(now.subtract(4, 'day')),
+            lastSeen: iso(now.subtract(6, 'hour')),
+            occurrences: 12,
+            branches: 3,
+            masterHits: 2,
+            repo: 'PostHog/posthog',
+            latestRunId: 9003,
+            latestBranch: 'master',
+        },
+        // flaky — sporadic across >=2 branches, recurring over more than a day, not on master
+        {
+            fingerprint: 'fx-flaky',
+            testId: 'test_async_race',
+            errorSignature: 'ConnectionResetError',
+            jobName: 'ci-playwright',
+            firstSeen: iso(now.subtract(5, 'day')),
+            lastSeen: iso(now.subtract(1, 'hour')),
+            occurrences: 7,
+            branches: 3,
+            masterHits: 0,
+            repo: 'PostHog/posthog',
+            latestRunId: 9004,
+            latestBranch: 'fix/async-teardown',
+        },
+        // pr_only — single branch, recent, nothing else
+        {
+            fingerprint: 'fx-pronly',
+            testId: 'test_local_change',
+            errorSignature: 'ValueError: bad input',
+            jobName: 'ci-backend',
+            firstSeen: iso(now.subtract(3, 'hour')),
+            lastSeen: iso(now.subtract(2, 'hour')),
+            occurrences: 2,
+            branches: 1,
+            masterHits: 0,
+            repo: 'PostHog/posthog',
+            latestRunId: 9005,
+            latestBranch: 'chore/tidy',
+        },
+    ]
+    const masterJobs: MasterJobStatus[] = [
+        {
+            jobName: 'ci-backend',
+            latestConclusion: 'failure',
+            latestCompletedAt: iso(now.subtract(15, 'minute')),
+            reds: 4,
+            greens: 10,
+        },
+        {
+            jobName: 'ci-frontend',
+            latestConclusion: 'success',
+            latestCompletedAt: iso(now.subtract(30, 'minute')),
+            reds: 1,
+            greens: 20,
+        },
+        {
+            jobName: 'ci-playwright',
+            latestConclusion: 'success',
+            latestCompletedAt: iso(now.subtract(45, 'minute')),
+            reds: 2,
+            greens: 18,
+        },
+    ]
+    // 24h buckets: fx-breaking climbing (the fire), fx-novel a fresh burst, the rest sporadic/quiet.
+    const hourlyBuckets: HourlyFailureBucket[] = [
+        { fingerprint: 'fx-breaking', hour: hourBucket(3), count: 1 },
+        { fingerprint: 'fx-breaking', hour: hourBucket(2), count: 3 },
+        { fingerprint: 'fx-breaking', hour: hourBucket(1), count: 6 },
+        { fingerprint: 'fx-breaking', hour: hourBucket(0), count: 8 },
+        { fingerprint: 'fx-novel', hour: hourBucket(1), count: 2 },
+        { fingerprint: 'fx-novel', hour: hourBucket(0), count: 7 },
+        { fingerprint: 'fx-flaky', hour: hourBucket(9), count: 1 },
+        { fingerprint: 'fx-flaky', hour: hourBucket(5), count: 1 },
+        { fingerprint: 'fx-flaky', hour: hourBucket(1), count: 1 },
+        { fingerprint: 'fx-resolved', hour: hourBucket(20), count: 4 },
+        { fingerprint: 'fx-resolved', hour: hourBucket(18), count: 2 },
+        { fingerprint: 'fx-pronly', hour: hourBucket(2), count: 2 },
+    ]
+    return { fingerprints, masterJobs, hourlyBuckets }
+}
+
+// DEV-ONLY companion to brokenTestsFixtureRaw: synthetic run-failure logs for the row expansion, keyed
+// by the fixture rows' latestRunId. Same gating as the raw fixture; stripped from production builds.
+export function brokenTestsRunLogsFixture(runId: number): RunFailureLogsApi {
+    return {
+        run_id: runId,
+        logs_available: true,
+        truncated: false,
+        jobs: [
+            {
+                job_id: runId * 10,
+                run_id: runId,
+                conclusion: 'failure',
+                branch: 'master',
+                original_total_lines: 4213,
+                line_count: 6,
+                truncated: false,
+                lines: [
+                    {
+                        original_line: 2101,
+                        text: '=================================== FAILURES ===================================',
+                    },
+                    {
+                        original_line: 2102,
+                        text: '____________________________ test_checkout_flow ________________________________',
+                    },
+                    { original_line: null, text: '... 4 lines omitted ...' },
+                    { original_line: 2107, text: '>       assert response.status_code == 200' },
+                    { original_line: 2108, text: 'E       assert 500 == 200' },
+                    {
+                        original_line: 2109,
+                        text: 'FAILED products/foo/test_checkout.py::test_checkout_flow - assert 500 == 200',
+                    },
+                ],
+            },
+        ],
     }
 }
 
@@ -626,6 +839,27 @@ export function breakingMasterJobNames(masterJobs: MasterJobStatus[]): string[] 
         .filter((job) => RED_MASTER_CONCLUSIONS.has(job.latestConclusion))
         .map((job) => job.jobName)
         .sort()
+}
+
+export const SPARKLINE_HOURS = 24
+
+/** Fold Query C's (fingerprint, hour) buckets into a fixed 24-slot hourly array per fingerprint,
+ * oldest slot first, so each row's sparkline shows the last 24h of failure volume. Buckets outside
+ * the window are ignored; fingerprints with no recent failures simply get no entry (empty sparkline). */
+export function buildHourlySparklines(
+    buckets: HourlyFailureBucket[],
+    now: dayjs.Dayjs = dayjs()
+): Record<string, number[]> {
+    const byFingerprint: Record<string, number[]> = {}
+    for (const bucket of buckets) {
+        const hoursAgo = now.diff(dayjs(bucket.hour), 'hour')
+        if (hoursAgo < 0 || hoursAgo >= SPARKLINE_HOURS) {
+            continue
+        }
+        const series = (byFingerprint[bucket.fingerprint] ??= new Array<number>(SPARKLINE_HOURS).fill(0))
+        series[SPARKLINE_HOURS - 1 - hoursAgo] += bucket.count
+    }
+    return byFingerprint
 }
 
 export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
@@ -883,10 +1117,18 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 null as BrokenTestsRaw | null,
                 {
                     loadBrokenTests: async (): Promise<BrokenTestsRaw> => {
-                        // Two separate calls on purpose: the failures view lives on the logs cluster and
-                        // the job history on the warehouse cluster, so a single joined query would cross
-                        // clusters and fail. Merge the two result sets in the classifier selector.
-                        const [failures, masterJobs] = await Promise.all([
+                        // DEV-ONLY: iterate the panel locally without the /query/ auth path. Set
+                        // localStorage 'ph_broken_tests_fixture' = '1'. Stripped from production builds.
+                        if (
+                            process.env.NODE_ENV === 'development' &&
+                            window.localStorage.getItem('ph_broken_tests_fixture')
+                        ) {
+                            return brokenTestsFixtureRaw()
+                        }
+                        // Three separate calls on purpose: the failures view and its hourly rollup live on
+                        // the logs cluster, the job history on the warehouse cluster, so a single joined
+                        // query would cross clusters and fail. Merge the result sets in the selectors.
+                        const [failures, masterJobs, hourly] = await Promise.all([
                             performQuery<HogQLQuery>({
                                 kind: NodeKind.HogQLQuery,
                                 query: FAILURE_FINGERPRINTS_QUERY,
@@ -895,11 +1137,44 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 kind: NodeKind.HogQLQuery,
                                 query: masterJobStatusQuery(),
                             }),
+                            performQuery<HogQLQuery>({
+                                kind: NodeKind.HogQLQuery,
+                                query: FAILURE_HOURLY_QUERY,
+                            }),
                         ])
                         return {
                             fingerprints: (failures.results ?? []).map(toFailureFingerprint),
                             masterJobs: (masterJobs.results ?? []).map(toMasterJobStatus),
+                            hourlyBuckets: (hourly.results ?? []).map(toHourlyBucket),
                         }
+                    },
+                },
+            ],
+            runFailureLogsByRun: [
+                {} as Record<number, RunFailureLogsApi>,
+                {
+                    loadRunFailureLogs: async ({
+                        runId,
+                    }: {
+                        runId: number
+                    }): Promise<Record<number, RunFailureLogsApi>> => {
+                        // Lazy: fetched when a broken-test row is expanded, cached per run so re-expanding
+                        // is free. This rides the product's own engineering_analytics endpoint (not raw
+                        // /query/), so it authorizes under the same scope the rest of the panel uses.
+                        if (!runId || values.runFailureLogsByRun[runId]) {
+                            return values.runFailureLogsByRun
+                        }
+                        if (
+                            process.env.NODE_ENV === 'development' &&
+                            window.localStorage.getItem('ph_broken_tests_fixture')
+                        ) {
+                            return { ...values.runFailureLogsByRun, [runId]: brokenTestsRunLogsFixture(runId) }
+                        }
+                        const result = await engineeringAnalyticsRunFailureLogs(projectId(), {
+                            run_id: runId,
+                            source_id: values.sourceId ?? undefined,
+                        })
+                        return { ...values.runFailureLogsByRun, [runId]: result }
                     },
                 },
             ],
@@ -1256,6 +1531,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (s) => [s.brokenTests, s.showPrOnlyBrokenTests],
                 (brokenTests: BrokenTestRow[], showPrOnly): BrokenTestRow[] =>
                     showPrOnly ? brokenTests : brokenTests.filter((row) => row.state !== 'pr_only'),
+            ],
+            sparklineByFingerprint: [
+                (s) => [s.brokenTestsRaw],
+                (brokenTestsRaw): Record<string, number[]> =>
+                    brokenTestsRaw ? buildHourlySparklines(brokenTestsRaw.hourlyBuckets) : {},
             ],
             hasMultipleSources: [(s) => [s.githubSources], (githubSources): boolean => githubSources.length > 1],
             // The source reads resolve to: the picked one, else the backend default (oldest connected = first).
