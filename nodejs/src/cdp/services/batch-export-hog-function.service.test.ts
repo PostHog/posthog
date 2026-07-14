@@ -3,19 +3,18 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
-import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_tests/examples'
 import { insertHogFunction as _insertHogFunction, insertBatchExport } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
-import { setupExpressApp } from '~/common/api/router'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { authenticatedInternalApiRequest, setupInternalApiTestApp } from '~/tests/helpers/internal-api'
 import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
@@ -41,7 +40,7 @@ describe('BatchExportHogFunctionService', () => {
 
     const invocationUrl = () => `/api/projects/${team.id}/hog_functions/${hogFunction.id}/batch_export_invocations`
 
-    const postInvocation = (body: any) => supertest(app).post(invocationUrl()).send(body)
+    const postInvocation = (body: any) => authenticatedInternalApiRequest(app).post(invocationUrl()).send(body)
 
     beforeAll(async () => {
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
@@ -51,7 +50,7 @@ describe('BatchExportHogFunctionService', () => {
             hogQueue: createMockJobQueue(),
             hogflowQueue: createMockJobQueue(),
         })
-        app = setupExpressApp()
+        app = setupInternalApiTestApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
     })
@@ -133,7 +132,7 @@ describe('BatchExportHogFunctionService', () => {
 
     describe('resource lookup errors', () => {
         it('returns 404 for non-existent team', async () => {
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/99999/hog_functions/${hogFunction.id}/batch_export_invocations`)
                 .send({ clickhouse_event: clickhouseEvent })
 
@@ -143,7 +142,7 @@ describe('BatchExportHogFunctionService', () => {
 
         it('returns 404 for non-existent hog function', async () => {
             const fakeId = new UUIDT().toString()
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${team.id}/hog_functions/${fakeId}/batch_export_invocations`)
                 .send({ clickhouse_event: clickhouseEvent })
 
@@ -159,7 +158,7 @@ describe('BatchExportHogFunctionService', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${team.id}/hog_functions/${nonBatchFunction.id}/batch_export_invocations`)
                 .send({ clickhouse_event: clickhouseEvent })
 

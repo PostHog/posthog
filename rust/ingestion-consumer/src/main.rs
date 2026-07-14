@@ -28,6 +28,8 @@ use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 
 common_alloc::used!();
 
+const LOCAL_DEV_INTERNAL_API_SECRET: &str = "posthog123";
+
 fn main() -> Result<()> {
     // Install a process-wide rustls CryptoProvider before any TLS use. kube's
     // HTTPS client (EndpointSlice discovery) uses rustls 0.23, which can't
@@ -164,11 +166,10 @@ async fn async_main(config: Config) -> Result<()> {
         config.routing_strategy,
     ));
 
-    let api_secret = if config.internal_api_secret.is_empty() {
-        None
-    } else {
-        Some(config.internal_api_secret.clone())
-    };
+    let api_secret = internal_api_secret(
+        &config.internal_api_secret,
+        config.allow_insecure_internal_api_without_secret,
+    )?;
     // Transport semaphores are created lazily per worker, so it starts empty.
     let transport = Arc::new(HttpTransport::new(
         Duration::from_millis(config.http_timeout_ms),
@@ -305,4 +306,56 @@ async fn async_main(config: Config) -> Result<()> {
 
     info!("Ingestion consumer stopped");
     Ok(())
+}
+
+fn internal_api_secret(
+    secret: &str,
+    allow_insecure_without_secret: bool,
+) -> Result<Option<String>> {
+    let trimmed = secret.trim();
+    if !trimmed.is_empty() {
+        if !cfg!(debug_assertions) && trimmed == LOCAL_DEV_INTERNAL_API_SECRET {
+            anyhow::bail!("INTERNAL_API_SECRET must be configured to a non-development secret for ingestion-consumer");
+        }
+        return Ok(Some(trimmed.to_string()));
+    }
+
+    if allow_insecure_without_secret {
+        if cfg!(debug_assertions) {
+            return Ok(None);
+        }
+        anyhow::bail!(
+            "ALLOW_INSECURE_INTERNAL_API_WITHOUT_SECRET is only supported in debug builds"
+        );
+    }
+
+    anyhow::bail!("INTERNAL_API_SECRET must be configured for ingestion-consumer");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::internal_api_secret;
+
+    #[test]
+    fn rejects_empty_internal_api_secret() {
+        assert!(internal_api_secret("", false).is_err());
+        assert!(internal_api_secret(" \n\t ", false).is_err());
+    }
+
+    #[test]
+    fn trims_internal_api_secret() {
+        assert_eq!(
+            internal_api_secret(" secret\n", false).unwrap(),
+            Some("secret".to_string())
+        );
+    }
+
+    #[test]
+    fn allows_explicit_insecure_secretless_mode_in_debug_builds() {
+        if cfg!(debug_assertions) {
+            assert_eq!(internal_api_secret("", true).unwrap(), None);
+        } else {
+            assert!(internal_api_secret("", true).is_err());
+        }
+    }
 }

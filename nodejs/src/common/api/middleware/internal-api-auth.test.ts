@@ -19,10 +19,7 @@ describe('createInternalApiAuthMiddleware', () => {
     }
 
     describe('when no secret configured', () => {
-        it.each([
-            ['no secret configured', ''],
-            ['empty secret configured', ''],
-        ])('should allow request when %s', (_, configuredSecret) => {
+        it.each([['no secret configured', '']])('should reject protected request when %s', (_, configuredSecret) => {
             const middleware = createInternalApiAuthMiddleware({ secret: configuredSecret })
             const req = mockRequest('/api/test')
             const res = mockResponse()
@@ -30,8 +27,11 @@ describe('createInternalApiAuthMiddleware', () => {
 
             middleware(req, res, next)
 
-            expect(next).toHaveBeenCalled()
-            expect(res.status).not.toHaveBeenCalled()
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
+            expect(res.json).toHaveBeenCalledWith({
+                error: 'Unauthorized: Internal API authentication is not configured',
+            })
         })
     })
 
@@ -139,7 +139,7 @@ describe('createInternalApiAuthMiddleware', () => {
             expect(res.status).toHaveBeenCalledWith(401)
         })
 
-        it('should skip auth when primary and all fallbacks are empty', () => {
+        it('should reject request when primary and all fallbacks are empty', () => {
             const middleware = createInternalApiAuthMiddleware({ secret: '', fallbacks: ['', ''] })
             const req = mockRequest('/api/test', {})
             const res = mockResponse()
@@ -147,8 +147,8 @@ describe('createInternalApiAuthMiddleware', () => {
 
             middleware(req, res, next)
 
-            expect(next).toHaveBeenCalled()
-            expect(res.status).not.toHaveBeenCalled()
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
         })
     })
 
@@ -177,7 +177,7 @@ describe('createInternalApiAuthMiddleware', () => {
             ['/_metrics', 'metrics'],
             ['/metrics', 'prometheus metrics'],
         ])('should skip auth for %s (%s)', (path) => {
-            const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
+            const middleware = createInternalApiAuthMiddleware({ secret: '' })
             const req = mockRequest(path, {})
             const res = mockResponse()
             const next = jest.fn()

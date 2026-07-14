@@ -1,3 +1,4 @@
+import { PluginServerMode } from '../common/config'
 import { IngestBatchResponse, SerializedKafkaMessage } from '../ingestion/api/types'
 import { IngestionApiServer } from './ingestion-api-server'
 
@@ -41,6 +42,16 @@ describe('IngestionApiServer', () => {
         ;(server as any).hogTransformer = { processInvocationResults: jest.fn().mockResolvedValue(undefined) }
         // stop() would call process.exit; stub it so the test only observes that it was invoked.
         stopSpy = jest.spyOn(server, 'stop').mockResolvedValue(undefined)
+    })
+
+    it('fails startup in production when INTERNAL_API_SECRET is empty', () => {
+        expect(
+            () =>
+                new IngestionApiServer({
+                    PLUGIN_SERVER_MODE: PluginServerMode.ingestion_api,
+                    INTERNAL_API_SECRET: '',
+                })
+        ).toThrow('INTERNAL_API_SECRET must be configured for ingestion-api')
     })
 
     it('reports healthy before any failure', () => {

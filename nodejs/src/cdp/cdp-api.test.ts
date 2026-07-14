@@ -6,12 +6,12 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { setupExpressApp } from '~/common/api/router'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
+import { authenticatedInternalApiRequest, setupInternalApiTestApp } from '~/tests/helpers/internal-api'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
@@ -104,7 +104,7 @@ describe('CDP API', () => {
             hogQueue: createMockJobQueue(),
             hogflowQueue: createMockJobQueue(),
         })
-        app = setupExpressApp()
+        app = setupInternalApiTestApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
     })
@@ -135,7 +135,7 @@ describe('CDP API', () => {
     })
 
     it('errors if missing hog function', async () => {
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${new UUIDT().toString()}/invocations`)
             .send({ globals })
 
@@ -143,7 +143,7 @@ describe('CDP API', () => {
     })
 
     it('errors if missing team', async () => {
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${new UUIDT().toString()}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals })
 
@@ -151,7 +151,7 @@ describe('CDP API', () => {
     })
 
     it('errors if missing values', async () => {
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
             .send({})
 
@@ -162,7 +162,7 @@ describe('CDP API', () => {
     })
 
     it("does not error if hog function is 'new'", async () => {
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/new/invocations`)
             .send({ globals })
 
@@ -170,7 +170,7 @@ describe('CDP API', () => {
     })
 
     it('can invoke a function via the API with mocks', async () => {
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals, mock_async_functions: true })
 
@@ -227,7 +227,7 @@ describe('CDP API', () => {
             })
         )
 
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals, mock_async_functions: false })
 
@@ -265,7 +265,7 @@ describe('CDP API', () => {
             ...HOG_FILTERS_EXAMPLES.elements_text_filter,
         })
 
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals, mock_async_functions: false })
 
@@ -294,7 +294,7 @@ describe('CDP API', () => {
                 dump: () => Promise.resolve(),
             })
         )
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(
                 `/api/projects/${hogFunctionMultiFetch.team_id}/hog_functions/${hogFunctionMultiFetch.id}/invocations`
             )
@@ -334,7 +334,7 @@ describe('CDP API', () => {
             ...HOG_FILTERS_EXAMPLES.no_filters,
         })
 
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals, mock_async_functions: false })
 
@@ -369,7 +369,7 @@ describe('CDP API', () => {
             ...HOG_FILTERS_EXAMPLES.no_filters,
         })
 
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals, mock_async_functions: true })
 
@@ -417,7 +417,7 @@ describe('CDP API', () => {
             ],
         })
 
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals, mock_async_functions: true })
 
@@ -463,7 +463,7 @@ describe('CDP API', () => {
             ...HOG_FILTERS_EXAMPLES.no_filters,
         })
 
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals, mock_async_functions: true })
 
@@ -544,7 +544,7 @@ describe('CDP API', () => {
             },
         })
 
-        const res = await supertest(app)
+        const res = await authenticatedInternalApiRequest(app)
             .post(
                 `/api/projects/${hogFunctionWithSecret.team_id}/hog_functions/${hogFunctionWithSecret.id}/invocations`
             )
@@ -581,7 +581,7 @@ describe('CDP API', () => {
         })
 
         it('processes transformations and returns the result if not null', async () => {
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${hogFunction.team_id}/hog_functions/new/invocations`)
                 .send({ globals, mock_async_functions: true, configuration })
 
@@ -614,7 +614,7 @@ describe('CDP API', () => {
         it('processes transformations and returns the result if null', async () => {
             globals.event!.event = 'drop me'
 
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${hogFunction.team_id}/hog_functions/new/invocations`)
                 .send({ globals, mock_async_functions: true, configuration })
 
@@ -648,7 +648,7 @@ describe('CDP API', () => {
             await api['hogWatcher'].forceStateChange(hogFunction, HogWatcherState.degraded)
             await api['hogWatcher'].forceStateChange(hogFunctionMultiFetch, HogWatcherState.disabled)
 
-            const res = await supertest(app).get('/api/hog_functions/states')
+            const res = await authenticatedInternalApiRequest(app).get('/api/hog_functions/states')
             expect(res.status).toEqual(200)
             expect(res.body).toEqual({
                 results: [
@@ -682,7 +682,7 @@ describe('CDP API', () => {
         const largePayload = 'x'.repeat(600 * 1024)
 
         it('accepts large payloads on hog function invocations endpoint', async () => {
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
                 .send({ globals, mock_async_functions: true, configuration: { large_field: largePayload } })
 
@@ -690,7 +690,7 @@ describe('CDP API', () => {
         })
 
         it('accepts large payloads on hog flow invocations endpoint', async () => {
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${hogFunction.team_id}/hog_flows/new/invocations`)
                 .send({ globals, mock_async_functions: true, configuration: { large_field: largePayload } })
 
@@ -749,7 +749,7 @@ describe('CDP API', () => {
         })
 
         it('resolves groups from the event when none are provided', async () => {
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
                 .send({ globals: groupGlobals, mock_async_functions: true, configuration: {} })
 
@@ -769,7 +769,7 @@ describe('CDP API', () => {
             const providedGroups = {
                 organization: { ...resolvedGroup, id: 'org-provided', properties: { plan: 'startup' } },
             }
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
                 .send({
                     globals: { ...groupGlobals, groups: providedGroups },
@@ -822,7 +822,7 @@ describe('CDP API', () => {
             ['matching', 'follow_up', 'exit_node'],
             ['non-matching', 'some_other_event', 'wait_node'],
         ])('a %s test event resolves the wait step correctly', async (_, eventName, expectedNextActionId) => {
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
                 .send({
                     globals: { ...globals, event: { ...globals.event!, event: eventName } },
@@ -867,7 +867,7 @@ describe('CDP API', () => {
 
         it('errors if missing team', async () => {
             const nonExistentTeamId = new UUIDT().toString()
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${nonExistentTeamId}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
                 .send({})
 
@@ -877,7 +877,7 @@ describe('CDP API', () => {
 
         it('errors if missing hog flow', async () => {
             const nonExistentUuid = new UUIDT().toString()
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${nonExistentUuid}/batch_invocations/job-123`)
                 .send({})
 
@@ -900,7 +900,7 @@ describe('CDP API', () => {
                 },
             })
 
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(
                     `/api/projects/${nonBatchHogFlow.team_id}/hog_flows/${nonBatchHogFlow.id}/batch_invocations/job-123`
                 )
@@ -918,7 +918,7 @@ describe('CDP API', () => {
             }
 
             try {
-                const res = await supertest(app)
+                const res = await authenticatedInternalApiRequest(app)
                     .post(
                         `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-789`
                     )
@@ -1104,7 +1104,7 @@ describe('CDP API', () => {
 
         it('errors if missing team', async () => {
             const nonExistentTeamId = new UUIDT().toString()
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${nonExistentTeamId}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
                 .send({})
 
@@ -1114,7 +1114,7 @@ describe('CDP API', () => {
 
         it('errors if missing hog flow', async () => {
             const nonExistentUuid = new UUIDT().toString()
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${nonExistentUuid}/scheduled_invocations`)
                 .send({})
 
@@ -1137,7 +1137,7 @@ describe('CDP API', () => {
                 },
             })
 
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${eventHogFlow.team_id}/hog_flows/${eventHogFlow.id}/scheduled_invocations`)
                 .send({})
 
@@ -1146,7 +1146,7 @@ describe('CDP API', () => {
         })
 
         it('queues invocation and returns queued status', async () => {
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
                 .send({ variables: { greeting: 'Hello' } })
 
@@ -1157,7 +1157,7 @@ describe('CDP API', () => {
         })
 
         it('queues invocation with empty variables when none provided', async () => {
-            const res = await supertest(app)
+            const res = await authenticatedInternalApiRequest(app)
                 .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
                 .send({})
 
@@ -1284,11 +1284,13 @@ describe('CDP API', () => {
         })
 
         it('sends the email inline via EmailService instead of routing to the email queue', async () => {
-            const res = await supertest(app).post(`/api/projects/${team.id}/hog_flows/${hogFlowId}/invocations`).send({
-                globals,
-                configuration: {},
-                current_action_id: 'email_1',
-            })
+            const res = await authenticatedInternalApiRequest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${hogFlowId}/invocations`)
+                .send({
+                    globals,
+                    configuration: {},
+                    current_action_id: 'email_1',
+                })
 
             expect(res.status).toBe(200)
             expect(res.body.status).toBe('success')

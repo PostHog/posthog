@@ -158,9 +158,15 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
-    /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
-    #[envconfig(default = "")]
+    /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header).
+    /// Defaults to the local-dev Node/Django secret; release builds reject this value at startup.
+    #[envconfig(default = "posthog123")]
     pub internal_api_secret: String,
+
+    /// Explicit local development escape hatch for running without internal API auth.
+    /// Only accepted in debug builds.
+    #[envconfig(from = "ALLOW_INSECURE_INTERNAL_API_WITHOUT_SECRET", default = "false")]
+    pub allow_insecure_internal_api_without_secret: bool,
 
     // ---- Worker discovery ----
     /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the

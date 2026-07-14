@@ -35,15 +35,18 @@ export function createInternalApiAuthMiddleware(options: InternalApiAuthOptions)
     const acceptedSecrets = [secret, ...fallbacks].map((s) => s.trim()).filter(Boolean)
 
     return (req: Request, res: Response, next: NextFunction): void => {
-        // Skip auth if no secret is configured (defense-in-depth only — Contour fronts these endpoints).
-        if (acceptedSecrets.length === 0) {
+        // Health/metrics/public endpoints never require auth.
+        if (allExcludedPrefixes.some((prefix) => req.path.startsWith(prefix))) {
             next()
             return
         }
 
-        // Health/metrics/public endpoints never require auth.
-        if (allExcludedPrefixes.some((prefix) => req.path.startsWith(prefix))) {
-            next()
+        if (acceptedSecrets.length === 0) {
+            logger.warn('Internal API request blocked because no authentication secret is configured', {
+                path: req.path,
+                method: req.method,
+            })
+            res.status(401).json({ error: 'Unauthorized: Internal API authentication is not configured' })
             return
         }
 
