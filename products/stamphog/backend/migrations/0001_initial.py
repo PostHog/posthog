@@ -111,6 +111,43 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
+            name="StamphogRepoConfig",
+            fields=[
+                ("team_id", models.BigIntegerField(db_index=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("provider", models.CharField(default="github", max_length=32)),
+                ("repository", models.CharField(max_length=255)),
+                ("enabled", models.BooleanField(default=True)),
+                ("installation_id", models.CharField(max_length=64)),
+                ("digest_enabled", models.BooleanField(default=False)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+            ],
+            options={
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("team_id", "repository"),
+                        name="unique_stamphog_repo_per_team",
+                    ),
+                    models.UniqueConstraint(
+                        fields=("provider", "installation_id", "repository"),
+                        name="unique_stamphog_installation_repo",
+                    ),
+                ],
+            },
+            managers=[
+                ("all_teams", django.db.models.manager.Manager()),
+            ],
+        ),
+        migrations.CreateModel(
             name="PullRequest",
             fields=[
                 ("team_id", models.BigIntegerField(db_index=True)),
@@ -145,6 +182,14 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="pull_requests",
                         to="stamphog.digestrun",
+                    ),
+                ),
+                (
+                    "repo_config",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="pull_requests",
+                        to="stamphog.stamphogrepoconfig",
                     ),
                 ),
             ],
@@ -224,52 +269,6 @@ class Migration(migrations.Migration):
             managers=[
                 ("all_teams", django.db.models.manager.Manager()),
             ],
-        ),
-        migrations.CreateModel(
-            name="StamphogRepoConfig",
-            fields=[
-                ("team_id", models.BigIntegerField(db_index=True)),
-                (
-                    "id",
-                    models.UUIDField(
-                        default=posthog.models.utils.uuid7,
-                        editable=False,
-                        primary_key=True,
-                        serialize=False,
-                    ),
-                ),
-                ("provider", models.CharField(default="github", max_length=32)),
-                ("repository", models.CharField(max_length=255)),
-                ("enabled", models.BooleanField(default=True)),
-                ("installation_id", models.CharField(max_length=64)),
-                ("digest_enabled", models.BooleanField(default=False)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-            ],
-            options={
-                "constraints": [
-                    models.UniqueConstraint(
-                        fields=("team_id", "repository"),
-                        name="unique_stamphog_repo_per_team",
-                    ),
-                    models.UniqueConstraint(
-                        fields=("provider", "installation_id", "repository"),
-                        name="unique_stamphog_installation_repo",
-                    ),
-                ],
-            },
-            managers=[
-                ("all_teams", django.db.models.manager.Manager()),
-            ],
-        ),
-        migrations.AddField(
-            model_name="pullrequest",
-            name="repo_config",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="pull_requests",
-                to="stamphog.stamphogrepoconfig",
-            ),
         ),
         migrations.AddIndex(
             model_name="pullrequest",
