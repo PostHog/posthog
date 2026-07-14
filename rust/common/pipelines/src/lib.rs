@@ -9,12 +9,16 @@
 //!
 //! See `POC_NOTES.md` for deviations from the design doc.
 
+pub mod effects;
 pub mod fail_open;
 pub mod metrics_consts;
+pub mod plugin;
 pub mod result;
 pub mod step;
 
+pub use effects::{DeferredProduce, EffectQueue, OutputRef};
 pub use fail_open::{FailOpen, FailOpenExt};
+pub use plugin::{HasSink, MetricsObserver, Observer, Plugin};
 pub use result::{NoOutputs, Outputs, StepError, StepResult};
 pub use step::{
     ChunkOutcome, ChunkStep, ItemOutcome, Pipeline, PipelineBuilder, Step, Verdict, VerdictKind,
