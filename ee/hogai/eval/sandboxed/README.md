@@ -65,7 +65,7 @@ python -m ee.hogai.eval.sandboxed.harness --list
 | `--keep-sandbox-containers`      | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.  |
 | `--rebuild-sandbox-image`        | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only. |
 | `--create-db`                    | Rebuild the eval test database instead of reusing it.                            |
-| `--case-timeout <seconds>`       | Per-case budget, counted from sandbox acquisition.                               |
+| `--case-timeout <seconds>`       | Agent-run budget, started after the case's team setup finishes.                  |
 | `--trials N`                     | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
 | `--fail-under <fraction>`        | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
 | `--list`                         | Print the discovered suite ids and exit.                                         |
@@ -103,17 +103,22 @@ Modal prerequisites, all checked by preflight before anything boots:
 Sandboxes are unbounded by default on modal, meaning every case can hold one at once.
 `--max-sandboxes N` is the cost knob.
 
-Each case terminates its own sandbox when it finishes. When the whole run ends, the harness also sweeps the Modal app for its own leftover sandboxes and terminates them, so a crashed or interrupted run doesn't leave sandboxes billing until their TTL.
+Each case waits for its workflow to terminate the sandbox, then runs a tag-scoped Modal sweep as a safety net.
+When the whole run ends, the harness sweeps the Modal app again for its own leftover sandboxes, so a crashed or interrupted run doesn't leave sandboxes billing until their TTL.
 The sweep is scoped to this run's own tasks (matched by the `task_id` sandbox tag), so a second eval run sharing the same Modal app keeps its sandboxes.
 
 ## Concurrency
 
-Every selected suite runs concurrently on one event loop, and a single global semaphore bounds the number of live sandboxes across all of them.
+Every selected suite runs concurrently on one event loop, and a global semaphore bounds the number of live sandboxes across all of them.
 Selecting more suites therefore increases throughput without increasing peak load.
 
-A case holds a sandbox slot only for the window it actually needs one: demo-data copy, setup hook, and the agent run.
+A separate one-at-a-time queue covers the full per-case team setup, including the demo-data clone and optional setup hook.
+These phases can issue large ClickHouse copies or direct inserts, so serializing them protects local ClickHouse from RAM exhaustion even when Modal sandbox capacity is unbounded.
+Once setup completes, the queue advances to the next case while the prepared case runs its agent.
+
+A case holds a sandbox slot only for the window it actually needs one: team setup and the agent run.
 Log parsing, Braintrust span building, trace emission, and scoring all happen after the slot is released.
-The per-case timeout starts when the slot is acquired, so a case queued behind the semaphore never has its budget eaten by the wait.
+The per-case timeout starts after team setup, so neither sandbox nor setup queueing consumes the agent's budget.
 
 ## Adding an eval suite
 
