@@ -121,6 +121,15 @@ export type IngestionConsumerConfig = {
     // (idle worker capacity) or the worker rejects with HTTP 503.
     INGESTION_WORKER_CONCURRENT_BATCHES: number
 
+    // Feed-order sentinel (ingestion API server only): checks that each
+    // routing key's messages enter the pipeline in Kafka offset order. The
+    // Rust consumer's sentinels have their own flag
+    // (CONSUMER_ORDER_SENTINEL_ENABLED).
+    INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: boolean
+    // LRU capacity of the sentinel's per-key state; at capacity the
+    // least-recently-seen key is dropped and rebaselines unchecked.
+    INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: number
+
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
     PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -243,6 +252,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         INGESTION_WORKER_CONCURRENT_BATCHES: 1,
+        INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: true,
+        INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: 200_000,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
