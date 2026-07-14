@@ -74236,6 +74236,10 @@ export namespace Schemas {
 
     export type TasksListParams = {
     /**
+     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     */
+    all_team_tasks?: boolean;
+    /**
      * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
      *
      * * `true` - true
