@@ -52,7 +52,6 @@ You can create an API token in your [Fastly account settings](https://manage.fas
 A read-only token with **global** scope is sufficient to sync every table.""",
             iconPath="/static/services/fastly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/fastly",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

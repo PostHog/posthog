@@ -1,3 +1,5 @@
+import functools
+
 import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status, viewsets
@@ -11,12 +13,18 @@ from products.warehouse_sources.backend.facade.source_management import SourceRe
 logger = structlog.get_logger(__name__)
 
 
-def build_source_configs() -> dict[str, dict]:
+@functools.cache
+def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
     """Build the source-config catalog returned by both the public endpoint and the wizard.
 
-    Each entry is the source's ``SourceConfig`` augmented with ``supportsColumnSelection`` and a
-    credential-free ``tables`` catalog (empty for SQL/file sources with user-defined schemas). Kept
-    in one place so the two endpoints can never drift (see ``test_matches_wizard_response``).
+    Each entry is the source's ``SourceConfig`` augmented with ``supportsColumnSelection`` and,
+    when ``include_tables`` is set, a credential-free ``tables`` catalog (empty for SQL/file
+    sources with user-defined schemas). ``tables`` exists for the posthog.com docs build; the
+    in-app wizard skips it because nothing in the app reads it and it is ~40% of the payload.
+    Kept in one place so the two endpoints can never drift (see ``test_matches_wizard_response``).
+
+    The catalog is deploy-static (it only changes when source code ships), so the result is
+    memoized per process — callers must treat it as read-only.
     """
     sources = SourceRegistry.get_all_sources()
 
@@ -31,12 +39,13 @@ def build_source_configs() -> dict[str, dict]:
             {"version": d.version, "sunsetAt": d.sunset_at.isoformat() if d.sunset_at else None}
             for d in source.deprecated_versions
         ]
-        # Per-source guard: a single misbehaving source must never break the whole catalog.
-        try:
-            config["tables"] = source.get_documented_tables()
-        except Exception:
-            logger.exception("build_source_configs: get_documented_tables failed", source_type=str(source_type))
-            config["tables"] = []
+        if include_tables:
+            # Per-source guard: a single misbehaving source must never break the whole catalog.
+            try:
+                config["tables"] = source.get_documented_tables()
+            except Exception:
+                logger.exception("build_source_configs: get_documented_tables failed", source_type=str(source_type))
+                config["tables"] = []
         results[str(source_type)] = config
 
     return results

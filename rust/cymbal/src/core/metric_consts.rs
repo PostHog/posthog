@@ -23,6 +23,10 @@ pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
+// Client-expanded native inline groups, labeled by outcome: "replaced" when the
+// server expansion of the group's address superseded the client frames, "kept"
+// when resolution failed and the client expansion passed through.
+pub const NATIVE_INLINE_GROUPS: &str = "cymbal_native_inline_groups";
 pub const S3_FETCH: &str = "cymbal_s3_fetch";
 // S3 GET body size, in bytes, taken from the `Content-Length` header on the GET response
 // (so it's recorded before we collect the body — sets us up to enforce a size cap here later).
