@@ -109,7 +109,6 @@ class DigitalOceanSource(SimpleSource[DigitalOceanSourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="DigitalOcean",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter a DigitalOcean personal access token to pull your DigitalOcean infrastructure and billing data into the PostHog Data warehouse.
 
 Create a token under [API → Tokens](https://cloud.digitalocean.com/account/api/tokens) with at least **Read** scope.""",

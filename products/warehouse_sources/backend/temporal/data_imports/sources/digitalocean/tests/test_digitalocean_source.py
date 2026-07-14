@@ -31,7 +31,6 @@ class TestDigitalOceanSourceConfig:
         # The source ships hidden (unreleasedSource) and labelled alpha until it's validated
         # against a live account; a regression that flips either would expose it prematurely.
         config = DigitalOceanSource().get_source_config
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
 
     def test_docs_url_matches_icon_slug(self) -> None:
