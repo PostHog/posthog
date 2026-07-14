@@ -1839,6 +1839,17 @@ class TaskRunStartRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class TaskRunCancelRequestSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=True,
+        allow_null=True,
+        max_length=500,
+        help_text="Optional reason for the cancellation, recorded on the run and shown to run watchers.",
+    )
+
+
 class ClaudeTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
     runtime_adapter = serializers.ChoiceField(
         choices=[RuntimeAdapter.CLAUDE.value],

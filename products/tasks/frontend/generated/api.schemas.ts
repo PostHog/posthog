@@ -1803,6 +1803,15 @@ export interface TaskRunArtifactPresignResponseApi {
     expires_in: number
 }
 
+export interface TaskRunCancelRequestApi {
+    /**
+     * Optional reason for the cancellation, recorded on the run and shown to run watchers.
+     * @maxLength 500
+     * @nullable
+     */
+    reason?: string | null
+}
+
 /**
  * Parameters for the command
  */
