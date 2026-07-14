@@ -11,7 +11,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import AlertState
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import is_retryable_ch_error
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
@@ -237,8 +237,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             alert_evaluation_result = check_alert_for_insight(alert)
             value = alert_evaluation_result.value
             breaches = alert_evaluation_result.breaches
-        except CH_TRANSIENT_ERRORS:
-            raise
         except AlertExtractionError as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a
             # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the
@@ -251,6 +249,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 new_state=AlertState.ERRORED,
             )
         except Exception as err:
+            # Transient ClickHouse infra blips (at-capacity, concurrency-limited, S3) are recoverable, so
+            # bubble them up for Temporal's retry policy instead of marking the check ERRORED and polluting
+            # error tracking. wrap_clickhouse_query_error rewrites the raw CH codes into ClickHouseAtCapacity
+            # (a different class hierarchy), so match on the classified category, not a fixed exception tuple.
+            if is_retryable_ch_error(err):
+                raise
             logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
             capture_exception(
                 err,

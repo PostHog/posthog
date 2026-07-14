@@ -1006,3 +1006,18 @@ CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
 )
+
+
+def is_retryable_ch_error(e: Exception) -> bool:
+    """Whether a query-execution error is a transient infrastructure failure worth retrying.
+
+    Prefer this over `isinstance(e, CH_TRANSIENT_ERRORS)` at the query-consumer boundary. The raw
+    `CHQueryError*` classes in that tuple are what the driver raises, but `wrap_clickhouse_query_error`
+    beautifies the capacity codes (`TOO_MANY_SIMULTANEOUS_QUERIES`, `CANNOT_SCHEDULE_TASK`) into
+    `ClickHouseAtCapacity` first — a different class hierarchy that the tuple misses. Concurrency-limit
+    rejections (`ConcurrencyLimitExceeded`, raised client-side) are transient too. Both classify as
+    `RATE_LIMITED`, so key off the shared category to catch what the query layer actually raises.
+    """
+    if isinstance(e, CH_TRANSIENT_ERRORS):
+        return True
+    return classify_query_error(e) == QueryErrorCategory.RATE_LIMITED
