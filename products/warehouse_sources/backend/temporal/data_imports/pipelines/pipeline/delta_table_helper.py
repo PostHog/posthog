@@ -56,8 +56,14 @@ DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 # bound — a merge's peak RSS tracks the rewrite working set of its chunk, and a
 # partition exceeding the cap merges alone (the old behavior). The count cap only
 # bounds predicate size and planner/writer fan-out. Benchmarks in PR #70495.
+#
+# The byte cap counts at-rest (compressed) bytes, and the decompressed Arrow working
+# set runs ~20x that (see DATA_WAREHOUSE_TARGET_PARTITION_BYTES) — 128 MiB ≈ ~2.5 GiB
+# peak per merge, so several concurrent chunk merges still fit a multi-tenant pod.
+# Unlike the per-partition budget (a rare worst case), chunk packing makes the cap the
+# COMMON case, so it must be sized for concurrency, not for a single merge.
 MERGE_PARTITION_CHUNK_SIZE = 100
-MERGE_CHUNK_MAX_TARGET_BYTES = 512 * 1024 * 1024
+MERGE_CHUNK_MAX_TARGET_BYTES = 128 * 1024 * 1024
 
 
 def _pack_partition_chunks(partition_values: list[Any], sizes_on_disk: dict[str, int]) -> list[list[Any]]:
