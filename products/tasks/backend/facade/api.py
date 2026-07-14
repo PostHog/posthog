@@ -1544,6 +1544,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "snapshot_mount_path",
         "workflow_id",
         "pending_dispatch",
+        "cancel_requested_at",
+        "cancel_requested_by_user_id",
+        "cancel_source",
+        "cancel_fallback_cleanup_complete",
     }
 )
 
@@ -1749,7 +1753,12 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
 
 
 def update_task_run(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, validated_data: dict
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    validated_data: dict,
+    only_if_non_terminal: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -1783,8 +1792,10 @@ def update_task_run(
     update_fields: set[str] = set()
 
     with transaction.atomic():
-        if has_output_merge or has_state_mutation:
+        if has_output_merge or has_state_mutation or only_if_non_terminal:
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if only_if_non_terminal and run.is_terminal:
+            return _task_run_detail_to_dto(run)
 
         old_status = run.status
         old_environment = run.environment
