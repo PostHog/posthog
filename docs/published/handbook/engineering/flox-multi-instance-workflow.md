@@ -19,6 +19,14 @@ This guide explains how to create isolated PostHog development environments usin
 
 > **Important:** Only one PostHog instance (`hogli start`) can run at a time since they all use the same ports. The workflow focuses on quickly stopping one instance and starting another.
 
+## Light worktrees
+
+You only need the full setup below when you want to run the app in a worktree. For edit and commit workflows, a plain `git worktree add <path> <branch>` is enough:
+
+- Pre-commit hooks (lint-staged, hogli, ruff, ty) work out of the box: they borrow the main clone's `node_modules` and Python venv automatically, as long as the worktree's `pnpm-lock.yaml` and `uv.lock` match the main clone's.
+- If a lockfile differs, the hooks tell you what to install locally instead.
+- Use `phw` (below) only when you need to run the app in that worktree.
+
 ## Prerequisites
 
 1. **Flox installed**: https://flox.dev/docs/install-flox/

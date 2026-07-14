@@ -7,14 +7,48 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_CMD="python"
 
+find_venv() {
+    if [ -f "$REPO_ROOT/bin/helpers/worktree-borrow.sh" ]; then
+        source "$REPO_ROOT/bin/helpers/worktree-borrow.sh"
+    else
+        return 0
+    fi
+
+    local found_venv
+    found_venv="$(posthog_find_venv "$REPO_ROOT")"
+    if [ -n "$found_venv" ]; then
+        echo "$found_venv"
+        return 0
+    fi
+
+    # No local venv -- in a light worktree, borrow the main clone's venv, but
+    # only if uv.lock matches exactly. A mismatch means the worktree's branch
+    # has different deps, so the borrowed venv would run the wrong versions --
+    # fall through to the existing error path instead. When invoked from a
+    # pre-commit hook, the hook already checked and warned (it exports
+    # POSTHOG_UV_LOCK_MISMATCH), so skip silently in that case.
+    if [ -n "${POSTHOG_UV_LOCK_MISMATCH:-}" ]; then
+        return 0
+    fi
+
+    local main_repo
+    main_repo="$(posthog_main_repo "$REPO_ROOT")"
+    [ -n "$main_repo" ] || return 0
+
+    if ! cmp -s "$REPO_ROOT/uv.lock" "$main_repo/uv.lock"; then
+        echo "hogli: uv.lock differs from $main_repo, can't borrow its venv -- run 'flox activate' or 'uv sync' locally" >&2
+        return 0
+    fi
+
+    posthog_find_venv "$main_repo"
+}
+
 if [ -z "${VIRTUAL_ENV:-}" ]; then
-    for venv in "$REPO_ROOT/.flox/cache/venv" "$REPO_ROOT/.venv" "$REPO_ROOT/env"; do
-        if [ -d "$venv" ]; then
-            source "$venv/bin/activate"
-            PYTHON_CMD="$venv/bin/python"
-            break
-        fi
-    done
+    FOUND_VENV="$(find_venv)"
+    if [ -n "$FOUND_VENV" ]; then
+        source "$FOUND_VENV/bin/activate"
+        PYTHON_CMD="$FOUND_VENV/bin/python"
+    fi
 else
     PYTHON_CMD="$VIRTUAL_ENV/bin/python"
 fi
