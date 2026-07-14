@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     advance_xmin_state,
     cdp_producer_clear_chunks,
+    person_property_sink_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
@@ -39,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
+    stage_chunk_for_person_property_sink,
     write_chunk_for_cdp_producer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
@@ -51,6 +53,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
+    PersonPropertyRowSink,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
 )
@@ -202,6 +207,9 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._cdp_producer = CDPProducer(
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
         )
+        self._person_property_sink = PersonPropertyRowSink(
+            team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
+        )
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
         self._earliest_incremental_field_value: Any = process_incremental_value(
@@ -223,6 +231,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
+            await person_property_sink_clear_chunks(self._person_property_sink)
 
             await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
@@ -402,6 +411,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._internal_schema.add_pyarrow_table(pa_table)
 
         await write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
+        await stage_chunk_for_person_property_sink(self._person_property_sink, index, pa_table)
 
         (
             self._last_incremental_field_value,

@@ -98,3 +98,25 @@ def run_engineering_analytics_view_sync(schema: "ExternalDataSchema", source: "E
     if _engineering_analytics_view_sync is None:
         return
     _engineering_analytics_view_sync(schema, source)
+
+
+# --- Person-property staging projection -----------------------------------------------
+# Person-target Customer analytics sources stage a projection of each synced chunk to S3 so a
+# post-sync job can upsert warehouse columns onto person properties. The pipeline asks this hook
+# which columns to stage for a schema (the union of key + mapped columns across the schema's
+# enabled person sources), or None when nothing needs staging. customer_analytics registers the
+# resolver at app-ready; when nothing is registered this returns None and the pipeline stages
+# nothing, so warehouse_sources stays importable on its own.
+PersonPropertyProjectionResolver = Callable[[int, "uuid.UUID"], Optional[list[str]]]
+_person_property_projection_resolver: Optional[PersonPropertyProjectionResolver] = None
+
+
+def register_person_property_projection(fn: PersonPropertyProjectionResolver) -> None:
+    global _person_property_projection_resolver
+    _person_property_projection_resolver = fn
+
+
+def person_property_projection_for(team_id: int, schema_id: "uuid.UUID") -> Optional[list[str]]:
+    if _person_property_projection_resolver is None:
+        return None
+    return _person_property_projection_resolver(team_id, schema_id)

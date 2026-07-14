@@ -10,14 +10,18 @@ on the startup path does not drag the whole pipeline onto every process boot.
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
+    person_property_projection_for,
     register_emit_signals_gate,
     register_engineering_analytics_view_sync,
+    register_person_property_projection,
     register_revenue_view_sync,
 )
 
 __all__ = [
     "EmitSignalsActivityInputs",
+    "person_property_projection_for",
     "register_emit_signals_gate",
     "register_engineering_analytics_view_sync",
+    "register_person_property_projection",
     "register_revenue_view_sync",
 ]
