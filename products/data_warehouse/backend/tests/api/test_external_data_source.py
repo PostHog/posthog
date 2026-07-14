@@ -26,6 +26,8 @@ from posthog.schema import (
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
@@ -43,6 +45,7 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
 from products.data_warehouse.backend.presentation.views.external_data_source import (
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
+    get_oauth_integration_kinds,
     strip_sensitive_from_dict,
 )
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
@@ -10860,6 +10863,96 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/")
         assert response.status_code == status.HTTP_200_OK
         assert [result["credential_id"] for result in response.json()] == [str(newer.pk), str(older.pk)]
+
+
+class TestGetOAuthIntegrationKinds(APIBaseTest):
+    """These kinds are what the OAuth accounts endpoint pins a caller-supplied integration id against, so
+    a source whose OAuth field this fails to find would have its account listing rejected."""
+
+    def test_collects_kinds_from_both_oauth_field_types(self):
+        # A picker (`oauth-account-select`) and the plain `oauth` field it reads from, as the ad sources
+        # declare them. GitHub lists accounts off the plain field alone, with no picker.
+        fields = [
+            SourceFieldOauthConfig(
+                name="linkedin_ads_integration_id", label="Account", kind="linkedin-ads", required=True
+            ),
+            SourceFieldOauthAccountSelectConfig(
+                name="account_id",
+                label="Account ID",
+                integrationField="linkedin_ads_integration_id",
+                integrationKind="linkedin-ads",
+                required=True,
+            ),
+            SourceFieldInputConfig(
+                name="unrelated",
+                label="Unrelated",
+                type=SourceFieldInputConfigType.TEXT,
+                required=False,
+                placeholder="",
+                secret=False,
+            ),
+        ]
+
+        assert get_oauth_integration_kinds(cast(list, fields)) == {"linkedin-ads"}
+
+    def test_finds_nested_oauth_fields(self):
+        # No source nests its OAuth field today, but one that did would otherwise resolve to no kinds at
+        # all and get its account listing 400'd.
+        fields = [
+            SourceFieldSwitchGroupConfig(
+                name="advanced",
+                label="Advanced",
+                default=False,
+                fields=cast(
+                    list,
+                    [
+                        SourceFieldOauthConfig(
+                            name="integration_id", label="Connection", kind="in-a-switch-group", required=True
+                        )
+                    ],
+                ),
+            ),
+            SourceFieldSelectConfig(
+                name="auth_method",
+                label="Auth method",
+                required=True,
+                defaultValue="oauth",
+                options=[
+                    SourceFieldSelectConfigOption(
+                        label="OAuth",
+                        value="oauth",
+                        fields=cast(
+                            list,
+                            [
+                                SourceFieldOauthAccountSelectConfig(
+                                    name="account_id",
+                                    label="Account",
+                                    integrationField="integration_id",
+                                    integrationKind="in-a-select-option",
+                                    required=True,
+                                )
+                            ],
+                        ),
+                    )
+                ],
+            ),
+        ]
+
+        assert get_oauth_integration_kinds(cast(list, fields)) == {"in-a-switch-group", "in-a-select-option"}
+
+    def test_source_without_oauth_fields_has_no_kinds(self):
+        fields = [
+            SourceFieldInputConfig(
+                name="host",
+                label="Host",
+                type=SourceFieldInputConfigType.TEXT,
+                required=True,
+                placeholder="",
+                secret=False,
+            )
+        ]
+
+        assert get_oauth_integration_kinds(cast(list, fields)) == set()
 
 
 class TestOAuthAccountsEndpoint(APIBaseTest):

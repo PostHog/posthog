@@ -18959,6 +18959,18 @@ export namespace Schemas {
       readonly team: number;
     }
 
+    /**
+     * * `events` - events
+     * * `persons` - persons
+     */
+    export type DatasetEnum = typeof DatasetEnum[keyof typeof DatasetEnum];
+
+
+    export const DatasetEnum = {
+      Events: 'events',
+      Persons: 'persons',
+    } as const;
+
     export interface DatasetItem {
       readonly id: string;
       dataset: string;
@@ -20817,6 +20829,8 @@ export namespace Schemas {
       readonly verified_by: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+      readonly warehouse_origin: unknown;
     }
 
     export interface ErrorResponse {
@@ -33228,6 +33242,155 @@ export namespace Schemas {
       readonly duration_ms: number | null;
     }
 
+    /**
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown
+     */
+    export type ManagedWarehouseReadinessStateEnum = typeof ManagedWarehouseReadinessStateEnum[keyof typeof ManagedWarehouseReadinessStateEnum];
+
+
+    export const ManagedWarehouseReadinessStateEnum = {
+      NotConfigured: 'not_configured',
+      Waiting: 'waiting',
+      Backfilling: 'backfilling',
+      CatchingUp: 'catching_up',
+      UpToDate: 'up_to_date',
+      NeedsAttention: 'needs_attention',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ManagedWarehouseDatasetStatus {
+      /** Warehouse dataset represented by this status.
+       *
+       * * `events` - events
+       * * `persons` - persons */
+      dataset: DatasetEnum;
+      /** User-facing readiness state for this dataset.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Human-readable explanation of the current readiness state. */
+      detail: string;
+      /** Number of historical backfill partitions completed successfully. */
+      completed_partitions: number;
+      /**
+         * Expected historical partitions, or null while the range is being calculated.
+         * @nullable
+         */
+      total_partitions: number | null;
+      /**
+         * Partition currently running or requiring attention, when applicable.
+         * @nullable
+         */
+      current_partition: string | null;
+      /**
+         * When the durable backfill status last changed.
+         * @nullable
+         */
+      last_updated_at: string | null;
+    }
+
+    export interface ManagedWarehouseSourceTableStatus {
+      /** Imported source schema identifier. */
+      schema_id: string;
+      /** Imported source connection identifier. */
+      source_id: string;
+      /** Display name for the imported source connection. */
+      source_name: string;
+      /** Type of the imported source connection. */
+      source_type: string;
+      /** Imported table name. */
+      table_name: string;
+      /** User-facing warehouse readiness state for this table.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Human-readable explanation of the table's readiness state. */
+      detail: string;
+      /** Backfill chunks already copied into the warehouse. */
+      completed_chunks: number;
+      /**
+         * Total backfill chunks, or null before the copy plan is ready.
+         * @nullable
+         */
+      total_chunks: number | null;
+      /**
+         * Imported batches waiting to be applied, or null when queue status is unavailable.
+         * @nullable
+         */
+      pending_batches: number | null;
+      /**
+         * Creation time of the oldest unapplied imported batch.
+         * @nullable
+         */
+      oldest_pending_at: string | null;
+      /**
+         * When an imported batch was most recently applied to the warehouse.
+         * @nullable
+         */
+      last_applied_at: string | null;
+      /**
+         * When PostHog most recently completed the upstream source import.
+         * @nullable
+         */
+      last_synced_at: string | null;
+    }
+
+    export interface ManagedWarehouseSourcesStatus {
+      /** Rolled-up readiness state for imported source tables.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Human-readable explanation of imported source readiness. */
+      detail: string;
+      /** Per-table source backfill and live import application statuses. */
+      tables: ManagedWarehouseSourceTableStatus[];
+    }
+
+    export interface ManagedWarehouseDataStatusResponse {
+      /** Highest-priority readiness state across all warehouse datasets.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      overall_readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Events backfill readiness. */
+      events: ManagedWarehouseDatasetStatus;
+      /** Persons backfill readiness. */
+      persons: ManagedWarehouseDatasetStatus;
+      /** Imported source table readiness. */
+      sources: ManagedWarehouseSourcesStatus;
+      /** When this status snapshot was generated. */
+      generated_at: string;
+    }
+
     export interface MarkToleratedInput {
       /** UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes. */
       snapshot_id: string;
@@ -41217,6 +41380,8 @@ export namespace Schemas {
       readonly verified_by?: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+      readonly warehouse_origin?: unknown;
     }
 
     /**
