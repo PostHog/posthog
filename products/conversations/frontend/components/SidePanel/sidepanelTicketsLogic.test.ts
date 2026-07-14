@@ -46,6 +46,10 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.view).toBe('new')
         expect(JSON.stringify(logic.values.newTicketDraft)).toContain('It broke')
         expect(supportLogic.values.isEmailFormOpen).toBe(false)
+
+        // Leaving the composer clears the prefill so a later blank "New ticket" starts empty
+        logic.actions.setView('list')
+        expect(logic.values.newTicketDraft).toBeNull()
     })
 
     it('switches to the composer when the support form opens while already mounted', async () => {

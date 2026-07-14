@@ -8,7 +8,7 @@ import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 export function NewTicket(): JSX.Element {
     const { messageSending, newTicketDraft } = useValues(sidepanelTicketsLogic)
-    const { sendMessage, setView, setNewTicketDraft } = useActions(sidepanelTicketsLogic)
+    const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
 
     return (
         <div className="flex flex-col">
@@ -22,6 +22,9 @@ export function NewTicket(): JSX.Element {
                 <span className="font-semibold">New ticket</span>
             </div>
 
+            {/* draftContent seeds the editor from a prefilled CTA; no onDraftChange, since routing
+                typing back through the logic (which keys this component) would remount on every
+                keystroke and drop focus. The draft is a one-shot initial value. */}
             <MessageInput
                 onSendMessage={(content, _richContent, _isPrivate, onSuccess) => sendMessage(content, onSuccess)}
                 messageSending={messageSending}
@@ -29,7 +32,6 @@ export function NewTicket(): JSX.Element {
                 buttonText="Submit ticket"
                 minRows={4}
                 draftContent={newTicketDraft}
-                onDraftChange={setNewTicketDraft}
             />
         </div>
     )

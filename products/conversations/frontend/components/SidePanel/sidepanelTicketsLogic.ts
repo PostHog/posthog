@@ -120,10 +120,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             null as JSONContent | null,
             {
                 setNewTicketDraft: (_, { content }) => content,
+                // Clear once we leave the composer so a later blank "New ticket" doesn't show a stale prefill
+                setView: (state, { view }) => (view === 'new' ? state : null),
             },
         ],
-        // Bumped whenever a draft is injected from outside, so NewTicket can remount its editor
-        // (the rich text editor only reads initial content at creation)
+        // Bumped only when a draft is injected via setNewTicketDraft (a prefilled CTA), so NewTicket
+        // remounts to pick up the seeded content. Plain typing never calls this, so it doesn't remount.
         newTicketDraftRevision: [
             0,
             {
