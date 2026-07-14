@@ -36,20 +36,15 @@ class SignalSourceTypesState:
 def signal_source_types_state(
     *, team_id: int, source_product: str, source_types: tuple[str, ...]
 ) -> SignalSourceTypesState:
-    enabled_types = set(
+    rows = list(
         SignalSourceConfig.objects.filter(
             team_id=team_id,
             source_product=source_product,
             source_type__in=source_types,
-            enabled=True,
-        ).values_list("source_type", flat=True)
+        ).values_list("source_type", "enabled")
     )
-    configured = SignalSourceConfig.objects.filter(
-        team_id=team_id,
-        source_product=source_product,
-        source_type__in=source_types,
-    ).exists()
-    return SignalSourceTypesState(configured=configured, all_enabled=enabled_types == set(source_types))
+    enabled_types = {source_type for source_type, enabled in rows if enabled}
+    return SignalSourceTypesState(configured=bool(rows), all_enabled=enabled_types == set(source_types))
 
 
 def set_signal_source_types_enabled(
@@ -73,18 +68,12 @@ def set_signal_source_types_enabled(
             ).update(enabled=False)
             return
         for source_type in source_types:
-            row, created = SignalSourceConfig.objects.get_or_create(
+            SignalSourceConfig.objects.update_or_create(
                 team_id=team_id,
                 source_product=source_product,
                 source_type=source_type,
                 defaults={"enabled": True, "config": config or {}, "created_by_id": created_by_id},
             )
-            if created:
-                continue
-            row.enabled = True
-            row.config = config or {}
-            row.created_by_id = created_by_id
-            row.save(update_fields=["enabled", "config", "created_by", "updated_at"])
 
 
 def _token_count(text: str) -> int:
