@@ -35,7 +35,6 @@ PRODUCTS_APPS = [
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
-    "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
@@ -100,6 +99,15 @@ PRODUCTS_APPS = [
     "products.approvals.backend.apps.ApprovalsConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
 ]
+
+# Stamphog is registered only when its product DB is available: its own writer URL in production, or the
+# auto-provisioned local/test DB (DEBUG/TEST default it, see settings/data_stores.py). Without a configured
+# DB, ProductDBRouter drops the stamphog route and both its migrations and its writes silently fall back to
+# the DEFAULT database — schema pollution now, and rows that vanish when the real DB is later attached.
+# Gating registration on the DB keeps it fail-closed dark until provisioning sets the writer URL. See
+# posthog/product_db_router.py.
+if TEST or DEBUG or os.getenv("PRODUCT_DB_STAMPHOG_WRITER_URL"):
+    PRODUCTS_APPS.append("products.stamphog.backend.apps.StamphogConfig")
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
