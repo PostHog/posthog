@@ -28,7 +28,7 @@ interface FacetProps {
     maxHeight?: number
     /** For fixed facets: render zero-count values dimmed, and disabled unless already selected. */
     dimZeroCounts?: boolean
-    /** The facet's latest fetch failed — show an inline error instead of pretending the list is fresh. */
+    /** The facet's latest fetch failed — show an inline error instead of pretending the list is fresh (suppresses emptyLabel). */
     error?: boolean
 }
 
@@ -102,6 +102,7 @@ export function Facet({
                 (loading && options.length === 0 ? (
                     <div className="px-1 text-xs text-muted">Loading…</div>
                 ) : options.length === 0 ? (
+                    // The error line above already explains the missing values — don't add "No values".
                     !error && <div className="px-1 text-xs text-muted">{emptyLabel}</div>
                 ) : (
                     // Dim the list while a refetch is in flight (e.g. typing in search) so there's
@@ -146,6 +147,7 @@ interface FacetValueRowProps {
 }
 
 function FacetValueRow({
+    ariaAttributes,
     index,
     style,
     options,
@@ -154,14 +156,14 @@ function FacetValueRow({
     onToggle,
     dimZeroCounts,
 }: {
-    ariaAttributes: Record<string, unknown>
+    ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
     style: CSSProperties
 } & FacetValueRowProps): JSX.Element {
     const option = options[index]
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div style={style}>
+        <div style={style} {...ariaAttributes}>
             <FacetValueButton
                 option={option}
                 selected={selected.includes(option.value)}

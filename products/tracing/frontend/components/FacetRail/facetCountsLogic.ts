@@ -163,9 +163,12 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                 )
                 .map((s) => s.value)
             const fetchedKeys = new Set(fetched.map(([key]) => key))
+            const attemptedKeys = facets.map((f) => f.key)
+            // Fires before the final breakpoint, so a superseded batch can record error state — the
+            // winning batch immediately overwrites it, since every batch reports all attempted keys.
             actions.setFacetFetchErrors(
-                facets.map((f) => f.key),
-                facets.map((f) => f.key).filter((key) => !fetchedKeys.has(key))
+                attemptedKeys,
+                attemptedKeys.filter((key) => !fetchedKeys.has(key))
             )
             return { ...values.facetValues, ...Object.fromEntries(fetched) }
         }

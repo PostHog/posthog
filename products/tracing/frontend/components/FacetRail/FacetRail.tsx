@@ -97,20 +97,17 @@ export function FacetRail(): JSX.Element {
 
         // Dynamic facet: values + counts come straight from the cross-filtered endpoint (zeros never
         // appear), with any selected-but-absent values injected so they stay visible and toggleable.
+        const search = facet.searchable ? facetSearch[facet.key] : undefined
         return (
             <Facet
                 key={facet.key}
                 title={facet.title}
-                options={mergeSelectedIntoOptions(
-                    fetched,
-                    selected,
-                    facet.searchable ? facetSearch[facet.key] : undefined
-                )}
+                options={mergeSelectedIntoOptions(fetched, selected, search)}
                 selected={selected}
                 onToggle={onToggle}
                 loading={loading}
                 emptyLabel={facet.emptyLabel}
-                searchValue={facet.searchable ? (facetSearch[facet.key] ?? '') : undefined}
+                searchValue={facet.searchable ? (search ?? '') : undefined}
                 onSearchChange={facet.searchable ? (value) => setFacetSearch(facet.key, value) : undefined}
                 searchPlaceholder={facet.searchPlaceholder}
                 collapsed={collapsed}

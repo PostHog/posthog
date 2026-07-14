@@ -129,7 +129,7 @@ export const TracingSpansAttributeBreakdownCreateBody = /* @__PURE__ */ zod.obje
                 .string()
                 .optional()
                 .describe(
-                    "Type-ahead filter over the breakdown field's own values (case-insensitive substring match). Lets a facet's value search reach past the row limit."
+                    "Type-ahead filter over the breakdown field's own values (case-insensitive substring match). An empty string means no filter. Lets a facet's value search reach past the row limit."
                 ),
             orderBy: zod
                 .enum(['count', 'error_count'])

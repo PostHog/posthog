@@ -379,8 +379,9 @@ class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
     )
     facetSearch = serializers.CharField(
         required=False,
+        allow_blank=True,
         help_text="Type-ahead filter over the breakdown field's own values (case-insensitive substring match). "
-        "Lets a facet's value search reach past the row limit.",
+        "An empty string means no filter. Lets a facet's value search reach past the row limit.",
     )
     orderBy = serializers.ChoiceField(
         choices=["count", "error_count"],

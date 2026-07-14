@@ -69,7 +69,7 @@
                     "type": "boolean"
                 },
                 "facetSearch": {
-                    "description": "Type-ahead filter over the breakdown field's own values (case-insensitive substring match). Lets a facet's value search reach past the row limit.",
+                    "description": "Type-ahead filter over the breakdown field's own values (case-insensitive substring match). An empty string means no filter. Lets a facet's value search reach past the row limit.",
                     "type": "string"
                 },
                 "filterGroup": {
