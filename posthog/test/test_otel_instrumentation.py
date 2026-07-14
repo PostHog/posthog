@@ -5,6 +5,8 @@ import logging
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.otel_instrumentation import _otel_django_request_hook, _otel_django_response_hook, initialize_otel
 
 
@@ -241,10 +243,11 @@ class TestOtelInstrumentation(BaseTest):
 
         mock_span.set_attribute.assert_not_called()
 
-    def test_otel_django_response_hook(self):
+    @parameterized.expand([("GET", "GET api/projects/<int:team_id>/insights/"), ("CUSTOM", "HTTP")])
+    def test_otel_django_response_hook(self, request_method, expected_span_name):
         mock_span = mock.Mock()
         mock_span.is_recording.return_value = True
-        mock_request = mock.Mock(method="GET")
+        mock_request = mock.Mock(method=request_method)
         mock_request.resolver_match.route = "api/projects/<int:team_id>/insights/"
         mock_response = mock.Mock()
         mock_response.status_code = 200
@@ -258,7 +261,7 @@ class TestOtelInstrumentation(BaseTest):
                 mock.call("http.route", "api/projects/<int:team_id>/insights/"),
             ],
         )
-        mock_span.update_name.assert_called_once_with("GET api/projects/<int:team_id>/insights/")
+        mock_span.update_name.assert_called_once_with(expected_span_name)
 
     def test_otel_django_response_hook_without_resolved_route(self):
         mock_span = mock.Mock()

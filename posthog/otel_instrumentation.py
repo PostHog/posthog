@@ -16,6 +16,7 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.util.http import sanitize_method
 
 # Get a structlog logger for this module's own messages
 logger = structlog.get_logger(__name__)
@@ -37,7 +38,8 @@ def _otel_django_response_hook(span, request, response):
         route = resolver_match.route if resolver_match else None
         if route:
             span.set_attribute("http.route", route)
-            span.update_name(f"{request.method} {route}")
+            http_method = sanitize_method(request.method.strip())
+            span.update_name("HTTP" if http_method == "_OTHER" else f"{http_method} {route}")
 
 
 def initialize_otel():
