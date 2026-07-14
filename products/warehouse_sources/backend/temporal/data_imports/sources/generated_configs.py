@@ -3946,7 +3946,7 @@ class VantageSourceConfig(config.Config):
 
 @config.config
 class VapiSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
