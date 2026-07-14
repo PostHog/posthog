@@ -1,3 +1,4 @@
+import json
 import time
 import dataclasses
 from collections.abc import Iterator
@@ -66,10 +67,50 @@ class NotionNotFoundError(Exception):
 
 
 class NotionBadRequestError(Exception):
-    """Notion returned 400 for a per-page resource. Some blocks advertise has_children but cannot be
-    expanded via the API (e.g. blocks backed by synced/external content), so Notion rejects the
-    children request. Like a 404, this is recoverable in the fan-out streams (blocks/comments): skip
-    the offending block/page and keep syncing rather than crashing the whole sync."""
+    """Notion returned 400. Two distinct cases surface as this error, told apart by the parsed
+    `code`/`message`:
+
+    - A per-page 400 (block children): some blocks advertise has_children but cannot be expanded via
+      the API (e.g. blocks backed by synced/external content). Like a 404, this is recoverable in the
+      fan-out streams (blocks/comments): skip the offending block/page and keep syncing.
+    - A stale search/users pagination cursor: Notion invalidates the cursor when the result set
+      shifts mid-enumeration (our search sorts by last_edited_time ascending, so a page edited during
+      the sync moves and the persisted cursor no longer resolves). This is recoverable by restarting
+      pagination — see `_is_invalid_cursor_error`."""
+
+    def __init__(self, message: str, *, code: str | None = None, notion_message: str | None = None) -> None:
+        super().__init__(message)
+        # Notion's error `code` (e.g. "validation_error") and human `message`, parsed from the body so
+        # callers can distinguish the has_children quirk from a stale-cursor error.
+        self.code = code
+        self.notion_message = notion_message
+
+
+# How many times a search/users pagination may restart from the beginning after Notion invalidates
+# its cursor before we give up and end the enumeration gracefully. A stale cursor is rare and
+# self-clearing once the edit burst settles, so a few restarts is plenty; the bound stops a workspace
+# under continuous edits from re-enumerating forever.
+MAX_CURSOR_RESTARTS = 3
+
+
+def _parse_error_body(body: str) -> tuple[str | None, str | None]:
+    """Pull Notion's `code` and `message` out of a JSON error body, tolerating a non-JSON body."""
+    try:
+        parsed = json.loads(body)
+    except (ValueError, TypeError):
+        return None, None
+    if not isinstance(parsed, dict):
+        return None, None
+    code = parsed.get("code")
+    message = parsed.get("message")
+    return (code if isinstance(code, str) else None, message if isinstance(message, str) else None)
+
+
+def _is_invalid_cursor_error(exc: NotionBadRequestError) -> bool:
+    # Notion answers a stale pagination cursor with validation_error and a message naming
+    # start_cursor. Match on both: the has_children quirk is also a validation_error, so the message
+    # is what tells the recoverable-cursor case apart from it.
+    return exc.code == "validation_error" and exc.notion_message is not None and "start_cursor" in exc.notion_message
 
 
 @dataclasses.dataclass
@@ -181,13 +222,16 @@ def _request(
     if response.status_code == 404:
         raise NotionNotFoundError(f"Notion resource not found: url={url}")
 
-    # A 400 on a per-page resource (block children) means Notion rejects expanding that specific
-    # block even though it advertised has_children. The fan-out streams skip it; on the collection
-    # endpoints (search/users) a 400 is a genuine bad request and propagates as a sync failure.
+    # A 400 can mean a block that can't be expanded (fan-out streams skip it) or a stale search/users
+    # pagination cursor (recovered by restarting). Parse Notion's `code`/`message` onto the error so
+    # callers can tell the two apart; keep the raw body in the message for logging.
     if response.status_code == 400:
-        # Carry Notion's error body so callers can log its `code`/`message` (e.g. `validation_error`),
-        # which distinguishes the known has_children quirk from an unexpected 400.
-        raise NotionBadRequestError(f"Notion rejected request: url={url}, body={response.text}")
+        code, notion_message = _parse_error_body(response.text)
+        raise NotionBadRequestError(
+            f"Notion rejected request: url={url}, body={response.text}",
+            code=code,
+            notion_message=notion_message,
+        )
 
     if not response.ok:
         logger.error(f"Notion API error: status={response.status_code}, body={response.text}, url={url}")
@@ -223,6 +267,33 @@ def _search_body(object_filter: str, cursor: str | None) -> dict[str, Any]:
     return body
 
 
+def _recover_stale_cursor(exc: NotionBadRequestError, restarts: int, logger: FilteringBoundLogger, stream: str) -> bool:
+    """Decide how to handle a 400 raised while paginating search/users.
+
+    Returns True to restart pagination from the beginning (caller resets its cursor to None), or
+    False to end the enumeration gracefully — better a partial sync than a crashed one. Re-raises
+    when the 400 is not a recoverable stale-cursor error (e.g. a genuine bad request), preserving the
+    previous fail-loud behaviour for those.
+    """
+    if not _is_invalid_cursor_error(exc):
+        raise exc
+    if restarts >= MAX_CURSOR_RESTARTS:
+        logger.warning(
+            "Notion: search cursor still invalid after restarts; ending enumeration early",
+            stream=stream,
+            restarts=restarts,
+            error=str(exc),
+        )
+        return False
+    logger.warning(
+        "Notion: search pagination cursor invalidated mid-run; restarting from the beginning",
+        stream=stream,
+        restart=restarts + 1,
+        error=str(exc),
+    )
+    return True
+
+
 def _search_stream(
     session: requests.Session,
     config: NotionEndpointConfig,
@@ -235,16 +306,27 @@ def _search_stream(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     cursor = resume.next_cursor if resume is not None else None
+    restarts = 0
 
     while True:
-        data = _request(
-            session,
-            "POST",
-            "/v1/search",
-            logger,
-            json_body=_search_body(config.object_filter, cursor),
-            throttle=throttle,
-        )
+        try:
+            data = _request(
+                session,
+                "POST",
+                "/v1/search",
+                logger,
+                json_body=_search_body(config.object_filter, cursor),
+                throttle=throttle,
+            )
+        except NotionBadRequestError as e:
+            # A stale cursor (e.g. pages edited mid-sync shifting the last_edited_time ordering) must
+            # not crash the whole sync; restart pagination or end it gracefully. Duplicates re-emitted
+            # by a restart are deduped on the "id" primary key at merge.
+            if _recover_stale_cursor(e, restarts, logger, config.name):
+                restarts += 1
+                cursor = None
+                continue
+            break
         results = data.get("results", [])
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
@@ -274,13 +356,23 @@ def _users_stream(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     cursor = resume.next_cursor if resume is not None else None
+    restarts = 0
 
     while True:
         params: dict[str, Any] = {"page_size": NOTION_PAGE_SIZE}
         if cursor:
             params["start_cursor"] = cursor
 
-        data = _request(session, "GET", "/v1/users", logger, params=params, throttle=throttle)
+        try:
+            data = _request(session, "GET", "/v1/users", logger, params=params, throttle=throttle)
+        except NotionBadRequestError as e:
+            # A stale cursor must restart pagination or end it gracefully rather than crash the sync;
+            # re-emitted duplicates are deduped on the "id" primary key at merge.
+            if _recover_stale_cursor(e, restarts, logger, "users"):
+                restarts += 1
+                cursor = None
+                continue
+            break
         results = data.get("results", [])
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
@@ -304,14 +396,32 @@ def _iter_page_ids(
     session: requests.Session, logger: FilteringBoundLogger, throttle: Optional["_RateLimiter"] = None
 ) -> Iterator[str]:
     cursor: str | None = None
+    restarts = 0
+    # Track yielded ids so a restart (after a stale cursor) re-enumerates without re-driving the
+    # blocks/comments fan-out over pages already emitted. The blocks stream materializes this into a
+    # list up front anyway, so holding the id set here is no extra memory concern.
+    seen: set[str] = set()
     while True:
-        data = _request(
-            session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor), throttle=throttle
-        )
+        try:
+            data = _request(
+                session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor), throttle=throttle
+            )
+        except NotionBadRequestError as e:
+            # A stale search cursor must not crash the comments/blocks sync (the reported bug). Restart
+            # enumeration from the beginning, or end it gracefully once restarts are exhausted.
+            if _recover_stale_cursor(e, restarts, logger, "pages"):
+                restarts += 1
+                cursor = None
+                continue
+            break
         for item in data.get("results", []):
             # "id" is the primary key driving the blocks/comments fan-out; access it directly so a
             # malformed response missing it surfaces loudly instead of silently dropping the page.
-            yield item["id"]
+            page_id = item["id"]
+            if page_id in seen:
+                continue
+            seen.add(page_id)
+            yield page_id
         if not data.get("has_more") or not data.get("next_cursor"):
             break
         cursor = data["next_cursor"]
