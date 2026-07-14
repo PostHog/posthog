@@ -2263,15 +2263,6 @@ export interface TasksTeamConfigResponseApi {
     ai_run_preferences: TasksAIRunPreferencesApi
 }
 
-export interface PaginatedTasksTeamConfigResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TasksTeamConfigResponseApi[]
-}
-
 /**
  * * `user` - user
  * * `team` - team
@@ -2322,15 +2313,6 @@ export interface TasksUserConfigResponseApi {
     ai_run_preferences: TasksAIRunPreferencesApi
     /** The defaults a new run will use when no explicit runtime selection is sent. */
     resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
-}
-
-export interface PaginatedTasksUserConfigResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TasksUserConfigResponseApi[]
 }
 
 export interface TaskRepositoriesResponseApi {
