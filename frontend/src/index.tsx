@@ -12,13 +12,16 @@ import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
 // Lazy-load App so the entry chunk stays minimal: the entire transitive dependency
 // graph (kea, posthog-js, scene logic, UI components) is only fetched when it renders.
-// bootApp() runs the chunk's one-time boot side effects (posthog-js, kea) after the
-// chunk loads and before <App /> first renders.
+// bootApp() runs the one-time boot side effects (posthog-js, kea) after the chunks
+// load and before <App /> first renders. It lives in its own module so scenes/App
+// keeps component-only exports and stays a React Fast Refresh boundary.
 const App = lazy(() =>
-    retryImport(() => import('scenes/App')).then((mod) => {
-        mod.bootApp()
-        return { default: mod.App }
-    })
+    Promise.all([retryImport(() => import('scenes/App')), retryImport(() => import('scenes/bootApp'))]).then(
+        ([appModule, bootModule]) => {
+            bootModule.bootApp()
+            return { default: appModule.App }
+        }
+    )
 )
 
 function renderApp(): void {
