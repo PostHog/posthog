@@ -15,7 +15,7 @@ import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
@@ -1219,6 +1219,18 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(404)
             expect(res.body.error).toEqual('Workflow not found')
+        })
+
+        it("errors when requesting another team's hog flow", async () => {
+            const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+
+            const res = await supertest(app).get(
+                `/api/projects/${otherTeamId}/hog_flows/${countHogFlow.id}/in_flight_count`
+            )
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Workflow not found')
+            expect(mockCountInFlightJobs).not.toHaveBeenCalled()
         })
 
         it('errors if the cyclotron producer is not configured', async () => {
