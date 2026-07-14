@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Annotated, Any, Generic, Literal, Self, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 from pydantic import (
     AwareDatetime,
@@ -318,7 +318,7 @@ from posthog.schema_enums import (
 _RootT = TypeVar("_RootT")
 
 
-def _ensure_built(cls: type[_PydanticBaseModel]) -> None:
+def _ensure_built(cls: type[Any]) -> None:
     if not cls.__pydantic_complete__:
         cls.model_rebuild()
 
@@ -412,12 +412,11 @@ class _DeferredBuildGuards:
 
     pydantic-core's serializer does not lazily build (unlike validation), so an instance
     of an unbuilt class poisons any later dump that reaches it through an `Any`-typed
-    field. The ways such an instance can come to exist are guarded here and in the
-    per-class `model_construct` overrides below.
+    field. The ways such an instance can come to exist are guarded here.
     """
 
     @classmethod
-    def model_rebuild(cls, **kwargs: Any) -> bool | None:  # type: ignore[misc]
+    def model_rebuild(cls, **kwargs: Any) -> bool | None:
         if cls.__pydantic_complete__ and not kwargs.get("force"):  # type: ignore[attr-defined]
             return None
         with _build_lock:
@@ -443,8 +442,8 @@ class _DeferredBuildGuards:
         # An external schema build referencing this class (another model's rebuild, or a
         # TypeAdapter such as temporal's pydantic payload converter) inlines this class's
         # schema and can then construct its instances — so complete the class itself too.
-        if source is cls and not cls.__pydantic_complete__ and cls not in _building_set():  # type: ignore[attr-defined]
-            cls.model_rebuild()  # type: ignore[attr-defined]
+        if source is cls and not cls.__pydantic_complete__ and cls not in _building_set():
+            cls.model_rebuild()
         # Inlined fallback for the deprecated super().__get_pydantic_core_schema__ shim
         # (PydanticDeprecatedSince211, slated for removal in pydantic V3): return the
         # class's own schema if pydantic already built one, else let the handler build it.
@@ -452,6 +451,14 @@ class _DeferredBuildGuards:
         if schema is not None and not isinstance(schema, MockCoreSchema):
             return schema
         return handler(source)
+
+    @classmethod
+    def model_construct(cls, *args: Any, **kwargs: Any) -> Any:
+        # Fully permissive signature so it composes with both BaseModel's and
+        # RootModel's `model_construct` (and the pydantic mypy plugin's synthesized
+        # per-class versions) without per-class overrides.
+        _ensure_built(cls)
+        return super().model_construct(*args, **kwargs)  # type: ignore[misc]
 
     def __setstate__(self, state: dict[Any, Any]) -> None:
         _ensure_built(type(self))
@@ -462,20 +469,10 @@ class BaseModel(_DeferredBuildGuards, _PydanticBaseModel):
     # Core-schema building is deferred to first use: see bin/patch-schema-defer-build.py
     model_config = ConfigDict(defer_build=True)
 
-    @classmethod
-    def model_construct(cls, _fields_set: set[str] | None = None, **values: Any) -> Self:
-        _ensure_built(cls)
-        return super().model_construct(_fields_set, **values)
-
 
 class RootModel(_DeferredBuildGuards, _PydanticRootModel[_RootT], Generic[_RootT]):
     # Core-schema building is deferred to first use: see bin/patch-schema-defer-build.py
     model_config = ConfigDict(defer_build=True)
-
-    @classmethod
-    def model_construct(cls, root: _RootT, _fields_set: set[str] | None = None) -> Self:  # type: ignore[override]
-        _ensure_built(cls)
-        return super().model_construct(root, _fields_set=_fields_set)
 
 
 class SchemaRoot(RootModel[Any]):
