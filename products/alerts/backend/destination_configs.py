@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Any
 
 from django.db import models
@@ -16,11 +15,12 @@ class DestinationType(models.TextChoices):
     TEAMS = "teams", "Microsoft Teams"
 
 
-class AlertDestinationTemplate(StrEnum):
-    SLACK = "template-slack"
-    DISCORD = "template-discord"
-    WEBHOOK = "template-webhook"
-    TEAMS = "template-microsoft-teams"
+DESTINATION_TEMPLATE_IDS: dict[DestinationType, str] = {
+    DestinationType.SLACK: "template-slack",
+    DestinationType.DISCORD: "template-discord",
+    DestinationType.WEBHOOK: "template-webhook",
+    DestinationType.TEAMS: "template-microsoft-teams",
+}
 
 
 WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}

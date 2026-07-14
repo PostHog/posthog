@@ -29,7 +29,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.destination_configs import AlertDestinationTemplate, DestinationType
+from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS, DestinationType
 from products.alerts.backend.destinations import (
     AlertDestinationOwnershipError,
     create_alert_destination_hog_functions,
@@ -355,17 +355,21 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
         # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
         team_id = obj.team_id
-        template_ids = (
+        configured_template_ids = set(
             HogFunction.objects.filter(
                 team_id=team_id,
                 deleted=False,
-                template_id__in=list(AlertDestinationTemplate),
+                template_id__in=DESTINATION_TEMPLATE_IDS.values(),
                 filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
             )
             .values_list("template_id", flat=True)
             .distinct()
         )
-        return sorted(AlertDestinationTemplate(template_id).name.lower() for template_id in template_ids)
+        return sorted(
+            destination_type.value
+            for destination_type, template_id in DESTINATION_TEMPLATE_IDS.items()
+            if template_id in configured_template_ids
+        )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:

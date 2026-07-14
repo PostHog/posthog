@@ -18,7 +18,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
-from products.alerts.backend.destination_configs import AlertDestinationConfig, AlertDestinationTemplate
+from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS, AlertDestinationConfig
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -72,7 +72,7 @@ def soft_delete_alert_destinations(
                 event_filter,
                 team_id=team_id,
                 id__in=unique_ids,
-                template_id__in=list(AlertDestinationTemplate),
+                template_id__in=DESTINATION_TEMPLATE_IDS.values(),
                 filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
             )
             .values_list("id", flat=True)
@@ -92,7 +92,7 @@ def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_e
                 _allowed_event_filter(allowed_event_ids),
                 team_id=team_id,
                 deleted=False,
-                template_id__in=list(AlertDestinationTemplate),
+                template_id__in=DESTINATION_TEMPLATE_IDS.values(),
                 filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
             )
             .values_list("id", flat=True)

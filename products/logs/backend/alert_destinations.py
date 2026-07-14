@@ -6,9 +6,9 @@ from typing import Literal, NotRequired, TypedDict
 from urllib.parse import urlsplit
 
 from products.alerts.backend.destination_configs import (
+    DESTINATION_TEMPLATE_IDS,
     WEBHOOK_HEADERS,
     AlertDestinationConfig,
-    AlertDestinationTemplate,
     DestinationType,
     EventKindSpec,
     build_alert_destination_config,
@@ -241,7 +241,7 @@ def build_destination_config(
     if data["type"] == DestinationType.SLACK:
         channel_display = data.get("slack_channel_name") or "channel"
         name = f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}"
-        template_id = AlertDestinationTemplate.SLACK
+        template_id = DESTINATION_TEMPLATE_IDS[DestinationType.SLACK]
         inputs = {
             "blocks": {"value": slack_blocks(spec, _SLACK_CONTEXT_ELEMENTS)},
             "text": {"value": spec.header},
@@ -250,7 +250,7 @@ def build_destination_config(
         }
     elif data["type"] == DestinationType.WEBHOOK:
         name = f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {data['webhook_url']}"
-        template_id = AlertDestinationTemplate.WEBHOOK
+        template_id = DESTINATION_TEMPLATE_IDS[DestinationType.WEBHOOK]
         inputs = {
             "body": {"value": spec.webhook_body},
             "url": {"value": data["webhook_url"]},
@@ -258,14 +258,14 @@ def build_destination_config(
         }
     elif data["type"] == DestinationType.DISCORD:
         name = f"Logs alert — {alert.name} ({spec.display_kind}) → Discord"
-        template_id = AlertDestinationTemplate.DISCORD
+        template_id = DESTINATION_TEMPLATE_IDS[DestinationType.DISCORD]
         inputs = {
             "webhookUrl": {"value": data["webhook_url"]},
             "content": {"value": teams_text(spec)},
         }
     else:
         name = f"Logs alert — {alert.name} ({spec.display_kind}) → Microsoft Teams"
-        template_id = AlertDestinationTemplate.TEAMS
+        template_id = DESTINATION_TEMPLATE_IDS[DestinationType.TEAMS]
         inputs = {
             "webhookUrl": {"value": data["webhook_url"]},
             "text": {"value": teams_text(spec)},
