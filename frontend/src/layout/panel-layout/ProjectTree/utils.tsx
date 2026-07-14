@@ -52,6 +52,8 @@ export interface ConvertProps {
     users?: Record<string, UserBasicType>
     foldersFirst?: boolean
     allShortcuts?: boolean
+    /** Skip injecting category header rows, listing all items in sequence instead. */
+    disableCategories?: boolean
 }
 
 export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = 'project://'): string {
@@ -122,6 +124,7 @@ export function convertFileSystemEntryToTreeDataItem({
     users,
     foldersFirst = true,
     allShortcuts = false,
+    disableCategories = false,
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
@@ -372,7 +375,7 @@ export function convertFileSystemEntryToTreeDataItem({
         }
     }
 
-    if (rootNodes.find((node) => node.record?.category)) {
+    if (!disableCategories && rootNodes.find((node) => node.record?.category)) {
         const newRootNodes: TreeDataItem[] = []
         let lastCategory: string | null = null
         for (const node of rootNodes) {
