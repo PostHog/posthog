@@ -354,6 +354,7 @@ export interface UserType extends UserBaseType {
     is_impersonated: boolean
     is_impersonated_until?: string
     is_impersonated_read_only?: boolean
+    is_impersonated_reason?: string | null
     sensitive_session_expires_at: string
     organization: OrganizationType | null
     team: TeamBasicType | null
@@ -5411,6 +5412,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'apns',
     'postgresql',
     'aws-s3',
     's3-compatible',
@@ -6946,6 +6948,7 @@ export type CyclotronJobInputSchemaType = {
         | 'choice'
         | 'json'
         | 'integration'
+        | 'integration_multi'
         | 'integration_field'
         | 'email'
         | 'native_email'
