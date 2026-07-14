@@ -18,7 +18,7 @@ const MAX_FILE_BYTES = 10_000_000
 //    budget to lock it in; raise it only as a conscious, reviewed decision in the PR that needs it.
 //    2026-07-07: 2,967,721 bytes measured when splitting landed; 2,764,847 after the
 //    replay-shared cut; 1,905,558 after the lazy menu boundaries; ~10% headroom.
-const MAX_EAGER_BYTES = 2_100_000
+const MAX_EAGER_BYTES = 1_700_000
 
 // 3. The loader is injected on every customer page that enables the toolbar and must stay tiny.
 //    2026-07-07: 1,153 bytes minified.
