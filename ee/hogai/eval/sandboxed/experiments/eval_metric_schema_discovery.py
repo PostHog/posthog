@@ -24,7 +24,7 @@ from ee.hogai.eval.sandboxed.experiments.scorers import (
 )
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, RequiredToolCall
+from ee.hogai.eval.sandboxed.scorers import RequiredToolCall
 
 
 async def eval_metric_schema_discovery(ctx: EvalContext) -> None:
@@ -55,7 +55,6 @@ async def eval_metric_schema_discovery(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-metric-schema-discovery-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             RequiredToolCall(required={"experiment-update"}, name="called_experiment_update"),
             FirstUpdateMetricShape(),
         ],

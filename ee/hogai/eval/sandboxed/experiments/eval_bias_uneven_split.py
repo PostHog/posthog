@@ -39,7 +39,6 @@ from ee.hogai.eval.sandboxed.experiments.seeders import (
     seed_uneven_split_experiment,
 )
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 async def eval_bias_uneven_split(ctx: EvalContext) -> None:
@@ -110,7 +109,6 @@ async def eval_bias_uneven_split(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-diagnose-bias-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             CitesDiagnosticGroup(),
             SurfacesAllFindings(),
         ],

@@ -35,7 +35,6 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.scorers import AdvisesAgainstShipping, CitesDiagnosticGroup
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 async def eval_interpretation_traps(ctx: EvalContext) -> None:
@@ -104,7 +103,6 @@ async def eval_interpretation_traps(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-diagnose-interpretation-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             CitesDiagnosticGroup(),
             AdvisesAgainstShipping(),
         ],

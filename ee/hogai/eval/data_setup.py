@@ -10,6 +10,7 @@ import uuid
 import logging
 import datetime
 
+from django.conf import settings
 from django.db import transaction
 from django.test import override_settings
 
@@ -42,6 +43,32 @@ def _build_hedgebox_matrix() -> HedgeboxMatrix:
         n_clusters=500,
         group_type_index_offset=0,
     )
+
+
+def _validate_sandboxed_eval_warehouse_config() -> None:
+    if not settings.OBJECT_STORAGE_ENABLED:
+        return
+
+    required_settings = (
+        "OBJECT_STORAGE_ENDPOINT",
+        "OBJECT_STORAGE_ACCESS_KEY_ID",
+        "OBJECT_STORAGE_SECRET_ACCESS_KEY",
+        "OBJECT_STORAGE_BUCKET",
+    )
+    missing_settings = [setting_name for setting_name in required_settings if not getattr(settings, setting_name, None)]
+    if missing_settings:
+        raise RuntimeError("Sandboxed eval warehouse setup requires these settings: " + ", ".join(missing_settings))
+
+
+def _master_warehouse_ready(team: Team) -> bool:
+    """True when the master team's demo warehouse CSVs are already in object storage.
+
+    Per-case teams register their own warehouse tables against the master team's stored
+    CSVs, so the presence of those files is what makes the master team reusable. Checked
+    under ``TEST=False`` because warehouse storage is intentionally disabled in test mode.
+    """
+    with override_settings(TEST=False):
+        return not _build_hedgebox_matrix().demo_data_warehouse_tables_need_saving(team.id)
 
 
 def create_isolated_demo_data(
@@ -103,6 +130,7 @@ def ensure_master_demo_team(django_db_blocker) -> int:
     """
 
     with django_db_blocker.unblock():
+        _validate_sandboxed_eval_warehouse_config()
         existing_org = Organization.objects.filter(name=MASTER_ORG_NAME).order_by("-created_at").first()
         if existing_org is not None:
             team = existing_org.teams.first()
@@ -112,9 +140,12 @@ def ensure_master_demo_team(django_db_blocker) -> int:
                     {"team_id": team.id},
                 )[0][0]
                 if ch_event_count > 0:
-                    logger.info("Reusing master demo team id=%d (events=%d)", team.id, ch_event_count)
-                    return team.id
-                logger.warning("Master demo team id=%d has no CH events — regenerating", team.id)
+                    if not settings.OBJECT_STORAGE_ENABLED or _master_warehouse_ready(team):
+                        logger.info("Reusing master demo team id=%d (events=%d)", team.id, ch_event_count)
+                        return team.id
+                    logger.warning("Master demo team id=%d has an incomplete warehouse; regenerating", team.id)
+                else:
+                    logger.warning("Master demo team id=%d has no CH events; regenerating", team.id)
             User.objects.filter(organization_membership__organization=existing_org).delete()
             existing_org.delete()
             User.objects.filter(email=MASTER_USER_EMAIL).delete()
@@ -129,6 +160,12 @@ def ensure_master_demo_team(django_db_blocker) -> int:
         with override_settings(TEST=False):
             _org, team, _user = matrix_manager.ensure_account_and_save(
                 MASTER_USER_EMAIL, EVAL_USER_FULL_NAME, MASTER_ORG_NAME
+            )
+
+        if settings.OBJECT_STORAGE_ENABLED and not _master_warehouse_ready(team):
+            raise RuntimeError(
+                "The Hedgebox master team warehouse is incomplete after generation. "
+                "Check object storage connectivity and the captured setup errors."
             )
         return team.id
 
@@ -199,8 +236,12 @@ def copy_demo_data_to_new_team(
         # per-case teams instead of returning "does not exist in the taxonomy".
         infer_taxonomy_for_team(team.id)
 
+        matrix = _build_hedgebox_matrix()
         with override_settings(TEST=False):
-            _build_hedgebox_matrix().set_project_up(team, user)
+            matrix.set_project_up(team, user)
+            # Point this team's warehouse tables at the master team's already-saved CSVs
+            # (keyed by the master team id) — the same pre-save path the demo signup uses.
+            matrix.register_demo_data_warehouse_tables(team, user, master_team_id)
 
         team.save()
         team.project.save()

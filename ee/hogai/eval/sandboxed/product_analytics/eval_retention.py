@@ -22,7 +22,7 @@ from ee.hogai.eval.sandboxed.product_analytics.scorers import (
     RetentionSchemaAlignment,
     RetentionTimeRangeRelevancy,
 )
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall
+from ee.hogai.eval.sandboxed.scorers import LastToolCallNot, NoToolCall
 
 
 def _retention_case(
@@ -128,7 +128,6 @@ async def eval_retention(ctx: EvalContext) -> None:
         experiment_name="sandboxed-retention-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
             LastToolCallNot(forbidden="execute-sql", name="last_call_not_execute_sql"),
             RetentionSchemaAlignment(),

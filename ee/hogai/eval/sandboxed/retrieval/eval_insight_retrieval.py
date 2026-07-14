@@ -23,7 +23,6 @@ from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.retrieval.scorers import LookupIdInOutput, SkillLoaded
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 from ee.hogai.eval.sandboxed.seeders.insight import seed_insight_noise
 
 SKILL_NAME = "querying-posthog-data"
@@ -75,7 +74,6 @@ async def eval_insight_retrieval(ctx: EvalContext) -> None:
         experiment_name="sandboxed-retrieval-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             SkillLoaded(skill_name=SKILL_NAME),
             LookupIdInOutput(),
         ],

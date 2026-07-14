@@ -70,7 +70,8 @@ python -m ee.hogai.eval.sandboxed.harness --list
 | `--fail-under <fraction>`        | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
 | `--list`                         | Print the discovered suite ids and exit.                                         |
 
-`EXPORT_EVAL_RESULTS=1` appends one JSON summary per experiment to `eval_results.jsonl`.
+`EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
+The full plain-text run transcript is always written without this setting.
 
 ### Codex runtime
 
@@ -115,6 +116,7 @@ Selecting more suites therefore increases throughput without increasing peak loa
 
 A separate one-at-a-time queue covers the full per-case team setup, including the demo-data clone and optional setup hook.
 These phases can issue large ClickHouse copies or direct inserts, so serializing them protects local ClickHouse from RAM exhaustion even when Modal sandbox capacity is unbounded.
+When object storage is enabled, setup also validates the master warehouse and clones team-scoped warehouse metadata for each case while reusing the master's immutable CSV files.
 Once setup completes, the queue advances to the next case while the prepared case runs its agent.
 
 A case holds a sandbox slot only for the window it actually needs one: team setup and the agent run.
@@ -136,17 +138,19 @@ There is no registry. Suites are discovered by convention:
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 async def eval_my_thing(ctx: EvalContext) -> None:
     await SandboxedPrivateEval(
         experiment_name="sandboxed-my-thing-cli",
         cases=[SandboxedEvalCase(name="my_case", prompt="...")],
-        scorers=[ExitCodeZero()],
+        scorers=[],
         ctx=ctx,
     )
 ```
+
+The harness automatically adds the `ExitCodeZero` scorer to every experiment.
+Do not add it to a suite's `scorers` list; the harness rejects duplicates.
 
 Bundle related cases into one suite function rather than splitting them across many.
 One suite is one Braintrust experiment, which is what makes cross-case comparison and `--eval` filtering useful.
@@ -162,9 +166,20 @@ python -m ee.hogai.eval.sandboxed.harness --list | grep my_thing
 
 ## Output
 
-Progress lines stream as cases finish.
-At the end, one table row per experiment shows the case count, per-scorer averages, duration, and the Braintrust URL, followed by the raw-log directories and a traceback for any suite that crashed.
-A crashing suite never takes the others down; the run exits non-zero instead.
+Progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
+Only the overall run uses `PASS` or `FAIL`, so a suite with a low behavioral score still reads as completed rather than passed.
+The final summary gives labeled suite and case totals, the score gate, total duration, and one block per experiment with scorer averages, PostHog and Braintrust URLs, and the agent-log directory.
+A crashed suite is labeled `CRASH`, includes its traceback in the summary, and makes the run exit nonzero without taking down the other suites.
+
+Every real eval invocation mirrors its complete stdout and stderr to:
+
+```text
+ee/hogai/eval/sandboxed/logs/harness/<timestamp>_<id>.log
+```
+
+The final terminal line is the absolute path to that transcript, with no label or output after it, so a person or agent can reliably open it.
+The transcript itself ends with the same path, and `logs/harness/latest.log` points to the newest transcript.
+Suite listing (`--list`) and argument errors do not create transcripts.
 
 Raw per-case agent logs land on local disk (`<case>.jsonl`, `<case>.artifacts.json`, `<case>.summary.txt`), which is usually the fastest way to see what the agent actually did.
 

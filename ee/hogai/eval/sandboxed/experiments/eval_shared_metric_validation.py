@@ -12,7 +12,7 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.scorers import SharedMetricValidationVerdict
 from ee.hogai.eval.sandboxed.experiments.seeders import SHARED_METRIC_NAME, seed_shared_metric_purchase_count
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, RequiredToolCall
+from ee.hogai.eval.sandboxed.scorers import RequiredToolCall
 
 
 async def eval_shared_metric_validation(ctx: EvalContext) -> None:
@@ -52,7 +52,6 @@ async def eval_shared_metric_validation(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-shared-metric-validation-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             # Agent must actually read the seeded metric — either via list
             # (to resolve by name) or retrieve (by ID). Hallucinating a
             # verdict without reading the metric should fail this scorer.

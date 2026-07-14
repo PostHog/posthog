@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import asyncio
 import traceback
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +19,8 @@ POSTHOG_EVALUATIONS_URL = (
     "https://us.posthog.com/project/2/ai-evals/evaluations/offline/experiments/{experiment_id}?offline_date_from=-1d"
 )
 
+CaseStatus = Literal["ok", "timeout", "error"]
+
 
 def _emit(text: str) -> None:
     print(text)  # noqa: T201 — this module is the single owner of harness terminal output
@@ -26,12 +28,7 @@ def _emit(text: str) -> None:
 
 @dataclass
 class SuiteRunResult:
-    """Outcome of one suite function, assembled by the orchestrator.
-
-    Carries only the crash and timing information the reporter cannot observe on
-    its own. Case counts, per-scorer scores, and the Braintrust URL all live on
-    the summaries the reporter collects via ``record_summary``.
-    """
+    """Outcome of one suite function, assembled by the orchestrator."""
 
     suite_id: str
     status: Literal["passed", "crashed"]
@@ -40,37 +37,50 @@ class SuiteRunResult:
 
 
 class ProgressReporter:
-    """Serializes every line the harness prints and owns the results export.
-
-    Suites run concurrently on one event loop, so their Braintrust score dumps
-    and log lines would otherwise interleave into noise. Every terminal write
-    goes through one ``asyncio.Lock``; the machine-readable JSONL export shares
-    the same lock so concurrent appends can't tear a line in half.
-    """
+    """Serializes harness output and renders the stable final summary."""
 
     def __init__(self, total_suites: int) -> None:
         self._total_suites = total_suites
         self._lock = asyncio.Lock()
         self._finished_suites = 0
-        # Insertion-ordered so the final table reads in the order suites completed.
         self._summaries: dict[str, ExperimentSummary] = {}
         self._case_counts: dict[str, int] = defaultdict(int)
         self._case_durations: dict[str, float] = defaultdict(float)
-        self._error_counts: dict[str, int] = defaultdict(int)
-        # Planned case total per experiment (post-filter, times trials), used to
-        # render a per-experiment progress counter on each case line.
+        self._case_statuses: dict[str, Counter[str]] = defaultdict(Counter)
+        self._summary_error_counts: dict[str, int] = defaultdict(int)
         self._experiment_totals: dict[str, int] = {}
+        self._posthog_urls: dict[str, str] = {}
+        self._log_dirs: dict[str, Path] = {}
+
+    def print_run_header(
+        self,
+        *,
+        provider: str,
+        agent_runtime: str,
+        agent_model: str,
+        max_sandboxes: int,
+        trials: int,
+    ) -> None:
+        lines = [
+            "Sandboxed eval run",
+            f"Suites: {self._total_suites}",
+            f"Provider: {provider}",
+            f"Agent: {agent_runtime} / {agent_model}",
+            f"Sandbox concurrency: {max_sandboxes}",
+            f"Trials per case: {trials}",
+            "",
+        ]
+        _emit("\n".join(lines))
 
     async def suite_started(self, suite_id: str) -> None:
         async with self._lock:
-            _emit(f"{self._counter()} START  {suite_id}")
+            _emit(f"SUITE START  {suite_id}")
 
-    async def experiment_started(self, experiment_name: str, planned_cases: int) -> None:
-        """Record how many cases this experiment will run, so ``case_done`` can
-        show a ``[done/total]`` counter. Suites register concurrently, so this
-        takes the lock even though it only writes."""
+    async def experiment_started(self, experiment_name: str, planned_cases: int, log_dir: Path) -> None:
         async with self._lock:
             self._experiment_totals[experiment_name] = planned_cases
+            self._log_dirs[experiment_name] = log_dir
+            _emit(f"EXPERIMENT START  {experiment_name}  [{planned_cases} cases]")
 
     async def case_done(
         self,
@@ -78,134 +88,161 @@ class ProgressReporter:
         case_name: str,
         *,
         duration_seconds: float,
-        status: Literal["ok", "timeout", "error"] = "ok",
+        status: CaseStatus = "ok",
     ) -> None:
-        """Keyed by experiment rather than suite id: a case only knows which
-        Braintrust experiment it belongs to, and that is what the table rows are.
-
-        ``status`` distinguishes a normal finish from a timeout (scored 0) or an
-        infra error (excluded from scores) so the two stand out in the live stream."""
         async with self._lock:
             self._case_counts[experiment_name] += 1
             self._case_durations[experiment_name] += duration_seconds
-            marker = {"ok": "case ", "timeout": "TMOUT", "error": "ERROR"}[status]
-            # Per-experiment case counter, distinct from the suite counter prefix;
-            # omitted when the experiment was never registered.
+            self._case_statuses[experiment_name][status] += 1
+            marker = {"ok": "DONE", "timeout": "TIMEOUT", "error": "ERROR"}[status]
             total = self._experiment_totals.get(experiment_name)
-            progress = f"  [{self._case_counts[experiment_name]}/{total}]" if total is not None else ""
-            _emit(f"{self._counter()} {marker}  {experiment_name} :: {case_name}  ({duration_seconds:.1f}s){progress}")
-
-    async def case_log_path(self, case_name: str, path: Path) -> None:
-        async with self._lock:
-            _emit(f"[eval-logs] {case_name}: {path}")
+            progress = f"[{self._case_counts[experiment_name]}/{total}]" if total is not None else ""
+            _emit(
+                f"CASE {marker:<7} {experiment_name} :: {case_name}  {progress}  {_format_duration(duration_seconds)}"
+            )
 
     async def suite_finished(self, result: SuiteRunResult) -> None:
         async with self._lock:
             self._finished_suites += 1
-            marker = "PASS " if result.status == "passed" else "CRASH"
-            _emit(f"{self._counter()} {marker}  {result.suite_id}  ({result.duration_seconds:.1f}s)")
+            marker = "DONE" if result.status == "passed" else "CRASH"
+            _emit(
+                f"SUITE {marker:<5} {result.suite_id}  "
+                f"[{self._finished_suites}/{self._total_suites} suites]  "
+                f"{_format_duration(result.duration_seconds)}"
+            )
 
     async def record_summary(self, experiment_name: str, summary: ExperimentSummary, *, error_count: int = 0) -> None:
-        """Store a Braintrust experiment summary for the final table and export it.
-
-        Suite functions do not return their Braintrust result up to the
-        orchestrator, so the reporter is the single place both the summary
-        table and the JSONL export can read from.
-
-        ``error_count`` is the number of cases Braintrust recorded as errored
-        (infra failures excluded from the scores), surfaced in the final table.
-        """
         async with self._lock:
             self._summaries[experiment_name] = summary
-            self._error_counts[experiment_name] = error_count
+            self._summary_error_counts[experiment_name] = error_count
             if os.getenv("EXPORT_EVAL_RESULTS"):
-                with open(EVAL_RESULTS_JSONL, "a") as f:
+                with open(EVAL_RESULTS_JSONL, "a", encoding="utf-8") as f:
                     f.write(summary.as_json() + "\n")
+            total = self._experiment_totals.get(experiment_name)
+            progress = f"[{self._case_counts[experiment_name]}/{total} cases]" if total is not None else ""
+            _emit(f"EXPERIMENT DONE  {experiment_name}  {progress}")
 
-    async def posthog_evaluations_url(self, experiment_id: str) -> None:
+    async def record_posthog_evaluations_url(self, experiment_name: str, experiment_id: str) -> None:
         async with self._lock:
-            _emit(f"\nPostHog evaluations: {POSTHOG_EVALUATIONS_URL.format(experiment_id=experiment_id)}\n")
+            self._posthog_urls[experiment_name] = POSTHOG_EVALUATIONS_URL.format(experiment_id=experiment_id)
 
-    def print_final_summary(self, results: Sequence[SuiteRunResult], log_dirs: set[Path]) -> None:
-        """Render the end-of-run table, raw-log locations, and crash tracebacks.
+    def print_final_summary(
+        self,
+        results: Sequence[SuiteRunResult],
+        *,
+        exit_code: int,
+        fail_under: float | None,
+        duration_seconds: float,
+    ) -> None:
+        crashed = sorted(
+            (result for result in results if result.status == "crashed"), key=lambda result: result.suite_id
+        )
+        case_statuses = self._combined_case_statuses()
+        lines = [
+            "",
+            "Sandboxed eval summary",
+            "----------------------",
+            f"Status: {'PASS' if exit_code == 0 else 'FAIL'}",
+            f"Suites: {len(results) - len(crashed)} done, {len(crashed)} crashed",
+            (
+                f"Cases: {case_statuses['ok']} done, {case_statuses['timeout']} timed out, "
+                f"{case_statuses['error']} errors"
+            ),
+            f"Mean score: {self._mean_score_text()}",
+            f"Score gate: {self._score_gate_text(fail_under)}",
+            f"Duration: {_format_duration(duration_seconds)}",
+        ]
 
-        Runs after every suite has settled, so it takes no lock. One row per
-        recorded experiment, then one row per crashed suite (which never
-        produced a summary).
-        """
-        crashed = [r for r in results if r.status == "crashed"]
-        name_width = self._name_column_width(crashed)
+        for experiment_name in sorted(self._summaries):
+            lines.extend(self._experiment_block(experiment_name, self._summaries[experiment_name]))
 
-        lines: list[str] = ["", _sep("sandboxed eval summary")]
-        for experiment_name, summary in self._summaries.items():
-            lines.extend(self._passed_rows(experiment_name, summary, name_width))
-        for result in crashed:
-            lines.extend(self._crashed_rows(result, name_width))
         if not self._summaries and not crashed:
-            lines.append("No experiments ran.")
+            lines.extend(["", "No experiments ran."])
 
-        lines.extend(self._log_dir_block(log_dirs))
-        lines.extend(self._traceback_block(crashed))
+        lines.extend(self._crash_block(crashed))
         _emit("\n".join(lines))
 
-    def mean_score(self) -> float | None:
-        """Unweighted mean over every per-scorer average across all recorded
-        summaries, or ``None`` when no scores were produced.
+    def print_incomplete_summary(self, *, status: str, duration_seconds: float) -> None:
+        _emit(
+            "\n".join(
+                [
+                    "",
+                    "Sandboxed eval summary",
+                    "----------------------",
+                    f"Status: {status}",
+                    f"Duration: {_format_duration(duration_seconds)}",
+                ]
+            )
+        )
 
-        Runs after every suite has settled (like ``print_final_summary``), so it
-        takes no lock. Every scorer average counts once, regardless of how many
-        cases fed it, matching how the final table reads."""
+    def mean_score(self) -> float | None:
         scores = [
-            s.score for summary in self._summaries.values() for s in summary.scores.values() if s.score is not None
+            score.score
+            for summary in self._summaries.values()
+            for score in summary.scores.values()
+            if score.score is not None
         ]
         if not scores:
             return None
         return sum(scores) / len(scores)
 
-    def print_line(self, text: str) -> None:
-        """Emit one line through the reporter. For post-settle callers (no lock),
-        so stdout ownership stays with this module instead of leaking bare prints."""
-        _emit(text)
+    def _combined_case_statuses(self) -> Counter[str]:
+        combined: Counter[str] = Counter()
+        experiment_names = self._case_statuses.keys() | self._summary_error_counts.keys()
+        for experiment_name in experiment_names:
+            statuses = self._case_statuses[experiment_name]
+            combined["ok"] += statuses["ok"]
+            combined["timeout"] += statuses["timeout"]
+            combined["error"] += max(statuses["error"], self._summary_error_counts[experiment_name])
+        return combined
 
-    def _counter(self) -> str:
-        return f"[{self._finished_suites}/{self._total_suites}]"
-
-    def _name_column_width(self, crashed: Sequence[SuiteRunResult]) -> int:
-        names = [*self._summaries.keys(), *(r.suite_id for r in crashed)]
-        return min(max((len(name) for name in names), default=0), 60)
-
-    def _passed_rows(self, experiment_name: str, summary: ExperimentSummary, name_width: int) -> list[str]:
-        case_count = self._case_counts.get(experiment_name, 0)
-        duration = self._case_durations.get(experiment_name, 0.0)
-        error_count = self._error_counts.get(experiment_name, 0)
-        errored = f", {error_count} errored" if error_count else ""
-        rows = [f"PASS   {experiment_name:<{name_width}}  {case_count:>3} cases{errored}  {duration:>7.1f}s"]
-        scores = "  ".join(f"{name} {s.score * 100:.1f}%" for name, s in summary.scores.items() if s.score is not None)
+    def _experiment_block(self, experiment_name: str, summary: ExperimentSummary) -> list[str]:
+        statuses = self._case_statuses[experiment_name]
+        error_count = max(statuses["error"], self._summary_error_counts[experiment_name])
+        lines = [
+            "",
+            f"Experiment: {experiment_name}",
+            (f"  Cases: {statuses['ok']} done, {statuses['timeout']} timed out, {error_count} errors"),
+            f"  Case time: {_format_duration(self._case_durations[experiment_name])}",
+        ]
+        scores = [score for score in summary.scores.values() if score.score is not None]
         if scores:
-            rows.append(f"         scores: {scores}")
-        rows.append(f"         url:    {summary.experiment_url or '(local run, no Braintrust experiment)'}")
-        return rows
+            lines.append("  Scores:")
+            lines.extend(f"    {score.name}: {score.score * 100:.1f}%" for score in scores)
+        else:
+            lines.append("  Scores: none")
 
-    def _crashed_rows(self, result: SuiteRunResult, name_width: int) -> list[str]:
-        rows = [f"CRASH  {result.suite_id:<{name_width}}  {'':>3}        {result.duration_seconds:>7.1f}s"]
-        if result.error is not None:
-            rows.append(f"         error:  {type(result.error).__name__}: {result.error}")
-        return rows
-
-    def _log_dir_block(self, log_dirs: set[Path]) -> list[str]:
-        if not log_dirs:
-            return []
-        lines = ["", _sep("sandboxed eval logs"), "Raw agent logs written to:"]
-        lines.extend(f"  {path}" for path in sorted(log_dirs))
-        lines.append("Files per case: <case>.jsonl (raw), <case>.artifacts.json, <case>.summary.txt")
+        posthog_url = self._posthog_urls.get(experiment_name)
+        if posthog_url:
+            lines.append(f"  PostHog: {posthog_url}")
+        lines.append(f"  Braintrust: {summary.experiment_url or '(local run, not uploaded)'}")
+        log_dir = self._log_dirs.get(experiment_name)
+        if log_dir:
+            lines.append(f"  Agent logs: {log_dir}")
         return lines
 
-    def _traceback_block(self, crashed: Sequence[SuiteRunResult]) -> list[str]:
+    def _mean_score_text(self) -> str:
+        mean = self.mean_score()
+        return f"{mean * 100:.1f}%" if mean is not None else "n/a"
+
+    def _score_gate_text(self, fail_under: float | None) -> str:
+        if fail_under is None:
+            return "not configured"
+        mean = self.mean_score()
+        target = fail_under * 100
+        if mean is None:
+            return f"not met (no scores; required {target:.1f}%)"
+        comparison = ">=" if mean >= fail_under else "<"
+        status = "met" if mean >= fail_under else "not met"
+        return f"{status} ({mean * 100:.1f}% {comparison} {target:.1f}%)"
+
+    def _crash_block(self, crashed: Sequence[SuiteRunResult]) -> list[str]:
         if not crashed:
             return []
-        lines = ["", _sep("crashed suites")]
+        lines = ["", "Crashed suites", "---------------"]
         for result in crashed:
-            lines.append(f"--- {result.suite_id} ---")
+            lines.append(f"Suite: {result.suite_id}")
+            lines.append(f"Duration: {_format_duration(result.duration_seconds)}")
             if result.error is not None:
                 lines.append("".join(traceback.format_exception(result.error)).rstrip())
             else:
@@ -213,13 +250,17 @@ class ProgressReporter:
         return lines
 
 
-def _sep(title: str) -> str:
-    return f"{'=' * 26} {title} {'=' * 26}"
+def _format_duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, remaining = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{int(minutes)}m {remaining:.1f}s"
+    hours, minutes = divmod(int(minutes), 60)
+    return f"{hours}h {minutes}m {remaining:.1f}s"
 
 
 def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
-    # Braintrust calls this per experiment to dump the score table. The harness
-    # renders its own combined table instead, so this stays silent.
     return True
 
 
@@ -232,6 +273,4 @@ QUIET_REPORTER: ReporterDef = ReporterDef(
     report_eval=_quiet_report_eval,
     report_run=_quiet_report_run,
 )
-"""Reporter that prints nothing, so concurrent experiments don't dump interleaved
-score tables into the shared stdout. All per-run output goes through
-``ProgressReporter`` instead."""
+"""Reporter that keeps Braintrust's per-experiment tables out of the shared stream."""

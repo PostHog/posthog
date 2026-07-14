@@ -28,7 +28,7 @@ from ee.hogai.eval.sandboxed.product_analytics.scorers import (
     FunnelSchemaAlignment,
     FunnelTimeRangeRelevancy,
 )
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall, RequiredToolCall
+from ee.hogai.eval.sandboxed.scorers import LastToolCallNot, NoToolCall, RequiredToolCall
 
 
 def _funnel_case(
@@ -598,7 +598,6 @@ async def eval_funnel(ctx: EvalContext) -> None:
         experiment_name="sandboxed-funnels",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
             LastToolCallNot(forbidden="execute-sql", name="last_call_not_execute_sql"),
             RequiredToolCall(required={"read-data-schema"}, name="verified_event_exists"),

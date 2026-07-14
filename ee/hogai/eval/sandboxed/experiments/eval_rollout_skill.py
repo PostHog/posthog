@@ -22,7 +22,6 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.retrieval.scorers import SkillLoaded
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 SKILL_NAME = "configuring-experiment-rollout"
 
@@ -42,7 +41,6 @@ async def eval_rollout_skill(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-rollout-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             SkillLoaded(skill_name=SKILL_NAME),
         ],
         ctx=ctx,

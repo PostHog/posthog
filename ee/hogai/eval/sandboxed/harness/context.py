@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 
 from posthoganalytics import Posthog
 
@@ -59,6 +58,3 @@ class EvalContext:
     trials: int
     """Times each case runs. Agents are stochastic, so N runs per case measure
     the variance a single run can't reveal."""
-
-    log_dirs: set[Path] = field(default_factory=set)
-    """Local raw-agent-log directories, one per suite, surfaced in the final summary."""

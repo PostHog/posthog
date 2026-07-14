@@ -29,14 +29,13 @@ The directory is the domain; the suite id is `<domain>/<module>::<fn>`.
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 async def eval_my_thing(ctx: EvalContext) -> None:
     await SandboxedPrivateEval(
         experiment_name="sandboxed-my-thing-cli",
         cases=[SandboxedEvalCase(name="my_case", prompt="...")],
-        scorers=[ExitCodeZero()],
+        scorers=[],
         ctx=ctx,
     )
 ```
@@ -100,7 +99,8 @@ class MyCheck(Scorer):
 
 Rules that apply to both:
 
-- Reuse the generic scorers first: `ExitCodeZero`, `NoToolCall`, `RequiredToolCall`, `LastToolCallNot` (all in `ee.hogai.eval.sandboxed.scorers`).
+- The harness adds `ExitCodeZero` to every experiment. Do not include it in a suite's `scorers`; an explicit duplicate is rejected.
+- Reuse the other generic scorers first: `NoToolCall`, `RequiredToolCall`, and `LastToolCallNot` (all in `ee.hogai.eval.sandboxed.scorers`).
 - Always parse logs via `LogParser.cached(...)` so a case's log is parsed once, not once per scorer.
 - Count only successful tool calls (`is_error=False`) — the agent is free to attempt and fail.
 - `score=None` means "skipped": Braintrust omits it from the aggregate entirely. `0.0` means "failed". Pick deliberately — `None` for "this check doesn't apply to this case", `0.0` for "the agent got it wrong" _and_ for broken-judge/missing-input paths that must not silently vanish from the average.
@@ -118,14 +118,16 @@ hogli evals:sandboxed cli_mcp --provider modal    # a domain, remote, fully para
 - `--provider docker` (default) caps at 4 concurrent sandboxes (16 GB each); `--provider modal` is unbounded — every case runs at once, `--max-sandboxes` is the cost knob.
 - `--trials N` repeats every case for variance on stochastic behavior; `--fail-under <fraction>` gates the run's mean score.
 - `--agent-runtime codex` runs the OpenAI Codex harness (default model `gpt-5.5`) instead of Claude; it requires `LLM_GATEWAY_OPENAI_API_KEY`. The runtime/model land in the Braintrust experiment metadata, so compare scores within one runtime.
-- For non-interactive runs set `EXPORT_EVAL_RESULTS=1`: Braintrust's progress bars mangle redirected terminal output, and `eval_results.jsonl` (one JSON summary per experiment) is the reliable record.
-- Fastest debugging is the local log dir `ee/hogai/eval/sandboxed/logs/<experiment>/latest/` — per case: `<case>.jsonl` (raw agent log), `<case>.artifacts.json`, `<case>.summary.txt`. `logs/runs.jsonl` indexes historical runs.
+- Every real eval invocation mirrors its complete stdout and stderr to `ee/hogai/eval/sandboxed/logs/harness/<timestamp>_<id>.log`. The last terminal line is the absolute transcript path, and `logs/harness/latest.log` points to the newest transcript. `--list` and argument errors do not create one.
+- The plain-text summary is stable for people and agents: only the overall run says `PASS` or `FAIL`; completed suites, experiments, and cases say `DONE`; experiment blocks label scores, URLs, and agent-log directories.
+- `EXPORT_EVAL_RESULTS=1` additionally appends one structured Braintrust summary per experiment to `eval_results.jsonl`. It does not replace the always-on transcript.
+- Start debugging with the transcript path on the last line. Then open the experiment's `Agent logs` directory for `<case>.jsonl` (raw agent log), `<case>.artifacts.json`, and `<case>.summary.txt`. `logs/runs.jsonl` indexes historical case runs.
 
 ## Verification checklist
 
 Before opening a PR:
 
 1. `hogli evals:sandboxed --list` shows your suite (this also import-checks every eval module).
-2. Run your new case alone: `hogli evals:sandboxed <suite> --eval <case>` and read the case summary + scorer metadata, not just the score.
+2. Run your new case alone: `hogli evals:sandboxed <suite> --eval <case>`. Read the transcript named on the final line, then the case summary and scorer metadata, not just the score.
 3. Unit-test scorer and synthesizer logic where it's cheap — but **outside** `sandboxed/`: the tree is excluded from pytest collection, so never add a `conftest.py` or `pytest` import there, and a test file placed inside it will silently never run. Existing homes: `ee/hogai/test/eval/`, `ee/hogai/eval/test_*.py`, and product test dirs.
 4. Prompts and `expected` values use exact Hedgebox taxonomy names, relative date ranges (`-30d`, `-8w`), and shape-based assertions — never absolute counts.

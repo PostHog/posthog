@@ -20,7 +20,7 @@ from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
+from ee.hogai.eval.sandboxed.scorers import NoToolCall
 from ee.hogai.eval.sandboxed.seeders.survey import seed_survey_feature_flags
 from ee.hogai.eval.sandboxed.surveys.scorers import (
     SURVEY_FORBIDDEN_WRITE_TOOLS,
@@ -282,7 +282,6 @@ async def eval_surveys(ctx: EvalContext) -> None:
         experiment_name="sandboxed-surveys-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             NoToolCall(
                 forbidden=SURVEY_FORBIDDEN_WRITE_TOOLS | INSIGHT_WRITE_TOOLS,
                 name="no_forbidden_survey_side_effects",

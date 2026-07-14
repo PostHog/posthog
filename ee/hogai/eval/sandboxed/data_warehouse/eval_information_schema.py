@@ -58,7 +58,6 @@ from ee.hogai.eval.sandboxed.data_warehouse.synthesizer import (
     VIEW_NEEDLE_NAME,
 )
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 async def eval_dw_discovery(ctx: EvalContext) -> None:
@@ -113,7 +112,6 @@ async def eval_dw_discovery(ctx: EvalContext) -> None:
         experiment_name="sandboxed-warehouse-discovery-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             InformationSchemaQueried(),
             AgenticSearchUsed(),
             NeedleTableIdentified(),
@@ -176,7 +174,6 @@ async def eval_dw_value_retrieval(ctx: EvalContext) -> None:
         experiment_name="sandboxed-warehouse-retrieval-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             InformationSchemaQueried(),
             InformationSchemaBeforeAnswer(),
             NeedleValueRetrieved(),
@@ -233,7 +230,6 @@ async def eval_dw_relationships(ctx: EvalContext) -> None:
         experiment_name="sandboxed-warehouse-relationships-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             InformationSchemaQueried(),
             RelationshipDiscovery(),
             JoinPathTraversed(),
@@ -277,7 +273,6 @@ async def eval_dw_table_relevancy(ctx: EvalContext) -> None:
         experiment_name="sandboxed-warehouse-relevancy-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             InformationSchemaQueried(),
             AgenticSearchUsed(),
             NeedleTableIdentified(),

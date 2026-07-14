@@ -16,7 +16,7 @@ from .config import AgentArtifacts, SandboxedEvalCase
 from .harness.reporting import QUIET_REPORTER
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import EvalCaseResult, run_eval_case
-from .scorers import wrap_scorers
+from .scorers import ExitCodeZero, wrap_scorers
 from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
@@ -122,6 +122,10 @@ class _SandboxedEvalRun:
         self.is_public = is_public
         self.no_send_logs = no_send_logs
 
+        if any(isinstance(scorer, ExitCodeZero) for scorer in scorers):
+            raise ValueError("ExitCodeZero is added by the sandboxed eval harness; remove it from scorers")
+        scorers_with_defaults = [ExitCodeZero(), *scorers]
+
         # Generate a unique experiment ID per eval run
         self.experiment_id = str(uuid.uuid4())
 
@@ -135,16 +139,19 @@ class _SandboxedEvalRun:
         # Local disk sink for raw agent logs — lets an agent iterating on the
         # harness read back what happened without round-tripping through Braintrust.
         self.run_log_dir = build_case_dir(experiment_name, self.experiment_id)
-        ctx.log_dirs.add(self.run_log_dir)
 
         # Wrap scorers with tracing if PostHog client is available
         self.scorer_traces: dict[tuple[str, str], str] = {}
         if self.posthog_client:
             self.active_scorers, self.scorer_traces = wrap_scorers(
-                scorers, self.posthog_client, self.experiment_id, experiment_name, self.agent_trace_id_lookup
+                scorers_with_defaults,
+                self.posthog_client,
+                self.experiment_id,
+                experiment_name,
+                self.agent_trace_id_lookup,
             )
         else:
-            self.active_scorers = list(scorers)
+            self.active_scorers = scorers_with_defaults
 
         self.case_filter = ctx.case_filter
 
@@ -253,7 +260,7 @@ class _SandboxedEvalRun:
                     logger.exception("Failed to emit trace events for '%s'", eval_case.name)
 
         try:
-            paths = write_case_logs(
+            write_case_logs(
                 case_dir=self.run_log_dir,
                 case_name=eval_case.name,
                 raw_log=result.raw_log or "",
@@ -263,7 +270,6 @@ class _SandboxedEvalRun:
                 last_message=last_message,
                 token_usage=self.case_trace_meta.get(eval_case.name, {}).get("token_usage"),
             )
-            await self.ctx.reporter.case_log_path(eval_case.name, paths.case_dir)
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
 
@@ -354,7 +360,7 @@ class _SandboxedEvalRun:
                             token_usage=meta.get("token_usage"),
                         )
                 self.posthog_client.flush()
-                await self.ctx.reporter.posthog_evaluations_url(self.experiment_id)
+                await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
             except Exception:
                 logger.exception("Failed to emit evaluation events for '%s'", self.experiment_name)
 
@@ -374,7 +380,7 @@ class _SandboxedEvalRun:
         # Register the case total (post-filter, times trials) so the reporter can
         # append a per-experiment progress counter to each case line.
         planned_cases = len(eval_cases) * self.ctx.trials
-        await self.ctx.reporter.experiment_started(self.experiment_name, planned_cases)
+        await self.ctx.reporter.experiment_started(self.experiment_name, planned_cases, self.run_log_dir)
 
         result = await EvalAsync(
             project_name,
