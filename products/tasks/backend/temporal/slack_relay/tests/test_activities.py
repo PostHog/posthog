@@ -17,7 +17,6 @@ from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
     RelaySlackMessageInput,
-    _append_artifact_links,
     _append_unconfirmed_attachment_notice,
     _markdown_to_slack_mrkdwn,
     _neutralize_approx_tildes,
@@ -178,19 +177,20 @@ class TestRelaySlackMessage(TestCase):
         assert "user_activity_report.pdf" in posted
         assert "no file was attached to Slack for this run" in posted
 
-    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=False)
-    @patch("products.tasks.backend.temporal.slack_relay.activities.object_storage.get_presigned_url")
+    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=True)
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_artifact_links_are_not_added_when_flag_is_off(
+    def test_run_manifest_artifacts_never_surface_in_slack(
         self,
         _mock_delete_progress,
         mock_post,
         _mock_update,
-        mock_presign,
         _mock_flag,
     ):
+        # Run-manifest artifacts are internal (checkpoints, inputs, raw agent outputs).
+        # Even with living artifacts enabled they must not leak into the posted text,
+        # and their presence must not suppress the unconfirmed-attachment notice.
         self.task_run.artifacts = [
             {
                 "id": "artifact-1",
@@ -207,7 +207,7 @@ class TestRelaySlackMessage(TestCase):
         relay_slack_message(
             RelaySlackMessageInput(
                 run_id=str(self.task_run.id),
-                relay_id="relay-artifact-flag-off",
+                relay_id="relay-manifest-artifacts",
                 text=text,
             )
         )
@@ -215,10 +215,9 @@ class TestRelaySlackMessage(TestCase):
         mock_post.assert_called_once()
         posted = mock_post.call_args.args[0]
         assert "Artifacts available in Slack" not in posted
+        assert "tasks/artifacts/report.pdf" not in posted
         assert "no file was attached to Slack for this run" in posted
-        mock_presign.assert_not_called()
 
-    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=True)
     @patch(
         "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
         return_value=True,
@@ -240,7 +239,6 @@ class TestRelaySlackMessage(TestCase):
         mock_requests_post,
         _mock_canvas_file_flag,
         _mock_living_artifacts_flag,
-        _mock_slack_artifacts_flag,
     ):
         storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/report.v1.xlsx"
         location = {
@@ -530,56 +528,6 @@ class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):
         result = _append_unconfirmed_attachment_notice(text, origin_product="user_created")
 
         assert result == text
-
-
-class TestAppendArtifactLinks(unittest.TestCase):
-    @parameterized.expand(
-        [
-            (
-                "disabled_by_default",
-                None,
-                {"name": "report.pdf", "type": "output", "source": "agent_output", "storage_path": "report"},
-                False,
-            ),
-            (
-                "enabled_internal_artifact",
-                True,
-                {"name": "handoff.index", "type": "artifact", "source": "agent_output", "storage_path": "index"},
-                False,
-            ),
-            (
-                "enabled_agent_output",
-                True,
-                {"name": "report.pdf", "type": "output", "source": "agent_output", "storage_path": "report"},
-                True,
-            ),
-        ]
-    )
-    @patch(
-        "products.tasks.backend.temporal.slack_relay.activities.object_storage.get_presigned_url",
-        return_value="https://example.com/report.pdf",
-    )
-    def test_only_enabled_agent_outputs_receive_links(
-        self, _name, enabled, artifact, expected_link, mock_presign
-    ) -> None:
-        text = "Done. The file is attached."
-
-        if enabled is None:
-            result = _append_artifact_links(text, artifacts=[artifact], origin_product="slack")
-        else:
-            result = _append_artifact_links(
-                text,
-                artifacts=[artifact],
-                origin_product="slack",
-                enabled=enabled,
-            )
-
-        if expected_link:
-            assert "<https://example.com/report.pdf|report.pdf>" in result
-            mock_presign.assert_called_once_with("report")
-        else:
-            assert result == text
-            mock_presign.assert_not_called()
 
 
 class TestSplitTextForSlack(TestCase):
