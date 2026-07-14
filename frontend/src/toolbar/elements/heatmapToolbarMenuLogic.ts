@@ -600,7 +600,20 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     }
 
                     if (!result.ok || !Array.isArray(result.data.results)) {
-                        throw new Error('Error loading HeatMap data!')
+                        // Re-raised to drive getElementStatsFailure and captured once by the
+                        // global loader handler. Attach status and reason so the reported
+                        // exception is diagnosable instead of a bare, contextless message.
+                        const reason = !result.ok
+                            ? result.error.isNetworkError
+                                ? 'network error'
+                                : result.error.detail
+                            : 'results payload was not an array'
+                        const error = new Error(`Error loading heatmap data (status ${result.status}): ${reason}`)
+                        Object.assign(error, {
+                            status: result.status,
+                            paginating: !!url,
+                        })
+                        throw error
                     }
 
                     return {
