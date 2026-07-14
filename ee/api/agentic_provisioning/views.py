@@ -2401,7 +2401,7 @@ def _create_wizard_run(
             "wizard_run", "error", partner=partner, error_code="github_integration_required", team_id=team.id
         )
         return (
-            _error_response(
+            error_response(
                 "github_integration_required",
                 "The team does not have a GitHub integration that can access this repository",
                 resource_id=str(team.id),
