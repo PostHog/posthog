@@ -3562,7 +3562,7 @@ class TestExperimentService(APIBaseTest):
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=uuids),
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, batch: [
+                new=lambda team_id, batch, **kwargs: [
                     (index + 1, person_uuid) for index, person_uuid in enumerate(batch[unresolved:])
                 ],
             ),
