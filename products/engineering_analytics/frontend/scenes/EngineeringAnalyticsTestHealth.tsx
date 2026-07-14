@@ -10,6 +10,8 @@ import {
     LemonMenu,
     LemonSegmentedButton,
     LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
     LemonTable,
     LemonTableColumns,
     LemonTag,
@@ -22,11 +24,13 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import { BrokenTestStateTag } from '../components/BrokenTestStateTag'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { QuarantineTestModal } from '../components/QuarantineTestModal'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { StatCard } from '../components/StatCard'
 import {
+    BrokenTestRow,
     FlakyTestRow,
     FlakyTestWindow,
     QuarantineEntryRow,
@@ -77,6 +81,169 @@ function ModeTag({ mode }: { mode: QuarantineEntryRow['mode'] }): JSX.Element {
         <Tooltip title="Runs as xfail: the test still executes but cannot fail the suite.">
             <LemonTag type="muted">Runs, can't fail</LemonTag>
         </Tooltip>
+    )
+}
+
+function RelativeTime({ iso }: { iso: string }): JSX.Element {
+    return (
+        <Tooltip title={dayjs(iso).format('YYYY-MM-DD HH:mm:ss')}>
+            <span className="text-xs whitespace-nowrap text-secondary">{dayjs(iso).fromNow()}</span>
+        </Tooltip>
+    )
+}
+
+// PROTOTYPE (no flag, local only): validates a UX against live prod data. It reads two warehouse
+// views by name (engineering_analytics_ci_failures + engineering_analytics_ci_job_history) through
+// two ad-hoc HogQL calls in the logic loader, then ranks failures with a temporary kea-side
+// classifier. The classifier moves server-side later — see engineeringAnalyticsLogic.
+function BrokenTestsPanel(): JSX.Element {
+    const {
+        visibleBrokenTests,
+        brokenTestsRaw,
+        brokenTestsRawLoading,
+        brokenTestsError,
+        breakingMasterJobs,
+        hiddenBrokenTestCount,
+        showPrOnlyBrokenTests,
+    } = useValues(engineeringAnalyticsLogic)
+    const { setShowPrOnlyBrokenTests } = useActions(engineeringAnalyticsLogic)
+
+    const columns: LemonTableColumns<BrokenTestRow> = [
+        {
+            title: 'State',
+            key: 'state',
+            width: 160,
+            render: (_, row) => <BrokenTestStateTag state={row.state} />,
+        },
+        {
+            title: 'Test',
+            key: 'testId',
+            width: 320,
+            render: (_, row) => (
+                <Tooltip title={row.testId}>
+                    <span className="block max-w-[20rem] truncate font-mono text-xs">{row.testId}</span>
+                </Tooltip>
+            ),
+        },
+        {
+            title: 'Error',
+            key: 'errorSignature',
+            render: (_, row) =>
+                row.errorSignature ? (
+                    <Tooltip title={row.errorSignature}>
+                        <span className="line-clamp-2 max-w-[22rem] text-xs text-secondary">{row.errorSignature}</span>
+                    </Tooltip>
+                ) : (
+                    <span className="text-tertiary">—</span>
+                ),
+        },
+        {
+            title: 'Occurrences',
+            key: 'occurrences',
+            width: 110,
+            align: 'right',
+            sorter: (a, b) => a.occurrences - b.occurrences,
+            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.occurrences)}</span>,
+        },
+        {
+            title: 'Branches',
+            key: 'branches',
+            width: 100,
+            align: 'right',
+            sorter: (a, b) => a.branches - b.branches,
+            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.branches)}</span>,
+        },
+        {
+            title: 'Master hits',
+            key: 'masterHits',
+            width: 110,
+            align: 'right',
+            sorter: (a, b) => a.masterHits - b.masterHits,
+            render: (_, row) =>
+                row.masterHits > 0 ? (
+                    <span className="tabular-nums font-semibold text-danger">
+                        {humanFriendlyNumber(row.masterHits)}
+                    </span>
+                ) : (
+                    <span className="tabular-nums text-tertiary">0</span>
+                ),
+        },
+        {
+            title: 'First seen',
+            key: 'firstSeen',
+            width: 110,
+            align: 'right',
+            sorter: (a, b) => a.firstSeen.localeCompare(b.firstSeen),
+            render: (_, row) => <RelativeTime iso={row.firstSeen} />,
+        },
+        {
+            title: 'Last seen',
+            key: 'lastSeen',
+            width: 110,
+            align: 'right',
+            sorter: (a, b) => a.lastSeen.localeCompare(b.lastSeen),
+            render: (_, row) => <RelativeTime iso={row.lastSeen} />,
+        },
+    ]
+
+    return (
+        <div className="flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                        <h3 className="m-0 text-base font-semibold">Currently broken tests</h3>
+                        <LemonTag type="highlight">Prototype</LemonTag>
+                    </div>
+                    <p className="m-0 max-w-2xl text-xs text-tertiary">
+                        Failures ranked by whether they're breaking trunk right now, resolving, or just flaky — inferred
+                        from CI logs + master job history.
+                    </p>
+                </div>
+                <LemonSwitch
+                    label="Show PR-only failures"
+                    checked={showPrOnlyBrokenTests}
+                    onChange={setShowPrOnlyBrokenTests}
+                    size="small"
+                    bordered
+                />
+            </div>
+            {brokenTestsError ? (
+                <LemonBanner type="error">Couldn't load broken tests: {brokenTestsError}</LemonBanner>
+            ) : brokenTestsRawLoading && !brokenTestsRaw ? (
+                <LemonSkeleton className="h-48 w-full" />
+            ) : (
+                <>
+                    {breakingMasterJobs.length > 0 ? (
+                        <LemonBanner type="error">
+                            Breaking master: {pluralize(breakingMasterJobs.length, 'job group')} —{' '}
+                            {breakingMasterJobs.join(', ')}
+                        </LemonBanner>
+                    ) : (
+                        <LemonBanner type="success">
+                            Nothing is breaking master right now — every implicated job's latest master run is green.
+                        </LemonBanner>
+                    )}
+                    <LemonTable
+                        data-attr="engineering-analytics-broken-tests-table"
+                        size="small"
+                        columns={columns}
+                        dataSource={visibleBrokenTests}
+                        rowKey={(row) => row.fingerprint}
+                        loading={brokenTestsRawLoading}
+                        pagination={{ pageSize: 10 }}
+                        useURLForSorting={false}
+                        emptyState="No broken tests to show. Nothing is breaking trunk right now."
+                        nouns={['broken test', 'broken tests']}
+                    />
+                    {hiddenBrokenTestCount > 0 && !showPrOnlyBrokenTests && (
+                        <div className="text-xs text-tertiary">
+                            {pluralize(hiddenBrokenTestCount, 'PR-only failure')} hidden — toggle "Show PR-only
+                            failures" to include them.
+                        </div>
+                    )}
+                </>
+            )}
+        </div>
     )
 }
 
@@ -261,6 +428,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
         <div className="flex flex-col gap-8">
             {/* Tab-level: both sections read the same source, so the picker scopes them together. */}
             <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
+            <BrokenTestsPanel />
             <FlakyTestLeaderboard />
             <QuarantineRegister />
             {/* Rendered once for the whole tab: the leaderboard rows, the register rows, and the

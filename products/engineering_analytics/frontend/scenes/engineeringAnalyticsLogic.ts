@@ -10,6 +10,9 @@ import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { performQuery } from '~/queries/query'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+
 import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsFlakyTests,
@@ -456,6 +459,175 @@ export interface FlakyTestsData {
     limit: number
 }
 
+// ── Broken-tests panel (prototype) ─────────────────────────────────────────────────────────────
+// PROTOTYPE: ranks live CI failures by whether they're breaking trunk right now, resolving, or just
+// flaky. Reads two warehouse views by name via ad-hoc HogQL straight from the loader. The classifier
+// below is temporary and lives in kea for now; it moves server-side once the UX proves out.
+
+export type BrokenTestState = 'breaking_master' | 'novel_burst' | 'potentially_resolved' | 'flaky' | 'pr_only'
+
+// Sort rank: lowest number surfaces first (breaking master on top, PR-only last).
+export const BROKEN_TEST_SEVERITY: Record<BrokenTestState, number> = {
+    breaking_master: 0,
+    novel_burst: 1,
+    potentially_resolved: 2,
+    flaky: 3,
+    pr_only: 4,
+}
+
+// Classifier thresholds (prototype heuristics over the CI failure log).
+const NOVEL_BURST_MAX_AGE_HOURS = 24 // "new today" — first seen within the last day
+const NOVEL_BURST_MIN_BRANCHES = 3 // spreading across at least this many PR branches
+const FLAKY_MIN_BRANCHES = 2 // sporadic on at least two branches
+const FLAKY_MIN_SPAN_HOURS = 24 // ...and recurring over more than a day
+// Master job conclusions that mean the trunk is red right now.
+const RED_MASTER_CONCLUSIONS = new Set(['failure', 'timed_out'])
+
+/** One failure fingerprint from Query A (engineering_analytics_ci_failures, last 7 days). */
+export interface FailureFingerprint {
+    fingerprint: string
+    testId: string
+    errorSignature: string
+    jobName: string
+    firstSeen: string
+    lastSeen: string
+    occurrences: number
+    branches: number
+    masterHits: number
+}
+
+/** Latest master status for one job group from Query B (engineering_analytics_ci_job_history). */
+export interface MasterJobStatus {
+    jobName: string
+    latestConclusion: string
+    latestCompletedAt: string | null
+    reds: number
+    greens: number
+}
+
+export interface BrokenTestsRaw {
+    fingerprints: FailureFingerprint[]
+    masterJobs: MasterJobStatus[]
+}
+
+export interface BrokenTestRow extends FailureFingerprint {
+    state: BrokenTestState
+}
+
+// Query A — failure fingerprints from the Logs-backed view. Different ClickHouse cluster than Query B,
+// so the two run as separate calls and merge in JS; a single joined query would cross clusters and fail.
+export const FAILURE_FINGERPRINTS_QUERY = `SELECT
+    fingerprint,
+    any(test_id) AS test_id,
+    any(error_signature) AS error_signature,
+    argMax(job_name, timestamp) AS job_name,
+    min(timestamp) AS first_seen,
+    max(timestamp) AS last_seen,
+    maxIf(timestamp, branch IN ('master','main')) AS last_master_seen,
+    count() AS occurrences,
+    uniqExact(branch) AS branches,
+    countIf(branch IN ('master','main')) AS master_hits
+FROM engineering_analytics_ci_failures
+WHERE timestamp >= now() - INTERVAL 7 DAY
+GROUP BY fingerprint
+HAVING branches >= 2 OR master_hits > 0
+ORDER BY last_seen DESC
+LIMIT 200`
+
+// Query B — latest master job status from the warehouse view. `created_at_raw` is a raw ISO string the
+// warehouse can prune the scan on, so we floor it with a coarse date (8 days back, computed at build
+// time) and pair it with the precise now()-INTERVAL filter. The date is a code-controlled constant.
+export function masterJobStatusQuery(now: dayjs.Dayjs = dayjs()): string {
+    const floorDate = now.subtract(8, 'day').format('YYYY-MM-DD')
+    return `SELECT
+    job_name,
+    argMaxIf(conclusion, (created_at, run_id), status = 'completed') AS latest_conclusion,
+    maxIf(created_at, status = 'completed') AS latest_completed_at,
+    countIf(status = 'completed' AND conclusion IN ('failure','timed_out')) AS reds,
+    countIf(status = 'completed' AND conclusion = 'success') AS greens
+FROM engineering_analytics_ci_job_history
+WHERE head_branch = 'master'
+  AND created_at_raw >= '${floorDate}'
+  AND created_at >= now() - INTERVAL 7 DAY
+GROUP BY job_name`
+}
+
+// HogQL rows come back as positional arrays of column values; map by index to the typed shapes.
+function toFailureFingerprint(row: unknown[]): FailureFingerprint {
+    return {
+        fingerprint: String(row[0] ?? ''),
+        testId: String(row[1] ?? ''),
+        errorSignature: String(row[2] ?? ''),
+        jobName: String(row[3] ?? ''),
+        firstSeen: String(row[4] ?? ''),
+        lastSeen: String(row[5] ?? ''),
+        occurrences: Number(row[7] ?? 0),
+        branches: Number(row[8] ?? 0),
+        masterHits: Number(row[9] ?? 0),
+    }
+}
+
+function toMasterJobStatus(row: unknown[]): MasterJobStatus {
+    return {
+        jobName: String(row[0] ?? ''),
+        latestConclusion: String(row[1] ?? ''),
+        latestCompletedAt: row[2] ? String(row[2]) : null,
+        reds: Number(row[3] ?? 0),
+        greens: Number(row[4] ?? 0),
+    }
+}
+
+function classifyBrokenTestState(
+    fp: FailureFingerprint,
+    master: MasterJobStatus | null,
+    now: dayjs.Dayjs
+): BrokenTestState {
+    const masterRed = master ? RED_MASTER_CONCLUSIONS.has(master.latestConclusion) : false
+    const masterGreen = master?.latestConclusion === 'success'
+
+    // Breaking trunk right now: hit master and master's latest run is still red.
+    if (fp.masterHits > 0 && masterRed) {
+        return 'breaking_master'
+    }
+    // New today and already spreading across PR branches, but not on master yet.
+    const isNovel = dayjs(fp.firstSeen).isAfter(now.subtract(NOVEL_BURST_MAX_AGE_HOURS, 'hour'))
+    if (isNovel && fp.branches >= NOVEL_BURST_MIN_BRANCHES && fp.masterHits === 0) {
+        return 'novel_burst'
+    }
+    // Hit master but master is green again — probably already fixed.
+    if (fp.masterHits > 0 && masterGreen) {
+        return 'potentially_resolved'
+    }
+    // Sporadic across branches and recurring over more than a day.
+    const spanHours = dayjs(fp.lastSeen).diff(dayjs(fp.firstSeen), 'hour')
+    if (fp.branches >= FLAKY_MIN_BRANCHES && spanHours > FLAKY_MIN_SPAN_HOURS) {
+        return 'flaky'
+    }
+    return 'pr_only'
+}
+
+export function classifyBrokenTests(raw: BrokenTestsRaw, now: dayjs.Dayjs = dayjs()): BrokenTestRow[] {
+    const masterByJob = new Map(raw.masterJobs.map((job) => [job.jobName, job]))
+    const rows = raw.fingerprints.map(
+        (fp): BrokenTestRow => ({
+            ...fp,
+            state: classifyBrokenTestState(fp, masterByJob.get(fp.jobName) ?? null, now),
+        })
+    )
+    // Severity first, then most-recent failure — the top of the list is what's on fire right now.
+    return rows.sort(
+        (a, b) => BROKEN_TEST_SEVERITY[a.state] - BROKEN_TEST_SEVERITY[b.state] || b.lastSeen.localeCompare(a.lastSeen)
+    )
+}
+
+/** Master job groups whose latest completed run is red — drives the panel's summary banner. */
+export function breakingMasterJobNames(masterJobs: MasterJobStatus[]): string[] {
+    return masterJobs
+        .filter((job) => RED_MASTER_CONCLUSIONS.has(job.latestConclusion))
+        .map((job) => job.jobName)
+        .sort()
+}
+
 export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
 
 /** What the tab submits to the write endpoint; the backend opens the issue + PR. */
@@ -575,6 +747,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             openQuarantineModal: (state: QuarantineModalState) => ({ state }),
             closeQuarantineModal: true,
             setFlakyTestWindow: (window: FlakyTestWindow) => ({ window }),
+            setShowPrOnlyBrokenTests: (show: boolean) => ({ show }),
             refresh: true,
         }),
 
@@ -702,6 +875,30 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             ),
                             truncated: data.truncated,
                             limit: data.limit,
+                        }
+                    },
+                },
+            ],
+            brokenTestsRaw: [
+                null as BrokenTestsRaw | null,
+                {
+                    loadBrokenTests: async (): Promise<BrokenTestsRaw> => {
+                        // Two separate calls on purpose: the failures view lives on the logs cluster and
+                        // the job history on the warehouse cluster, so a single joined query would cross
+                        // clusters and fail. Merge the two result sets in the classifier selector.
+                        const [failures, masterJobs] = await Promise.all([
+                            performQuery<HogQLQuery>({
+                                kind: NodeKind.HogQLQuery,
+                                query: FAILURE_FINGERPRINTS_QUERY,
+                            }),
+                            performQuery<HogQLQuery>({
+                                kind: NodeKind.HogQLQuery,
+                                query: masterJobStatusQuery(),
+                            }),
+                        ])
+                        return {
+                            fingerprints: (failures.results ?? []).map(toFailureFingerprint),
+                            masterJobs: (masterJobs.results ?? []).map(toMasterJobStatus),
                         }
                     },
                 },
@@ -839,6 +1036,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
                 { setFlakyTestWindow: (_, { window }) => window },
             ],
+            // Prototype panel hides the low-signal PR-only failures by default.
+            showPrOnlyBrokenTests: [false, { setShowPrOnlyBrokenTests: (_, { show }) => show }],
             // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
             // "connect a source" gate; only a real 'error' surfaces the leaderboard's own banner.
             flakyTestsStatus: [
@@ -847,6 +1046,16 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadFlakyTests: () => 'ok',
                     loadFlakyTestsSuccess: () => 'ok',
                     loadFlakyTestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
+                },
+            ],
+            // Prototype panel reads two views directly; if either isn't provisioned the query errors,
+            // which the panel surfaces in-place instead of crashing the tab.
+            brokenTestsError: [
+                null as string | null,
+                {
+                    loadBrokenTests: () => null,
+                    loadBrokenTestsSuccess: () => null,
+                    loadBrokenTestsFailure: (_, { error }) => error ?? 'Could not load broken tests.',
                 },
             ],
             quarantineModal: [
@@ -1029,6 +1238,25 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (filters): boolean =>
                     !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_QUARANTINE_FILTERS),
             ],
+            // Classified + sorted broken-test rows (severity, then last_seen desc). Merges the two
+            // cluster reads client-side — see the loader for why they can't be joined in SQL.
+            brokenTests: [
+                (s) => [s.brokenTestsRaw],
+                (brokenTestsRaw): BrokenTestRow[] => (brokenTestsRaw ? classifyBrokenTests(brokenTestsRaw) : []),
+            ],
+            breakingMasterJobs: [
+                (s) => [s.brokenTestsRaw],
+                (brokenTestsRaw): string[] => (brokenTestsRaw ? breakingMasterJobNames(brokenTestsRaw.masterJobs) : []),
+            ],
+            hiddenBrokenTestCount: [
+                (s) => [s.brokenTests],
+                (brokenTests: BrokenTestRow[]): number => brokenTests.filter((row) => row.state === 'pr_only').length,
+            ],
+            visibleBrokenTests: [
+                (s) => [s.brokenTests, s.showPrOnlyBrokenTests],
+                (brokenTests: BrokenTestRow[], showPrOnly): BrokenTestRow[] =>
+                    showPrOnly ? brokenTests : brokenTests.filter((row) => row.state !== 'pr_only'),
+            ],
             hasMultipleSources: [(s) => [s.githubSources], (githubSources): boolean => githubSources.length > 1],
             // The source reads resolve to: the picked one, else the backend default (oldest connected = first).
             activeSource: [
@@ -1053,6 +1281,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
                 actions.loadFlakyTests()
+                actions.loadBrokenTests()
             },
             setFlakyTestWindow: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),
