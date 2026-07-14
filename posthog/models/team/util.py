@@ -20,14 +20,22 @@ logger = structlog.get_logger(__name__)
 # how much work a single DELETE holds locks for.
 TEAM_DELETE_BATCH_SIZE = 2000
 
-# gRPC deadline for the team-deletion bulk-delete RPCs. Their default is the 5s client
-# deadline meant for point lookups, but a single batch DELETE against a multi-billion-row,
-# delete-churned table (personless distinct IDs, persons, groups, hash-key-overrides) can
-# transiently take seconds when autovacuum lags — enough to blow a 5s deadline. A
-# DEADLINE_EXCEEDED there fails the whole activity, which then retries the batched loop from
-# scratch, so give these deletes a generous per-call deadline and let the activity-level
-# timeout be the real bound instead.
-TEAM_DELETE_RPC_TIMEOUT_SECONDS = 120 * 60
+# Per-call gRPC deadline for the team-deletion bulk-delete RPCs. Their default is the 5s
+# client deadline meant for point lookups, but a single batch DELETE against a
+# multi-billion-row, delete-churned table (personless distinct IDs, persons, groups,
+# hash-key-overrides) can transiently take seconds when autovacuum lags — enough to blow a
+# 5s deadline. A DEADLINE_EXCEEDED there fails the whole activity, which then retries the
+# batched loop from scratch, so each batch gets a much more generous deadline.
+#
+# This bounds a *single* batch, not the whole loop — the enclosing Temporal activity's
+# start_to_close (HEAVY_ACTIVITY_TIMEOUT, 2h in posthog/temporal/delete_teams/workflows.py)
+# is the real bound on the full team deletion. Keep this comfortably below that: a wedged
+# single batch then surfaces DEADLINE_EXCEEDED with plenty of activity budget left for a
+# clean retry, and the per-call deadline never coincides with the activity's own timeout
+# (which would let a retry start while the previous DELETE is still running in personhog).
+# 30 min is orders of magnitude above any healthy single-batch DELETE yet 4x under the 2h
+# activity bound.
+TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 
 actions_that_require_current_team = [
     "rotate_secret_token",
