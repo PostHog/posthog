@@ -258,16 +258,16 @@ export function AgentsRoster(): JSX.Element {
                     toggleEvalReports()
                     return
                 case 'github':
-                    initiateDataWarehouseSourceToggle('Github')
+                    initiateDataWarehouseSourceToggle('github')
                     return
                 case 'linear':
-                    initiateDataWarehouseSourceToggle('Linear')
+                    initiateDataWarehouseSourceToggle('linear')
                     return
                 case 'zendesk':
-                    initiateDataWarehouseSourceToggle('Zendesk')
+                    initiateDataWarehouseSourceToggle('zendesk')
                     return
                 case 'pganalyze':
-                    initiateDataWarehouseSourceToggle('PgAnalyze')
+                    initiateDataWarehouseSourceToggle('pganalyze')
                     return
             }
         },

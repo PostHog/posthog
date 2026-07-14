@@ -1,4 +1,3 @@
-import { DataWarehouseSource } from '../../signalSourcesLogic'
 import { SignalSourceProduct } from '../../types'
 
 /**
@@ -25,12 +24,6 @@ export interface AgentRosterDefinition {
     docsUrl?: string
     docsLabel?: string
     alpha?: boolean
-    /**
-     * For data-warehouse-backed sources, the wizard product passed to
-     * `initiateDataWarehouseSourceToggle`. Absent for native PostHog sources
-     * (error tracking, session replay).
-     */
-    dataWarehouseSource?: DataWarehouseSource
 }
 
 export interface AgentRosterGroup {
@@ -85,28 +78,24 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 sourceProduct: SignalSourceProduct.Github,
                 label: 'GitHub Issues',
                 description: 'Issues filed in GitHub.',
-                dataWarehouseSource: 'Github',
             },
             {
                 source: 'linear',
                 sourceProduct: SignalSourceProduct.Linear,
                 label: 'Linear',
                 description: 'Issues tracked in Linear.',
-                dataWarehouseSource: 'Linear',
             },
             {
                 source: 'zendesk',
                 sourceProduct: SignalSourceProduct.Zendesk,
                 label: 'Zendesk',
                 description: 'Incoming Zendesk tickets.',
-                dataWarehouseSource: 'Zendesk',
             },
             {
                 source: 'pganalyze',
                 sourceProduct: SignalSourceProduct.Pganalyze,
                 label: 'pganalyze',
                 description: 'Postgres performance problems – slow queries and bad indexes.',
-                dataWarehouseSource: 'PgAnalyze',
             },
         ],
     },
