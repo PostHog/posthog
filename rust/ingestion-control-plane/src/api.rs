@@ -12,7 +12,7 @@ use uuid::Uuid;
 use k8s_awareness::DiscoveredPod;
 
 use crate::jobs::{AnalysisRequest, JobView};
-use crate::kafka::lag::{self, GroupLag};
+use crate::kafka::lag::{self, GroupLag, GroupLagSummary};
 use crate::proxy;
 use crate::state::AppState;
 use crate::ui;
@@ -58,28 +58,8 @@ impl IntoResponse for ApiError {
     }
 }
 
-#[derive(Serialize)]
-struct TargetInfo {
-    group: String,
-    topic: String,
-}
-
-#[derive(Serialize)]
-struct ConfigResponse {
-    targets: Vec<TargetInfo>,
-}
-
-async fn get_config(State(state): State<AppState>) -> Json<ConfigResponse> {
-    let targets = state
-        .config
-        .targets()
-        .into_iter()
-        .map(|t| TargetInfo {
-            group: t.group,
-            topic: t.topic,
-        })
-        .collect();
-    Json(ConfigResponse { targets })
+async fn get_lag_overview(State(state): State<AppState>) -> Json<Vec<GroupLagSummary>> {
+    Json(lag::scan_all_groups(&state.config).await)
 }
 
 #[derive(Deserialize)]
@@ -173,14 +153,17 @@ async fn list_pods(State(state): State<AppState>) -> Result<Json<PodsResponse>, 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(ui::index))
-        .route("/api/config", get(get_config))
         .route("/api/lag", get(get_lag))
+        .route("/api/lag/overview", get(get_lag_overview))
         .route("/api/analyses", get(list_analyses).post(create_analysis))
         .route(
             "/api/analyses/:id",
             get(get_analysis).delete(cancel_analysis),
         )
         .route("/api/pods", get(list_pods))
-        .route("/api/pods/:name/debug/*rest", get(proxy::proxy_debug))
+        // The consumer debug UI is served per pod; its relative `debug/...`
+        // fetches resolve to the proxy route below.
+        .route("/pods/:name/", get(ui::consumer_debug))
+        .route("/pods/:name/debug/*rest", get(proxy::proxy_debug))
         .with_state(state)
 }

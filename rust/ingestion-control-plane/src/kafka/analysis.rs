@@ -4,8 +4,13 @@ use common_types::CapturedEventHeaders;
 use hdrhistogram::Histogram;
 use serde::Serialize;
 
-/// Cap on tracked distinct_id cardinality; beyond it new ids are counted in
-/// `distinct_id_overflow` so a pathological partition can't balloon memory.
+/// Cap on tracked token cardinality; messages for tokens beyond it are
+/// counted in `token_overflow`.
+const MAX_TRACKED_TOKENS: usize = 1_000;
+
+/// Global cap on tracked distinct_id cardinality (across all tokens); beyond
+/// it new ids are counted in the owning token's `distinct_id_overflow` so a
+/// pathological partition can't balloon memory.
 const MAX_TRACKED_DISTINCT_IDS: usize = 50_000;
 
 /// Cumulative size-histogram bucket boundaries (bytes).
@@ -13,20 +18,32 @@ const SIZE_BUCKETS: &[u64] = &[
     256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216,
 ];
 
+/// How many events / distinct_ids to report per token.
+const NESTED_TOP_K: usize = 10;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct KeyCount {
     pub key: String,
     pub count: u64,
+    /// Percentage relative to the owning token's messages.
     pub pct: f64,
 }
 
+/// Per-token (i.e. per-team) breakdown: events and distinct_ids are only
+/// meaningful within a token, so they are nested here rather than reported
+/// globally.
 #[derive(Debug, Clone, Serialize)]
-pub struct TokenCount {
+pub struct TokenBreakdown {
     pub token: String,
     pub team_id: Option<i32>,
     pub count: u64,
+    /// Percentage relative to all analyzed messages.
     pub pct: f64,
     pub total_bytes: u64,
+    pub top_events: Vec<KeyCount>,
+    pub top_distinct_ids: Vec<KeyCount>,
+    pub distinct_ids_tracked: u64,
+    pub distinct_id_overflow: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,18 +78,21 @@ pub struct FlagCounts {
 #[derive(Debug, Clone, Serialize)]
 pub struct Aggregates {
     pub messages: u64,
-    pub top_events: Vec<KeyCount>,
-    pub top_distinct_ids: Vec<KeyCount>,
-    pub distinct_ids_tracked: u64,
-    pub distinct_id_overflow: u64,
-    pub top_tokens: Vec<TokenCount>,
+    pub top_tokens: Vec<TokenBreakdown>,
+    pub tokens_tracked: u64,
+    /// Messages whose token was beyond the tracked-token cap.
+    pub token_overflow: u64,
     pub sizes: SizeStats,
     pub flags: FlagCounts,
 }
 
-struct TokenStats {
+#[derive(Default)]
+struct TokenAgg {
     count: u64,
     total_bytes: u64,
+    events: HashMap<String, u64>,
+    distinct_ids: HashMap<String, u64>,
+    distinct_id_overflow: u64,
 }
 
 /// Incremental, header-only aggregation over a partition's messages.
@@ -80,10 +100,9 @@ struct TokenStats {
 /// [`Aggregator::finish`].
 pub struct Aggregator {
     messages: u64,
-    events: HashMap<String, u64>,
-    tokens: HashMap<String, TokenStats>,
-    distinct_ids: HashMap<String, u64>,
-    distinct_id_overflow: u64,
+    tokens: HashMap<String, TokenAgg>,
+    token_overflow: u64,
+    tracked_distinct_ids: usize,
     sizes: Histogram<u64>,
     total_bytes: u64,
     flags: FlagCounts,
@@ -101,10 +120,9 @@ impl Aggregator {
         sizes.auto(true);
         Self {
             messages: 0,
-            events: HashMap::new(),
             tokens: HashMap::new(),
-            distinct_ids: HashMap::new(),
-            distinct_id_overflow: 0,
+            token_overflow: 0,
+            tracked_distinct_ids: 0,
             sizes,
             total_bytes: 0,
             flags: FlagCounts::default(),
@@ -122,40 +140,47 @@ impl Aggregator {
             return;
         };
 
-        if let Some(event) = &headers.event {
-            *self.events.entry(event.clone()).or_default() += 1;
-        }
-        if let Some(distinct_id) = &headers.distinct_id {
-            if self.distinct_ids.len() < MAX_TRACKED_DISTINCT_IDS
-                || self.distinct_ids.contains_key(distinct_id)
-            {
-                *self.distinct_ids.entry(distinct_id.clone()).or_default() += 1;
-            } else {
-                self.distinct_id_overflow += 1;
-            }
-        }
-        match &headers.token {
-            Some(token) => {
-                let stats = self.tokens.entry(token.clone()).or_insert(TokenStats {
-                    count: 0,
-                    total_bytes: 0,
-                });
-                stats.count += 1;
-                stats.total_bytes += payload_size;
-            }
-            None => self.flags.missing_token += 1,
-        }
         if headers.historical_migration == Some(true) {
             self.flags.historical_migration += 1;
         }
         if headers.force_disable_person_processing == Some(true) {
             self.flags.force_disable_person_processing += 1;
         }
+
+        let Some(token) = &headers.token else {
+            self.flags.missing_token += 1;
+            return;
+        };
+
+        if self.tokens.len() >= MAX_TRACKED_TOKENS && !self.tokens.contains_key(token) {
+            self.token_overflow += 1;
+            return;
+        }
+        let token_agg = self.tokens.entry(token.clone()).or_default();
+        token_agg.count += 1;
+        token_agg.total_bytes += payload_size;
+
+        if let Some(event) = &headers.event {
+            *token_agg.events.entry(event.clone()).or_default() += 1;
+        }
+        if let Some(distinct_id) = &headers.distinct_id {
+            if token_agg.distinct_ids.contains_key(distinct_id) {
+                *token_agg
+                    .distinct_ids
+                    .entry(distinct_id.clone())
+                    .or_default() += 1;
+            } else if self.tracked_distinct_ids < MAX_TRACKED_DISTINCT_IDS {
+                token_agg.distinct_ids.insert(distinct_id.clone(), 1);
+                self.tracked_distinct_ids += 1;
+            } else {
+                token_agg.distinct_id_overflow += 1;
+            }
+        }
     }
 
     pub fn finish(self, top_k: usize) -> Aggregates {
         let messages = self.messages;
-        let pct = |count: u64| {
+        let overall_pct = |count: u64| {
             if messages == 0 {
                 0.0
             } else {
@@ -187,15 +212,41 @@ impl Aggregator {
             histogram,
         };
 
-        let distinct_ids_tracked = self.distinct_ids.len() as u64;
+        let tokens_tracked = self.tokens.len() as u64;
+        let mut entries: Vec<(String, TokenAgg)> = self.tokens.into_iter().collect();
+        entries.sort_by(|a, b| b.1.count.cmp(&a.1.count).then_with(|| a.0.cmp(&b.0)));
+
+        let top_tokens = entries
+            .into_iter()
+            .take(top_k)
+            .map(|(token, agg)| {
+                let token_pct = |count: u64| {
+                    if agg.count == 0 {
+                        0.0
+                    } else {
+                        (count as f64 / agg.count as f64) * 100.0
+                    }
+                };
+                let distinct_ids_tracked = agg.distinct_ids.len() as u64;
+                TokenBreakdown {
+                    token,
+                    team_id: None,
+                    count: agg.count,
+                    pct: overall_pct(agg.count),
+                    total_bytes: agg.total_bytes,
+                    top_events: top_counts(agg.events, NESTED_TOP_K, token_pct),
+                    top_distinct_ids: top_counts(agg.distinct_ids, NESTED_TOP_K, token_pct),
+                    distinct_ids_tracked,
+                    distinct_id_overflow: agg.distinct_id_overflow,
+                }
+            })
+            .collect();
 
         Aggregates {
             messages,
-            top_events: top_counts(self.events, top_k, pct),
-            top_distinct_ids: top_counts(self.distinct_ids, top_k, pct),
-            distinct_ids_tracked,
-            distinct_id_overflow: self.distinct_id_overflow,
-            top_tokens: top_tokens(self.tokens, top_k, pct),
+            top_tokens,
+            tokens_tracked,
+            token_overflow: self.token_overflow,
             sizes,
             flags: self.flags,
         }
@@ -216,26 +267,6 @@ fn top_counts(
             key,
             count,
             pct: pct(count),
-        })
-        .collect()
-}
-
-fn top_tokens(
-    tokens: HashMap<String, TokenStats>,
-    top_k: usize,
-    pct: impl Fn(u64) -> f64,
-) -> Vec<TokenCount> {
-    let mut entries: Vec<(String, TokenStats)> = tokens.into_iter().collect();
-    entries.sort_by(|a, b| b.1.count.cmp(&a.1.count).then_with(|| a.0.cmp(&b.0)));
-    entries
-        .into_iter()
-        .take(top_k)
-        .map(|(token, stats)| TokenCount {
-            token,
-            team_id: None,
-            count: stats.count,
-            pct: pct(stats.count),
-            total_bytes: stats.total_bytes,
         })
         .collect()
 }
@@ -264,38 +295,46 @@ mod tests {
     }
 
     #[test]
-    fn aggregates_top_events_tokens_and_distinct_ids() {
+    fn nests_events_and_distinct_ids_per_token() {
         let mut agg = Aggregator::new();
-        for _ in 0..7 {
-            agg.record(Some(&headers("token_a", "user_1", "$pageview")), 100);
+        for _ in 0..6 {
+            agg.record(Some(&headers("token_a", "user_hot", "$pageview")), 100);
         }
+        agg.record(Some(&headers("token_a", "user_other", "$identify")), 100);
         for _ in 0..3 {
-            agg.record(Some(&headers("token_b", "user_2", "$identify")), 1000);
+            agg.record(Some(&headers("token_b", "user_b", "$identify")), 1000);
         }
         let result = agg.finish(10);
 
         assert_eq!(result.messages, 10);
-        assert_eq!(result.top_events[0].key, "$pageview");
-        assert_eq!(result.top_events[0].count, 7);
-        assert!((result.top_events[0].pct - 70.0).abs() < f64::EPSILON);
-        assert_eq!(result.top_distinct_ids[0].key, "user_1");
-        assert_eq!(result.top_tokens[0].token, "token_a");
-        assert_eq!(result.top_tokens[0].total_bytes, 700);
-        assert_eq!(result.top_tokens[1].token, "token_b");
-        assert_eq!(result.top_tokens[1].total_bytes, 3000);
-        assert_eq!(result.sizes.total_bytes, 3700);
-        assert_eq!(result.sizes.count, 10);
+        assert_eq!(result.top_tokens.len(), 2);
+
+        let a = &result.top_tokens[0];
+        assert_eq!(a.token, "token_a");
+        assert_eq!(a.count, 7);
+        assert!((a.pct - 70.0).abs() < f64::EPSILON);
+        assert_eq!(a.total_bytes, 700);
+        assert_eq!(a.top_events[0].key, "$pageview");
+        assert_eq!(a.top_events[0].count, 6);
+        // Nested pct is relative to the token, not all messages.
+        assert!((a.top_events[0].pct - (6.0 / 7.0 * 100.0)).abs() < 0.001);
+        assert_eq!(a.top_distinct_ids[0].key, "user_hot");
+
+        let b = &result.top_tokens[1];
+        assert_eq!(b.token, "token_b");
+        assert_eq!(b.top_events[0].key, "$identify");
+        assert!((b.top_events[0].pct - 100.0).abs() < f64::EPSILON);
     }
 
     #[test]
-    fn respects_top_k() {
+    fn respects_top_k_for_tokens() {
         let mut agg = Aggregator::new();
         for i in 0..20 {
-            agg.record(Some(&headers("t", &format!("user_{i}"), "e")), 10);
+            agg.record(Some(&headers(&format!("token_{i}"), "d", "e")), 10);
         }
         let result = agg.finish(5);
-        assert_eq!(result.top_distinct_ids.len(), 5);
-        assert_eq!(result.distinct_ids_tracked, 20);
+        assert_eq!(result.top_tokens.len(), 5);
+        assert_eq!(result.tokens_tracked, 20);
     }
 
     #[test]
@@ -344,6 +383,6 @@ mod tests {
         let result = Aggregator::new().finish(10);
         assert_eq!(result.messages, 0);
         assert_eq!(result.sizes.count, 0);
-        assert!(result.top_events.is_empty());
+        assert!(result.top_tokens.is_empty());
     }
 }
