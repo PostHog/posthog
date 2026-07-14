@@ -53,7 +53,7 @@ they're scoped as later phases against the stable interface this establishes.
 
 ## Architecture (v1 / PR 1)
 
-```
+```text
    consumers (CDP plugin-server · batch-exports · warehouse-sources)
         │  POST /api/v1/credentials/fetch   (scoped JWT: team_id + caller)
         ▼
@@ -81,7 +81,7 @@ skeleton) and `rust/feature-flags` (crypto + cache + sqlx). Register in `rust/Ca
 `.github/rust-images.yml` (+ deploy matrix in `.github/workflows/rust-docker-build.yml`),
 `dockerfile: ./rust/Dockerfile`, own GCP `project` id (ask infra).
 
-```
+```text
 rust/integration-gateway/
   Cargo.toml            # deps below; [lints] workspace = true
   src/
@@ -126,7 +126,7 @@ DB pool via `common_database` / `PgPoolOptions`, `serve_metrics::setup_metrics_r
 
 ## 2. v1 read API surface
 
-```
+```text
 POST /api/v1/credentials/fetch
 Authorization: Bearer <scoped JWT>              # team_id + caller (§6)
 { "integration_ids": [123, 456] }
