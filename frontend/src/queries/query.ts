@@ -1,4 +1,4 @@
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiError, ApiMethodOptions } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -279,6 +279,15 @@ export async function performQuery<N extends DataNode>(
             duration: performance.now() - startTime,
             ...logParams,
         })
+        // A 400 here means the backend rejected the user's own query (bad HogQL/SQL, e.g. a
+        // column not under an aggregate). These are expected user errors shown inline in the
+        // query UI, not app bugs — flag them so they stay out of exception autocapture (see
+        // the loaders `onFailure` handler in initKea). 5xx failures are left unflagged so
+        // genuine backend errors are still reported; auth/throttle 4xx (401/403/429/409) keep
+        // their existing dedicated handling.
+        if (e instanceof ApiError && e.status === 400) {
+            e.isExpectedQueryError = true
+        }
         throw e
     }
 }

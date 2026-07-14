@@ -14,6 +14,14 @@ export class ApiError extends Error {
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
 
+    /**
+     * Set when this error is a user-actionable failure of a query the user ran (invalid
+     * HogQL/SQL, rejected by the backend with a 400). These are surfaced inline in the query
+     * UI and are not app bugs, so `initKea`'s loaders `onFailure` reads this flag to keep them
+     * out of exception autocapture. See `performQuery` in `queries/query.ts`.
+     */
+    isExpectedQueryError?: boolean
+
     constructor(
         message?: string,
         public status?: number,

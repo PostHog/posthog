@@ -156,7 +156,10 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // Expected query failures (invalid user HogQL/SQL rejected with a 400) are shown
+                // inline in the query UI and aren't app bugs — `performQuery` flags them so we
+                // don't flood error tracking with the same "not under aggregate function" noise.
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !error?.isExpectedQueryError) {
                     posthog.captureException(error)
                 }
             },
