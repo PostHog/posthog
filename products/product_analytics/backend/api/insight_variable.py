@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
@@ -86,7 +88,13 @@ class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise PermissionDenied("Insight variables cannot be accessed via sharing authentication")
 
 
-def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariable]) -> dict:
+def map_stale_to_latest(stale_variables: dict, latest_variables: Iterable[InsightVariable]) -> dict:
+    # Nothing to remap when the insight/dashboard carries no variables. Returning before iterating
+    # latest_variables lets callers pass an unevaluated queryset, so no InsightVariable query runs
+    # for the common no-variable case.
+    if not stale_variables:
+        return {}
+
     # Keep the variables in an insight up to date based on variable code names that exist
     current_variables = stale_variables
     insight_variables = latest_variables

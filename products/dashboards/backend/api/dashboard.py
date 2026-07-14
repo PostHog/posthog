@@ -7,6 +7,7 @@ import builtins
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
+from datetime import timedelta
 from enum import StrEnum
 from typing import Any, Optional, TypedDict, cast
 
@@ -1018,7 +1019,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         request = self.context.get("request")
         is_shared = self.context.get("is_shared", False)
         return variables_override_requested_by_client(
-            request, dashboard, list(self.context["insight_variables"]), is_shared=is_shared
+            request, dashboard, self.context["insight_variables"], is_shared=is_shared
         )
 
     def get_persisted_filters(self, dashboard: Dashboard) -> dict | None:
@@ -2263,13 +2264,34 @@ class DashboardsViewSet(
 
         return queryset
 
+    # last_accessed_at only drives "recently viewed" ordering, so coarse precision is fine.
+    _LAST_ACCESSED_THROTTLE = timedelta(seconds=60)
+
+    @staticmethod
+    def _touch_last_accessed(dashboard: Dashboard) -> None:
+        # Throttle the write: dashboards are frequently polled/auto-refreshed, and last_accessed_at
+        # doesn't need per-request precision. Skipping the write when it was refreshed within the
+        # window keeps a write off the hot read path without changing observable ordering.
+        current = now()
+        previous = dashboard.last_accessed_at
+        if previous is not None and current - previous < DashboardsViewSet._LAST_ACCESSED_THROTTLE:
+            return
+        # Direct UPDATE, not instance.save(): saving fires the FileSystemSyncMixin post_save signal,
+        # which re-upserts the (unchanged) filesystem entry — an extra SELECT + UPDATE + shortcut per
+        # write. .update() skips signals; the filesystem representation never depends on last_accessed_at.
+        # Filter by pk only: `dashboard` was already loaded through the team-scoped get_object(), and
+        # adding team_id here routes through RootTeamQuerySet's parent-team resolution, producing a
+        # heavier (and less stable) UPDATE ... WHERE id IN (subquery).
+        # nosemgrep: idor-lookup-without-team -- pk of an already-authorized, team-scoped object
+        Dashboard.objects.filter(pk=dashboard.pk).update(last_accessed_at=current)
+        dashboard.last_accessed_at = current  # keep the in-memory instance consistent for serialization
+
     @extend_schema(parameters=[VARIABLES_OVERRIDE_PARAM, FILTERS_OVERRIDE_PARAM])
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
 
-        dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"])
+        self._touch_last_accessed(dashboard)
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         data = serializer.data
 
@@ -2312,8 +2334,7 @@ class DashboardsViewSet(
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
         # Do all database operations and data loading synchronously first
-        dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"])
+        self._touch_last_accessed(dashboard)
 
         # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())

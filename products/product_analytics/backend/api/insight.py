@@ -981,7 +981,7 @@ class InsightSerializer(InsightBasicSerializer):
             filters_override_requested_by_client(request, dashboard, is_shared=is_shared) if request else None
         )
         dashboard_variables_override = variables_override_requested_by_client(
-            request, dashboard, list(self.context["insight_variables"]), is_shared=is_shared
+            request, dashboard, self.context["insight_variables"], is_shared=is_shared
         )
 
         # Tile filters completely replace dashboard filters (same semantics as the compute path in
@@ -1095,7 +1095,7 @@ class InsightSerializer(InsightBasicSerializer):
                     self.context["request"], dashboard, is_shared=is_shared
                 )
                 variables_override = variables_override_requested_by_client(
-                    self.context["request"], dashboard, list(self.context["insight_variables"]), is_shared=is_shared
+                    self.context["request"], dashboard, self.context["insight_variables"], is_shared=is_shared
                 )
 
                 dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
