@@ -202,10 +202,12 @@ export const quickstartLogic = kea<quickstartLogicType>([
                         // The feed can shift between pages (a new post lands), so drop
                         // anything already shown instead of rendering duplicate cards
                         const seen = new Set(values.publications.map((publication) => publication.url))
-                        return [
+                        const merged = [
                             ...values.publications,
                             ...page.publications.filter((publication) => !seen.has(publication.url)),
                         ]
+                        posthog.capture('quickstart publications loaded more', { total: merged.length })
+                        return merged
                     } catch {
                         actions.setHasMorePublications(false)
                         return values.publications

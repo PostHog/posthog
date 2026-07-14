@@ -10,7 +10,9 @@ export interface QuickstartPublication {
 export const QUICKSTART_PUBLICATIONS_PAGE_SIZE = 8
 
 const RSS_URL = 'https://posthog.com/rss.xml'
-const CACHE_KEY = 'ph-quickstart-publications'
+// Versioned: caches written by earlier revisions held fewer items than a full
+// page and must not be served as page one of the feed
+const CACHE_KEY = 'ph-quickstart-publications-v2'
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000
 // The feed embeds full post bodies, so reading it whole costs several MB. Items are newest
 // first: the response is streamed and more bytes are pulled only as the user scrolls deeper.
@@ -34,7 +36,11 @@ const readCache = (): QuickstartPublication[] | null => {
             return null
         }
         const cache = JSON.parse(raw) as PublicationsCache
-        if (!Array.isArray(cache.publications) || Date.now() - cache.fetchedAt > CACHE_TTL_MS) {
+        if (
+            !Array.isArray(cache.publications) ||
+            cache.publications.length < QUICKSTART_PUBLICATIONS_PAGE_SIZE ||
+            Date.now() - cache.fetchedAt > CACHE_TTL_MS
+        ) {
             return null
         }
         return cache.publications
