@@ -3,6 +3,9 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock, patch
 
+import httpx
+from openai import NotFoundError
+
 from products.exports.backend.temporal.subscriptions.llm_change_summary import (
     _attach_images_to_user_message,
     build_initial_prompt_messages,
@@ -441,6 +444,12 @@ class TestChangeSummaryPromptInjectionDefences:
         assert "<core_memory>" in system_content
 
 
+def _model_not_found_error() -> NotFoundError:
+    request = httpx.Request("POST", "https://gateway/chat/completions")
+    response = httpx.Response(404, request=request)
+    return NotFoundError("model_not_found", response=response, body={"code": "model_not_found"})
+
+
 def _mock_openai_response(content: str = "", prompt_tokens: int = 0, completion_tokens: int = 0):
     choice = MagicMock()
     choice.message.content = content
@@ -517,6 +526,20 @@ class TestGenerateChangeSummary:
     def test_handles_empty_content(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response("", 0, 0)
+
+        result = generate_change_summary(
+            [_make_state(1, "X", "data")],
+            [_make_state(1, "X", "data", timestamp="2025-04-15T10:00:00Z")],
+        )
+
+        assert result == ""
+
+    @patch("products.exports.backend.temporal.subscriptions.llm_change_summary._get_openai_client")
+    def test_soft_skips_when_gateway_reports_model_unavailable(self, mock_get_client):
+        # The AI gateway intermittently 404s the model; the summary is dropped for this delivery rather
+        # than raising out of the call (which would surface a transient, self-healing error as a failure).
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.side_effect = _model_not_found_error()
 
         result = generate_change_summary(
             [_make_state(1, "X", "data")],

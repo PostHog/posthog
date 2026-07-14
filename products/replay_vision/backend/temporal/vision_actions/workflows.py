@@ -90,7 +90,11 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                 final_status = VisionActionRunStatus.FAILED.value
                 error_info = {"aborted": synth.status.value}
                 return
-            if synth.status in (SynthesisStatus.SKIPPED_EMPTY, SynthesisStatus.SKIPPED_OVER_BUDGET):
+            if synth.status in (
+                SynthesisStatus.SKIPPED_EMPTY,
+                SynthesisStatus.SKIPPED_OVER_BUDGET,
+                SynthesisStatus.SKIPPED_MODEL_UNAVAILABLE,
+            ):
                 # final_status stays SKIPPED; record why so the run isn't an unexplained skip.
                 error_info = {"skip_reason": synth.status.value}
                 return

@@ -10,6 +10,7 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from openai import NotFoundError
 from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter
 
@@ -428,17 +429,25 @@ def generate_change_summary(
         posthog_properties["team_id"] = team.id
         extra_capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
 
-    result = client.chat.completions.create(  # type: ignore[call-overload]
-        model="gpt-4.1-mini",
-        temperature=0.3,
-        max_tokens=500,
-        timeout=60,
-        messages=messages,
-        user=user_tag,
-        posthog_distinct_id=user_tag,
-        posthog_properties=posthog_properties,
-        **extra_capture_kwargs,
-    )
+    try:
+        result = client.chat.completions.create(  # type: ignore[call-overload]
+            model="gpt-4.1-mini",
+            temperature=0.3,
+            max_tokens=500,
+            timeout=60,
+            messages=messages,
+            user=user_tag,
+            posthog_distinct_id=user_tag,
+            posthog_properties=posthog_properties,
+            **extra_capture_kwargs,
+        )
+    except NotFoundError as e:
+        # The PostHog AI gateway usually accepts this model but intermittently returns HTTP 404
+        # model_not_found — most likely a failover routing to a backend that lacks it. It's transient
+        # and self-heals on the next delivery, so skip the summary for this delivery instead of failing
+        # (the OpenAI SDK doesn't retry 4xx). The digest still ships without the AI summary.
+        logger.warning("change_summary_model_unavailable", team_id=team_id, delivery_id=delivery_id, error=str(e))
+        return ""
 
     content: str = ""
     if result.choices and result.choices[0].message.content:

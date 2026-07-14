@@ -264,6 +264,12 @@ def _final_error(mocks: _Mocks) -> dict | None:
             {"skip_reason": "skipped_over_budget"},
         ),
         (
+            SynthesisStatus.SKIPPED_MODEL_UNAVAILABLE,
+            VisionActionRunStatus.SKIPPED.value,
+            False,
+            {"skip_reason": "skipped_model_unavailable"},
+        ),
+        (
             SynthesisStatus.ABORTED_NO_CONSENT,
             VisionActionRunStatus.FAILED.value,
             False,
