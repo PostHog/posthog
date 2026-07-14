@@ -43,7 +43,6 @@ class GroqSource(SimpleSource[GroqSourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Groq",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["llm", "ai", "inference", "batch"],
             caption="""Enter your Groq API key to pull your Groq batch jobs, files, and model catalog into the PostHog Data warehouse.
 

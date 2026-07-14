@@ -35,7 +35,6 @@ class TestGroqSource:
 
     def test_source_config_stays_unreleased_alpha(self) -> None:
         config = GroqSource().get_source_config
-        assert config.unreleasedSource is True
         assert config.releaseStatus == "alpha"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/groq"
 
