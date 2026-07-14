@@ -62,7 +62,7 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | n
 
 function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
     const { emailVerifyingConfigId, emailTestingConfigId } = useValues(supportSettingsLogic)
-    const { disconnectEmail, verifyEmailDomain, sendTestEmail } = useActions(supportSettingsLogic)
+    const { disconnectEmail, verifyEmailDomain, sendTestEmail, setDefaultEmail } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -147,8 +147,20 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                 </div>
             </div>
 
-            {/* Disconnect */}
-            <div className="flex justify-end border-t pt-2">
+            {/* Default + disconnect */}
+            <div className="flex justify-between items-center border-t pt-2">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    disabledReason={
+                        adminRestrictionReason ??
+                        (config.is_default ? 'This is already the primary email address' : undefined)
+                    }
+                    tooltip="Tickets opened from the widget are sent from the primary address"
+                    onClick={() => setDefaultEmail(config.id)}
+                >
+                    {config.is_default ? 'Primary address' : 'Set as primary'}
+                </LemonButton>
                 <LemonButton
                     type="secondary"
                     status="danger"
@@ -246,6 +258,11 @@ function configHeader(config: EmailConfigStatus): JSX.Element {
         <div className="flex min-w-0 items-center gap-2 text-left">
             <span className="font-medium truncate">{config.from_email}</span>
             {config.from_name && <span className="text-xs text-muted truncate">({config.from_name})</span>}
+            {config.is_default && (
+                <LemonTag type="primary" size="small" className="shrink-0">
+                    Primary
+                </LemonTag>
+            )}
             {config.domain_verified ? (
                 <LemonTag type="success" size="small" className="shrink-0">
                     Verified
