@@ -1233,3 +1233,37 @@ def test_merge_observed_columns_unions_and_refreshes():
 )
 def test_source_uses_delta_write_column_selection(source_type, expected):
     assert source_uses_delta_write_column_selection(source_type) is expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Parseable date strings bucket by their actual date.
+        ("2024-03-15", "2024-03"),
+        ("2024-06-01T12:00:00", "2024-06"),
+        # Non-date-like strings (e.g. a UUIDv7 primary key) must not crash the repartition —
+        # they fall back to the unknown-date sentinel.
+        ("0198d26d-134b-713a-84f7-24d78a416d9c", "1970-01"),
+        ("not a date at all", "1970-01"),
+        # Empty / whitespace-only strings also fall back to the sentinel.
+        ("", "1970-01"),
+        ("   ", "1970-01"),
+    ],
+)
+def test_append_partition_key_datetime_string_column(value, expected):
+    table = pa.table({"id": pa.array([value], type=pa.string())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=None,
+        partition_size=None,
+        partition_keys=["id"],
+        partition_mode="datetime",
+        partition_format="month",
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "datetime"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected]

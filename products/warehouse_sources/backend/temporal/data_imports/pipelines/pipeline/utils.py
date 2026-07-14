@@ -684,8 +684,12 @@ def append_partition_key_to_table(
                 elif isinstance(date, datetime.date):
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, str) and date.strip():
-                    date = parser.parse(date)
-                    partition_array.append(date.strftime(date_format))
+                    try:
+                        date = parser.parse(date)
+                        partition_array.append(date.strftime(date_format))
+                    except (ValueError, OverflowError):
+                        # Non-date-like string (e.g. a UUID primary key) — treat as unknown date
+                        partition_array.append("1970-01")
                 elif isinstance(date, str):
                     # Empty string — treat as unknown date
                     partition_array.append("1970-01")
