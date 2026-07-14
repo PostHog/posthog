@@ -2216,6 +2216,7 @@ export const ChartDisplayTypeApi = {
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
     BoxPlot: 'BoxPlot',
     SlopeGraph: 'SlopeGraph',
+    ScatterPlot: 'ScatterPlot',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -7943,6 +7944,19 @@ export interface PieChartSettingsApi {
     valueDisplay?: ValueDisplayApi | null
 }
 
+export interface ScatterSettingsApi {
+    /** Column used as the tooltip title for each point; null means the user explicitly chose no label */
+    labelColumn?: string | null
+    /** Numeric column plotted on the X axis */
+    xAxisColumn?: string | null
+    xAxisLabel?: string | null
+    xLogScale?: boolean | null
+    /** Numeric column plotted on the Y axis */
+    yAxisColumn?: string | null
+    yAxisLabel?: string | null
+    yLogScale?: boolean | null
+}
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -8006,6 +8020,7 @@ export interface ChartSettingsApi {
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
+    scatter?: ScatterSettingsApi | null
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null

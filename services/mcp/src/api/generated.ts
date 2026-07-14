@@ -2583,6 +2583,7 @@ export namespace Schemas {
       TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
       BoxPlot: 'BoxPlot',
       SlopeGraph: 'SlopeGraph',
+      ScatterPlot: 'ScatterPlot',
     } as const;
 
     export interface TrendsFormulaNode {
@@ -7545,6 +7546,19 @@ export namespace Schemas {
       valueDisplay?: ValueDisplay | null;
     }
 
+    export interface ScatterSettings {
+      /** Column used as the tooltip title for each point; null means the user explicitly chose no label */
+      labelColumn?: string | null;
+      /** Numeric column plotted on the X axis */
+      xAxisColumn?: string | null;
+      xAxisLabel?: string | null;
+      xLogScale?: boolean | null;
+      /** Numeric column plotted on the Y axis */
+      yAxisColumn?: string | null;
+      yAxisLabel?: string | null;
+      yLogScale?: boolean | null;
+    }
+
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
 
 
@@ -7611,6 +7625,7 @@ export namespace Schemas {
       /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
       resultCustomizations?: ChartSettingsResultCustomizations;
       rightYAxisSettings?: YAxisSettings | null;
+      scatter?: ScatterSettings | null;
       seriesBreakdownColumn?: string | null;
       showLegend?: boolean | null;
       showNullsAsZero?: boolean | null;
