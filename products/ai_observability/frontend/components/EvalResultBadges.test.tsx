@@ -1,5 +1,5 @@
 import { EvaluationRun } from '../evaluations/types'
-import { getEvalBadgeProps, getEvalSummaries } from './EvalResultBadges'
+import { getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
 import { isSentimentRun } from './EvaluationResultTag'
 
 function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
@@ -55,6 +55,23 @@ describe('EvalResultBadges', () => {
             const summaries = getEvalSummaries([makeRun()])
             expect(summaries).toHaveLength(1)
             expect(summaries[0].runCount).toBe(1)
+        })
+    })
+
+    describe('scopeRunsToTarget', () => {
+        const generationRun = makeRun({ id: 'gen-run', generation_id: 'gen-1' })
+        const otherGenerationRun = makeRun({ id: 'other-gen-run', generation_id: 'gen-2' })
+        // HogQL returns '' (not null) for a missing $ai_target_event_id on trace-target runs.
+        const traceRunEmptyString = makeRun({ id: 'trace-run-empty', generation_id: '' })
+        const traceRunNull = makeRun({ id: 'trace-run-null', generation_id: null })
+        const allRuns = [generationRun, otherGenerationRun, traceRunEmptyString, traceRunNull]
+
+        it('scoped to a generation, returns only that generation runs', () => {
+            expect(scopeRunsToTarget(allRuns, 'gen-1').map((r) => r.id)).toEqual(['gen-run'])
+        })
+
+        it('without a generation, returns only trace-target runs (empty string and null)', () => {
+            expect(scopeRunsToTarget(allRuns).map((r) => r.id)).toEqual(['trace-run-empty', 'trace-run-null'])
         })
     })
 

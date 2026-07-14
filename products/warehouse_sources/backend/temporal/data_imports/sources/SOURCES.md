@@ -42,354 +42,391 @@ the row lists both.
 
 ## Implemented sources
 
-| Source                  | Comm method                 | Primary library                                                 | Tracked transport           |
-| ----------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
-| adroll                  | HTTP                        | requests                                                        | ✅                          |
-| agilecrm                | HTTP                        | requests                                                        | ✅                          |
-| aha                     | HTTP                        | requests                                                        | ✅                          |
-| aircall                 | HTTP                        | requests                                                        | ✅                          |
-| airtable                | HTTP                        | requests                                                        | ✅                          |
-| algolia                 | HTTP                        | requests                                                        | ✅                          |
-| alpha_vantage           | HTTP                        | requests                                                        | ✅                          |
-| amazon_ads              | HTTP                        | requests                                                        | ✅                          |
-| amplitude               | HTTP                        | requests                                                        | ✅                          |
-| apify_dataset           | HTTP                        | requests                                                        | ✅                          |
-| apollo                  | HTTP                        | requests                                                        | ✅                          |
-| appfigures              | HTTP                        | requests                                                        | ✅                          |
-| appfollow               | HTTP                        | requests                                                        | ✅                          |
-| appsflyer               | HTTP (CSV reports)          | requests                                                        | ✅                          |
-| asana                   | HTTP                        | requests                                                        | ✅                          |
-| ashby                   | HTTP                        | requests                                                        | ✅                          |
-| assemblyai              | HTTP                        | requests                                                        | ✅                          |
-| attentive               | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
-| attio                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| aviationstack           | HTTP                        | requests                                                        | ✅                          |
-| awin                    | HTTP                        | requests                                                        | ✅                          |
-| azure_devops            | HTTP                        | requests                                                        | ✅                          |
-| bamboohr                | HTTP                        | requests                                                        | ✅                          |
-| beamer                  | HTTP                        | requests                                                        | ✅                          |
-| bigmailer               | HTTP                        | requests                                                        | ✅                          |
-| bigquery                | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
-| bing_ads                | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
-| blogger                 | HTTP                        | requests                                                        | ✅                          |
-| bluetally               | HTTP                        | requests                                                        | ✅                          |
-| boldsign                | HTTP                        | requests                                                        | ✅                          |
-| braintree               | HTTP (GraphQL)              | requests                                                        | ✅                          |
-| braze                   | HTTP                        | requests                                                        | ✅                          |
-| breezometer             | HTTP                        | requests                                                        | ✅                          |
-| brevo                   | HTTP                        | requests                                                        | ✅                          |
-| brex                    | HTTP                        | requests                                                        | ✅                          |
-| bugsnag                 | HTTP                        | requests                                                        | ✅                          |
-| buildbetter             | HTTP                        | requests                                                        | ✅                          |
-| buildkite               | HTTP                        | requests                                                        | ✅                          |
-| bunny                   | HTTP                        | requests                                                        | ✅                          |
-| buzzsprout              | HTTP                        | requests                                                        | ✅                          |
-| cal_com                 | HTTP                        | requests                                                        | ✅                          |
-| calendly                | HTTP                        | requests                                                        | ✅                          |
-| callrail                | HTTP                        | requests                                                        | ✅                          |
-| campaign_monitor        | HTTP                        | requests                                                        | ✅                          |
-| campayn                 | HTTP                        | requests                                                        | ✅                          |
-| canny                   | HTTP                        | requests                                                        | ✅                          |
-| capsule_crm             | HTTP                        | requests                                                        | ✅                          |
-| care_quality_commission | HTTP                        | requests                                                        | ✅                          |
-| chameleon               | HTTP                        | requests                                                        | ✅                          |
-| chargebee               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| chargedesk              | HTTP                        | requests                                                        | ✅                          |
-| chargify                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| checkout_com            | HTTP                        | requests                                                        | ✅                          |
-| churnkey                | HTTP                        | requests                                                        | ✅                          |
-| coassemble              | HTTP                        | requests                                                        | ✅                          |
-| coda                    | HTTP                        | requests                                                        | ✅                          |
-| codefresh               | HTTP                        | requests                                                        | ✅                          |
-| coin_api                | HTTP                        | requests                                                        | ✅                          |
-| coingecko               | HTTP                        | requests                                                        | ✅                          |
-| coinmarketcap           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| commercetools           | HTTP                        | requests                                                        | ✅                          |
-| concord                 | HTTP                        | requests                                                        | ✅                          |
-| configcat               | HTTP                        | requests                                                        | ✅                          |
-| confluence              | HTTP                        | requests                                                        | ✅                          |
-| chartmogul              | HTTP                        | requests                                                        | ✅                          |
-| circleci                | HTTP                        | requests                                                        | ✅                          |
-| cimis                   | HTTP                        | requests                                                        | ✅                          |
-| cloudflare              | HTTP                        | requests                                                        | ✅                          |
-| clari                   | HTTP                        | requests                                                        | ✅                          |
-| clerk                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| clickhouse              | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
-| clickup                 | HTTP                        | requests                                                        | ✅                          |
-| clockify                | HTTP                        | requests                                                        | ✅                          |
-| clockodo                | HTTP                        | requests                                                        | ✅                          |
-| close                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| cloudbeds               | HTTP                        | requests                                                        | ✅                          |
-| convertkit              | HTTP                        | requests                                                        | ✅                          |
-| convex                  | HTTP                        | requests                                                        | ✅                          |
-| copper                  | HTTP                        | requests                                                        | ✅                          |
-| coupa                   | HTTP                        | requests                                                        | ✅                          |
-| crunchbase              | HTTP                        | requests                                                        | ✅                          |
-| culture_amp             | HTTP                        | requests                                                        | ✅                          |
-| customer_io             | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
-| datadog                 | HTTP                        | requests                                                        | ✅                          |
-| deel                    | HTTP                        | requests                                                        | ✅                          |
-| delighted               | HTTP                        | requests                                                        | ✅                          |
-| devin_ai                | HTTP                        | requests                                                        | ✅                          |
-| ding_connect            | HTTP                        | requests                                                        | ✅                          |
-| dixa                    | HTTP                        | requests                                                        | ✅                          |
-| dockerhub               | HTTP                        | requests                                                        | ✅                          |
-| docuseal                | HTTP                        | requests                                                        | ✅                          |
-| doit                    | HTTP                        | requests                                                        | ✅                          |
-| dropbox_sign            | HTTP                        | requests                                                        | ✅                          |
-| drip                    | HTTP                        | requests                                                        | ✅                          |
-| e_conomic               | HTTP                        | requests                                                        | ✅                          |
-| easypost                | HTTP                        | requests                                                        | ✅                          |
-| easypromos              | HTTP                        | requests                                                        | ✅                          |
-| freshcaller             | HTTP                        | requests                                                        | ✅                          |
-| freshdesk               | HTTP                        | requests                                                        | ✅                          |
-| freshsales              | HTTP                        | requests                                                        | ✅                          |
-| freshservice            | HTTP                        | requests                                                        | ✅                          |
-| elasticemail            | HTTP                        | requests                                                        | ✅                          |
-| elasticsearch           | HTTP                        | requests                                                        | ✅                          |
-| emailoctopus            | HTTP                        | requests                                                        | ✅                          |
-| eventbrite              | HTTP                        | requests                                                        | ✅                          |
-| eventee                 | HTTP                        | requests                                                        | ✅                          |
-| eventzilla              | HTTP                        | requests                                                        | ✅                          |
-| everhour                | HTTP                        | requests                                                        | ✅                          |
-| exchange_rates_api      | HTTP                        | requests                                                        | ✅                          |
-| ezofficeinventory       | HTTP                        | requests                                                        | ✅                          |
-| factorial               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| fastly                  | HTTP                        | requests                                                        | ✅                          |
-| fillout                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| finage                  | HTTP                        | requests                                                        | ✅                          |
-| financial_modelling     | HTTP                        | requests                                                        | ✅                          |
-| finnhub                 | HTTP                        | requests                                                        | ✅                          |
-| finnworlds              | HTTP                        | requests                                                        | ✅                          |
-| fleetio                 | HTTP                        | requests                                                        | ✅                          |
-| firehydrant             | HTTP                        | requests                                                        | ✅                          |
-| flexmail                | HTTP                        | requests                                                        | ✅                          |
-| float_app               | HTTP                        | requests                                                        | ✅                          |
-| front                   | HTTP                        | requests                                                        | ✅                          |
-| fulcrum                 | HTTP                        | requests                                                        | ✅                          |
-| fullstory               | HTTP                        | requests                                                        | ✅                          |
-| gainsight_px            | HTTP                        | requests                                                        | ✅                          |
-| gitbook                 | HTTP                        | requests                                                        | ✅                          |
-| github                  | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
-| giphy                   | HTTP                        | requests                                                        | ✅                          |
-| gitlab                  | HTTP                        | requests                                                        | ✅                          |
-| gladly                  | HTTP                        | requests                                                        | ✅                          |
-| gnews                   | HTTP                        | requests                                                        | ✅                          |
-| gocardless              | HTTP                        | requests                                                        | ✅                          |
-| goldcast                | HTTP                        | requests                                                        | ✅                          |
-| gong                    | HTTP                        | requests                                                        | ✅                          |
-| google_ads              | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
-| google_analytics        | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
-| google_sheets           | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
-| google_webfonts         | HTTP                        | requests                                                        | ✅                          |
-| granola                 | HTTP                        | requests                                                        | ✅                          |
-| gorgias                 | HTTP                        | requests                                                        | ✅                          |
-| greenhouse              | HTTP                        | requests                                                        | ✅                          |
-| gridly                  | HTTP                        | requests                                                        | ✅                          |
-| guardian                | HTTP                        | requests                                                        | ✅                          |
-| guru                    | HTTP                        | requests                                                        | ✅                          |
-| height                  | HTTP                        | requests                                                        | ✅                          |
-| hellobaton              | HTTP                        | requests                                                        | ✅                          |
-| hibob                   | HTTP                        | requests                                                        | ✅                          |
-| humanitix               | HTTP                        | requests                                                        | ✅                          |
-| hubplanner              | HTTP                        | requests                                                        | ✅                          |
-| hubspot                 | HTTP                        | requests                                                        | ✅                          |
-| hugging_face            | HTTP                        | requests                                                        | ✅                          |
-| huntr                   | HTTP                        | requests                                                        | ✅                          |
-| incident_io             | HTTP                        | requests                                                        | ✅                          |
-| inflowinventory         | HTTP                        | requests                                                        | ✅                          |
-| insightly               | HTTP                        | requests                                                        | ✅                          |
-| instatus                | HTTP                        | requests                                                        | ✅                          |
-| intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| intruder                | HTTP                        | requests                                                        | ✅                          |
-| invoiced                | HTTP                        | requests                                                        | ✅                          |
-| invoiceninja            | HTTP                        | requests                                                        | ✅                          |
-| ip2whois                | HTTP                        | requests                                                        | ✅                          |
-| iterable                | HTTP                        | requests                                                        | ✅                          |
-| jira                    | HTTP                        | requests                                                        | ✅                          |
-| jobnimbus               | HTTP                        | requests                                                        | ✅                          |
-| jotform                 | HTTP                        | requests                                                        | ✅                          |
-| judgeme_reviews         | HTTP                        | requests                                                        | ✅                          |
-| justcall                | HTTP                        | requests                                                        | ✅                          |
-| justsift                | HTTP                        | requests                                                        | ✅                          |
-| k6_cloud                | HTTP                        | requests                                                        | ✅                          |
-| katana                  | HTTP                        | requests                                                        | ✅                          |
-| klaviyo                 | HTTP                        | requests                                                        | ✅                          |
-| lago                    | HTTP                        | requests                                                        | ✅                          |
-| launchdarkly            | HTTP                        | requests                                                        | ✅                          |
-| kustomer                | HTTP                        | requests                                                        | ✅                          |
-| lattice                 | HTTP                        | requests                                                        | ✅                          |
-| leadfeeder              | HTTP                        | requests                                                        | ✅                          |
-| lemlist                 | HTTP                        | requests                                                        | ✅                          |
-| less_annoying_crm       | HTTP                        | requests                                                        | ✅                          |
-| lightspeed_retail       | HTTP                        | requests                                                        | ✅                          |
-| linear                  | HTTP                        | requests                                                        | ✅                          |
-| lever                   | HTTP                        | requests                                                        | ✅                          |
-| linkedin_ads            | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
-| linkrunner              | HTTP                        | requests                                                        | ✅                          |
-| lob                     | HTTP                        | requests                                                        | ✅                          |
-| luma                    | HTTP                        | requests                                                        | ✅                          |
-| mailchimp               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| mailerlite              | HTTP                        | requests                                                        | ✅                          |
-| mailersend              | HTTP                        | requests                                                        | ✅                          |
-| mailgun                 | HTTP                        | requests                                                        | ✅                          |
-| mailjet                 | HTTP                        | requests                                                        | ✅                          |
-| mailosaur               | HTTP                        | requests                                                        | ✅                          |
-| mailtrap                | HTTP                        | requests                                                        | ✅                          |
-| marketstack             | HTTP                        | requests                                                        | ✅                          |
-| matomo                  | HTTP                        | requests                                                        | ✅                          |
-| mention                 | HTTP                        | requests                                                        | ✅                          |
-| meta_ads                | HTTP                        | requests                                                        | ✅                          |
-| metabase                | HTTP                        | requests                                                        | ✅                          |
-| mixmax                  | HTTP                        | requests                                                        | ✅                          |
-| mixpanel                | HTTP                        | requests                                                        | ✅                          |
-| mollie                  | HTTP                        | requests                                                        | ✅                          |
-| monday                  | HTTP (GraphQL)              | requests                                                        | ✅                          |
-| mongodb                 | DB protocol                 | pymongo                                                         | ➖                          |
-| mssql                   | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
-| mux                     | HTTP                        | requests                                                        | ✅                          |
-| my_hours                | HTTP                        | requests                                                        | ✅                          |
-| mysql                   | DB protocol                 | pymysql                                                         | ➖                          |
-| n8n                     | HTTP                        | requests                                                        | ✅                          |
-| new_york_times          | HTTP                        | requests                                                        | ✅                          |
-| news_api                | HTTP                        | requests                                                        | ✅                          |
-| newsdata                | HTTP                        | requests                                                        | ✅                          |
-| okta                    | HTTP                        | requests                                                        | ✅                          |
-| nocrm                   | HTTP                        | requests                                                        | ✅                          |
-| northpass_lms           | HTTP                        | requests                                                        | ✅                          |
-| notion                  | HTTP                        | requests                                                        | ✅                          |
-| omnisend                | HTTP                        | requests                                                        | ✅                          |
-| oncehub                 | HTTP                        | requests                                                        | ✅                          |
-| onepagecrm              | HTTP                        | requests                                                        | ✅                          |
-| onfleet                 | HTTP (cursor pagination)    | requests                                                        | ✅                          |
-| open_exchange_rates     | HTTP                        | requests                                                        | ✅                          |
-| opinion_stage           | HTTP                        | requests                                                        | ✅                          |
-| orb                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| openaq                  | HTTP                        | requests                                                        | ✅                          |
-| openfda                 | HTTP                        | requests                                                        | ✅                          |
-| openweather             | HTTP                        | requests                                                        | ✅                          |
-| ortto                   | HTTP                        | requests                                                        | ✅                          |
-| oura                    | HTTP                        | requests                                                        | ✅                          |
-| outbrain                | HTTP                        | requests                                                        | ✅                          |
-| paddle                  | HTTP                        | requests                                                        | ✅                          |
-| optimizely              | HTTP                        | requests                                                        | ✅                          |
-| pagerduty               | HTTP                        | requests                                                        | ✅                          |
-| pandadoc                | HTTP                        | requests                                                        | ✅                          |
-| paperform               | HTTP                        | requests                                                        | ✅                          |
-| papersign               | HTTP                        | requests                                                        | ✅                          |
-| partnerize              | HTTP                        | requests                                                        | ✅                          |
-| partnerstack            | HTTP                        | requests                                                        | ✅                          |
-| paystack                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| pendo                   | HTTP                        | requests                                                        | ✅                          |
-| persistiq               | HTTP                        | requests                                                        | ✅                          |
-| persona                 | HTTP                        | requests                                                        | ✅                          |
-| personio                | HTTP                        | requests                                                        | ✅                          |
-| pexels                  | HTTP                        | requests                                                        | ✅                          |
-| phyllo                  | HTTP                        | requests                                                        | ✅                          |
-| picqer                  | HTTP                        | requests                                                        | ✅                          |
-| pingdom                 | HTTP                        | requests                                                        | ✅                          |
-| pinterest_ads           | HTTP                        | requests                                                        | ✅                          |
-| pipedrive               | HTTP                        | requests                                                        | ✅                          |
-| pipeliner               | HTTP                        | requests                                                        | ✅                          |
-| plain                   | HTTP                        | requests                                                        | ✅                          |
-| planhat                 | HTTP                        | requests                                                        | ✅                          |
-| plausible               | HTTP                        | requests                                                        | ✅                          |
-| polar                   | HTTP                        | requests                                                        | ✅                          |
-| plaid                   | HTTP                        | requests                                                        | ✅                          |
-| postgres                | DB protocol                 | psycopg                                                         | ➖                          |
-| postmark                | HTTP                        | requests                                                        | ✅                          |
-| pretix                  | HTTP                        | requests                                                        | ✅                          |
-| printify                | HTTP                        | requests                                                        | ✅                          |
-| productboard            | HTTP                        | requests                                                        | ✅                          |
-| pylon                   | HTTP                        | requests                                                        | ✅                          |
-| qualaroo                | HTTP                        | requests                                                        | ✅                          |
-| recurly                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| ramp                    | HTTP                        | requests                                                        | ✅                          |
-| recharge                | HTTP                        | requests                                                        | ✅                          |
-| recruitee               | HTTP                        | requests                                                        | ✅                          |
-| reddit_ads              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| redshift                | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
-| rentcast                | HTTP                        | requests                                                        | ✅                          |
-| reply_io                | HTTP                        | requests                                                        | ✅                          |
-| resend                  | HTTP                        | requests                                                        | ✅                          |
-| retently                | HTTP                        | requests                                                        | ✅                          |
-| revenuecat              | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
-| rippling                | HTTP                        | requests                                                        | ✅                          |
-| rocketlane              | HTTP                        | requests                                                        | ✅                          |
-| rollbar                 | HTTP                        | requests                                                        | ✅                          |
-| rootly                  | HTTP                        | requests                                                        | ✅                          |
-| rss                     | HTTP                        | requests                                                        | ✅                          |
-| ruddr                   | HTTP                        | requests                                                        | ✅                          |
-| safetyculture           | HTTP                        | requests                                                        | ✅                          |
-| salesforce              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| salesflare              | HTTP                        | requests                                                        | ✅                          |
-| salesloft               | HTTP                        | requests                                                        | ✅                          |
-| savvycal                | HTTP                        | requests                                                        | ✅                          |
-| secoda                  | HTTP                        | requests                                                        | ✅                          |
-| segment                 | HTTP                        | requests                                                        | ✅                          |
-| sendgrid                | HTTP                        | requests                                                        | ✅                          |
-| sendowl                 | HTTP                        | requests                                                        | ✅                          |
-| sentry                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| servicenow              | HTTP                        | requests                                                        | ✅                          |
-| shipstation             | HTTP                        | requests                                                        | ✅                          |
-| shopify                 | HTTP                        | requests                                                        | ✅                          |
-| shopwired               | HTTP                        | requests                                                        | ✅                          |
-| shortcut                | HTTP                        | requests                                                        | ✅                          |
-| shortio                 | HTTP                        | requests                                                        | ✅                          |
-| simplecast              | HTTP                        | requests                                                        | ✅                          |
-| simplesat               | HTTP                        | requests                                                        | ✅                          |
-| slack                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| smaily                  | HTTP                        | requests                                                        | ✅                          |
-| smartreach              | HTTP                        | requests                                                        | ✅                          |
-| smartsheet              | HTTP                        | requests                                                        | ✅                          |
-| smartwaiver             | HTTP                        | requests                                                        | ✅                          |
-| snapchat_ads            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| snowflake               | DB protocol                 | snowflake-connector-python                                      | ➖                          |
-| solarwinds_service_desk | HTTP                        | requests                                                        | ✅                          |
-| sparkpost               | HTTP                        | requests                                                        | ✅                          |
-| split_io                | HTTP                        | requests                                                        | ✅                          |
-| square                  | HTTP                        | requests                                                        | ✅                          |
-| squarespace             | HTTP                        | requests                                                        | ✅                          |
-| statuspage              | HTTP                        | requests                                                        | ✅                          |
-| stigg                   | HTTP                        | requests                                                        | ✅                          |
-| stripe                  | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
-| supabase                | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
-| surveymonkey            | HTTP                        | requests                                                        | ✅                          |
-| surveysparrow           | HTTP                        | requests                                                        | ✅                          |
-| svix                    | HTTP                        | requests                                                        | ✅                          |
-| taboola                 | HTTP                        | requests                                                        | ✅                          |
-| tavus                   | HTTP                        | requests                                                        | ✅                          |
-| teamtailor              | HTTP                        | requests                                                        | ✅                          |
-| teamwork                | HTTP                        | requests                                                        | ✅                          |
-| tempo                   | HTTP                        | requests                                                        | ✅                          |
-| temporalio              | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
-| testrail                | HTTP                        | requests                                                        | ✅                          |
-| thinkific               | HTTP                        | requests                                                        | ✅                          |
-| tickettailor            | HTTP                        | requests                                                        | ✅                          |
-| tiktok_ads              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| tmdb                    | HTTP                        | requests                                                        | ✅                          |
-| todoist                 | HTTP                        | requests                                                        | ✅                          |
-| trello                  | HTTP                        | requests                                                        | ✅                          |
-| tremendous              | HTTP                        | requests                                                        | ✅                          |
-| twilio                  | HTTP                        | requests                                                        | ✅                          |
-| typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| ubidots                 | HTTP                        | requests                                                        | ✅                          |
-| unleash                 | HTTP                        | requests                                                        | ✅                          |
-| vercel                  | HTTP                        | requests                                                        | ✅                          |
-| vitally                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| webflow                 | HTTP                        | requests                                                        | ✅                          |
-| woocommerce             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| wordpress               | HTTP                        | requests                                                        | ✅                          |
-| workable                | HTTP                        | requests                                                        | ✅                          |
-| workos                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| wrike                   | HTTP                        | requests                                                        | ✅                          |
-| wufoo                   | HTTP                        | requests                                                        | ✅                          |
-| zendesk                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| zendesk_sell            | HTTP                        | requests                                                        | ✅                          |
-| zenloop                 | HTTP                        | requests                                                        | ✅                          |
-| zonka_feedback          | HTTP                        | requests                                                        | ✅                          |
-| zoom                    | HTTP                        | requests                                                        | ✅                          |
-| zuora                   | HTTP                        | requests                                                        | ✅                          |
+| Source                    | Comm method                 | Primary library                                                 | Tracked transport           |
+| ------------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
+| adroll                    | HTTP                        | requests                                                        | ✅                          |
+| agilecrm                  | HTTP                        | requests                                                        | ✅                          |
+| aha                       | HTTP                        | requests                                                        | ✅                          |
+| aircall                   | HTTP                        | requests                                                        | ✅                          |
+| airtable                  | HTTP                        | requests                                                        | ✅                          |
+| algolia                   | HTTP                        | requests                                                        | ✅                          |
+| alguna                    | HTTP                        | requests                                                        | ✅                          |
+| alpha_vantage             | HTTP                        | requests                                                        | ✅                          |
+| amazon_ads                | HTTP                        | requests                                                        | ✅                          |
+| amplitude                 | HTTP                        | requests                                                        | ✅                          |
+| anthropic                 | HTTP                        | requests                                                        | ✅                          |
+| apify_dataset             | HTTP                        | requests                                                        | ✅                          |
+| apollo                    | HTTP                        | requests                                                        | ✅                          |
+| appfigures                | HTTP                        | requests                                                        | ✅                          |
+| appfollow                 | HTTP                        | requests                                                        | ✅                          |
+| appsflyer                 | HTTP (CSV reports)          | requests                                                        | ✅                          |
+| asana                     | HTTP                        | requests                                                        | ✅                          |
+| ashby                     | HTTP                        | requests                                                        | ✅                          |
+| assemblyai                | HTTP                        | requests                                                        | ✅                          |
+| attentive                 | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
+| attio                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| aviationstack             | HTTP                        | requests                                                        | ✅                          |
+| aviator                   | HTTP                        | requests                                                        | ✅                          |
+| awin                      | HTTP                        | requests                                                        | ✅                          |
+| azure_devops              | HTTP                        | requests                                                        | ✅                          |
+| bamboohr                  | HTTP                        | requests                                                        | ✅                          |
+| beamer                    | HTTP                        | requests                                                        | ✅                          |
+| bigmailer                 | HTTP                        | requests                                                        | ✅                          |
+| bigquery                  | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
+| bing_ads                  | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| bland_ai                  | HTTP                        | requests                                                        | ✅                          |
+| blogger                   | HTTP                        | requests                                                        | ✅                          |
+| bluetally                 | HTTP                        | requests                                                        | ✅                          |
+| boldsign                  | HTTP                        | requests                                                        | ✅                          |
+| braintree                 | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| braze                     | HTTP                        | requests                                                        | ✅                          |
+| breezometer               | HTTP                        | requests                                                        | ✅                          |
+| brevo                     | HTTP                        | requests                                                        | ✅                          |
+| brex                      | HTTP                        | requests                                                        | ✅                          |
+| bugsnag                   | HTTP                        | requests                                                        | ✅                          |
+| buildbetter               | HTTP                        | requests                                                        | ✅                          |
+| buildkite                 | HTTP                        | requests                                                        | ✅                          |
+| bunny                     | HTTP                        | requests                                                        | ✅                          |
+| buzzsprout                | HTTP                        | requests                                                        | ✅                          |
+| cal_com                   | HTTP                        | requests                                                        | ✅                          |
+| calendly                  | HTTP                        | requests                                                        | ✅                          |
+| callrail                  | HTTP                        | requests                                                        | ✅                          |
+| campaign_monitor          | HTTP                        | requests                                                        | ✅                          |
+| campayn                   | HTTP                        | requests                                                        | ✅                          |
+| canny                     | HTTP                        | requests                                                        | ✅                          |
+| capsule_crm               | HTTP                        | requests                                                        | ✅                          |
+| care_quality_commission   | HTTP                        | requests                                                        | ✅                          |
+| chameleon                 | HTTP                        | requests                                                        | ✅                          |
+| chargebee                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| chargedesk                | HTTP                        | requests                                                        | ✅                          |
+| chargify                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| charthop                  | HTTP                        | requests                                                        | ✅                          |
+| checkout_com              | HTTP                        | requests                                                        | ✅                          |
+| churnkey                  | HTTP                        | requests                                                        | ✅                          |
+| coassemble                | HTTP                        | requests                                                        | ✅                          |
+| coda                      | HTTP                        | requests                                                        | ✅                          |
+| codefresh                 | HTTP                        | requests                                                        | ✅                          |
+| coin_api                  | HTTP                        | requests                                                        | ✅                          |
+| coingecko                 | HTTP                        | requests                                                        | ✅                          |
+| coinmarketcap             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| commercetools             | HTTP                        | requests                                                        | ✅                          |
+| concord                   | HTTP                        | requests                                                        | ✅                          |
+| configcat                 | HTTP                        | requests                                                        | ✅                          |
+| confluence                | HTTP                        | requests                                                        | ✅                          |
+| chartmogul                | HTTP                        | requests                                                        | ✅                          |
+| circleci                  | HTTP                        | requests                                                        | ✅                          |
+| cimis                     | HTTP                        | requests                                                        | ✅                          |
+| cloudflare                | HTTP                        | requests                                                        | ✅                          |
+| clari                     | HTTP                        | requests                                                        | ✅                          |
+| clerk                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| clickhouse                | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
+| clickup                   | HTTP                        | requests                                                        | ✅                          |
+| clockify                  | HTTP                        | requests                                                        | ✅                          |
+| clockodo                  | HTTP                        | requests                                                        | ✅                          |
+| close                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| cloudbeds                 | HTTP                        | requests                                                        | ✅                          |
+| convertkit                | HTTP                        | requests                                                        | ✅                          |
+| convex                    | HTTP                        | requests                                                        | ✅                          |
+| copper                    | HTTP                        | requests                                                        | ✅                          |
+| coupa                     | HTTP                        | requests                                                        | ✅                          |
+| crunchbase                | HTTP                        | requests                                                        | ✅                          |
+| culture_amp               | HTTP                        | requests                                                        | ✅                          |
+| cursor                    | HTTP                        | requests                                                        | ✅                          |
+| customer_io               | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
+| datadog                   | HTTP                        | requests                                                        | ✅                          |
+| decagon                   | HTTP                        | requests                                                        | ✅                          |
+| deel                      | HTTP                        | requests                                                        | ✅                          |
+| deepgram                  | HTTP                        | requests                                                        | ✅                          |
+| delighted                 | HTTP                        | requests                                                        | ✅                          |
+| deno_deploy               | HTTP                        | requests                                                        | ✅                          |
+| devin_ai                  | HTTP                        | requests                                                        | ✅                          |
+| ding_connect              | HTTP                        | requests                                                        | ✅                          |
+| dixa                      | HTTP                        | requests                                                        | ✅                          |
+| dockerhub                 | HTTP                        | requests                                                        | ✅                          |
+| docuseal                  | HTTP                        | requests                                                        | ✅                          |
+| doit                      | HTTP                        | requests                                                        | ✅                          |
+| dropbox_sign              | HTTP                        | requests                                                        | ✅                          |
+| drip                      | HTTP                        | requests                                                        | ✅                          |
+| e_conomic                 | HTTP                        | requests                                                        | ✅                          |
+| easypost                  | HTTP                        | requests                                                        | ✅                          |
+| easypromos                | HTTP                        | requests                                                        | ✅                          |
+| elevenlabs                | HTTP                        | requests                                                        | ✅                          |
+| freshcaller               | HTTP                        | requests                                                        | ✅                          |
+| freshdesk                 | HTTP                        | requests                                                        | ✅                          |
+| freshsales                | HTTP                        | requests                                                        | ✅                          |
+| freshservice              | HTTP                        | requests                                                        | ✅                          |
+| elasticemail              | HTTP                        | requests                                                        | ✅                          |
+| elasticsearch             | HTTP                        | requests                                                        | ✅                          |
+| emailoctopus              | HTTP                        | requests                                                        | ✅                          |
+| eventbrite                | HTTP                        | requests                                                        | ✅                          |
+| eventee                   | HTTP                        | requests                                                        | ✅                          |
+| eventzilla                | HTTP                        | requests                                                        | ✅                          |
+| everhour                  | HTTP                        | requests                                                        | ✅                          |
+| exchange_rates_api        | HTTP                        | requests                                                        | ✅                          |
+| ezofficeinventory         | HTTP                        | requests                                                        | ✅                          |
+| factorial                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| fastly                    | HTTP                        | requests                                                        | ✅                          |
+| fillout                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| finage                    | HTTP                        | requests                                                        | ✅                          |
+| financial_modelling       | HTTP                        | requests                                                        | ✅                          |
+| finnhub                   | HTTP                        | requests                                                        | ✅                          |
+| finnworlds                | HTTP                        | requests                                                        | ✅                          |
+| firecrawl                 | HTTP                        | requests                                                        | ✅                          |
+| fleetio                   | HTTP                        | requests                                                        | ✅                          |
+| firehydrant               | HTTP                        | requests                                                        | ✅                          |
+| flexmail                  | HTTP                        | requests                                                        | ✅                          |
+| float_app                 | HTTP                        | requests                                                        | ✅                          |
+| front                     | HTTP                        | requests                                                        | ✅                          |
+| fulcrum                   | HTTP                        | requests                                                        | ✅                          |
+| fullstory                 | HTTP                        | requests                                                        | ✅                          |
+| gainsight_px              | HTTP                        | requests                                                        | ✅                          |
+| gitbook                   | HTTP                        | requests                                                        | ✅                          |
+| github                    | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| giphy                     | HTTP                        | requests                                                        | ✅                          |
+| gitlab                    | HTTP                        | requests                                                        | ✅                          |
+| gladly                    | HTTP                        | requests                                                        | ✅                          |
+| gnews                     | HTTP                        | requests                                                        | ✅                          |
+| gocardless                | HTTP                        | requests                                                        | ✅                          |
+| goldcast                  | HTTP                        | requests                                                        | ✅                          |
+| gong                      | HTTP                        | requests                                                        | ✅                          |
+| google_ads                | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
+| google_analytics          | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
+| google_pagespeed_insights | HTTP                        | requests                                                        | ✅                          |
+| google_sheets             | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
+| google_webfonts           | HTTP                        | requests                                                        | ✅                          |
+| granola                   | HTTP                        | requests                                                        | ✅                          |
+| gorgias                   | HTTP                        | requests                                                        | ✅                          |
+| greenhouse                | HTTP                        | requests                                                        | ✅                          |
+| gridly                    | HTTP                        | requests                                                        | ✅                          |
+| guardian                  | HTTP                        | requests                                                        | ✅                          |
+| guru                      | HTTP                        | requests                                                        | ✅                          |
+| harvey                    | HTTP                        | requests                                                        | ✅                          |
+| hatchet                   | HTTP                        | requests                                                        | ✅                          |
+| healthchecks              | HTTP                        | requests                                                        | ✅                          |
+| height                    | HTTP                        | requests                                                        | ✅                          |
+| hellobaton                | HTTP                        | requests                                                        | ✅                          |
+| hibob                     | HTTP                        | requests                                                        | ✅                          |
+| humanitix                 | HTTP                        | requests                                                        | ✅                          |
+| hubplanner                | HTTP                        | requests                                                        | ✅                          |
+| hubspot                   | HTTP                        | requests                                                        | ✅                          |
+| hugging_face              | HTTP                        | requests                                                        | ✅                          |
+| huntr                     | HTTP                        | requests                                                        | ✅                          |
+| imagga                    | HTTP                        | requests                                                        | ✅                          |
+| incident_io               | HTTP                        | requests                                                        | ✅                          |
+| inflowinventory           | HTTP                        | requests                                                        | ✅                          |
+| insightly                 | HTTP                        | requests                                                        | ✅                          |
+| instatus                  | HTTP                        | requests                                                        | ✅                          |
+| intercom                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| intruder                  | HTTP                        | requests                                                        | ✅                          |
+| invoiced                  | HTTP                        | requests                                                        | ✅                          |
+| invoiceninja              | HTTP                        | requests                                                        | ✅                          |
+| ip2whois                  | HTTP                        | requests                                                        | ✅                          |
+| iterable                  | HTTP                        | requests                                                        | ✅                          |
+| jira                      | HTTP                        | requests                                                        | ✅                          |
+| jobnimbus                 | HTTP                        | requests                                                        | ✅                          |
+| jotform                   | HTTP                        | requests                                                        | ✅                          |
+| judgeme_reviews           | HTTP                        | requests                                                        | ✅                          |
+| justcall                  | HTTP                        | requests                                                        | ✅                          |
+| justsift                  | HTTP                        | requests                                                        | ✅                          |
+| k6_cloud                  | HTTP                        | requests                                                        | ✅                          |
+| katana                    | HTTP                        | requests                                                        | ✅                          |
+| klaviyo                   | HTTP                        | requests                                                        | ✅                          |
+| lago                      | HTTP                        | requests                                                        | ✅                          |
+| launchdarkly              | HTTP                        | requests                                                        | ✅                          |
+| kustomer                  | HTTP                        | requests                                                        | ✅                          |
+| lattice                   | HTTP                        | requests                                                        | ✅                          |
+| leadfeeder                | HTTP                        | requests                                                        | ✅                          |
+| lemlist                   | HTTP                        | requests                                                        | ✅                          |
+| less_annoying_crm         | HTTP                        | requests                                                        | ✅                          |
+| lightspeed_retail         | HTTP                        | requests                                                        | ✅                          |
+| linear                    | HTTP                        | requests                                                        | ✅                          |
+| lever                     | HTTP                        | requests                                                        | ✅                          |
+| lingo_dev                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| linkedin_ads              | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
+| linkrunner                | HTTP                        | requests                                                        | ✅                          |
+| linode                    | HTTP                        | requests                                                        | ✅                          |
+| lob                       | HTTP                        | requests                                                        | ✅                          |
+| luma                      | HTTP                        | requests                                                        | ✅                          |
+| mailchimp                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mailerlite                | HTTP                        | requests                                                        | ✅                          |
+| mailersend                | HTTP                        | requests                                                        | ✅                          |
+| mailgun                   | HTTP                        | requests                                                        | ✅                          |
+| mailjet                   | HTTP                        | requests                                                        | ✅                          |
+| mailosaur                 | HTTP                        | requests                                                        | ✅                          |
+| mailtrap                  | HTTP                        | requests                                                        | ✅                          |
+| marketstack               | HTTP                        | requests                                                        | ✅                          |
+| matomo                    | HTTP                        | requests                                                        | ✅                          |
+| maxio                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mention                   | HTTP                        | requests                                                        | ✅                          |
+| meta_ads                  | HTTP                        | requests                                                        | ✅                          |
+| metabase                  | HTTP                        | requests                                                        | ✅                          |
+| metorial                  | HTTP                        | requests                                                        | ✅                          |
+| mistral_ai                | HTTP                        | requests                                                        | ✅                          |
+| mixmax                    | HTTP                        | requests                                                        | ✅                          |
+| mixpanel                  | HTTP                        | requests                                                        | ✅                          |
+| mollie                    | HTTP                        | requests                                                        | ✅                          |
+| monday                    | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| mongodb                   | DB protocol                 | pymongo                                                         | ➖                          |
+| mssql                     | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
+| mux                       | HTTP                        | requests                                                        | ✅                          |
+| my_hours                  | HTTP                        | requests                                                        | ✅                          |
+| mysql                     | DB protocol                 | pymysql                                                         | ➖                          |
+| n8n                       | HTTP                        | requests                                                        | ✅                          |
+| netlify                   | HTTP                        | requests                                                        | ✅                          |
+| new_york_times            | HTTP                        | requests                                                        | ✅                          |
+| news_api                  | HTTP                        | requests                                                        | ✅                          |
+| newsdata                  | HTTP                        | requests                                                        | ✅                          |
+| okta                      | HTTP                        | requests                                                        | ✅                          |
+| nocrm                     | HTTP                        | requests                                                        | ✅                          |
+| northpass_lms             | HTTP                        | requests                                                        | ✅                          |
+| notion                    | HTTP                        | requests                                                        | ✅                          |
+| omnisend                  | HTTP                        | requests                                                        | ✅                          |
+| oncehub                   | HTTP                        | requests                                                        | ✅                          |
+| onepagecrm                | HTTP                        | requests                                                        | ✅                          |
+| onfleet                   | HTTP (cursor pagination)    | requests                                                        | ✅                          |
+| open_exchange_rates       | HTTP                        | requests                                                        | ✅                          |
+| opinion_stage             | HTTP                        | requests                                                        | ✅                          |
+| orb                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| openaq                    | HTTP                        | requests                                                        | ✅                          |
+| openfda                   | HTTP                        | requests                                                        | ✅                          |
+| openweather               | HTTP                        | requests                                                        | ✅                          |
+| ortto                     | HTTP                        | requests                                                        | ✅                          |
+| oura                      | HTTP                        | requests                                                        | ✅                          |
+| outbrain                  | HTTP                        | requests                                                        | ✅                          |
+| paddle                    | HTTP                        | requests                                                        | ✅                          |
+| optimizely                | HTTP                        | requests                                                        | ✅                          |
+| pagerduty                 | HTTP                        | requests                                                        | ✅                          |
+| pandadoc                  | HTTP                        | requests                                                        | ✅                          |
+| paperform                 | HTTP                        | requests                                                        | ✅                          |
+| papersign                 | HTTP                        | requests                                                        | ✅                          |
+| partnerize                | HTTP                        | requests                                                        | ✅                          |
+| partnerstack              | HTTP                        | requests                                                        | ✅                          |
+| payfit                    | HTTP                        | requests                                                        | ✅                          |
+| paystack                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| pendo                     | HTTP                        | requests                                                        | ✅                          |
+| persistiq                 | HTTP                        | requests                                                        | ✅                          |
+| persona                   | HTTP                        | requests                                                        | ✅                          |
+| personio                  | HTTP                        | requests                                                        | ✅                          |
+| pexels                    | HTTP                        | requests                                                        | ✅                          |
+| phyllo                    | HTTP                        | requests                                                        | ✅                          |
+| picqer                    | HTTP                        | requests                                                        | ✅                          |
+| pingdom                   | HTTP                        | requests                                                        | ✅                          |
+| pinterest_ads             | HTTP                        | requests                                                        | ✅                          |
+| pipedrive                 | HTTP                        | requests                                                        | ✅                          |
+| pipeliner                 | HTTP                        | requests                                                        | ✅                          |
+| plain                     | HTTP                        | requests                                                        | ✅                          |
+| planhat                   | HTTP                        | requests                                                        | ✅                          |
+| plausible                 | HTTP                        | requests                                                        | ✅                          |
+| polar                     | HTTP                        | requests                                                        | ✅                          |
+| plaid                     | HTTP                        | requests                                                        | ✅                          |
+| postgres                  | DB protocol                 | psycopg                                                         | ➖                          |
+| postmark                  | HTTP                        | requests                                                        | ✅                          |
+| pretix                    | HTTP                        | requests                                                        | ✅                          |
+| printify                  | HTTP                        | requests                                                        | ✅                          |
+| productboard              | HTTP                        | requests                                                        | ✅                          |
+| pylon                     | HTTP                        | requests                                                        | ✅                          |
+| qualaroo                  | HTTP                        | requests                                                        | ✅                          |
+| recurly                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| ramp                      | HTTP                        | requests                                                        | ✅                          |
+| recharge                  | HTTP                        | requests                                                        | ✅                          |
+| recruitee                 | HTTP                        | requests                                                        | ✅                          |
+| reddit_ads                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| redshift                  | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
+| rentcast                  | HTTP                        | requests                                                        | ✅                          |
+| replicate                 | HTTP                        | requests                                                        | ✅                          |
+| reply_io                  | HTTP                        | requests                                                        | ✅                          |
+| resend                    | HTTP                        | requests                                                        | ✅                          |
+| retently                  | HTTP                        | requests                                                        | ✅                          |
+| revenuecat                | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| rippling                  | HTTP                        | requests                                                        | ✅                          |
+| rocketlane                | HTTP                        | requests                                                        | ✅                          |
+| rollbar                   | HTTP                        | requests                                                        | ✅                          |
+| rootly                    | HTTP                        | requests                                                        | ✅                          |
+| rss                       | HTTP                        | requests                                                        | ✅                          |
+| ruddr                     | HTTP                        | requests                                                        | ✅                          |
+| safetyculture             | HTTP                        | requests                                                        | ✅                          |
+| salesforce                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| salesflare                | HTTP                        | requests                                                        | ✅                          |
+| salesloft                 | HTTP                        | requests                                                        | ✅                          |
+| savvycal                  | HTTP                        | requests                                                        | ✅                          |
+| scale_ai                  | HTTP                        | requests                                                        | ✅                          |
+| scaleway                  | HTTP                        | requests                                                        | ✅                          |
+| secoda                    | HTTP                        | requests                                                        | ✅                          |
+| segment                   | HTTP                        | requests                                                        | ✅                          |
+| sendgrid                  | HTTP                        | requests                                                        | ✅                          |
+| sendowl                   | HTTP                        | requests                                                        | ✅                          |
+| sentry                    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| servicenow                | HTTP                        | requests                                                        | ✅                          |
+| shippo                    | HTTP                        | requests                                                        | ✅                          |
+| shipstation               | HTTP                        | requests                                                        | ✅                          |
+| shopify                   | HTTP                        | requests                                                        | ✅                          |
+| shopwired                 | HTTP                        | requests                                                        | ✅                          |
+| shortcut                  | HTTP                        | requests                                                        | ✅                          |
+| shortio                   | HTTP                        | requests                                                        | ✅                          |
+| simplecast                | HTTP                        | requests                                                        | ✅                          |
+| simplesat                 | HTTP                        | requests                                                        | ✅                          |
+| skyvern                   | HTTP                        | requests                                                        | ✅                          |
+| slack                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| smaily                    | HTTP                        | requests                                                        | ✅                          |
+| smartreach                | HTTP                        | requests                                                        | ✅                          |
+| smartsheet                | HTTP                        | requests                                                        | ✅                          |
+| smartwaiver               | HTTP                        | requests                                                        | ✅                          |
+| snapchat_ads              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| snowflake                 | DB protocol                 | snowflake-connector-python                                      | ➖                          |
+| solarwinds_service_desk   | HTTP                        | requests                                                        | ✅                          |
+| sparkpost                 | HTTP                        | requests                                                        | ✅                          |
+| split_io                  | HTTP                        | requests                                                        | ✅                          |
+| square                    | HTTP                        | requests                                                        | ✅                          |
+| squarespace               | HTTP                        | requests                                                        | ✅                          |
+| statuspage                | HTTP                        | requests                                                        | ✅                          |
+| stigg                     | HTTP                        | requests                                                        | ✅                          |
+| stripe                    | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
+| supabase                  | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
+| surveymonkey              | HTTP                        | requests                                                        | ✅                          |
+| surveysparrow             | HTTP                        | requests                                                        | ✅                          |
+| svix                      | HTTP                        | requests                                                        | ✅                          |
+| taboola                   | HTTP                        | requests                                                        | ✅                          |
+| tavus                     | HTTP                        | requests                                                        | ✅                          |
+| teamtailor                | HTTP                        | requests                                                        | ✅                          |
+| teamwork                  | HTTP                        | requests                                                        | ✅                          |
+| tempo                     | HTTP                        | requests                                                        | ✅                          |
+| temporalio                | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
+| testrail                  | HTTP                        | requests                                                        | ✅                          |
+| thinkific                 | HTTP                        | requests                                                        | ✅                          |
+| tickettailor              | HTTP                        | requests                                                        | ✅                          |
+| tiktok_ads                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| tmdb                      | HTTP                        | requests                                                        | ✅                          |
+| todoist                   | HTTP                        | requests                                                        | ✅                          |
+| together_ai               | HTTP                        | requests                                                        | ✅                          |
+| trello                    | HTTP                        | requests                                                        | ✅                          |
+| tremendous                | HTTP                        | requests                                                        | ✅                          |
+| trigger_dev               | HTTP                        | requests                                                        | ✅                          |
+| twelve_labs               | HTTP                        | requests                                                        | ✅                          |
+| twilio                    | HTTP                        | requests                                                        | ✅                          |
+| typeform                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| ubidots                   | HTTP                        | requests                                                        | ✅                          |
+| unleash                   | HTTP                        | requests                                                        | ✅                          |
+| upstash                   | HTTP                        | requests                                                        | ✅                          |
+| vantage                   | HTTP                        | requests                                                        | ✅                          |
+| vellum                    | HTTP                        | requests                                                        | ✅                          |
+| vercel                    | HTTP                        | requests                                                        | ✅                          |
+| vitally                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| webflow                   | HTTP                        | requests                                                        | ✅                          |
+| windmill                  | HTTP                        | requests                                                        | ✅                          |
+| woocommerce               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| wordpress                 | HTTP                        | requests                                                        | ✅                          |
+| workable                  | HTTP                        | requests                                                        | ✅                          |
+| workos                    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| wrike                     | HTTP                        | requests                                                        | ✅                          |
+| writesonic                | HTTP                        | requests                                                        | ✅                          |
+| wufoo                     | HTTP                        | requests                                                        | ✅                          |
+| zapier_supported_storage  | HTTP                        | requests                                                        | ✅                          |
+| zendesk                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| zendesk_sell              | HTTP                        | requests                                                        | ✅                          |
+| zenloop                   | HTTP                        | requests                                                        | ✅                          |
+| zonka_feedback            | HTTP                        | requests                                                        | ✅                          |
+| zoom                      | HTTP                        | requests                                                        | ✅                          |
+| zuora                     | HTTP                        | requests                                                        | ✅                          |
 
 ### Notes on partially-tracked sources
 
@@ -434,8 +471,8 @@ doesn't conflict with concurrent PRs.
 - aikido_security
 - airbyte
 - airops
+- aiven
 - akeneo
-- alguna
 - alpaca_broker_api
 - amazon_ads
 - amazon_cloudwatch
@@ -445,7 +482,6 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
-- anthropic
 - appcues
 - apple_search_ads
 - appstack
@@ -456,22 +492,23 @@ doesn't conflict with concurrent PRs.
 - azure_blob
 - azure_table_storage
 - babelforce
+- backblaze
 - basecamp
+- baseten
 - bigcommerce
 - bitly
-- bland_ai
 - box
 - braintrust
 - branch
 - breezy_hr
 - browse_ai
 - browser_use
+- browserbase
 - cal_com
 - campaign_manager_360
 - captain_data
 - cart_com
 - castor_edc
-- charthop
 - chatwoot
 - chift
 - chorus
@@ -483,12 +520,12 @@ doesn't conflict with concurrent PRs.
 - coassemble
 - cockroachdb
 - cody
+- cohere
 - constant_contact
 - copper
 - cosmosdb
 - couchbase
 - criteo
-- cursor
 - curve
 - customerly
 - databricks
@@ -496,9 +533,9 @@ doesn't conflict with concurrent PRs.
 - datorama
 - db2
 - dbt
-- decagon
-- deepgram
+- deno_deploy
 - deputy
+- digitalocean
 - display_video_360
 - docusign
 - dolibarr
@@ -508,8 +545,8 @@ doesn't conflict with concurrent PRs.
 - dwolla
 - dynamics365
 - dynamodb
+- e2b
 - ebay
-- elevenlabs
 - eloqua
 - employment_hero
 - encharge
@@ -518,10 +555,14 @@ doesn't conflict with concurrent PRs.
 - fastbill
 - fauna
 - feishu
+- fintoc
 - firebase
 - firebolt
+- fireworks_ai
+- flexmail
 - flexport
 - flowlu
+- fly_io
 - formbricks
 - freeagent
 - freightview
@@ -538,34 +579,42 @@ doesn't conflict with concurrent PRs.
 - google_ad_manager
 - google_analytics
 - google_calendar
+- google_chat
 - google_classroom
 - google_cloud_storage
 - google_directory
 - google_drive
 - google_forms
-- google_pagespeed_insights
 - google_tasks
 - google_workspace_admin_reports
 - grafana
 - greythr
+- groq
+- growthbook
+- gumloop
 - gusto
 - harness
 - harvey
-- healthchecks
 - heap
+- helicone
 - helpscout
+- heroku
+- hetzner
+- hex
+- heygen
 - hibob
 - high_level
 - hightouch
 - hoorayhr
 - hubplanner
-- hugging_face
+- humanitix
 - hyperspell
 - ikas
 - illumina_basespace
-- imagga
 - impact
+- infisical
 - infor_nexus
+- inngest
 - insightful
 - instagram
 - instantly
@@ -575,14 +624,20 @@ doesn't conflict with concurrent PRs.
 - judgeme_reviews
 - justsift
 - kafka
+- kapa_ai
 - keka
+- kernel
+- kickscale
 - kisi
 - kissmetrics
 - klarna
 - klaus
 - knock
+- koyeb
 - kyve
+- lambda_labs
 - langfuse
+- langsmith
 - leexi
 - lemon_squeezy
 - lever
@@ -591,6 +646,7 @@ doesn't conflict with concurrent PRs.
 - lingo_dev
 - linkedin_pages
 - linnworks
+- llama_cloud
 - lokalise
 - looker
 - loops
@@ -598,21 +654,23 @@ doesn't conflict with concurrent PRs.
 - mailtrap
 - mantle
 - marketo
-- maxio
+- mem0
 - mendeley
 - mercado_ads
 - mercury
 - merge
-- metorial
 - metricool
+- metriport
 - metronome
 - microsoft_dataverse
 - microsoft_entra_id
 - microsoft_lists
 - microsoft_teams
+- mintlify
 - miro
 - missive
 - mode
+- mono
 - nasa
 - navan
 - nebius_ai
@@ -623,6 +681,7 @@ doesn't conflict with concurrent PRs.
 - nexiopay
 - ninjaone_rmm
 - nocrm
+- northflank
 - northpass_lms
 - nutshell
 - nylas
@@ -630,6 +689,7 @@ doesn't conflict with concurrent PRs.
 - onehundredms
 - onesignal
 - open_data_dc
+- openai
 - openrouter
 - opsgenie
 - opuswatch
@@ -643,7 +703,6 @@ doesn't conflict with concurrent PRs.
 - pabbly_subscriptions_billing
 - pagerduty
 - pardot
-- payfit
 - paylocity
 - paypal
 - peec_ai
@@ -651,11 +710,14 @@ doesn't conflict with concurrent PRs.
 - pennylane
 - perigon
 - perk
-- persona
 - pexels
+- phyllo
+- pinecone
+- pipeliner
 - pivotal_tracker
 - piwik
 - planetscale
+- platform_sh
 - plunk
 - pocket
 - podium
@@ -664,7 +726,9 @@ doesn't conflict with concurrent PRs.
 - prestashop
 - primetric
 - productive
+- prompting_company
 - pypi
+- qdrant
 - qonto
 - qualtrics
 - quickbooks
@@ -676,13 +740,22 @@ doesn't conflict with concurrent PRs.
 - reddit
 - redis
 - referralhero
+- render
 - repairshopr
+- reply_io
 - retail_express
+- retell_ai
+- retently
 - revolut_merchant
 - ringcentral
 - rki_covid
+- roark
 - rocket_chat
 - rocketlane
+- rss
+- rudderstack
+- runpod
+- safetyculture
 - sage_hr
 - sage_intacct
 - sailthru
@@ -693,6 +766,9 @@ doesn't conflict with concurrent PRs.
 - sap_fieldglass
 - sap_hana
 - sap_successfactors
+- savvycal
+- scale_ai
+- scaleway
 - search_ads_360
 - sendpulse
 - senseforce
@@ -702,13 +778,20 @@ doesn't conflict with concurrent PRs.
 - sharepoint
 - sharetribe
 - shippo
+- shopwired
 - shortio
 - shutterstock
 - sigma_computing
 - signnow
+- signoz
+- sim
 - simfin
 - simplecast
 - simplesat
+- singular
+- skyvern
+- slash
+- smaily
 - smartengage
 - smartwaiver
 - solarwinds_service_desk
@@ -720,13 +803,19 @@ doesn't conflict with concurrent PRs.
 - strava
 - streamelements
 - streamlabs
+- sumsub
 - superwall
 - surveymonkey
 - survicate
 - svix
+- swonkie
+- synthesia
 - systeme
 - tawk_to
 - teachable
+- telli
+- tempo
+- terra_api
 - thinkific_courses
 - thrive_learning
 - ticketmaster
@@ -734,24 +823,27 @@ doesn't conflict with concurrent PRs.
 - tile38
 - timely
 - tinyemail
-- together_ai
 - toggl
 - track_pms
+- tremendous
 - trustpilot
+- turso
 - tvmaze
 - twelve_data
+- twenty
 - twitter
 - twitter_ads
 - tyntec_sms
+- unstructured
 - uppromote
 - uptick
 - us_census
 - uservoice
-- vantage
 - vapi
 - veeqo
 - vespa
 - visma_economic
+- vultr
 - vwo
 - waiteraid
 - wasabi
@@ -761,7 +853,6 @@ doesn't conflict with concurrent PRs.
 - workday
 - workflowmax
 - workramp
-- writesonic
 - wufoo
 - xero
 - xsolla
@@ -773,11 +864,12 @@ doesn't conflict with concurrent PRs.
 - yousign
 - youtube_analytics
 - youtube_data
-- zapier_supported_storage
 - zapsign
+- zellify
 - zendesk_sunshine
 - zenefits
 - zenloop
+- zep
 - zoho_analytics
 - zoho_bigin
 - zoho_billing

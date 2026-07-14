@@ -75,6 +75,21 @@ class TaskRunDTO:
 
 
 @dataclass(frozen=True)
+class WizardPrReadyEmailContextDTO:
+    """Everything ``send_wizard_pr_ready_email`` needs to read off a task run's PR-ready state."""
+
+    task_id: UUID
+    run_id: UUID
+    team_id: int
+    origin_product: str
+    pr_url: str
+    repository: str | None
+    branch: str | None
+    created_by_id: int | None
+    already_sent: bool
+
+
+@dataclass(frozen=True)
 class WarmRunDTO:
     """Outcome of ensuring a warm sandbox run exists for a task."""
 
@@ -138,11 +153,28 @@ class TaskThreadMessageDTO:
 
     id: UUID
     task: UUID
+    author_kind: str
+    event: str
+    payload: dict
     content: str
     created_at: datetime
     author: "TaskUserBasicInfo | None" = None
     forwarded_to_agent_at: datetime | None = None
     forwarded_by: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class ChannelFeedMessageDTO:
+    """The HTTP representation of one system announcement in a channel's feed."""
+
+    id: UUID
+    channel: UUID
+    author_kind: str
+    event: str
+    payload: dict
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
 
 
 @dataclass(frozen=True)

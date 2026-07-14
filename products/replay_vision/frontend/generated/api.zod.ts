@@ -318,12 +318,12 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
     model: zod
-        .enum(['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview'])
+        .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
         .describe(
-            '\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            '\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
         )
         .describe(
-            'Concrete model to use for this scanner.\n\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            'Concrete model to use for this scanner.\n\n\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
         ),
     enabled: zod
         .boolean()
@@ -400,13 +400,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
     model: zod
-        .enum(['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview'])
+        .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
         .describe(
-            '\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            '\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
         )
         .optional()
         .describe(
-            'Concrete model to use for this scanner.\n\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            'Concrete model to use for this scanner.\n\n\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
         ),
     enabled: zod
         .boolean()
@@ -454,6 +454,23 @@ export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Only monitor and classifier scanners are supported. Requires session recording edit access.
+ */
+export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault = 10
+export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax = 100
+
+export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */ zod.object({
+    session_limit: zod
+        .number()
+        .min(1)
+        .max(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax)
+        .default(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault)
+        .describe(
+            'How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.'
+        ),
+})
+
+/**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
  */
 export const visionScannersEstimateCreateBodySamplingRateDefault = 1
@@ -461,6 +478,7 @@ export const visionScannersEstimateCreateBodySamplingRateMin = 0
 export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
 export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
+export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -487,7 +505,16 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .uuid()
             .nullish()
             .describe(
-                "The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+                "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+            ),
+        model: zod
+            .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
+            .describe(
+                '\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
+            )
+            .default(visionScannersEstimateCreateBodyModelDefault)
+            .describe(
+                'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')

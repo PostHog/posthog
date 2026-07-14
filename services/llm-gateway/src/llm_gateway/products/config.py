@@ -59,15 +59,18 @@ POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
 # allowlist is identical.
 _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     {
+        "claude-fable-5",
         "claude-opus-4-5",
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
-        "claude-fable-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-sonnet-5",
         "claude-haiku-4-5",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
         "gpt-5.5",
         "gpt-5.4",
         "gpt-5.3-codex",
@@ -108,11 +111,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=frozenset(
             {
+                "claude-fable-5",
                 "claude-opus-4-5",
                 "claude-opus-4-6",
                 "claude-opus-4-7",
                 "claude-opus-4-8",
-                "claude-fable-5",
                 "claude-sonnet-4-5",
                 "claude-sonnet-5",
                 "claude-haiku-4-5",
@@ -198,6 +201,13 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
+        credit_bucket=None,
+    ),
+    "review_hog": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=None,  # any model — the one-shot chunking/dedup calls pin theirs in review_hog constants
+        allow_api_keys=True,
+        # Deliberately unbilled while ReviewHog is an internal alpha.
         credit_bucket=None,
     ),
     "subscriptions": ProductConfig(

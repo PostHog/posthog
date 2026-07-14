@@ -139,7 +139,10 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             ],
         )
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # A member's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
         try:
             client = linkedin_ads_client_for_integration(integration_id, team_id)
         except Integration.DoesNotExist as e:

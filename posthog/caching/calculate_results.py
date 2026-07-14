@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Union
 
 import structlog
@@ -59,10 +58,10 @@ def calculate_for_query_based_insight(
     variables_override: Optional[dict] = None,
     tile_filters_override: Optional[dict] = None,
     query_override: Optional[dict] = None,
+    cache_age_seconds: Optional[int] = None,
     analytics_props: Optional[AnalyticsProps] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
-    from posthog.caching.insight_cache import update_cached_state
 
     tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
     if dashboard:
@@ -96,6 +95,7 @@ def calculate_for_query_based_insight(
         dashboard_id=dashboard.pk if dashboard else None,
         # QUERY_ASYNC provides extended max execution time for insight queries
         limit_context=LimitContext.QUERY_ASYNC,
+        cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
     )
 
@@ -109,13 +109,6 @@ def calculate_for_query_based_insight(
 
     cache_key = response.get("cache_key")
     last_refresh = response.get("last_refresh")
-    if isinstance(cache_key, str) and isinstance(last_refresh, datetime):
-        update_cached_state(  # Updating the relevant InsightCachingState
-            team.id,
-            cache_key,
-            last_refresh,
-            result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility
-        )
 
     return InsightResult(
         # Translating `QueryResponse` to legacy insights shape

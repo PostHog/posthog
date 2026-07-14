@@ -1,4 +1,4 @@
-import { addProjectIdIfMissing, stripTrailingSlash } from 'lib/utils/kea-router'
+import { addProjectIdIfMissing, ensureRoutablePathname, stripTrailingSlash } from 'lib/utils/kea-router'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
@@ -65,6 +65,22 @@ describe('router-utils', () => {
         })
         it('leaves the empty string unchanged', () => {
             expect(stripTrailingSlash('')).toEqual('')
+        })
+    })
+
+    describe('ensureRoutablePathname', () => {
+        // kea-router runs decodeURI(pathname) while matching; a stray `%` used to throw URIError
+        // and crash routing before any scene loaded. Whatever we return must be decodeURI-safe.
+        it.each([
+            ['/person/50%off', '/person/50%25off'], // lone `%` gets escaped
+            ['/person/foo%', '/person/foo%25'], // trailing `%` gets escaped
+            ['/person/50%25off', '/person/50%25off'], // already-valid escape is untouched
+            ['/person/foo bar', '/person/foo bar'], // whitespace decodes fine, left alone
+            ['/insights/abc', '/insights/abc'], // plain path untouched
+        ])('makes %s routable as %s', (input, expected) => {
+            const result = ensureRoutablePathname(input)
+            expect(result).toEqual(expected)
+            expect(() => decodeURI(result)).not.toThrow()
         })
     })
 })
