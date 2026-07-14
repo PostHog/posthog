@@ -26133,7 +26133,7 @@ export namespace Schemas {
        * * `warehouse` - warehouse
        * * `direct` - direct */
       access_method?: AccessMethodEnum;
-      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
+      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
@@ -26182,6 +26182,7 @@ export namespace Schemas {
      * * `api` - api
      * * `mcp` - mcp
      * * `wizard` - wizard
+     * * `self_driving` - self_driving
      */
     export type ExternalDataSourceSerializersCreatedViaEnum = typeof ExternalDataSourceSerializersCreatedViaEnum[keyof typeof ExternalDataSourceSerializersCreatedViaEnum];
 
@@ -26191,6 +26192,7 @@ export namespace Schemas {
       Api: 'api',
       Mcp: 'mcp',
       Wizard: 'wizard',
+      SelfDriving: 'self_driving',
     } as const;
 
     /**
@@ -26201,12 +26203,13 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp
-       * * `wizard` - wizard */
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
@@ -41809,12 +41812,13 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp
-       * * `wizard` - wizard */
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;

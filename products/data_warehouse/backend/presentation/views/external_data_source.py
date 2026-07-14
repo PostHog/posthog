@@ -774,7 +774,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
             "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, "
-            "`wizard` for the setup wizard (derived server-side from the wizard's user agent). "
+            "`wizard` for the setup wizard and `self_driving` for the PostHog Code app "
+            "(both derived server-side from the caller's user agent). "
             "Ignored on update."
         ),
     )
@@ -1280,9 +1281,10 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        # `wizard` is intentionally omitted: it is never accepted from a caller (that would let any
-        # client self-label as wizard-created). It is derived server-side by upgrading a
-        # machine-injected `mcp` value when the request comes from the wizard transport.
+        # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
+        # caller (that would let any client self-label as wizard- or PostHog Code-created). They
+        # are derived server-side by upgrading a machine-injected `mcp` value when the request
+        # comes from the wizard or PostHog Code transport.
         choices=[
             ExternalDataSource.CreatedVia.WEB,
             ExternalDataSource.CreatedVia.API,
@@ -1292,8 +1294,8 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         default=ExternalDataSource.CreatedVia.API,
         help_text=(
             "Where the request came from: `web` for the in-app UI, `api` for direct API callers, "
-            "`mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived "
-            "server-side for wizard-driven MCP calls. Defaults to `api`."
+            "`mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — "
+            "they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`."
         ),
     )
     direct_query_enabled = serializers.BooleanField(
@@ -1904,12 +1906,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
 
-        # The setup wizard drives creation through the MCP tools, which inject `created_via=mcp`
-        # before the request reaches us — the agent can't set the field itself. Upgrade that
-        # machine-injected value to `wizard` when the transport identifies the wizard, so wizard
+        # The setup wizard and PostHog Code drive creation through the MCP tools, which inject
+        # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
+        # Upgrade that machine-injected value when the transport identifies one of them, so their
         # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
-        if created_via == ExternalDataSource.CreatedVia.MCP and get_event_source(request) == EventSource.WIZARD:
-            created_via = ExternalDataSource.CreatedVia.WIZARD
+        if created_via == ExternalDataSource.CreatedVia.MCP:
+            transport_created_via = {
+                EventSource.WIZARD: ExternalDataSource.CreatedVia.WIZARD,
+                EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
+            }
+            created_via = transport_created_via.get(get_event_source(request), created_via)
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
         is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
@@ -2493,11 +2499,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             managed_viewset.sync_views()
             ensure_person_join(self.team.pk, new_source_model.prefix)
 
-        # `source` (web/api/mcp/wizard) is derived from the request by report_user_action; `created_via`
-        # is the caller's explicit intent (with one exception: the machine-injected `mcp` is upgraded
-        # to `wizard` above when the transport identifies the wizard). They usually agree but are kept
-        # separate so a transport change (e.g. a new wrapper UA) doesn't silently rewrite historical
-        # attribution.
+        # `source` (web/api/mcp/wizard/posthog_code) is derived from the request by report_user_action;
+        # `created_via` is the caller's explicit intent (with one exception: the machine-injected `mcp`
+        # is upgraded above when the transport identifies the wizard or PostHog Code). They usually
+        # agree but are kept separate so a transport change (e.g. a new wrapper UA) doesn't silently
+        # rewrite historical attribution.
         report_user_action(
             cast(User, request.user),
             "data warehouse source created",
