@@ -1,6 +1,9 @@
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
 )
+from products.replay_vision.backend.temporal.activities.backfill_observation_events import (
+    backfill_observation_events_activity,
+)
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
@@ -48,6 +51,7 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
 
 __all__ = [
     "advance_scanner_watermark_activity",
+    "backfill_observation_events_activity",
     "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
     "cleanup_gemini_file_activity",

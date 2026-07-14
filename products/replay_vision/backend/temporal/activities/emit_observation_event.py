@@ -13,6 +13,10 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+
+# Import from `scanners` (which itself imports `types`) before `types` so the types<->scanners package
+# cycle resolves scanners-first regardless of who imports this module first.
+from products.replay_vision.backend.temporal.scanners.base import BaseScannerOutput
 from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -34,15 +38,22 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         raise ScannerFailureError(
             f"ReplayObservation {inputs.observation_id} not found", kind=FailureKind.INTERNAL_ERROR
         )
+    emit_observation_event(observation, inputs.model_output)
 
+
+def emit_observation_event(observation: ReplayObservation, model_output: BaseScannerOutput) -> None:
+    """Capture the `$recording_observed` event for a persisted observation and stamp `event_emitted_at`.
+
+    Shared by the apply workflow (fresh output in hand) and the reconciler's backfill (output reloaded from
+    the persisted result). `$insert_id`/`event_uuid` are keyed to the observation id, so a re-emit dedups
+    against an earlier partial success rather than producing a duplicate event row.
+    """
     try:
         team: Team = observation.team
     except Team.DoesNotExist:
-        raise ScannerFailureError(
-            f"Team for observation {inputs.observation_id} not found", kind=FailureKind.INTERNAL_ERROR
-        )
+        raise ScannerFailureError(f"Team for observation {observation.id} not found", kind=FailureKind.INTERNAL_ERROR)
 
-    snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
+    snapshot = ScannerSnapshot.load_for(observation.id, observation.scanner_snapshot)
     # The recorded subject (distinct from the user who triggered the scan), persisted at scan time.
     recording_distinct_id = observation.distinct_id
     recording_subject_email = observation.recording_subject_email
@@ -65,7 +76,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "provider_used": snapshot.provider,
         "emits_signals": snapshot.emits_signals,
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
-        **inputs.model_output.to_event_properties(),
+        **model_output.to_event_properties(),
     }
     distinct_id = (
         str(observation.triggered_by_user_id)
@@ -79,10 +90,14 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         event_name=_EVENT_NAME,
         event_source=_EVENT_SOURCE,
         distinct_id=distinct_id,
-        timestamp=datetime.now(UTC),
+        # Stamp the event at scan-create time, not wall-clock, so a backfilled event lands on the day the
+        # observation actually happened rather than clustering at reconcile time on the trend charts.
+        timestamp=observation.created_at or datetime.now(UTC),
         properties=properties,
         process_person_profile=False,
         # Make the captured event UUID equal to observation.id so the admin UI can link back to it directly.
         event_uuid=str(observation.id),
     )
     result.raise_for_status()
+    # Record the successful emit so the reconciler's backfill can tell this row apart from one that drifted.
+    ReplayObservation.objects.filter(pk=observation.id).update(event_emitted_at=datetime.now(UTC))

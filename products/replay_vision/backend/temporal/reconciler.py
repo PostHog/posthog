@@ -14,6 +14,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.replay_vision.backend.temporal.constants import (
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
+    OBSERVATION_EVENT_BACKFILL_TIMEOUT,
     REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
     RECONCILE_SCHEDULE_OP_TIMEOUT,
     RECONCILER_EXECUTION_TIMEOUT,
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 # `activities` pulls in Django, which the workflow sandbox can't safely re-import.
 with workflow.unsafe.imports_passed_through():
     from products.replay_vision.backend.temporal.activities import (
+        backfill_observation_events_activity,
         delete_scanner_schedule_activity,
         list_enabled_scanners_activity,
         list_scanner_schedules_activity,
@@ -50,15 +52,29 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ReconcileScannerSchedulesInputs) -> ReconcileScannerSchedulesResult:
-        # Best-effort and first: a schedule-sync failure below must not starve the reaper, and vice versa.
-        try:
-            await workflow.execute_activity(
-                reap_orphaned_observations_activity,
-                start_to_close_timeout=REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-        except Exception:
-            workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
+        # Best-effort maintenance, run first and concurrently so neither starves the other or the schedule
+        # sync below — and a failure in any of the three can't block the rest.
+        #  - reap: fail provably-orphaned pending/running rows.
+        #  - backfill: re-emit `$recording_observed` events for succeeded rows whose emit never landed, so the
+        #    ClickHouse-backed charts match the Postgres-backed stats.
+        await asyncio.gather(
+            self._best_effort(
+                workflow.execute_activity(
+                    reap_orphaned_observations_activity,
+                    start_to_close_timeout=REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                ),
+                "replay_vision.reap_orphaned_observations_failed",
+            ),
+            self._best_effort(
+                workflow.execute_activity(
+                    backfill_observation_events_activity,
+                    start_to_close_timeout=OBSERVATION_EVENT_BACKFILL_TIMEOUT,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                ),
+                "replay_vision.backfill_observation_events_failed",
+            ),
+        )
 
         # A scanner toggled between the two listings recovers on the next tick.
         enabled_entries, existing_entries = await asyncio.gather(
@@ -120,6 +136,13 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         if attempted > 0 and succeeded == 0:
             raise ApplicationError(f"reconciler: all {attempted} fan-out activities failed")
         return result
+
+    async def _best_effort(self, coro: Awaitable[object], failure_log_key: str) -> None:
+        """Await a best-effort maintenance activity, logging (never raising) on failure."""
+        try:
+            await coro
+        except Exception:
+            workflow.logger.exception(failure_log_key)
 
     async def _fan_out(self, scanner_ids: list[UUID], make_coro: Callable[[UUID], Awaitable[None]]) -> list[bool]:
         if not scanner_ids:

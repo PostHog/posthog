@@ -13,6 +13,14 @@ OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT * 2
 REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE = 500
 REAP_ORPHANED_OBSERVATIONS_TIMEOUT = dt.timedelta(minutes=3)
 
+# Succeeded rows whose `$recording_observed` event never landed (e.g. capture failed past its retries, or the
+# worker died between mark-succeeded and emit). The reconciler backfills them so the ClickHouse-backed charts
+# match the Postgres-backed stats. Grace keeps a just-succeeded row — whose apply workflow may still be
+# retrying its own emit — out of the sweep; the dedup key makes a race harmless regardless.
+OBSERVATION_EVENT_BACKFILL_GRACE = dt.timedelta(minutes=10)
+OBSERVATION_EVENT_BACKFILL_BATCH_SIZE = 200
+OBSERVATION_EVENT_BACKFILL_TIMEOUT = dt.timedelta(minutes=3)
+
 # Per-action vision-action child, fire-and-forgot by the sweep. Name + timeout live here (not in the
 # workflow-def module) so the sweep can start it without cross-importing another @wf.defn module.
 PROCESS_VISION_ACTION_WORKFLOW_NAME = "process-vision-action"
@@ -51,7 +59,9 @@ RECONCILER_SCHEDULE_ID = "replay-vision-scanner-reconciler-schedule"
 
 # Worst-case latency between a UI scanner edit and its first per-scanner tick.
 RECONCILER_INTERVAL = dt.timedelta(minutes=1)
-RECONCILER_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
+# Covers the concurrent best-effort maintenance sweeps (reap + event backfill) plus the schedule sync; SKIP
+# overlap means a long tick just absorbs later ones rather than stacking.
+RECONCILER_EXECUTION_TIMEOUT = dt.timedelta(minutes=8)
 
 LIST_ENABLED_SCANNERS_TIMEOUT = dt.timedelta(seconds=60)
 LIST_SCANNER_SCHEDULES_TIMEOUT = dt.timedelta(seconds=120)

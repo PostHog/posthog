@@ -39,6 +39,7 @@ from products.replay_vision.backend.models.replay_observation_usage import Repla
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
+from products.replay_vision.backend.temporal.activities.backfill_observation_events import _backfill_events
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _extract_segments,
     _resolve_citations,
@@ -63,6 +64,7 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
+from products.replay_vision.backend.temporal.constants import OBSERVATION_EVENT_BACKFILL_GRACE
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
@@ -568,6 +570,83 @@ class TestObservationStateActivities:
         )
 
         assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 0
+
+
+_EMIT_CAPTURE = "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+
+
+def _succeeded_result() -> dict:
+    return ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9)).model_dump(
+        mode="json"
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBackfillObservationEventsActivity:
+    def test_reemits_and_stamps_succeeded_row_missing_its_event(self) -> None:
+        # A succeeded row whose fail-soft emit never landed must get its `$recording_observed` event re-emitted
+        # and be stamped so the next tick doesn't re-emit it forever.
+        scanner = _make_scanner()
+        past = timezone.now() - OBSERVATION_EVENT_BACKFILL_GRACE - dt.timedelta(minutes=5)
+        observation = _make_observation(
+            scanner,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=past,
+            scanner_result=_succeeded_result(),
+        )
+
+        with patch(_EMIT_CAPTURE, return_value=MagicMock()) as capture:
+            emitted = _backfill_events()
+
+        assert emitted == 1
+        capture.assert_called_once()
+        observation.refresh_from_db()
+        assert observation.event_emitted_at is not None
+
+    @parameterized.expand(
+        [
+            ("still_in_grace_window", ObservationStatus.SUCCEEDED, dt.timedelta(minutes=1), None),
+            ("already_emitted", ObservationStatus.SUCCEEDED, dt.timedelta(hours=1), timezone.now),
+            ("failed_status", ObservationStatus.FAILED, dt.timedelta(hours=1), None),
+        ]
+    )
+    def test_does_not_reemit(self, _name: str, status: str, age: dt.timedelta, emitted_at: Any) -> None:
+        scanner = _make_scanner()
+        _make_observation(
+            scanner,
+            status=status,
+            completed_at=timezone.now() - age,
+            scanner_result=_succeeded_result(),
+            event_emitted_at=emitted_at() if emitted_at else None,
+            error_reason="x:y" if status == ObservationStatus.FAILED else "",
+        )
+
+        with patch(_EMIT_CAPTURE, return_value=MagicMock()) as capture:
+            emitted = _backfill_events()
+
+        assert emitted == 0
+        capture.assert_not_called()
+
+    def test_skips_row_with_unparseable_result_without_wedging_the_batch(self) -> None:
+        # A malformed result can't parse on any retry; it must be skipped, not left to abort the whole sweep.
+        scanner = _make_scanner()
+        past = timezone.now() - OBSERVATION_EVENT_BACKFILL_GRACE - dt.timedelta(minutes=5)
+        _make_observation(scanner, status=ObservationStatus.SUCCEEDED, completed_at=past, scanner_result={})
+        good = _make_observation(
+            scanner,
+            session_id="sess-2",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=past,
+            scanner_result=_succeeded_result(),
+        )
+
+        with patch(_EMIT_CAPTURE, return_value=MagicMock()) as capture:
+            emitted = _backfill_events()
+
+        assert emitted == 1
+        capture.assert_called_once()
+        good.refresh_from_db()
+        assert good.event_emitted_at is not None
 
 
 def _counter_value(metric_name: str, **labels: str) -> float:

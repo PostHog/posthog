@@ -26,6 +26,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.temporal.activities import (
+    backfill_observation_events_activity,
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
@@ -210,13 +211,16 @@ class _ReconcileMocks:
         upsert_errors_for_ids: set[uuid.UUID] | None = None,
         delete_errors_for_ids: set[uuid.UUID] | None = None,
         reap_error: Exception | None = None,
+        backfill_error: Exception | None = None,
     ) -> None:
         self.enabled = enabled
         self.existing = existing
         self.upsert_errors = upsert_errors_for_ids or set()
         self.delete_errors = delete_errors_for_ids or set()
         self.reap_error = reap_error
+        self.backfill_error = backfill_error
         self.reap_calls = 0
+        self.backfill_calls = 0
         self.upserted: list[uuid.UUID] = []
         self.deleted: list[uuid.UUID] = []
 
@@ -225,6 +229,11 @@ class _ReconcileMocks:
             self.reap_calls += 1
             if self.reap_error:
                 raise self.reap_error
+            return 0
+        if activity_fn is backfill_observation_events_activity:
+            self.backfill_calls += 1
+            if self.backfill_error:
+                raise self.backfill_error
             return 0
         if activity_fn is list_enabled_scanners_activity:
             return self.enabled
@@ -387,6 +396,22 @@ async def test_reconcile_workflow_survives_reap_failure() -> None:
     )
     result = await _run_reconcile(mocks)
     assert mocks.reap_calls == 1
+    assert result.upserted == [sid]
+    assert result.failed_upsert == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_workflow_survives_backfill_failure() -> None:
+    # The event backfill is best-effort: its failure must not block schedule sync.
+    sid = uuid.uuid4()
+    fp = compute_schedule_fingerprint({"sample_rate": 0.5})
+    mocks = _ReconcileMocks(
+        enabled=_enabled((sid, 1, fp)),
+        existing=_existing(),
+        backfill_error=RuntimeError("backfill boom"),
+    )
+    result = await _run_reconcile(mocks)
+    assert mocks.backfill_calls == 1
     assert result.upserted == [sid]
     assert result.failed_upsert == []
 
