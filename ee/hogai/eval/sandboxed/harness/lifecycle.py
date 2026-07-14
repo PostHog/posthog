@@ -19,7 +19,7 @@ from posthog.ph_client import get_client
 
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
-from .cli import TEAM_SETUP_CONCURRENCY, HarnessOptions
+from .cli import DEFAULT_ONE_SHOT_CONCURRENCY, TEAM_SETUP_CONCURRENCY, HarnessOptions
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
 from .discovery import EvalSuite, discover_suites
@@ -27,8 +27,9 @@ from .django_env import EvalDatabase
 from .env_preflight import validate_eval_env
 from .live_server import EvalLiveServer
 from .ports import DJANGO_LIVE_PORT
-from .providers import PreflightError, build_provider
+from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
+from .requirements import Infra, infra_union
 from .services import (
     build_local_skills,
     ensure_personhog_binaries,
@@ -59,11 +60,7 @@ class SandboxedEvalHarness:
 
     def __init__(self, options: HarnessOptions) -> None:
         self.options = options
-        self.provider = build_provider(
-            options.provider,
-            keep_containers=options.keep_sandbox_containers,
-            rebuild_image=options.rebuild_sandbox_image,
-        )
+        self.provider: SandboxProviderStrategy | None = None
         self._stack = ExitStack()
         self._database: EvalDatabase | None = None
         self._live_server: EvalLiveServer | None = None
@@ -77,8 +74,17 @@ class SandboxedEvalHarness:
 
         if self.options.list_only:
             for suite in suites:
-                print(suite.id)  # noqa: T201
+                print(f"{suite.id}  [{suite.kind.value}]")  # noqa: T201
             return 0
+
+        # Boot only what the selected suites' kinds require: a one-shot-only run
+        # never pays for (or fails on) sandbox infrastructure.
+        kinds = {suite.kind for suite in suites}
+        required = infra_union(kinds)
+
+        if Infra.SANDBOX not in required and self.options.sandbox_flags_set:
+            flags = ", ".join(self.options.sandbox_flags_set)
+            raise PreflightError(f"{flags}: no selected suite is sandboxed, so sandbox flags have no effect")
 
         reporter = ProgressReporter(total_suites=len(suites))
         reporter.print_run_header(
@@ -93,12 +99,19 @@ class SandboxedEvalHarness:
         results: list[SuiteRunResult] | None = None
         interrupted = False
         try:
-            validate_eval_env(self.options.agent_runtime)
-            self._validate_agent_options()
-            self.provider.preflight()
-            ensure_personhog_binaries()
-            self._bootstrap()
-            results = asyncio.run(self._run_suites(suites, reporter))
+            validate_eval_env(self.options.agent_runtime, kinds=kinds)
+            if Infra.SANDBOX in required:
+                self.provider = build_provider(
+                    self.options.provider,
+                    keep_containers=self.options.keep_sandbox_containers,
+                    rebuild_image=self.options.rebuild_sandbox_image,
+                )
+                self._validate_agent_options()
+                self.provider.preflight()
+            if Infra.PERSONHOG in required:
+                ensure_personhog_binaries()
+            self._bootstrap(required)
+            results = asyncio.run(self._run_suites(suites, required, reporter))
         except KeyboardInterrupt:
             logger.warning("Interrupted, tearing down")
             interrupted = True
@@ -107,7 +120,8 @@ class SandboxedEvalHarness:
                 self._stack.close()
             finally:
                 atexit.unregister(stop_all_subprocesses)
-                atexit.unregister(self.provider.cleanup)
+                if self.provider is not None:
+                    atexit.unregister(self.provider.cleanup)
 
         duration_seconds = time.monotonic() - started
         if interrupted:
@@ -147,64 +161,87 @@ class SandboxedEvalHarness:
         if error:
             raise PreflightError(error)
 
-    def _bootstrap(self) -> None:
-        """Stand up everything the suites share. Teardown is registered in reverse on the stack."""
+    def _bootstrap(self, required: frozenset[Infra]) -> None:
+        """Stand up everything the selected suites share. Teardown is registered in
+        reverse on the stack, so what wasn't started is never torn down."""
         # Belt and braces for the SIGINT / SIGTERM paths, where the ExitStack never unwinds.
         atexit.register(stop_all_subprocesses)
-        atexit.register(self.provider.cleanup)
-        self._stack.callback(self.provider.cleanup)
+        if self.provider is not None:
+            atexit.register(self.provider.cleanup)
+            self._stack.callback(self.provider.cleanup)
 
-        database = EvalDatabase(keepdb=not self.options.create_db)
-        database.setup()
-        self._stack.callback(database.teardown)
-        self._database = database
+        if Infra.DATABASE in required:
+            database = EvalDatabase(keepdb=not self.options.create_db)
+            database.setup()
+            self._stack.callback(database.teardown)
+            self._database = database
 
-        # Bring personhog up before the live server and demo seeding: those bootstrap
-        # reads go through the router, and a dead router would poison personhog's 30s
-        # negative group-types cache for the rest of the run.
-        self._stack.callback(start_personhog())
+        if Infra.PERSONHOG in required:
+            # Bring personhog up before the live server and demo seeding: those bootstrap
+            # reads go through the router, and a dead router would poison personhog's 30s
+            # negative group-types cache for the rest of the run.
+            self._stack.callback(start_personhog())
 
-        live_server = EvalLiveServer(DJANGO_LIVE_PORT)
-        self._stack.callback(live_server.stop)
-        self._live_server = live_server
+        if Infra.LIVE_SERVER in required:
+            live_server = EvalLiveServer(DJANGO_LIVE_PORT)
+            self._stack.callback(live_server.stop)
+            self._live_server = live_server
 
-        self._stack.callback(start_llm_gateway(live_server.url))
-        self._stack.callback(start_mcp_server(live_server.url))
+        if Infra.LLM_GATEWAY in required:
+            assert self._live_server is not None
+            self._stack.callback(start_llm_gateway(self._live_server.url))
+        if Infra.MCP_SERVER in required:
+            assert self._live_server is not None
+            self._stack.callback(start_mcp_server(self._live_server.url))
 
-        # Modal sandboxes live off-host, so the three services above have to be
-        # publicly reachable before any settings pointing at them are computed.
-        self.provider.start(self._stack)
+        if Infra.SANDBOX in required:
+            assert self.provider is not None
+            # Modal sandboxes live off-host, so the three services above have to be
+            # publicly reachable before any settings pointing at them are computed.
+            self.provider.start(self._stack)
 
-        # DockerSandbox bind-mounts the built skills; ModalSandbox bakes them into
-        # the image it builds from the local context, so it wants no host path.
-        build_local_skills(set_bind_mount_env=self.options.provider == "docker")
+            # DockerSandbox bind-mounts the built skills; ModalSandbox bakes them into
+            # the image it builds from the local context, so it wants no host path.
+            build_local_skills(set_bind_mount_env=self.options.provider == "docker")
 
         self._posthog_client = get_client("US")
         if self._posthog_client is not None:
             self._stack.callback(self._posthog_client.shutdown)
 
-        self._demo_data = ensure_demo_ready(
-            blocker=database.blocker,
-            agent_model=self.options.agent_model,
-            agent_runtime=self.options.agent_runtime,
-            reasoning_effort=self.options.reasoning_effort,
-            sandbox_timeout_seconds=self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds),
-        )
+        if Infra.DEMO_DATA in required:
+            assert self._database is not None
+            self._demo_data = ensure_demo_ready(
+                blocker=self._database.blocker,
+                agent_model=self.options.agent_model,
+                agent_runtime=self.options.agent_runtime,
+                reasoning_effort=self.options.reasoning_effort,
+                sandbox_timeout_seconds=(
+                    self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds)
+                    if self.provider is not None
+                    else None
+                ),
+            )
 
-    async def _run_suites(self, suites: Sequence[EvalSuite], reporter: ProgressReporter) -> list[SuiteRunResult]:
+    async def _run_suites(
+        self, suites: Sequence[EvalSuite], required: frozenset[Infra], reporter: ProgressReporter
+    ) -> list[SuiteRunResult]:
         async with AsyncExitStack() as stack:
-            temporal_env = await start_temporal_env()
-            stack.push_async_callback(temporal_env.shutdown)
-            temporal_host, temporal_port = temporal_client_target(temporal_env)
-
-            stack.enter_context(
-                override_settings(
+            overrides: dict[str, object] = {}
+            if Infra.LIVE_SERVER in required:
+                overrides.update(
                     DEBUG=True,  # Required for sandbox URL validation to allow http://localhost
                     # The sandbox reaches the Django live server with a non-loopback
                     # Host header (host.docker.internal, or the ngrok domain); allow it
                     # (test-only) so the agent's event-ingest stream isn't rejected with
                     # an invalid-host 400.
                     ALLOWED_HOSTS=["*"],
+                )
+            if Infra.SANDBOX in required:
+                assert self.provider is not None
+                temporal_env = await start_temporal_env()
+                stack.push_async_callback(temporal_env.shutdown)
+                temporal_host, temporal_port = temporal_client_target(temporal_env)
+                overrides.update(
                     TEMPORAL_HOST=temporal_host,
                     TEMPORAL_PORT=temporal_port,
                     TEMPORAL_NAMESPACE=settings.TEMPORAL_NAMESPACE,
@@ -214,30 +251,36 @@ class SandboxedEvalHarness:
                     TASKS_TASK_QUEUE=temporal_task_queue(),
                     **self.provider.settings_overrides(),
                 )
-            )
+
+            if overrides:
+                stack.enter_context(override_settings(**overrides))
             stack.enter_context(patch.object(posthoganalytics, "feature_enabled", return_value=True))
 
-            # Stale workflows from a prior run make the worker provision sandboxes for
-            # runs that no longer exist, delaying the real eval workflows by 30-60s.
-            await terminate_stale_workflows()
+            if Infra.SANDBOX in required:
+                # Stale workflows from a prior run make the worker provision sandboxes for
+                # runs that no longer exist, delaying the real eval workflows by 30-60s.
+                await terminate_stale_workflows()
 
-            worker = TemporalWorkerThread()
-            worker.start()
-            stack.callback(worker.stop)
+                worker = TemporalWorkerThread()
+                worker.start()
+                stack.callback(worker.stop)
 
-            ctx = self._build_context(reporter)
+            ctx = self._build_context(required, reporter)
 
-            logger.info(
-                "Running %d suite(s) on provider=%s with %d sandbox slot(s)",
-                len(suites),
-                self.options.provider,
-                self.options.max_sandboxes,
-            )
+            if Infra.SANDBOX in required:
+                logger.info(
+                    "Running %d suite(s) on provider=%s with %d sandbox slot(s)",
+                    len(suites),
+                    self.options.provider,
+                    self.options.max_sandboxes,
+                )
+            else:
+                logger.info("Running %d suite(s) without sandbox infrastructure", len(suites))
             results = await asyncio.gather(*(self._run_suite(suite, ctx) for suite in suites))
         return results
 
-    def _build_context(self, reporter: ProgressReporter) -> EvalContext:
-        if self._demo_data is None:
+    def _build_context(self, required: frozenset[Infra], reporter: ProgressReporter) -> EvalContext:
+        if Infra.DEMO_DATA in required and self._demo_data is None:
             raise RuntimeError("_bootstrap() must run before the eval context is built")
         return EvalContext(
             provider=self.options.provider,
@@ -248,8 +291,9 @@ class SandboxedEvalHarness:
             case_filter=self.options.case_filter,
             demo_data=self._demo_data,
             posthog_client=self._posthog_client,
-            sandbox_slots=asyncio.Semaphore(self.options.max_sandboxes),
+            sandbox_slots=asyncio.Semaphore(self.options.max_sandboxes) if Infra.SANDBOX in required else None,
             team_setup_slots=asyncio.Semaphore(TEAM_SETUP_CONCURRENCY),
+            one_shot_slots=asyncio.Semaphore(DEFAULT_ONE_SHOT_CONCURRENCY),
             reporter=reporter,
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,

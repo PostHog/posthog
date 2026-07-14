@@ -339,6 +339,16 @@ class _SandboxedEvalRun(_BaseEvalRun):
             is_public=is_public,
             no_send_logs=no_send_logs,
         )
+        # Narrow the infra-backed optionals once: they are None only when the
+        # harness didn't boot sandbox infrastructure for this run.
+        if ctx.provider_strategy is None or ctx.demo_data is None or ctx.sandbox_slots is None:
+            raise RuntimeError(
+                f"Suite '{experiment_name}' needs sandbox infrastructure that this run didn't boot; "
+                "is its module missing the sandboxed SUITE_KIND?"
+            )
+        self._provider_strategy = ctx.provider_strategy
+        self._demo_data = ctx.demo_data
+        self._sandbox_slots = ctx.sandbox_slots
 
     def _case_input(self, case: BaseEvalCase) -> dict[str, Any]:
         assert isinstance(case, SandboxedEvalCase)
@@ -356,7 +366,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         """
         ctx = self.ctx
         seed_result: dict[str, Any] = {}
-        async with ctx.sandbox_slots:
+        async with self._sandbox_slots:
             # Team cloning and some case seeders both write to ClickHouse. Keep
             # the full setup phase serial even when Modal makes sandbox capacity
             # effectively unbounded.
@@ -364,7 +374,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # The factory does Django ORM work. Django's async-safety
                 # guard rejects sync ORM calls from async contexts, so run it
                 # in a worker thread.
-                sandbox_context = await asyncio.to_thread(ctx.demo_data.make_context, eval_case.name)
+                sandbox_context = await asyncio.to_thread(self._demo_data.make_context, eval_case.name)
                 if original_case is not None and original_case.setup is not None:
                     try:
                         seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
@@ -374,7 +384,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
             result = await asyncio.wait_for(
-                run_eval_case(eval_case, sandbox_context, provider=ctx.provider_strategy),
+                run_eval_case(eval_case, sandbox_context, provider=self._provider_strategy),
                 timeout=ctx.per_case_timeout_seconds,
             )
         return result, seed_result

@@ -7,18 +7,20 @@ so nothing here may touch Django settings or the ORM.
 from __future__ import annotations
 
 import os
+from collections.abc import Collection
 from pathlib import Path
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .providers import PreflightError
+from .requirements import SuiteKind
 
 REPO_ROOT = Path(__file__).parents[5]
 
 
-class RequiredEvalEnv(BaseModel):
-    """Environment variables every eval run needs, regardless of provider.
+class CoreEvalEnv(BaseModel):
+    """Environment variables every eval run needs, regardless of suite kind.
 
     Field names are the literal environment variable names; each description is
     surfaced in the preflight error so a missing variable says what it is for.
@@ -26,6 +28,17 @@ class RequiredEvalEnv(BaseModel):
     ``~/.modal.toml``, ``NGROK_AUTHTOKEN`` vs the ngrok config file) stay in the
     provider strategies' ``preflight()``.
     """
+
+    model_config = ConfigDict(extra="ignore")
+
+    BRAINTRUST_API_KEY: str = Field(
+        min_length=1,
+        description="records experiments and scores to Braintrust",
+    )
+
+
+class SandboxEvalEnv(BaseModel):
+    """Additional variables sandboxed suites need."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -37,14 +50,21 @@ class RequiredEvalEnv(BaseModel):
         min_length=1,
         description="Anthropic API key the LLM gateway proxies the agent's model calls with",
     )
-    BRAINTRUST_API_KEY: str = Field(
+
+
+class OneShotEvalEnv(BaseModel):
+    """Additional variables one-shot suites need."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    LLM_GATEWAY_ANTHROPIC_API_KEY: str = Field(
         min_length=1,
-        description="records experiments and scores to Braintrust",
+        description="Anthropic API key one-shot generation tasks call the model with directly",
     )
 
 
 class CodexEvalEnv(BaseModel):
-    """Additional variables required when the run uses the codex runtime."""
+    """Additional variables required when sandboxed suites use the codex runtime."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -52,6 +72,12 @@ class CodexEvalEnv(BaseModel):
         min_length=1,
         description="OpenAI API key the LLM gateway proxies the codex agent's model calls with",
     )
+
+
+ENV_MODELS_BY_KIND: dict[SuiteKind, tuple[type[BaseModel], ...]] = {
+    SuiteKind.SANDBOXED: (SandboxEvalEnv,),
+    SuiteKind.ONE_SHOT: (OneShotEvalEnv,),
+}
 
 
 def load_env_file() -> None:
@@ -68,17 +94,23 @@ def load_env_file() -> None:
     load_dotenv(REPO_ROOT / ".env", override=False)
 
 
-def validate_eval_env(agent_runtime: str = "claude") -> None:
+def validate_eval_env(agent_runtime: str = "claude", *, kinds: Collection[SuiteKind] = (SuiteKind.SANDBOXED,)) -> None:
     """Fail fast, before any infrastructure boots, if a required variable is unset.
 
-    Without this a missing key surfaces minutes into a run as an opaque mid-case
-    failure (gateway 401s, Braintrust login errors) instead of a one-line fix.
+    Only the env models for the selected suites' kinds are checked, so a run
+    without sandboxed suites doesn't demand sandbox credentials. Without this a
+    missing key surfaces minutes into a run as an opaque mid-case failure
+    (gateway 401s, Braintrust login errors) instead of a one-line fix.
     """
-    models: list[type[BaseModel]] = [RequiredEvalEnv]
-    if agent_runtime == "codex":
+    models: list[type[BaseModel]] = [CoreEvalEnv]
+    for kind, kind_models in ENV_MODELS_BY_KIND.items():
+        if kind in kinds:
+            models.extend(kind_models)
+    if SuiteKind.SANDBOXED in kinds and agent_runtime == "codex":
         models.append(CodexEvalEnv)
 
     lines = []
+    seen: set[str] = set()
     for model in models:
         try:
             model.model_validate(dict(os.environ))
@@ -86,6 +118,9 @@ def validate_eval_env(agent_runtime: str = "claude") -> None:
             fields = model.model_fields
             for error in e.errors():
                 name = str(error["loc"][0]) if error["loc"] else "?"
+                if name in seen:
+                    continue
+                seen.add(name)
                 description = fields[name].description if name in fields else ""
                 lines.append(f"  - {name}: {description}")
     if lines:

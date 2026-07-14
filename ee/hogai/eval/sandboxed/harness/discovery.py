@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .requirements import SuiteKind
+
 if TYPE_CHECKING:
     from .context import EvalContext
 
@@ -31,6 +33,9 @@ class EvalSuite:
     module_name: str
     fn_name: str
     fn: EvalSuiteFn
+
+    kind: SuiteKind = SuiteKind.SANDBOXED
+    """How the suite's cases execute, from the module-level ``SUITE_KIND``."""
 
     @property
     def id(self) -> str:
@@ -74,6 +79,9 @@ def discover_suites(selectors: Sequence[str] = ()) -> list[EvalSuite]:
                 logger.warning("Skipping unselected eval module %s that failed to import: %s", dotted, e)
                 continue
             raise SuiteDiscoveryError(f"Failed to import eval module {dotted}: {e}") from e
+        kind = getattr(module, "SUITE_KIND", SuiteKind.SANDBOXED)
+        if not isinstance(kind, SuiteKind):
+            raise SuiteDiscoveryError(f"{dotted}.SUITE_KIND must be a SuiteKind member, got {kind!r}")
         for fn_name, fn in vars(module).items():
             if not fn_name.startswith("eval_") or not inspect.iscoroutinefunction(fn):
                 continue
@@ -81,7 +89,7 @@ def discover_suites(selectors: Sequence[str] = ()) -> list[EvalSuite]:
             # module would otherwise be collected twice.
             if fn.__module__ != dotted:
                 continue
-            suites.append(EvalSuite(domain=domain, module_name=module_name, fn_name=fn_name, fn=fn))
+            suites.append(EvalSuite(domain=domain, module_name=module_name, fn_name=fn_name, fn=fn, kind=kind))
 
     if not selectors:
         return suites

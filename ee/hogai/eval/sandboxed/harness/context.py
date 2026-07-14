@@ -16,20 +16,26 @@ class EvalContext:
 
     Replaces the pytest fixtures (``sandboxed_demo_data``, ``pytestconfig``,
     ``posthog_client``) that suites used to take individually. Passed unchanged
-    down into ``SandboxedEval``.
+    down into ``SandboxedEval`` / ``OneShotEval``.
+
+    Infra-backed fields are ``None`` when the run's suite kinds didn't require
+    that infrastructure to boot; the runners narrow them and fail loudly if a
+    suite's ``SUITE_KIND`` under-declares what it uses.
     """
 
     provider: SandboxProvider
     """Provider label, kept for display and metadata only."""
 
-    provider_strategy: SandboxProviderStrategy
-    """The live provider strategy — the behavior hook for per-case teardown."""
+    provider_strategy: SandboxProviderStrategy | None
+    """The live provider strategy — the behavior hook for per-case teardown.
+    ``None`` when no selected suite is sandboxed."""
 
     agent_model: str
-    """Model every sandboxed agent runs against. Pinned for stable comparisons."""
+    """Model every agent or one-shot generation runs against. Pinned for stable
+    comparisons."""
 
     agent_runtime: str
-    """Runtime adapter serving the model (``"claude"`` | ``"codex"``)."""
+    """Runtime adapter serving the sandboxed agent's model (``"claude"`` | ``"codex"``)."""
 
     reasoning_effort: str | None
     """Agent reasoning effort override; ``None`` keeps the agent server's default."""
@@ -37,17 +43,23 @@ class EvalContext:
     case_filter: str | None
     """Substring filter on case names, from ``--eval``."""
 
-    demo_data: SandboxedDemoData
-    """Master Hedgebox seed plus the per-case isolated team factory."""
+    demo_data: SandboxedDemoData | None
+    """Master Hedgebox seed plus the per-case isolated team factory. ``None``
+    when no selected suite requires demo data."""
 
     posthog_client: Posthog | None
     """Analytics client for eval trace + evaluation event capture."""
 
-    sandbox_slots: asyncio.Semaphore
-    """The one global limiter on concurrently live sandboxes, shared by every suite."""
+    sandbox_slots: asyncio.Semaphore | None
+    """The one global limiter on concurrently live sandboxes, shared by every
+    suite. ``None`` when no selected suite is sandboxed."""
 
     team_setup_slots: asyncio.Semaphore
     """Serializes team cloning and case seeders to protect local ClickHouse RAM."""
+
+    one_shot_slots: asyncio.Semaphore
+    """The one global limiter on concurrently running one-shot cases, shared by
+    every suite — the one-shot analog of ``sandbox_slots``."""
 
     reporter: ProgressReporter
     """Owns all terminal output and the ``eval_results.jsonl`` export."""

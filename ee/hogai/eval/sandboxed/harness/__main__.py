@@ -24,7 +24,8 @@ def _run(options: HarnessOptions) -> int:
     # settings.SANDBOX_PROVIDER once and caches the class in module globals, so the
     # async-phase override_settings runs too late to change it. .env ships
     # SANDBOX_PROVIDER=docker, so without this a modal run would cache DockerSandbox
-    # and execute locally. See SANDBOX_PROVIDER_SETTING.
+    # and execute locally. See SANDBOX_PROVIDER_SETTING. Set unconditionally — on a
+    # run without sandboxed suites it only selects a class nothing instantiates.
     os.environ["SANDBOX_PROVIDER"] = SANDBOX_PROVIDER_SETTING[options.provider]
 
     # Point person/group reads at the harness's own personhog router before Django

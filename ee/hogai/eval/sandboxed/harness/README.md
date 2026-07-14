@@ -14,6 +14,9 @@ Wall-clock was dominated by suites queueing behind each other while sandbox capa
 The harness boots the same infrastructure once, then runs every suite concurrently on a single event loop and bounds sandbox and team-setup load with shared semaphores.
 Braintrust remains the eval engine and reporting backend; it just no longer controls scheduling.
 
+Not every suite is sandboxed anymore: each suite declares a `SUITE_KIND` (`requirements.py`), the kind maps to a set of `Infra` requirements, and the harness boots only the union of what the selected suites need.
+A run of one-shot suites never pays for — or fails preflight on — the sandbox provider, Temporal, the live server, the LLM gateway, or the MCP server.
+
 ## Modules
 
 | Module             | Role                                                                                                                 |
@@ -24,6 +27,7 @@ Braintrust remains the eval engine and reporting backend; it just no longer cont
 | `ports.py`         | The six port constants. Deliberately free of Django imports.                                                         |
 | `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup. |
 | `tunnels.py`       | `NgrokTunnels`. Modal only: generates an ngrok config, starts the agent, waits for public URLs.                      |
+| `requirements.py`  | `SuiteKind`, `Infra`, and the kind → infrastructure mapping (with implication closure).                              |
 | `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                            |
 | `live_server.py`   | `EvalLiveServer`, a session-lifetime Uvicorn server for PostHog's full ASGI application.                             |
 | `services.py`      | Starts the LLM gateway, MCP server, and personhog subprocesses; builds local skills.                                 |
@@ -38,6 +42,8 @@ Braintrust remains the eval engine and reporting backend; it just no longer cont
 ## Boot sequence
 
 Discovery happens first, before anything is provisioned, so a typo'd selector costs a module import rather than a database build.
+Every step below is gated on the selected suites' infrastructure union — a step whose `Infra` member no run requires is skipped, and skipped steps register no teardown.
+The sequence as written is the sandboxed (full) path; a one-shot-only run performs just steps 1–3 and 8.
 
 The bootstrap is deliberately synchronous and runs before any event loop exists, because it is ORM-heavy and Django's async-safety guard rejects sync ORM calls from an async context:
 
@@ -78,6 +84,7 @@ Two consequences worth internalizing:
 - The per-case timeout is an `asyncio.wait_for` **inside** the slot. Braintrust's own `timeout` would have wrapped the whole task invocation, including time queued on the semaphore, killing cases that never got a sandbox.
 - A second `team_setup_slots` semaphore has one permit and covers the full demo-data clone plus optional case seeder. This prevents setup-time ClickHouse queries from overlapping even when Modal sandbox capacity is unbounded.
 - The agent timeout begins after team setup. Waiting for either semaphore never consumes it.
+- One-shot suites never touch the sandbox semaphore; a separate global `one_shot_slots` semaphore bounds their concurrently running cases under the same acquire-once, budget-inside rules.
 
 There are two event loops. The main loop owns the Temporal dev server, the suites, and the reporter.
 The Temporal worker keeps its own loop on a daemon thread, and the two communicate only through `loop.call_soon_threadsafe`.

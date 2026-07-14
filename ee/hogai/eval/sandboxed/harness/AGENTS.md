@@ -8,16 +8,16 @@ Verify a change with `python -m ee.hogai.eval.sandboxed.harness --list` (imports
 ## Import ordering
 
 `__main__.py` calls `setup_django()` **before** importing `lifecycle`, and `lifecycle` is what pulls in everything that touches Django settings, the ORM, or the `products.tasks` facade.
-Anything reachable from `__main__`'s top-level imports must therefore stay Django-free: today that is `cli.py`, `providers.py`, `tunnels.py`, `ports.py`, `env_preflight.py`, `transcript.py`, `log_sink.py`, and `django_env.py` itself.
+Anything reachable from `__main__`'s top-level imports must therefore stay Django-free: today that is `cli.py`, `providers.py`, `tunnels.py`, `ports.py`, `env_preflight.py`, `requirements.py`, `transcript.py`, `log_sink.py`, and `django_env.py` itself.
 
 This is why the port constants live in `ports.py` rather than in `services.py`, which imports Django.
 If you add an import to one of those modules, check that `--list` still runs.
 
 ## Concurrency
 
-- **Never give Braintrust a `timeout`.** `EvalAsync`'s timeout wraps the whole task invocation, including time queued on our sandbox semaphore, so it would kill cases that never got a sandbox. The budget belongs in the `asyncio.wait_for` inside the slot.
-- **Never let Braintrust's `max_concurrency` bind.** It is set to the case count so that `ctx.sandbox_slots` is the only limiter.
-- **Acquire `ctx.sandbox_slots` exactly once per case**, around only the sandbox-owning window. It is not reentrant; a second acquisition inside the first deadlocks.
+- **Never give Braintrust a `timeout`.** `EvalAsync`'s timeout wraps the whole task invocation, including time queued on our concurrency semaphores, so it would kill cases that never started. The budget belongs in the `asyncio.wait_for` inside the slot.
+- **Never let Braintrust's `max_concurrency` bind.** It is set to the case count so that the harness's own semaphores are the only limiters.
+- **Acquire `ctx.sandbox_slots` exactly once per case**, around only the sandbox-owning window. It is not reentrant; a second acquisition inside the first deadlocks. `ctx.one_shot_slots` follows the same rules for one-shot cases: acquired once, `wait_for` budget inside, never both semaphores in one case.
 - Hold `ctx.team_setup_slots` across both the demo-data clone and optional case setup hook. Some setup hooks write directly to ClickHouse, so releasing it between those phases defeats the RAM guard.
 - Keep scoring, log parsing, and span building _outside_ the slot. A sandbox that is being scored is a sandbox that someone else could be using.
 - Every sync Django ORM call reached from async code goes through `asyncio.to_thread`. Do not set `DJANGO_ALLOW_ASYNC_UNSAFE` to make an error go away.
@@ -45,8 +45,11 @@ Successful cases, experiments, and suites say `DONE`; `TIMEOUT`, `ERROR`, and `C
 Suites are discovered by convention, not registered: any coroutine named `eval_*` defined in a file named `eval_*.py` under `ee/hogai/eval/sandboxed/`.
 A suite takes one argument, `ctx: EvalContext`, and returns `None`.
 
+A module declares how its suites execute with a module-level `SUITE_KIND` (`requirements.SuiteKind`); absent means sandboxed.
+The kind decides which infrastructure the harness boots (`requirements.INFRA_BY_KIND`) and which env models preflight validates (`env_preflight.ENV_MODELS_BY_KIND`) — an under-declared kind fails loudly when the runner narrows the `EvalContext` fields its infra never populated.
+
 Because suites do not return their Braintrust result, `base.py` hands the summary to the reporter via `record_summary`.
-That is the only path by which the final table and the JSONL export see per-scorer scores.
+That is the only path by which the final table and the JSONL export see per-scorer scores — for every suite kind.
 
 A crashing suite must never take down the others: `lifecycle._run_suite` catches `Exception` per suite and the run exits non-zero at the end.
 Do not widen that to `BaseException`, which would swallow `CancelledError` and `KeyboardInterrupt`.
@@ -102,7 +105,7 @@ Env loading follows the same before-`django.setup()` rule: `__main__` loads the 
 The explicit `SANDBOX_PROVIDER` / `PERSONHOG_ADDR` assignments come after the load, so they trump any env file on every path.
 
 `setup_django()` also forces `SELF_CAPTURE=0` before `django.setup()`. The ASGI app must not re-enable the global SDK with the local development personal API key during evals; eval trace emission uses the harness's explicit regional client instead.
-Required variables are then validated by `env_preflight.validate_eval_env()` at the top of `lifecycle.run()`, before any infrastructure boots — add new hard env requirements to the `RequiredEvalEnv` model there, not as ad-hoc checks scattered through bootstrap.
+Required variables are then validated by `env_preflight.validate_eval_env()` at the top of `lifecycle.run()`, before any infrastructure boots — add new hard env requirements to the per-kind env models there (`CoreEvalEnv`, `SandboxEvalEnv`, `OneShotEvalEnv`), not as ad-hoc checks scattered through bootstrap.
 
 ## pytest
 

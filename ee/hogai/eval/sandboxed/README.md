@@ -7,6 +7,9 @@ Unlike `ee/hogai/eval/ci/`, this tree does **not** run under pytest.
 It runs on a standalone harness that boots the shared infrastructure once (test database, Django live server, LLM gateway, MCP server, Temporal) and then runs every selected suite concurrently.
 See [`harness/README.md`](harness/README.md) for how that works internally.
 
+The harness also hosts non-sandboxed suite kinds — see [Suite kinds](#suite-kinds).
+A run boots only the infrastructure its selected suites need, so a one-shot-only run starts no sandbox provider, Temporal, live server, LLM gateway, or MCP server.
+
 Two other docs sit next to this one:
 
 - [`AGENTS.md`](AGENTS.md) is the Hedgebox dataset reference. Read it before writing eval cases: your `expected` values and scorers must match that taxonomy exactly.
@@ -28,7 +31,8 @@ python -m ee.hogai.eval.sandboxed.harness [SELECTOR ...] [flags]
 
 No manual env sourcing is needed on either path.
 The harness loads the repo-root `.env` itself (shell values win), and `hogli evals:sandboxed` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
-Before any infrastructure boots, a preflight validates that the required variables are set (`SANDBOX_JWT_PRIVATE_KEY`, `LLM_GATEWAY_ANTHROPIC_API_KEY`, `BRAINTRUST_API_KEY`) and fails with a one-line fix per missing variable.
+Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
+Which variables are required depends on the selected suites' kinds: every run needs `BRAINTRUST_API_KEY`; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.
@@ -68,7 +72,9 @@ python -m ee.hogai.eval.sandboxed.harness --list
 | `--case-timeout <seconds>`       | Agent-run budget (minimum 1 second), started after the case's team setup.        |
 | `--trials N`                     | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
 | `--fail-under <fraction>`        | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
-| `--list`                         | Print the discovered suite ids and exit.                                         |
+| `--list`                         | Print the discovered suite ids (with their kinds) and exit.                      |
+
+Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
 
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
@@ -122,6 +128,17 @@ Once setup completes, the queue advances to the next case while the prepared cas
 A case holds a sandbox slot only for the window it actually needs one: team setup and the agent run.
 Log parsing, Braintrust span building, trace emission, and scoring all happen after the slot is released.
 The per-case timeout starts after team setup, so neither sandbox nor setup queueing consumes the agent's budget.
+
+## Suite kinds
+
+Each eval module declares how its suites execute with a module-level `SUITE_KIND` (from `ee.hogai.eval.sandboxed.harness.requirements`); a module without one is sandboxed.
+
+| Kind                | Marker                            | What runs per case                      | Infrastructure booted               |
+| ------------------- | --------------------------------- | --------------------------------------- | ----------------------------------- |
+| sandboxed (default) | none, or `SuiteKind.SANDBOXED`    | the real coding agent in a real sandbox | everything                          |
+| one-shot            | `SUITE_KIND = SuiteKind.ONE_SHOT` | one in-process model invocation         | test database, personhog, demo data |
+
+The harness boots the union of what the selected suites require, and a suite that under-declares its kind fails loudly when its runner finds the infrastructure it needed was never booted.
 
 ## Adding an eval suite
 
