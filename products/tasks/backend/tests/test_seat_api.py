@@ -206,7 +206,11 @@ class TestSeatAPIAdminPermissions(BaseSeatAPITest):
     @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_reactivate_non_org_member_rejected(self, mock_request, _mock_license, _mock_token):
         self._auth_as_admin()
-        response = self.client.post(f"/api/seats/{self.external_user.distinct_id}/reactivate/", format="json")
+        response = self.client.post(
+            f"/api/seats/{self.external_user.distinct_id}/reactivate/",
+            {"product_key": "posthog_code"},
+            format="json",
+        )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
