@@ -304,6 +304,11 @@ export interface BriefGoalStatusApi {
     delta_pct?: number | null
 }
 
+/**
+ * Derived, leak-free view of the votes: team-wide counts plus the caller's own vote and reason.
+ *
+ * Reads the annotations from annotate_feedback. Other voters' identities and reasons never serialize.
+ */
 export interface ProductBriefListApi {
     readonly id: string
     /**
@@ -334,6 +339,20 @@ export interface ProductBriefListApi {
      * @nullable
      */
     readonly error: string | null
+    /**
+     * The calling user's helpfulness vote: true, false, or null when they have not voted.
+     * @nullable
+     */
+    readonly my_vote: boolean | null
+    /**
+     * The calling user's own reason for their vote: their text, empty when they gave none, or null when they have not voted.
+     * @nullable
+     */
+    readonly my_reason: string | null
+    /** Number of helpful votes across the team. */
+    readonly helpful_count: number
+    /** Number of not-helpful votes across the team. */
+    readonly not_helpful_count: number
     readonly created_at: string
     /** User who requested the brief. */
     readonly created_by: UserBasicApi | null
@@ -396,6 +415,11 @@ export interface AccountabilityStatusLineApi {
     delta_pct: number | null
 }
 
+/**
+ * Derived, leak-free view of the votes: team-wide counts plus the caller's own vote and reason.
+ *
+ * Reads the annotations from annotate_feedback. Other voters' identities and reasons never serialize.
+ */
 export interface ProductBriefApi {
     readonly id: string
     /**
@@ -430,11 +454,38 @@ export interface ProductBriefApi {
      * @nullable
      */
     readonly error: string | null
+    /**
+     * The calling user's helpfulness vote: true, false, or null when they have not voted.
+     * @nullable
+     */
+    readonly my_vote: boolean | null
+    /**
+     * The calling user's own reason for their vote: their text, empty when they gave none, or null when they have not voted.
+     * @nullable
+     */
+    readonly my_reason: string | null
+    /** Number of helpful votes across the team. */
+    readonly helpful_count: number
+    /** Number of not-helpful votes across the team. */
+    readonly not_helpful_count: number
     readonly created_at: string
     /** User who requested the brief. */
     readonly created_by: UserBasicApi | null
     /** @nullable */
     readonly updated_at: string | null
+}
+
+export interface FeedbackVoteRequestApi {
+    /**
+     * True marks the item helpful, false marks it not helpful, and null clears your vote.
+     * @nullable
+     */
+    helpful: boolean | null
+    /**
+     * Optional free-text reason for the vote. Ignored (and cleared) when the vote is cleared.
+     * @maxLength 1000
+     */
+    reason?: string
 }
 
 export interface GenerateBriefRequestApi {
@@ -502,6 +553,11 @@ export interface ProposedExperimentApi {
     variant_sketch: string
 }
 
+/**
+ * Derived, leak-free view of the votes: team-wide counts plus the caller's own vote and reason.
+ *
+ * Reads the annotations from annotate_feedback. Other voters' identities and reasons never serialize.
+ */
 export interface OpportunityApi {
     readonly id: string
     /** What the opportunity asks for: build (product opportunity), fix (broken PostHog resource), or instrument (missing tracking).
@@ -531,6 +587,20 @@ export interface OpportunityApi {
     readonly proposed_experiment: ProposedExperimentApi | null
     /** The brief this opportunity first surfaced in. */
     readonly first_seen_brief: string
+    /**
+     * The calling user's helpfulness vote: true, false, or null when they have not voted.
+     * @nullable
+     */
+    readonly my_vote: boolean | null
+    /**
+     * The calling user's own reason for their vote: their text, empty when they gave none, or null when they have not voted.
+     * @nullable
+     */
+    readonly my_reason: string | null
+    /** Number of helpful votes across the team. */
+    readonly helpful_count: number
+    /** Number of not-helpful votes across the team. */
+    readonly not_helpful_count: number
     readonly created_at: string
     /** User who created the opportunity. */
     readonly created_by: UserBasicApi | null

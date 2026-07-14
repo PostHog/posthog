@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -12,9 +14,16 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.pulse.backend.api.brief import PULSE_FEATURE_FLAG
+from products.pulse.backend.api.feedback import (
+    FeedbackFieldsSerializerMixin,
+    FeedbackVoteRequestSerializer,
+    annotate_feedback,
+    record_vote,
+)
 from products.pulse.backend.models import Opportunity
 
 logger = structlog.get_logger(__name__)
@@ -46,7 +55,7 @@ class ProposedExperimentSerializer(serializers.Serializer):
     variant_sketch = serializers.CharField(help_text="Short sketch of the control and test variants.")
 
 
-class OpportunitySerializer(serializers.ModelSerializer):
+class OpportunitySerializer(FeedbackFieldsSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the opportunity.")
     suggested_action = serializers.SerializerMethodField(help_text="The concrete next step suggested for the team.")
     evidence = ResourceLinkSerializer(
@@ -77,6 +86,10 @@ class OpportunitySerializer(serializers.ModelSerializer):
             "goal_relevant",
             "proposed_experiment",
             "first_seen_brief",
+            "my_vote",
+            "my_reason",
+            "helpful_count",
+            "not_helpful_count",
             "created_at",
             "created_by",
             "updated_at",
@@ -110,12 +123,11 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Opportunity.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[Opportunity]) -> QuerySet[Opportunity]:
-        scoped = (
-            Opportunity.objects.for_team(self.team_id)
-            .select_related("created_by")
-            .prefetch_related("resource_links")
-            .order_by("-created_at")
+        user_id = getattr(self.request.user, "id", None)
+        base = (
+            Opportunity.objects.for_team(self.team_id).select_related("created_by").prefetch_related("resource_links")
         )
+        scoped = annotate_feedback(base, self.team_id, user_id, "opportunity").order_by("-created_at")
         if self.action == "list":
             scoped = self._apply_list_filters(scoped)
         return scoped
@@ -176,6 +188,39 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         # so the row keeps suppressing re-creation whether open or dismissed.
         return self._transition(Opportunity.Status.DISMISSED, Opportunity.Status.OPEN, "opportunity_reopened")
 
+    @extend_schema(
+        request=FeedbackVoteRequestSerializer,
+        responses={200: OpportunitySerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def feedback(self, request: Request, **kwargs) -> Response:
+        vote_serializer = FeedbackVoteRequestSerializer(data=request.data)
+        vote_serializer.is_valid(raise_exception=True)
+        helpful = vote_serializer.validated_data["helpful"]
+        reason = vote_serializer.validated_data["reason"]
+        # Capture props come from the pre-vote instance — they don't depend on the vote.
+        opportunity = self.get_object()
+        user = cast(User, request.user)
+        updated = record_vote(Opportunity, self.team_id, opportunity.pk, user.id, helpful, reason, target="opportunity")
+        # The context props are the tuning signal. has_reason flags that a reason was left without
+        # capturing its free-text content into analytics.
+        report_user_action(
+            user,
+            "opportunity_feedback",
+            {
+                "opportunity_id": str(opportunity.id),
+                "helpful": helpful,
+                "has_reason": bool(reason),
+                "kind": opportunity.kind,
+                "status": opportunity.status,
+                "goal_relevant": opportunity.goal_relevant,
+                "has_proposed_experiment": opportunity.proposed_experiment is not None,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self.get_serializer(updated).data)
+
     def _transition(self, expected: Opportunity.Status, target: Opportunity.Status, event: str) -> Response:
         # Known v1 limitation: transitions don't sync the emitted SignalReport (and inbox triage
         # doesn't sync back) — the cross-product lifecycle is an open design question with the
@@ -206,8 +251,15 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         report_user_action(
             self.request.user,
             event,
-            {"opportunity_id": str(opportunity.id), "kind": opportunity.kind, "status": opportunity.status},
+            {
+                "opportunity_id": str(opportunity.id),
+                "kind": opportunity.kind,
+                "status": opportunity.status,
+                "goal_relevant": opportunity.goal_relevant,
+            },
             team=self.team,
             request=self.request,
         )
-        return Response(OpportunitySerializer(opportunity).data)
+        # Re-fetch through the annotated queryset so the response carries the feedback fields.
+        annotated = self.get_queryset().get(pk=opportunity.pk)
+        return Response(self.get_serializer(annotated).data)

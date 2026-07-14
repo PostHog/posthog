@@ -10,25 +10,32 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { BriefConfigApi, BriefGoalStatusApi, ProductBriefApi, ProductBriefListApi } from './generated/api.schemas'
+import { ProductBriefStatusEnumApi, ProductBriefTriggerEnumApi } from './generated/api.schemas'
 import { BRIEF_ALREADY_GENERATING_MESSAGE, MAX_CONSECUTIVE_POLL_FAILURES, pulseLogic } from './pulseLogic'
 
-const generatingBrief = {
+const generatingBrief: ProductBriefApi = {
     id: 'brief-1',
     config: null,
-    status: 'generating',
-    trigger: 'on_demand',
+    status: ProductBriefStatusEnumApi.Generating,
+    trigger: ProductBriefTriggerEnumApi.OnDemand,
     period: { period_type: 'last_n_days', days: 7 },
     sections: [],
+    accountability: [],
     sources_used: [],
+    goal_status: null,
     error: null,
+    my_vote: null,
+    my_reason: null,
+    helpful_count: 0,
+    not_helpful_count: 0,
     created_at: '2026-07-02T10:00:00Z',
     created_by: null,
     updated_at: null,
 }
 
-const readyBrief = {
+const readyBrief: ProductBriefApi = {
     ...generatingBrief,
-    status: 'ready',
+    status: ProductBriefStatusEnumApi.Ready,
     sections: [
         {
             kind: 'what_happened',
@@ -354,5 +361,47 @@ describe('pulseLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.loadBriefDetailSuccess({ ...readyBrief, goal_status: goalStatus } as ProductBriefApi)
         expect(logic.values.briefDetailGoalStatus).toEqual(kept ? goalStatus : null)
+    })
+
+    it('patches the shown brief with the server row after a successful vote', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/briefs/:id/feedback/': () => [
+                    200,
+                    { ...readyBrief, my_vote: true, helpful_count: 1 },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadBriefDetailSuccess(readyBrief as ProductBriefApi)
+        logic.actions.selectBrief('brief-1')
+
+        await expectLogic(logic, () => {
+            logic.actions.voteOnBrief('brief-1', true, '')
+        })
+            .toDispatchActions(['briefFeedbackVoteStarted', 'briefFeedbackVoteSucceeded', 'briefFeedbackUpdated'])
+            .toMatchValues({ briefFeedbackVotesInFlight: {} })
+        expect(logic.values.briefDetail?.my_vote).toBe(true)
+        expect(logic.values.briefDetail?.helpful_count).toBe(1)
+    })
+
+    it('ignores a second vote for the same brief while one is in flight', async () => {
+        let calls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/briefs/:id/feedback/': () => {
+                    calls += 1
+                    return [200, { ...readyBrief, my_vote: true, helpful_count: 1 }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadBriefDetailSuccess(readyBrief as ProductBriefApi)
+
+        await expectLogic(logic, () => {
+            logic.actions.voteOnBrief('brief-1', true, '')
+            logic.actions.voteOnBrief('brief-1', false, '')
+        }).toFinishAllListeners()
+        expect(calls).toBe(1)
     })
 })

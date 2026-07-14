@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import {
     pulseOpportunitiesActedCreate,
     pulseOpportunitiesDismissCreate,
+    pulseOpportunitiesFeedbackCreate,
     pulseOpportunitiesList,
     pulseOpportunitiesReopenCreate,
 } from './generated/api'
@@ -66,6 +67,15 @@ export const opportunitiesLogic = kea<opportunitiesLogicType>([
         }),
         opportunityTransitionSucceeded: (opportunity: OpportunityApi) => ({ opportunity }),
         opportunityTransitionFailed: (opportunityId: string) => ({ opportunityId }),
+        voteOnOpportunity: (opportunityId: string, helpful: boolean | null, reason: string = '') => ({
+            opportunityId,
+            helpful,
+            reason,
+        }),
+        opportunityFeedbackVoteStarted: (opportunityId: string) => ({ opportunityId }),
+        opportunityFeedbackVoteSucceeded: (opportunityId: string) => ({ opportunityId }),
+        opportunityFeedbackVoteFailed: (opportunityId: string) => ({ opportunityId }),
+        opportunityFeedbackUpdated: (opportunity: OpportunityApi) => ({ opportunity }),
     }),
     loaders({
         opportunities: [
@@ -83,6 +93,8 @@ export const opportunitiesLogic = kea<opportunitiesLogicType>([
             // Server-confirmed swap only — the per-row spinner covers the wait, no optimistic flip.
             opportunityTransitionSucceeded: (state, { opportunity }) =>
                 state.map((existing) => (existing.id === opportunity.id ? opportunity : existing)),
+            opportunityFeedbackUpdated: (state, { opportunity }) =>
+                state.map((existing) => (existing.id === opportunity.id ? opportunity : existing)),
         },
         // Keyed by opportunity id so each row's buttons can spinner/disable independently.
         transitionsInFlight: [
@@ -97,6 +109,21 @@ export const opportunitiesLogic = kea<opportunitiesLogicType>([
                     return rest
                 },
                 opportunityTransitionFailed: (state, { opportunityId }) => {
+                    const { [opportunityId]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
+        // Keyed by opportunity id so each row's vote spinner/guard is independent of its neighbors.
+        feedbackVotesInFlight: [
+            {} as Record<string, true>,
+            {
+                opportunityFeedbackVoteStarted: (state, { opportunityId }) => ({ ...state, [opportunityId]: true }),
+                opportunityFeedbackVoteSucceeded: (state, { opportunityId }) => {
+                    const { [opportunityId]: _, ...rest } = state
+                    return rest
+                },
+                opportunityFeedbackVoteFailed: (state, { opportunityId }) => {
                     const { [opportunityId]: _, ...rest } = state
                     return rest
                 },
@@ -184,6 +211,32 @@ export const opportunitiesLogic = kea<opportunitiesLogicType>([
                     proposal_copied: copied,
                 })
                 router.actions.push(urls.experiment('new'))
+            },
+            voteOnOpportunity: async ({ opportunityId, helpful, reason }) => {
+                // In-flight guard, server call, server-confirmed row swap, toast on failure — mirrors
+                // runTransition. The vote buttons are also disabled via feedbackVotesInFlight.
+                if (opportunityId in values.feedbackVotesInFlight) {
+                    return
+                }
+                actions.opportunityFeedbackVoteStarted(opportunityId)
+                try {
+                    const updated = await pulseOpportunitiesFeedbackCreate(currentProjectId(), opportunityId, {
+                        helpful,
+                        reason,
+                    })
+                    actions.opportunityFeedbackVoteSucceeded(opportunityId)
+                    actions.opportunityFeedbackUpdated(updated)
+                } catch (error) {
+                    actions.opportunityFeedbackVoteFailed(opportunityId)
+                    // 4xx are expected user/validation errors; surface 5xx and network failures to
+                    // error tracking so vote-endpoint breakage is visible beyond a per-user toast.
+                    if (!(error instanceof ApiError) || (error.status ?? 500) >= 500) {
+                        posthog.captureException(error)
+                    }
+                    lemonToast.error(
+                        error instanceof ApiError && error.detail ? error.detail : 'Saving your feedback failed'
+                    )
+                }
             },
             loadOpportunitiesFailure: () => {
                 lemonToast.error('Loading opportunities failed')

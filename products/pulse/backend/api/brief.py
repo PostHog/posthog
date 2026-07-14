@@ -23,6 +23,12 @@ from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import sync_connect
 
+from products.pulse.backend.api.feedback import (
+    FeedbackFieldsSerializerMixin,
+    FeedbackVoteRequestSerializer,
+    annotate_feedback,
+    record_vote,
+)
 from products.pulse.backend.config import WORKFLOW_EXECUTION_TIMEOUT
 from products.pulse.backend.generation.goal import MetricState
 from products.pulse.backend.models import BriefConfig, ProductBrief
@@ -281,7 +287,7 @@ class AccountabilityStatusLineSerializer(serializers.Serializer):
     )
 
 
-class ProductBriefSerializer(serializers.ModelSerializer):
+class ProductBriefSerializer(FeedbackFieldsSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who requested the brief.")
     goal_status = BriefGoalStatusSerializer(
         read_only=True,
@@ -318,6 +324,10 @@ class ProductBriefSerializer(serializers.ModelSerializer):
             "sources_used",
             "goal_status",
             "error",
+            "my_vote",
+            "my_reason",
+            "helpful_count",
+            "not_helpful_count",
             "created_at",
             "created_by",
             "updated_at",
@@ -399,9 +409,9 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     queryset = ProductBrief.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[ProductBrief]) -> QuerySet[ProductBrief]:
-        return (
-            ProductBrief.objects.for_team(self.team_id).select_related("created_by", "config").order_by("-created_at")
-        )
+        user_id = getattr(self.request.user, "id", None)
+        base = ProductBrief.objects.for_team(self.team_id).select_related("created_by", "config")
+        return annotate_feedback(base, self.team_id, user_id, "brief").order_by("-created_at")
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
@@ -520,4 +530,46 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             {"config_id": str(config.id) if config else None, "period": period, "trigger": "on_demand"},
             team=self.team,
         )
-        return Response(ProductBriefSerializer(brief).data, status=status.HTTP_201_CREATED)
+        # Re-fetch through the annotated queryset so the response carries the feedback fields.
+        annotated = self.get_queryset().get(pk=brief.id)
+        return Response(self.get_serializer(annotated).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=FeedbackVoteRequestSerializer,
+        responses={200: ProductBriefSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def feedback(self, request: Request, **kwargs) -> Response:
+        vote_serializer = FeedbackVoteRequestSerializer(data=request.data)
+        vote_serializer.is_valid(raise_exception=True)
+        helpful = vote_serializer.validated_data["helpful"]
+        reason = vote_serializer.validated_data["reason"]
+        # Capture props come from the pre-vote instance (they don't depend on the vote), which
+        # already has config select_related — has_goal reads config without a follow-up SELECT.
+        brief = self.get_object()
+        user = cast(User, request.user)
+        updated = record_vote(ProductBrief, self.team_id, brief.pk, user.id, helpful, reason, target="brief")
+        # The context props are the tuning signal. has_reason flags that a reason was left without
+        # capturing its free-text content into analytics.
+        report_user_action(
+            user,
+            "product_brief_feedback",
+            {
+                "brief_id": str(brief.id),
+                "helpful": helpful,
+                "has_reason": bool(reason),
+                "status": brief.status,
+                "trigger": brief.trigger,
+                "has_goal": brief.has_goal,
+                "section_kinds": sorted(
+                    {
+                        str(section.get("kind"))
+                        for section in brief.sections
+                        if isinstance(section, dict) and section.get("kind")
+                    }
+                ),
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self.get_serializer(updated).data)
