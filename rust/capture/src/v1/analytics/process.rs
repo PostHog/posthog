@@ -63,12 +63,18 @@ pub async fn process_batch(
     // later steps and logging, and a rejected request never reads them.
     context.set_batch_metadata(&batch);
 
-    let request_pipeline = super::pipeline::CaptureRequestPipeline::<Batch>::builder()
-        .step(ValidateBatch)
-        .build();
-    let batch = super::pipeline::run_request(&request_pipeline, batch).await?;
+    // Request-scoped context snapshot shared by the pipeline steps (the
+    // framework's `'static` step bound forbids borrowing request-scoped data).
+    // Taken after set_batch_metadata so historical_migration et al. are stamped.
+    let ctx_snapshot = Arc::new(RequestContext::clone(context));
 
-    let mut events = validate_events(context, batch)?;
+    // The request phase as a pipeline: the decoded request goes in, per-event
+    // state comes out. Structural failures reject the whole request.
+    let request_pipeline = super::pipeline::CaptureRequestPipeline::<Vec<WrappedEvent>>::builder()
+        .step(ValidateBatch)
+        .step(ValidateEvents::new(ctx_snapshot.clone()))
+        .build();
+    let mut events = super::pipeline::run_request(&request_pipeline, batch).await?;
 
     // Nothing left to process — return 200 with per-event drops.
     if events.iter().all(|ev| ev.result != EventResult::Ok) {
@@ -95,12 +101,11 @@ pub async fn process_batch(
     //
     // Built per batch: the steps close over per-request context (token, server
     // time) and request-scoped deps, which the framework's `'static` step bound
-    // forbids borrowing. A shared `Arc<RequestContext>` snapshot avoids cloning
-    // the context per step (see POC_NOTES §capture).
+    // forbids borrowing. The shared `Arc<RequestContext>` snapshot from above
+    // avoids cloning the context per step (see POC_NOTES §capture).
     //
     // Overflow and global rate limit are independent checks on different axes:
     // overflow reroutes bursting keys; global rate limit disables person processing.
-    let ctx_snapshot = Arc::new(RequestContext::clone(context));
     let mut policy = CapturePipeline::builder();
     if let Some(ref service) = state.event_restriction_service {
         policy = policy.chunk_step(ApplyRestrictions::new(
@@ -341,6 +346,42 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     })?;
 
     Ok(())
+}
+
+/// Framework step wrapping [`validate_events`]: expands the request [`Batch`]
+/// into per-event [`WrappedEvent`] state — per-event field validation, options
+/// coercion, timestamp normalization, and illegal-distinct-id flagging.
+/// Malformed events are stamped `EventResult::Drop` and stay in the batch;
+/// uuid integrity failures (missing/invalid/duplicate) reject the whole
+/// request, matching the previous `?` behavior.
+pub struct ValidateEvents {
+    ctx: Arc<RequestContext>,
+}
+
+impl ValidateEvents {
+    pub fn new(ctx: Arc<RequestContext>) -> Self {
+        Self { ctx }
+    }
+}
+
+impl Step<Batch, CaptureFx> for ValidateEvents {
+    type Out = Vec<WrappedEvent>;
+    type Outputs = CaptureOutputs;
+
+    fn apply(
+        &self,
+        batch: Batch,
+        _fx: &mut CaptureFx,
+    ) -> Result<StepResult<Vec<WrappedEvent>, CaptureOutputs>, StepError> {
+        match validate_events(&self.ctx, batch) {
+            Ok(events) => Ok(StepResult::Continue(events)),
+            Err(err) => Err(StepError::reject(err)),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "validate_events"
+    }
 }
 
 fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
