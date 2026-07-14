@@ -104,29 +104,22 @@ export const WAREHOUSE_SOURCE_SETUP: Record<
 
 /** Values subset used by data-warehouse source helpers */
 interface SignalSourcesLogicValuesForDw {
-    githubIssuesConfig: SignalSourceConfig | null
-    linearIssuesConfig: SignalSourceConfig | null
-    zendeskTicketsConfig: SignalSourceConfig | null
-    pgAnalyzeIssuesConfig: SignalSourceConfig | null
+    sourceConfigs: SignalSourceConfig[] | null
 }
 
 function getWarehouseSourceConfig(
     values: SignalSourcesLogicValuesForDw,
     source: WarehouseBackedSource
 ): SignalSourceConfig | null {
-    if (source === 'github') {
-        return values.githubIssuesConfig
+    const { completion } = WAREHOUSE_SOURCE_SETUP[source]
+    if (completion.kind !== 'source_config') {
+        return null
     }
-    if (source === 'linear') {
-        return values.linearIssuesConfig
-    }
-    if (source === 'pganalyze') {
-        return values.pgAnalyzeIssuesConfig
-    }
-    if (source === 'zendesk') {
-        return values.zendeskTicketsConfig
-    }
-    return null
+    return (
+        values.sourceConfigs?.find(
+            (c) => c.source_product === completion.sourceProduct && c.source_type === completion.sourceType
+        ) ?? null
+    )
 }
 
 function toggleSourceConfigState(
