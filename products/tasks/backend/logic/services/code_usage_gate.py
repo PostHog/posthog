@@ -136,22 +136,28 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     return payload
 
 
+def code_access_required_response(user) -> Response | None:
+    if has_tasks_access(user):
+        return None
+    return Response(
+        TaskRunErrorResponseSerializer(
+            {
+                "type": "permission_denied",
+                "code": "code_access_required",
+                "error": "PostHog Code access is required to run tasks in the cloud.",
+            }
+        ).data,
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 def cloud_usage_limit_response(user, team_id: int) -> Response | None:
     """Return a blocking response when Code access or usage limits deny a cloud run, else None.
 
     Entitlement checks fail closed. Usage checks fail open when the gateway can't be reached.
     """
-    if not has_tasks_access(user):
-        return Response(
-            TaskRunErrorResponseSerializer(
-                {
-                    "type": "permission_denied",
-                    "code": "code_access_required",
-                    "error": "PostHog Code access is required to run tasks in the cloud.",
-                }
-            ).data,
-            status=status.HTTP_403_FORBIDDEN,
-        )
+    if response := code_access_required_response(user):
+        return response
 
     usage = get_posthog_code_usage(user, team_id)
     if usage is None or not usage.is_rate_limited:
