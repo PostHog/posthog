@@ -38,8 +38,23 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             [] as StamphogRepoConfigApi[],
             {
                 loadRepoConfigs: async () => {
-                    const response = await stamphogRepoConfigsList(String(values.currentProjectId))
-                    return response.results
+                    // A GitHub installation can surface hundreds of repos, so follow LimitOffset
+                    // pagination and fetch every page. The table searches and paginates this list
+                    // client-side, so a truncated first page would hide repos that then can't be found
+                    // or toggled — the whole point of the toggle list.
+                    const pageSize = 100
+                    const all: StamphogRepoConfigApi[] = []
+                    for (let offset = 0; ; offset += pageSize) {
+                        const response = await stamphogRepoConfigsList(String(values.currentProjectId), {
+                            limit: pageSize,
+                            offset,
+                        })
+                        all.push(...response.results)
+                        if (all.length >= response.count || response.results.length === 0) {
+                            break
+                        }
+                    }
+                    return all
                 },
             },
         ],
