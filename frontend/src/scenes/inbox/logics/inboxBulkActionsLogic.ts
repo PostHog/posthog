@@ -45,6 +45,9 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
         /** Broadcast that a single report was archived elsewhere (e.g. the detail pane), so every
          * mounted list reconciles itself. Persisting the change is the caller's responsibility. */
         reportArchived: true,
+        /** Broadcast that a report's implementation PR was merged from the detail pane, so every
+         * mounted list reconciles against the server (the report moves toward resolved). */
+        reportMerged: true,
     }),
 
     reducers({

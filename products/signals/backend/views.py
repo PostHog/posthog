@@ -87,6 +87,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    MergeResponseSerializer,
     ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
@@ -2138,6 +2139,144 @@ class SignalReportArtefactViewSet(
                 "truncated": result.get("truncated", False),
             }
         )
+
+    def _resolve_pull_request_number(
+        self, github: GitHubIntegration, report_id: str, repository: str, branch: str
+    ) -> int | None:
+        """The PR number to merge for this commit artefact, or None if none can be found.
+
+        Prefer the report's recorded implementation PR link (the exact PR the pipeline opened); fall
+        back to the open PR whose head branch matches the commit's branch. Both `list_pull_requests`
+        and `parse_pull_request_url` reject/ignore anything unparseable, so a bad value yields None.
+        """
+        pr_url = fetch_implementation_pr_urls_for_reports([report_id]).get(report_id)
+        if pr_url:
+            parsed = github.parse_pull_request_url(pr_url)
+            if parsed is not None:
+                return parsed[2]
+        listing = github.list_pull_requests(repository)
+        if listing.get("success"):
+            for pr in listing.get("pull_requests", []):
+                if pr.get("head_branch") == branch:
+                    return pr.get("number")
+        return None
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=MergeResponseSerializer,
+                description="The report's implementation pull request was merged (or was already merged).",
+            ),
+            400: OpenApiResponse(description="Artefact is not a commit, missing repository/branch, or no PR to merge."),
+            404: OpenApiResponse(description="Artefact not found, or no GitHub integration can access the repository."),
+            409: OpenApiResponse(
+                description="GitHub declined the merge (pull request not mergeable, already closed, or head moved)."
+            ),
+        },
+        summary="Merge the implementation pull request for a commit artefact",
+        description=(
+            "Squash-merge the pull request associated with a `commit` artefact's branch via the team's "
+            "GitHub integration. The pull request is resolved from the report's implementation PR link, "
+            "falling back to the open PR whose head branch matches the commit's branch. GitHub's own "
+            "merge rules are the guardrail: an unmergeable, already-merged, or closed pull request is "
+            "surfaced as a clean error, never a 500."
+        ),
+        parameters=[_REPORT_ID_PARAMETER],
+        operation_id="signals_report_artefacts_merge",
+    )
+    @action(detail=True, methods=["post"], url_path="merge", required_scopes=["task:write"])
+    def merge(self, request: Request, *args, **kwargs) -> Response:
+        artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type != SignalReportArtefact.ArtefactType.COMMIT:
+            return Response(
+                {"error": f"Merging is only available for commit artefacts, not '{artefact.type}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            content = json.loads(artefact.content)
+        except (json.JSONDecodeError, ValueError):
+            content = {}
+        if not isinstance(content, dict):
+            content = {}
+        repository = content.get("repository")
+        branch = content.get("branch")
+        if not repository or not branch:
+            return Response(
+                {"error": "Artefact is missing a repository or branch."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Same connection boundary as `diff`: bounded to repos the team's GitHub installation can
+        # access. Any `task:write` holder can already run agents against those repos, so no
+        # additional per-report merge permission is layered on — GitHub's own merge rules gate the
+        # actual merge below.
+        try:
+            github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        if github is None:
+            return Response(
+                {"error": f"No GitHub integration can access '{repository}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        report_id = str(artefact.report_id)
+        try:
+            pr_number = self._resolve_pull_request_number(github, report_id, repository, str(branch))
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        if pr_number is None:
+            return Response(
+                {"error": f"No open pull request was found for branch '{branch}' in '{repository}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Gate on the PR's live state so an already-merged / closed PR returns a clean message rather
+        # than leaning on GitHub's merge error. GitHub's own rejection stays the guardrail below.
+        try:
+            pr_status = github.get_pull_request(repository, pr_number)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        if pr_status.get("success"):
+            if pr_status.get("merged"):
+                # Idempotent: the report's PR already shipped, so treat as a successful no-op.
+                return Response({"merged": True, "sha": None})
+            if pr_status.get("state") != "open":
+                return Response(
+                    {"error": "This pull request is closed and cannot be merged."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+        try:
+            result = github.merge_pull_request(repository, pr_number)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        if not result.get("success"):
+            status_code = result.get("status_code")
+            # GitHub returns 405 when the PR isn't mergeable and 409 when the head moved; surface both
+            # as a 409 with a clean reason rather than a 500, without re-implementing merge policy.
+            if status_code == 403:
+                message = "GitHub declined the merge — the integration lacks permission to merge in this repository."
+            elif status_code == 409:
+                message = (
+                    "GitHub could not merge this pull request — its branch moved since the merge was "
+                    "requested. Refresh and try again."
+                )
+            else:
+                message = (
+                    "GitHub could not merge this pull request — it isn't in a mergeable state "
+                    "(failing checks, conflicts, or branch protection)."
+                )
+            logger.warning(
+                "signals pr merge failed",
+                repository=repository,
+                branch=branch,
+                pr_number=pr_number,
+                status_code=status_code,
+            )
+            return Response({"error": message}, status=status.HTTP_409_CONFLICT)
+        return Response({"merged": True, "sha": result.get("sha")})
 
 
 class SignalUserAutonomyConfigView(APIView):

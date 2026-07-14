@@ -711,3 +711,19 @@ class CommitDiffResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text="True when the diff was too large to return in full and has been truncated.",
     )
+
+
+class MergeResponseSerializer(serializers.Serializer):
+    """Response for the `commit` artefact merge endpoint — the outcome of merging the report's
+    implementation pull request via the team's GitHub integration."""
+
+    merged = serializers.BooleanField(
+        read_only=True,
+        help_text="True when the pull request was merged (or was already merged).",
+    )
+    sha = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="SHA of the merge commit GitHub created, when available. Null when GitHub did not "
+        "return one (e.g. the pull request was already merged).",
+    )

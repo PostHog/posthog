@@ -2,7 +2,7 @@ import json
 import uuid
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -660,6 +660,80 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         )
 
         response = self.client.get(self._detail_url(str(report.id), str(artefact.id)) + "diff/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    # --- POST merge ---
+
+    def _commit_artefact(self) -> tuple[SignalReport, SignalReportArtefact]:
+        report = self._create_report()
+        artefact = self._create_artefact(
+            report,
+            artefact_type=SignalReportArtefact.ArtefactType.COMMIT,
+            content={"repository": "acme/repo", "branch": "fix-branch", "commit_sha": "deadbeef", "message": "fix"},
+        )
+        return report, artefact
+
+    def _mock_github(self, *, pr_state="open", merged=False, merge_result=None):
+        github = MagicMock()
+        github.parse_pull_request_url.return_value = ("acme", "repo", 7)
+        github.get_pull_request.return_value = {"success": True, "state": pr_state, "merged": merged}
+        github.merge_pull_request.return_value = merge_result or {"success": True, "sha": "merge-sha-123"}
+        return github
+
+    def test_merge_squash_merges_pr_and_returns_sha(self):
+        report, artefact = self._commit_artefact()
+        github = self._mock_github()
+        with (
+            patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=github),
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+                return_value={str(report.id): "https://github.com/acme/repo/pull/7"},
+            ),
+        ):
+            response = self.client.post(self._detail_url(str(report.id), str(artefact.id)) + "merge/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"merged": True, "sha": "merge-sha-123"}
+        github.merge_pull_request.assert_called_once_with("acme/repo", 7)
+
+    def test_merge_already_merged_pr_is_idempotent(self):
+        # An already-merged PR must not attempt a second merge — it returns success without calling GitHub.
+        report, artefact = self._commit_artefact()
+        github = self._mock_github(pr_state="closed", merged=True)
+        with (
+            patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=github),
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+                return_value={str(report.id): "https://github.com/acme/repo/pull/7"},
+            ),
+        ):
+            response = self.client.post(self._detail_url(str(report.id), str(artefact.id)) + "merge/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["merged"] is True
+        github.merge_pull_request.assert_not_called()
+
+    @parameterized.expand([("not_mergeable", 405), ("head_moved", 409), ("forbidden", 403)])
+    def test_merge_github_rejection_returns_409_not_500(self, _name, github_status):
+        # GitHub's own 405/409/403 are the guardrail: they must surface as a clean 409, never a 500.
+        report, artefact = self._commit_artefact()
+        github = self._mock_github(merge_result={"success": False, "status_code": github_status, "error": "nope"})
+        with (
+            patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=github),
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+                return_value={str(report.id): "https://github.com/acme/repo/pull/7"},
+            ),
+        ):
+            response = self.client.post(self._detail_url(str(report.id), str(artefact.id)) + "merge/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "error" in response.json()
+
+    def test_merge_non_commit_artefact_returns_400(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, artefact_type=SignalReportArtefact.ArtefactType.NOTE, content={})
+        response = self.client.post(self._detail_url(str(report.id), str(artefact.id)) + "merge/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 

@@ -674,6 +674,12 @@ class GitHubIntegrationBase:
             "url": pr.get("html_url"),
             "state": pr.get("state"),
             "merged": pr.get("merged", False),
+            # GitHub computes mergeability asynchronously, so `mergeable` can be null on a freshly
+            # opened / just-updated PR until the check settles; `mergeable_state` (e.g. "clean",
+            # "blocked", "dirty", "unknown") is the finer-grained signal. Both are surfaced so a
+            # caller can gate a merge on the PR's live state.
+            "mergeable": pr.get("mergeable"),
+            "mergeable_state": pr.get("mergeable_state"),
             "draft": pr.get("draft", False),
             "head_branch": head.get("ref"),
             "base_branch": base.get("ref"),

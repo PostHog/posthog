@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import type { inboxTaskKickoffLogicType } from './inboxTaskKickoffLogicType'
+import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP, SignalReport, SignalReportTaskRelationship } from './types'
 
 // Cloud-adapted port of desktop `useDiscussReport` / `useCreatePrReport`. These are
@@ -90,16 +91,32 @@ async function createReportTask(
     router.actions.push(urls.taskDetail(task.id))
 }
 
+// The report's implementation PR is resolved server-side from its `commit` artefact's branch, so
+// merging is addressed by that artefact. Pick the newest commit artefact — its branch tip is the
+// current state of the work (the same one the "Files changed" diff renders). Returns null when the
+// report has no commit artefact yet (nothing to merge).
+async function resolveLatestCommitArtefactId(report: SignalReport): Promise<string | null> {
+    const { results } = await api.signalReports.artefacts(report.id, { limit: REPO_SELECTION_ARTEFACT_FETCH_LIMIT })
+    const commits = results.filter((a) => a.type === 'commit')
+    if (commits.length === 0) {
+        return null
+    }
+    return commits.reduce((latest, a) => (a.created_at > latest.created_at ? a : latest)).id
+}
+
 export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     path(['scenes', 'inbox', 'inboxTaskKickoffLogic']),
 
     actions({
         discussReport: (report: SignalReport, question?: string) => ({ report, question }),
         createPrFromReport: (report: SignalReport) => ({ report }),
+        mergePrFromReport: (report: SignalReport) => ({ report }),
         discussReportSuccess: true,
         discussReportFailure: true,
         createPrSuccess: true,
         createPrFailure: true,
+        mergePrSuccess: true,
+        mergePrFailure: true,
     }),
 
     reducers({
@@ -117,6 +134,14 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 createPrFromReport: () => true,
                 createPrSuccess: () => false,
                 createPrFailure: () => false,
+            },
+        ],
+        isMergingPr: [
+            false,
+            {
+                mergePrFromReport: () => true,
+                mergePrSuccess: () => false,
+                mergePrFailure: () => false,
             },
         ],
     }),
@@ -144,6 +169,27 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to start PR task')
                 actions.createPrFailure()
+            }
+        },
+        mergePrFromReport: async ({ report }) => {
+            try {
+                const commitArtefactId = await resolveLatestCommitArtefactId(report)
+                if (!commitArtefactId) {
+                    throw new Error('No commit was found for this report yet — the PR may not have landed any changes.')
+                }
+                await api.signalReports.merge(report.id, commitArtefactId)
+                lemonToast.success('Pull request merged')
+                // Merging resolves the report server-side once GitHub's merge webhook lands; broadcast so
+                // every mounted inbox list reconciles against the server (the report moves toward resolved).
+                inboxBulkActionsLogic.findMounted()?.actions.reportMerged()
+                actions.mergePrSuccess()
+            } catch (error: any) {
+                // The merge endpoint returns GitHub's rejection reason in the response body's `error`
+                // field (e.g. not mergeable / head moved), surfaced here rather than a generic message.
+                lemonToast.error(
+                    error?.data?.error || error?.detail || error?.message || 'Failed to merge pull request'
+                )
+                actions.mergePrFailure()
             }
         },
     })),
