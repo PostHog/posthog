@@ -1,7 +1,5 @@
 **LEARN FIRST: HARD REQUIREMENT**
 
-Load all matching topics in one `learn` command first. Topics are cumulative.
+Load all matching advertised topics in one `learn` command before non-learning commands. Topics are cumulative.
 
 {help_topics}
-
-{skills_help}

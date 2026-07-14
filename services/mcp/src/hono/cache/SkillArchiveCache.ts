@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import type { RedisLike } from './RedisCache'
 import { SharedBlobCache, type SharedBlobCacheOptions } from './SharedBlobCache'
@@ -28,8 +28,13 @@ export class SkillArchiveCache extends SharedBlobCache {
     private readonly fetchArchive: (url: string) => Promise<Uint8Array>
 
     constructor(redis: RedisLike, opts: SkillArchiveCacheOptions = {}) {
-        super(redis, NAMESPACE, opts)
-        this.archiveUrl = opts.archiveUrl ?? DEFAULT_SKILL_ARCHIVE_URL
+        const archiveUrl = opts.archiveUrl ?? DEFAULT_SKILL_ARCHIVE_URL
+        const namespace =
+            archiveUrl === DEFAULT_SKILL_ARCHIVE_URL
+                ? NAMESPACE
+                : `${NAMESPACE}:${createHash('sha256').update(archiveUrl).digest('hex').slice(0, 16)}`
+        super(redis, namespace, opts)
+        this.archiveUrl = archiveUrl
         this.fetchArchive = opts.fetchArchive ?? downloadArchive
     }
 
