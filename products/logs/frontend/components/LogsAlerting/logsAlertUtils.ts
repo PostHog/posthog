@@ -245,6 +245,7 @@ export function groupLogsAlertDestinations(
 ): LogsAlertDestinationGroup[] {
     const groups = new Map<string, LogsAlertDestinationGroup>()
     for (const hf of hogFunctions) {
+        const templateId = hf.template_id ?? hf.template?.id
         const slackChannelValue = hf.inputs?.channel?.value
         const destinationWebhookUrl = hf.inputs?.webhookUrl?.value
         const webhookUrl = hf.inputs?.url?.value
@@ -252,23 +253,23 @@ export function groupLogsAlertDestinations(
         let type: LogsAlertNotificationType
         let label: string
 
-        if (hf.template_id === 'template-slack') {
+        if (templateId === 'template-slack') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_SLACK
             key = `slack:${typeof slackChannelValue === 'string' ? slackChannelValue : hf.id}`
             const channelName = typeof slackChannelValue === 'string' ? resolveSlackLabel(slackChannelValue) : null
             label = channelName ? `Slack #${channelName}` : 'Slack'
-        } else if (hf.template_id === 'template-discord') {
+        } else if (templateId === 'template-discord') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_DISCORD
             key = `discord:${typeof destinationWebhookUrl === 'string' ? destinationWebhookUrl : hf.id}`
             label = 'Discord'
-        } else if (hf.template_id === 'template-microsoft-teams') {
+        } else if (templateId === 'template-microsoft-teams') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
             key = `teams:${typeof destinationWebhookUrl === 'string' ? destinationWebhookUrl : hf.id}`
             label =
                 typeof destinationWebhookUrl === 'string'
                     ? `Microsoft Teams ${destinationWebhookUrl}`
                     : 'Microsoft Teams'
-        } else if (hf.template_id === 'template-webhook') {
+        } else if (templateId === 'template-webhook') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `webhook:${typeof webhookUrl === 'string' ? webhookUrl : hf.id}`
             label = typeof webhookUrl === 'string' ? `Webhook ${webhookUrl}` : 'Webhook'

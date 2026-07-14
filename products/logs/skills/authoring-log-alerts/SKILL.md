@@ -33,7 +33,7 @@ are trying to land thresholds that fire 0–3 times per week on real production 
 | `posthog:logs-count-ranges`                                           | Adaptive time-bucketed counts for a filter.                                   | Step 3 — baseline. |
 | `posthog:logs-alerts-simulate-create`                                 | Replay a draft config against `-7d` history with full state machine.          | Step 4 — validate. |
 | `posthog:logs-alerts-create`                                          | Persist the alert.                                                            | Step 5 — ship.     |
-| `posthog:logs-alerts-destinations-create`                             | Wire the alert to Slack, Discord, webhook, or Microsoft Teams.                | Step 5: ship.      |
+| `posthog:logs-alerts-destinations-create`                             | Wire the alert to Slack, webhook, or Microsoft Teams.                         | Step 5: ship.      |
 
 Do **not** call `posthog:query-logs` during authoring. You need distributions, not rows. Reserve `posthog:query-logs` for
 the very end if the user asks "show me a sample of what would have fired" — `limit: 10` is plenty.
@@ -145,7 +145,6 @@ Once a draft simulates cleanly:
 2. Call `posthog:logs-alerts-destinations-create` to wire it to a notification target. **An alert with no destination
    is silent.** Supported destination fields:
    - Slack: `type: "slack"`, `slack_workspace_id`, and `slack_channel_id`. `slack_channel_name` is optional.
-   - Discord: `type: "discord"` and `webhook_url` in the exact format `https://discord.com/api/webhooks/{id}/{token}`.
    - Webhook: `type: "webhook"` and `webhook_url`.
    - Microsoft Teams: `type: "teams"` and `webhook_url`.
 

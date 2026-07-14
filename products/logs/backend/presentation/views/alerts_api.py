@@ -700,6 +700,7 @@ class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
+        max_length=len(LOGS_ALERT_EVENT_IDS),
         help_text="HogFunction IDs to delete as one atomic destination group.",
     )
 
@@ -1186,14 +1187,18 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
-        self._track("deleted", instance)
         with transaction.atomic():
-            locked_instance = LogsAlertConfiguration.objects.select_for_update().get(
-                team_id=instance.team_id, id=instance.id
+            locked_instance = (
+                LogsAlertConfiguration.objects.select_for_update()
+                .filter(team_id=instance.team_id, id=instance.id)
+                .first()
             )
+            if locked_instance is None:
+                return
             soft_delete_all_alert_destinations(
                 team_id=locked_instance.team_id,
                 alert_id=str(locked_instance.id),
                 allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             )
             super().perform_destroy(locked_instance)
+            transaction.on_commit(lambda: self._track("deleted", locked_instance), robust=True)

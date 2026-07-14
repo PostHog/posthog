@@ -23,7 +23,11 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.presentation.views.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
+from products.logs.backend.presentation.views.alerts_api import (
+    ALLOWED_WINDOW_MINUTES,
+    LOGS_ALERT_EVENT_IDS,
+    MAX_ALERTS_PER_TEAM,
+)
 
 
 def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: str) -> dict:
@@ -201,7 +205,8 @@ class TestLogsAlertAPI(APIBaseTest):
         created = self._create_via_api()
         mock_report.reset_mock()
 
-        response = self.client.delete(f"{self.base_url}{created['id']}/")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"{self.base_url}{created['id']}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not LogsAlertConfiguration.objects.filter(pk=created["id"]).exists()
 
@@ -960,15 +965,27 @@ class TestLogsAlertAPI(APIBaseTest):
 
         response = self.client.post(
             self._destinations_delete_url(created_b["id"]),
-            {"hog_function_ids": a_ids + b_ids},
+            {"hog_function_ids": [a_ids[0], b_ids[0]]},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "hog_function_ids"
         message = response.json()["detail"]
-        assert all(hog_function_id in message for hog_function_id in a_ids)
-        assert all(hog_function_id not in message for hog_function_id in b_ids)
+        assert a_ids[0] in message
+        assert b_ids[0] not in message
         assert "Refresh the alert and try again." in message
+
+    def test_delete_destination_rejects_more_ids_than_one_destination_group(self):
+        created = self._create_via_api()
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [str(uuid4()) for _ in range(len(LOGS_ALERT_EVENT_IDS) + 1)]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "hog_function_ids"
 
     # --- Reset ---
 

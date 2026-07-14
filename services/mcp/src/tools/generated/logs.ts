@@ -103,7 +103,7 @@ const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.om
     .extend(LogsAlertsDestinationsCreateBody.shape)
     .extend({
         type: LogsAlertsDestinationsCreateBody.shape['type'].describe(
-            'Destination type. Use slack, discord, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Discord, webhook, and teams require webhook_url.'
+            'Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'
         ),
         slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
             'Slack workspace integration ID. Required when type is slack.'
@@ -115,7 +115,7 @@ const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.om
             'Optional Slack channel name used for display.'
         ),
         webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe(
-            'Required when type is discord, webhook, or teams. Discord URLs must use the exact format https://discord.com/api/webhooks/{id}/{token}.'
+            'Required when type is webhook or teams.'
         ),
     })
 

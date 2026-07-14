@@ -258,7 +258,8 @@ def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
         team_id = instance.team_id
         hog_function_id = str(instance.id)
         transaction.on_commit(
-            lambda: reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=[hog_function_id])
+            lambda: reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=[hog_function_id]),
+            robust=True,
         )
 
 

@@ -111,7 +111,10 @@ def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:
 def _reload_hog_functions_after_commit(*, team_id: int, hog_function_ids: Collection[UUID]) -> None:
     serialized_ids = sorted(str(hog_function_id) for hog_function_id in hog_function_ids)
     if serialized_ids:
-        transaction.on_commit(lambda: reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=serialized_ids))
+        transaction.on_commit(
+            lambda: reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=serialized_ids),
+            robust=True,
+        )
 
 
 def produce_alert_internal_event(

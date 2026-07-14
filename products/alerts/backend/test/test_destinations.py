@@ -104,6 +104,22 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
             team_id=self.team.id, hog_function_ids=[str(destination.id)]
         )
 
+    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers", side_effect=RuntimeError("boom"))
+    def test_reload_failure_does_not_fail_committed_delete(self, _reload_hog_functions_on_workers) -> None:
+        destination = self._make_hog_function(template_id="template-slack", alert_id="alert-1")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            soft_delete_alert_destinations(
+                team_id=self.team.id,
+                alert_id="alert-1",
+                allowed_event_ids=ALLOWED_EVENT_IDS,
+                hog_function_ids=[destination.id],
+            )
+
+        destination.refresh_from_db()
+        assert destination.deleted is True
+        assert destination.enabled is False
+
 
 class TestAlertInternalEventDelivery(APIBaseTest):
     @patch("products.alerts.backend.destinations.capture_exception")

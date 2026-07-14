@@ -9,14 +9,14 @@ import { LogsAlertDestinationTags } from '../LogsAlertList'
 describe('LogsAlertDestinationTags', () => {
     afterEach(() => cleanup())
 
-    it('renders Discord separately from Microsoft Teams', () => {
+    it('does not expose Discord as a Logs alert destination', () => {
         render(
             <LogsAlertDestinationTags
                 types={[NotificationDestinationTypeEnumApi.Discord, NotificationDestinationTypeEnumApi.Teams]}
             />
         )
 
-        expect(screen.getByText('Discord')).toBeInTheDocument()
+        expect(screen.queryByText('Discord')).not.toBeInTheDocument()
         expect(screen.getByText('Teams')).toBeInTheDocument()
     })
 })

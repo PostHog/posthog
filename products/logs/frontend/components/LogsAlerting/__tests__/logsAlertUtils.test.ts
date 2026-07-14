@@ -53,7 +53,7 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `slack-${id}`,
                 enabled,
-                template_id: 'template-slack',
+                template: { id: 'template-slack' },
                 inputs: { channel: { value: channel } },
                 filters: {},
             }) as unknown as HogFunctionType
@@ -63,7 +63,7 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `webhook-${id}`,
                 enabled,
-                template_id: 'template-webhook',
+                template: { id: 'template-webhook' },
                 inputs: { url: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType
@@ -73,7 +73,7 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `teams-${id}`,
                 enabled,
-                template_id: 'template-microsoft-teams',
+                template: { id: 'template-microsoft-teams' },
                 inputs: { webhookUrl: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType
@@ -83,7 +83,7 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `discord-${id}`,
                 enabled,
-                template_id: 'template-discord',
+                template: { id: 'template-discord' },
                 inputs: { webhookUrl: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType

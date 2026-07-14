@@ -17,7 +17,6 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
-import IconDiscord from 'public/services/discord.png'
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 import IconSlack from 'public/services/slack.png'
 import IconWebhook from 'public/services/webhook.svg'
@@ -50,12 +49,6 @@ export function LogsAlertDestinationTags({
                 <LemonTag>
                     <img src={IconSlack} alt="" className="h-3 w-3 object-contain" />
                     Slack
-                </LemonTag>
-            )}
-            {types.includes(NotificationDestinationTypeEnumApi.Discord) && (
-                <LemonTag>
-                    <img src={IconDiscord} alt="" className="h-3 w-3 object-contain" />
-                    Discord
                 </LemonTag>
             )}
             {types.includes(NotificationDestinationTypeEnumApi.Webhook) && (

@@ -2512,10 +2512,13 @@ export const LogsAlertsDestinationsDeleteCreateParams = /* @__PURE__ */ zod.obje
         ),
 })
 
+export const logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 4
+
 export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.string())
         .min(1)
+        .max(logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
 

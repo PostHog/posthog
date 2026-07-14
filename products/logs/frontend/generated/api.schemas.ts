@@ -674,6 +674,7 @@ export interface LogsAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
      * @minItems 1
+     * @maxItems 4
      */
     hog_function_ids: string[]
 }

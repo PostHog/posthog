@@ -68,7 +68,8 @@ class TestRefreshHogFunctions(BaseTest):
         """Test refreshing all non-deleted destination HogFunctions (both enabled and disabled) across all teams."""
 
         out = StringIO()
-        call_command("refresh_hog_functions", stdout=out)
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("refresh_hog_functions", stdout=out)
 
         # Should have refreshed 3 destination functions
         # (hog_function1, hog_function3, disabled_function)
@@ -86,7 +87,8 @@ class TestRefreshHogFunctions(BaseTest):
         """Test refreshing destination HogFunctions for a specific team."""
 
         out = StringIO()
-        call_command("refresh_hog_functions", team_id=self.team.id, stdout=out)
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("refresh_hog_functions", team_id=self.team.id, stdout=out)
 
         # Should have refreshed destination functions from team1 (hog_function1, disabled_function)
         # The transformation hog_function2 and deleted_function should be excluded
@@ -102,7 +104,8 @@ class TestRefreshHogFunctions(BaseTest):
         """Test refreshing a specific HogFunction by ID."""
 
         out = StringIO()
-        call_command("refresh_hog_functions", hog_function_id=str(self.hog_function1.id), stdout=out)
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("refresh_hog_functions", hog_function_id=str(self.hog_function1.id), stdout=out)
 
         # Should have refreshed only the specific function
         assert mock_reload.call_count == 1

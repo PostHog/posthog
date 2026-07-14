@@ -14,7 +14,6 @@ import type { logsAlertNotificationLogicType } from './logsAlertNotificationLogi
 import {
     buildLogsAlertFilterConfig,
     groupLogsAlertDestinations,
-    LOGS_ALERT_NOTIFICATION_TYPE_DISCORD,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
@@ -25,7 +24,6 @@ import {
 
 export const LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: LOGS_ALERT_NOTIFICATION_TYPE_SLACK },
-    { label: 'Discord', value: LOGS_ALERT_NOTIFICATION_TYPE_DISCORD },
     { label: 'Microsoft Teams', value: LOGS_ALERT_NOTIFICATION_TYPE_TEAMS },
     { label: 'Webhook', value: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK },
 ]
