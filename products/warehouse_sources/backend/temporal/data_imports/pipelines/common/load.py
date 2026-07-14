@@ -310,8 +310,8 @@ async def run_post_load_operations(
                 # versions are unrelated numbers, so each table's vacuum cadence gets its own
                 # watermark key — sharing one would corrupt both cadences.
                 watermark_key = "last_vacuum_version_cdc" if is_cdc_companion else "last_vacuum_version"
-                last_vacuum_version = (schema.sync_type_config or {}).get(watermark_key)
-                commit_threshold = int(getattr(settings, "DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100))
+                last_vacuum_version = schema.last_vacuum_version_cdc if is_cdc_companion else schema.last_vacuum_version
+                commit_threshold = settings.DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD
                 new_version = await delta_table_helper.run_maintenance(
                     partition_count=partition_count,
                     last_vacuum_version=last_vacuum_version,

@@ -16,12 +16,15 @@ _REPARTITION_MODULE = (
 
 
 def _make_schema(*, is_cdc: bool, sync_type_config: dict | None = None, partition_count: int | None = 7) -> MagicMock:
+    config = sync_type_config if sync_type_config is not None else {}
     schema = MagicMock()
     schema.id = uuid.uuid4()
     schema.team_id = 1
     schema.is_cdc = is_cdc
     schema.sync_type = ExternalDataSchema.SyncType.CDC if is_cdc else ExternalDataSchema.SyncType.INCREMENTAL
-    schema.sync_type_config = sync_type_config if sync_type_config is not None else {}
+    schema.sync_type_config = config
+    schema.last_vacuum_version = config.get("last_vacuum_version")
+    schema.last_vacuum_version_cdc = config.get("last_vacuum_version_cdc")
     schema.partition_count = partition_count
     schema.cdc_table_mode = "consolidated"
     schema.initial_sync_complete = True

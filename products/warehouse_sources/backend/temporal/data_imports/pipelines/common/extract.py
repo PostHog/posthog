@@ -584,8 +584,8 @@ async def run_pre_write_defensive_compact(
         )
 
         partition_count_for_compact = schema.partition_count or resource.partition_count
-        last_vacuum_version = (schema.sync_type_config or {}).get("last_vacuum_version")
-        commit_threshold = int(getattr(settings, "DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100))
+        last_vacuum_version = schema.last_vacuum_version
+        commit_threshold = settings.DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD
         new_version = await delta_table_helper.run_maintenance(
             partition_count=partition_count_for_compact,
             last_vacuum_version=last_vacuum_version,
