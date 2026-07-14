@@ -6,7 +6,6 @@ import {
     LibrdKafkaError,
     Message,
     Metadata,
-    PartitionMetadata,
     KafkaConsumer as RdKafkaConsumer,
     TopicPartitionOffset,
 } from 'node-rdkafka'
@@ -203,20 +202,6 @@ export class KafkaConsumerV2 {
         // Manual offset path used by SessionRecording. Storing offsets after the consumer
         // has revoked the partitions is harmless — librdkafka will reject the store internally.
         this.rdKafkaConsumer.offsetsStore(offsets)
-    }
-
-    public async getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]> {
-        if (!this.rdKafkaConsumer.isConnected()) {
-            throw new Error('Not connected')
-        }
-        const meta = await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.getMetadata({ topic }, cb)).catch(
-            (err) => {
-                logger.error('🔥', 'kafka_consumer_v2_get_metadata_failed', { error: String(err) })
-                captureException(err)
-                throw err
-            }
-        )
-        return meta.topics.find((x) => x.name === topic)?.partitions ?? []
     }
 
     public async connect(

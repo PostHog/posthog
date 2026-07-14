@@ -84,7 +84,6 @@ export class SessionRecordingIngester {
     kafkaConsumer: KafkaConsumerV2
     topic: string
     consumerGroupId: string
-    totalNumPartitions = 0
     isStopping = false
 
     private isDebugLoggingEnabled: ValueMatcher<number>
@@ -355,8 +354,6 @@ export class SessionRecordingIngester {
             (messages) => this.handleEachBatch(messages),
             (revokedPartitions) => this.onRevokePartitions(revokedPartitions)
         )
-
-        this.totalNumPartitions = (await this.kafkaConsumer.getPartitionsForTopic(this.topic)).length
 
         // Start periodic flushing of TopHog metrics
         this.topHog.start()
