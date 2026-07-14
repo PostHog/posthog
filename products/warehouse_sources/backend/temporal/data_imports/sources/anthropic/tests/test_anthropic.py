@@ -114,6 +114,13 @@ class TestReportParams:
         assert params["starting_at"] == "2023-01-01T00:00:00Z"
 
 
+class TestUsageGroupBy:
+    def test_stays_within_the_five_dimension_cap(self) -> None:
+        # Anthropic rejects a messages usage report request with more than 5 group_by[] dimensions
+        # (400 invalid_request_error). A sixth dimension would break every usage_report sync.
+        assert len(anthropic.ANTHROPIC_ENDPOINTS["usage_report"].group_by) <= 5
+
+
 class TestFlattenUsage:
     def test_flattens_nested_objects_and_adds_id(self) -> None:
         bucket = {"starting_at": "2025-08-01T00:00:00Z", "ending_at": "2025-08-02T00:00:00Z"}

@@ -54,18 +54,16 @@ class AnthropicEndpointConfig:
     should_sync_default: bool = True
 
 
-# The report endpoints support every group_by the API documents. Requesting the full set gives the
-# richest breakdown; unused dimensions come back null and the row's synthesized `id` still stays
-# unique across the group_by combination.
+# The messages usage report rejects a request with more than 5 `group_by[]` dimensions (400
+# invalid_request_error). We pick the five most useful for cost attribution. The dimensions we leave
+# out — account_id (OAuth account), service_account_id (OIDC federation) and inference_geo — are null
+# for typical API-key usage anyway, so dropping them loses little breakdown value.
 _USAGE_GROUP_BY = [
-    "account_id",
-    "api_key_id",
-    "service_account_id",
     "workspace_id",
+    "api_key_id",
     "model",
     "service_tier",
     "context_window",
-    "inference_geo",
 ]
 _COST_GROUP_BY = ["workspace_id", "description"]
 
