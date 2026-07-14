@@ -2,7 +2,7 @@ import { Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVers
 import pLimit from 'p-limit'
 
 import { buildIntegerMatcher } from '~/common/config/config'
-import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
 import { DlqOutput, IngestionWarningsOutput, LogEntriesOutput, OverflowOutput, TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
@@ -81,7 +81,7 @@ export interface SessionRecordingIngesterCollaborators {
 }
 
 export class SessionRecordingIngester {
-    kafkaConsumer: KafkaConsumer
+    kafkaConsumer: KafkaConsumerV2
     topic: string
     consumerGroupId: string
     totalNumPartitions = 0
@@ -147,15 +147,15 @@ export class SessionRecordingIngester {
 
         this.promiseScheduler = new PromiseScheduler()
 
-        this.kafkaConsumer = new KafkaConsumer({
+        // The v2 consumer defers the unassign on revoke until in-flight work is drained and the
+        // revoke hook has run, so a revoke can flush the current batch (persisting sessions and
+        // storing offsets) before the revoked partitions are given up.
+        this.kafkaConsumer = new KafkaConsumerV2({
             topic: this.topic,
             groupId: this.consumerGroupId,
             callEachBatchWhenEmpty: true,
             autoCommit: true,
             autoOffsetStore: false,
-            // Drive assign/unassign from the rebalance callback so a revoke can flush the current batch
-            // (persisting sessions and storing offsets) before the revoked partitions are unassigned.
-            waitForBackgroundTasksOnRebalance: true,
         })
 
         this.redisPool = redisPool
@@ -255,8 +255,6 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[]): Promise<void> {
-        this.kafkaConsumer.heartbeat()
-
         if (messages.length > 0) {
             logger.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
                 size: messages.length,
@@ -293,8 +291,6 @@ export class SessionRecordingIngester {
             )
         )
         this.sessionBatchManager.trackProcessedOffsets(offsets)
-
-        this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush(this.currentBatch, this.lastFlushTime)) {
             await this.flushCurrentBatch()
@@ -361,11 +357,6 @@ export class SessionRecordingIngester {
         )
 
         this.totalNumPartitions = (await this.kafkaConsumer.getPartitionsForTopic(this.topic)).length
-
-        // nothing happens here unless we configure SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS
-        this.kafkaConsumer.on('event.stats', (stats) => {
-            logger.info('🪵', 'blob_ingester_consumer_v2 - kafka stats', { stats })
-        })
 
         // Start periodic flushing of TopHog metrics
         this.topHog.start()
