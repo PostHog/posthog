@@ -116,6 +116,14 @@ class ProductBrief(PulseModel):
     # Period spec resolved to explicit dates in-activity; shape: {"type": "last_n_days", "days": 7}
     # or {"type": "since_last_run"}. See temporal/activities.resolve_period.
     period = models.JSONField(default=default_period)
+    # Frozen observation window the brief covers (agent engine pins it on the brief row). Null on
+    # legacy/synthesize-engine rows that never ran the mission.
+    window_start = models.DateTimeField(null=True, blank=True)
+    window_end = models.DateTimeField(null=True, blank=True)
+    # Sandbox/agent session identifier for the transparency panel; null for synthesize-engine briefs.
+    agent_session_ref = models.CharField(max_length=200, null=True, blank=True)
+    # Object-storage keys for agent-produced artifacts (plots, tables, transcript).
+    artifacts = models.JSONField(default=list)
     # Shape: list[SectionOut] — see generation/schemas.py (the LLM structured-output schema).
     sections = models.JSONField(default=list)
     # Shape: list[OpportunityStatusLine] — deterministic then-vs-now re-scores of past
