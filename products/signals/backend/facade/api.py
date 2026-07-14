@@ -57,7 +57,7 @@ def set_signal_source_types_enabled(
     config: dict | None = None,
 ) -> None:
     """Atomically update a product-owned bundle of signal-source types. Every enable refreshes
-    ``config`` and ``created_by`` so the stored authorization reflects the latest enabling user."""
+    ``created_by`` (and ``config`` only when provided, so re-enables can't wipe stored config)."""
     with transaction.atomic():
         Team.objects.select_for_update().only("id").get(id=team_id)
         if not enabled:
@@ -67,12 +67,15 @@ def set_signal_source_types_enabled(
                 source_type__in=source_types,
             ).update(enabled=False)
             return
+        defaults: dict = {"enabled": True, "created_by_id": created_by_id}
+        if config is not None:
+            defaults["config"] = config
         for source_type in source_types:
             SignalSourceConfig.objects.update_or_create(
                 team_id=team_id,
                 source_product=source_product,
                 source_type=source_type,
-                defaults={"enabled": True, "config": config or {}, "created_by_id": created_by_id},
+                defaults=defaults,
             )
 
 
@@ -338,8 +341,9 @@ async def emit_signal(
             (`human` + `agent` combined). When set, the signal is treated as actionable: the guidance
             is surfaced to the research agent as authoritative direction, which it follows instead of
             investigating from scratch. Not required by any existing source.
-        idempotency_key: Stable key for one immutable observation. Repeated calls with the same key
-            within Temporal retention enqueue it once, including activity retries.
+        idempotency_key: Stable key for one immutable observation, scoped per (source_product,
+            source_type). Repeated calls with the same key within Temporal retention enqueue it
+            once, including activity retries.
 
     Example:
         await emit_signal(
@@ -448,11 +452,13 @@ async def emit_signal(
     id_reuse_policy = (
         WorkflowIDReusePolicy.REJECT_DUPLICATE if idempotency_key is not None else WorkflowIDReusePolicy.ALLOW_DUPLICATE
     )
+    # Namespace the key per signal kind so two emitters reusing a natural key can't dedupe each other.
+    dedupe_key = f"{source_product}:{source_type}:{idempotency_key}" if idempotency_key is not None else None
     try:
         await client.start_workflow(
             SignalEmitterWorkflow.run,
             SignalEmitterInput(team_id=team.id, signal=signal_input),
-            id=SignalEmitterWorkflow.workflow_id_for(team.id, idempotency_key),
+            id=SignalEmitterWorkflow.workflow_id_for(team.id, dedupe_key),
             id_reuse_policy=id_reuse_policy,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             run_timeout=timedelta(minutes=10),
