@@ -1,5 +1,9 @@
 pub mod api;
 pub mod config;
+pub mod jobs;
+pub mod k8s;
 pub mod kafka;
+pub mod proxy;
 pub mod state;
+pub mod teams;
 pub mod ui;

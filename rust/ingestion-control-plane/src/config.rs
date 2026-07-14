@@ -56,6 +56,16 @@ pub struct Config {
     #[envconfig(from = "ANALYSIS_MAX_CONCURRENT_JOBS", default = "2")]
     pub analysis_max_concurrent_jobs: usize,
 
+    /// `kubernetes` discovers consumer pods via the K8s API; `static` uses
+    /// the fixed `STATIC_PODS` list (local testing, like the
+    /// ingestion-consumer's static worker discovery).
+    #[envconfig(from = "POD_DISCOVERY_MODE", default = "kubernetes")]
+    pub pod_discovery_mode: String,
+
+    /// Comma-separated `name=host:port` entries used by static discovery.
+    #[envconfig(from = "STATIC_PODS", default = "local=127.0.0.1:3301")]
+    pub static_pods: String,
+
     #[envconfig(from = "K8S_NAMESPACE", default = "posthog")]
     pub k8s_namespace: String,
 

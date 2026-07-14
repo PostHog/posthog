@@ -1,12 +1,19 @@
-use axum::extract::{Query, State};
+use std::sync::Arc;
+
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use uuid::Uuid;
 
+use k8s_awareness::DiscoveredPod;
+
+use crate::jobs::{AnalysisRequest, JobView};
 use crate::kafka::lag::{self, GroupLag};
+use crate::proxy;
 use crate::state::AppState;
 use crate::ui;
 
@@ -33,6 +40,13 @@ impl ApiError {
     pub fn upstream(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_GATEWAY,
+            message: message.into(),
+        }
+    }
+
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
             message: message.into(),
         }
     }
@@ -88,10 +102,85 @@ async fn get_lag(
     Ok(Json(group_lag))
 }
 
+async fn create_analysis(
+    State(state): State<AppState>,
+    Json(request): Json<AnalysisRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let target = state
+        .config
+        .target_for_group(&request.group)
+        .ok_or_else(|| {
+            ApiError::bad_request(format!("unknown consumer group '{}'", request.group))
+        })?;
+    if request.partition < 0 {
+        return Err(ApiError::bad_request("partition must be non-negative"));
+    }
+
+    let job_id = state
+        .jobs
+        .start(
+            Arc::clone(&state.config),
+            Arc::clone(&state.teams),
+            target,
+            request,
+        )
+        .await
+        .map_err(|e| ApiError::upstream(format!("failed to start analysis: {e:#}")))?;
+
+    Ok((StatusCode::ACCEPTED, Json(json!({ "job_id": job_id }))))
+}
+
+async fn list_analyses(State(state): State<AppState>) -> Json<Vec<JobView>> {
+    Json(state.jobs.list())
+}
+
+async fn get_analysis(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<JobView>, ApiError> {
+    let job = state
+        .jobs
+        .get(&id)
+        .ok_or_else(|| ApiError::not_found(format!("no analysis job '{id}'")))?;
+    Ok(Json(job.view()))
+}
+
+async fn cancel_analysis(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    if state.jobs.cancel(&id) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found(format!("no analysis job '{id}'")))
+    }
+}
+
+#[derive(Serialize)]
+struct PodsResponse {
+    pods: Vec<DiscoveredPod>,
+}
+
+async fn list_pods(State(state): State<AppState>) -> Result<Json<PodsResponse>, ApiError> {
+    let pods = state
+        .pods
+        .list_pods(&state.config)
+        .await
+        .map_err(|e| ApiError::unavailable(format!("pod discovery unavailable: {e:#}")))?;
+    Ok(Json(PodsResponse { pods }))
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(ui::index))
         .route("/api/config", get(get_config))
         .route("/api/lag", get(get_lag))
+        .route("/api/analyses", get(list_analyses).post(create_analysis))
+        .route(
+            "/api/analyses/:id",
+            get(get_analysis).delete(cancel_analysis),
+        )
+        .route("/api/pods", get(list_pods))
+        .route("/api/pods/:name/debug/*rest", get(proxy::proxy_debug))
         .with_state(state)
 }

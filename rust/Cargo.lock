@@ -5268,7 +5268,7 @@ dependencies = [
  "hdrhistogram",
  "health",
  "http-body-util",
- "k8s-openapi",
+ "k8s-awareness",
  "kube",
  "rdkafka",
  "reqwest 0.12.28",

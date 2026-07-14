@@ -17,7 +17,7 @@ envconfig = { workspace = true }
 futures = { workspace = true }
 hdrhistogram = { workspace = true }
 health = { path = "../common/health" }
-k8s-openapi = { version = "0.24", features = ["latest"] }
+k8s-awareness = { path = "../common/k8s-awareness" }
 kube = { version = "0.98", features = ["client"] }
 rdkafka = { workspace = true }
 reqwest = { workspace = true }

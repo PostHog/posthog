@@ -63,7 +63,7 @@ async fn main() {
         }
     });
 
-    let state = AppState::new(config);
+    let state = AppState::new(config).expect("failed to initialize app state");
 
     let router = api::router(state)
         .route("/_readiness", get(readiness_handler))

@@ -104,6 +104,52 @@ pub async fn scan_group_lag(config: &Config, target: &ConsumerTarget) -> anyhow:
     })
 }
 
+/// Watermarks and committed offset for a single partition, read at analysis
+/// submit time. Synchronous — run on the blocking pool.
+#[derive(Debug, Clone, Copy)]
+pub struct PartitionBounds {
+    pub low_watermark: i64,
+    pub high_watermark: i64,
+    pub committed_offset: Option<i64>,
+}
+
+pub fn fetch_partition_bounds_blocking(
+    config: &Config,
+    target: &ConsumerTarget,
+    partition: i32,
+    timeout: Duration,
+) -> anyhow::Result<PartitionBounds> {
+    let metadata_consumer = client::metadata_consumer(config).context("create metadata client")?;
+    let (low_watermark, high_watermark) = metadata_consumer
+        .fetch_watermarks(&target.topic, partition, timeout)
+        .with_context(|| {
+            format!(
+                "fetch watermarks for '{}' partition {partition}",
+                target.topic
+            )
+        })?;
+
+    let group_consumer =
+        client::group_offsets_consumer(config, &target.group).context("create group client")?;
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition(&target.topic, partition);
+    let committed_tpl = group_consumer
+        .committed_offsets(tpl, timeout)
+        .with_context(|| format!("fetch committed offset for group '{}'", target.group))?;
+    let committed_offset = committed_tpl
+        .find_partition(&target.topic, partition)
+        .and_then(|elem| match elem.offset() {
+            Offset::Offset(o) => Some(o),
+            _ => None,
+        });
+
+    Ok(PartitionBounds {
+        low_watermark,
+        high_watermark,
+        committed_offset,
+    })
+}
+
 type PartitionsAndCommitted = (Vec<i32>, HashMap<i32, Option<i64>>, BaseConsumer);
 
 fn fetch_partitions_and_committed(
