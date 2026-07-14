@@ -282,9 +282,6 @@ class SeatViewSet(viewsets.ViewSet):
             return Response(data)
 
         def fetch_seat(org: Organization) -> tuple[Organization, Response]:
-            """Per-org billing lookup, transport only — the caller classifies the
-            response. Header-build failure becomes the same 502 an unreachable
-            billing service produces."""
             headers = self._get_billing_headers_for_org(user, org)
             resp = (
                 self._billing_request("GET", f"/api/v2/seats/{distinct_id}/", headers, query_params=query_params)
@@ -307,8 +304,6 @@ class SeatViewSet(viewsets.ViewSet):
                 if 200 <= drf_resp.status_code < 300 and isinstance(drf_resp.data, dict):
                     results.append((org, drf_resp.data))
                 elif drf_resp.status_code != status.HTTP_404_NOT_FOUND:
-                    # 404 = billing conclusively found no seat in this org; anything
-                    # else means the org couldn't be checked.
                     logger.warning("fetch_seat_failed", org_id=str(org.id), status_code=drf_resp.status_code)
                     any_lookup_failed = True
 
