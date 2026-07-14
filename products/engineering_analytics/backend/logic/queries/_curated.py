@@ -73,9 +73,11 @@ class CuratedGitHubSource:
         """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
         return f"({pull_requests.build_query(self._tables.pull_requests)})"
 
-    def run_source(self) -> str:
-        """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery."""
-        return f"({workflow_runs.build_query(self._tables.workflow_runs)})"
+    def run_source(self, *, started_floor: bool = False) -> str:
+        """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
+        adds the raw-string scan floor — callers must register {run_started_floor} (see
+        run_started_floor_constant)."""
+        return f"({workflow_runs.build_query(self._tables.workflow_runs, started_floor=started_floor)})"
 
     def jobs_source(self) -> str | None:
         """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced."""
