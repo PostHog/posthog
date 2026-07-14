@@ -62075,6 +62075,12 @@ export namespace Schemas {
          */
       text: string;
       /**
+         * Id of the user message this turn answers, when the agent-server echoes it.
+         * @maxLength 128
+         * @nullable
+         */
+      message_id?: string | null;
+      /**
          * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
          * @items.maxLength 10000
          */

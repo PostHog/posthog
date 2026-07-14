@@ -2692,6 +2692,7 @@ def relay_task_run_message(
     *,
     text: str,
     text_parts: list[str] | None = None,
+    message_id: str | None = None,
 ) -> tuple[str, str | None]:
     """Queue a Slack relay workflow for a run message, or under the agent-design
     flag signal the running task workflow to stream the text inline.
@@ -2734,12 +2735,21 @@ def relay_task_run_message(
             logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
         return "skipped", None
 
-    # Tag the actor of the last *completed* turn (stamped on the delivery
-    # ack); the live actor is a fallback for pre-rollout runs, and may point
-    # at the next speaker when a turn outlives the delivery ack.
+    # Prefer the exact message this turn answers (agent-server echoes its
+    # id); fall back to the last completed turn's actor (stamped on the
+    # delivery ack), then the live actor for pre-rollout runs.
+    mention_slack_user_id = None
+    if message_id:
+        from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporal deps off the api import path
+            get_message_actor,
+        )
+
+        mention_slack_user_id = get_message_actor(str(run.id), message_id)
     relay_state = run.state or {}
-    mention_slack_user_id = relay_state.get("slack_last_turn_slack_user_id") or relay_state.get(
-        "slack_actor_slack_user_id"
+    mention_slack_user_id = (
+        mention_slack_user_id
+        or relay_state.get("slack_last_turn_slack_user_id")
+        or relay_state.get("slack_actor_slack_user_id")
     )
     try:
         relay_id = execute_posthog_code_agent_relay_workflow(

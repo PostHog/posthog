@@ -34,6 +34,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_user_mcp_server_configs,
     is_slack_interaction_state,
     mark_mcp_token_issued,
+    record_message_actor,
     should_refresh_mcp_token,
 )
 
@@ -170,6 +171,10 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
             error_msg = f"Artifacts not found on this run: {', '.join(missing_artifact_ids)}"
             _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
             raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
+
+    delivery_actor_slack_user_id = (input.context or {}).get("actor_slack_user_id")
+    if input.message_id and isinstance(delivery_actor_slack_user_id, str) and delivery_actor_slack_user_id:
+        record_message_actor(input.run_id, input.message_id, delivery_actor_slack_user_id)
 
     result = send_user_message(
         task_run,
