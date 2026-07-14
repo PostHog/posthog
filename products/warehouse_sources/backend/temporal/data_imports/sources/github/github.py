@@ -936,7 +936,7 @@ def github_source(
     # sources; the schema_is_webhook read only runs on the poll fallback (webhook_enabled False).
     webhook_only_poll_noop = bool(
         webhook_source_manager is not None
-        and skip_initial_sync_complete_check
+        and webhook_only
         and not webhook_enabled
         and async_to_sync(webhook_source_manager.schema_is_webhook)()
     )
