@@ -17,7 +17,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -102,7 +102,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT if(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
@@ -200,7 +200,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -308,7 +308,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -416,7 +416,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -524,7 +524,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -623,7 +623,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
@@ -697,7 +697,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
                  2 AS target_step
   SELECT 'Total_Values_In_Query' AS name,
@@ -780,7 +780,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -890,7 +890,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -1000,7 +1000,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -1110,7 +1110,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -1192,7 +1192,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        filtered_events AS
     (SELECT events.event AS event,
@@ -1307,7 +1307,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -1368,7 +1368,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
                  2 AS target_step
   SELECT 'Total_Values_In_Query' AS name,
@@ -1401,7 +1401,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -1475,7 +1475,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -1544,7 +1544,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -1613,7 +1613,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -1682,7 +1682,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -1731,7 +1731,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -1805,7 +1805,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -1874,7 +1874,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -1946,7 +1946,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -2000,7 +2000,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
                  2 AS target_step
   SELECT 'Total_Values_In_Query' AS name,
@@ -2064,7 +2064,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -2137,7 +2137,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -2210,7 +2210,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -2283,7 +2283,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -2361,7 +2361,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -2423,7 +2423,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
                  2 AS target_step
   SELECT 'Total_Values_In_Query' AS name,
@@ -2487,7 +2487,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -2560,7 +2560,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
@@ -2624,7 +2624,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT if(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
@@ -2710,7 +2710,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -2783,7 +2783,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -2856,7 +2856,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -2929,7 +2929,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -2991,7 +2991,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT if(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
@@ -3072,7 +3072,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
@@ -3138,7 +3138,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
                  2 AS target_step
   SELECT 'Total_Values_In_Query' AS name,
@@ -3210,7 +3210,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -3287,7 +3287,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -3364,7 +3364,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -3441,7 +3441,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -3507,7 +3507,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
@@ -3573,7 +3573,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
                  2 AS target_step
   SELECT 'Total_Values_In_Query' AS name,
@@ -3628,7 +3628,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT if(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
@@ -3714,7 +3714,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -3787,7 +3787,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -3860,7 +3860,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -3933,7 +3933,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -3995,7 +3995,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT if(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
@@ -4076,7 +4076,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
@@ -4142,7 +4142,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
                  2 AS target_step
   SELECT 'Total_Values_In_Query' AS name,
@@ -4214,7 +4214,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -4291,7 +4291,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -4368,7 +4368,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -4445,7 +4445,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -4511,7 +4511,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
@@ -4577,7 +4577,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
                  2 AS target_step
   SELECT 'Total_Values_In_Query' AS name,
@@ -4638,7 +4638,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
@@ -4704,7 +4704,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
                  2 AS target_step
   SELECT 'Total_Values_In_Query' AS name,
@@ -4776,7 +4776,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -4853,7 +4853,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -4930,7 +4930,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -5007,7 +5007,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
@@ -5073,7 +5073,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
@@ -5139,7 +5139,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
                  2 AS target_step
   SELECT 'Total_Values_In_Query' AS name,

@@ -205,6 +205,17 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         )
         return inner_select
 
+    def _reached_step_bitmask(self, step_index: int) -> int:
+        # Bitmask matching users who reached `step_index` (0-indexed) or any later step.
+        # A skipped optional step never sets its own bit in steps_bitfield, yet the user still
+        # progressed past it, so counting only the exact bit renders an impossible funnel (a
+        # required later step showing more people than the optional step before it). Matching
+        # "this step or any later step" is a no-op for required steps and dense/unordered
+        # bitfields (whose bit is always set once a later step is reached) and correctly counts
+        # pass-throughs of optional steps.
+        full_mask = (1 << self.context.max_steps) - 1
+        return full_mask & ~((1 << step_index) - 1)
+
     def get_query(self) -> ast.SelectQuery:
         funnelsFilter = self.context.funnelsFilter
 
@@ -218,7 +229,10 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 raise ValidationError("Only the first step can be used for breakdown attribution in unordered funnels")
 
         step_results = ",".join(
-            [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i + 1}" for i in range(self.context.max_steps)]
+            [
+                f"countIf(bitAnd(steps_bitfield, {self._reached_step_bitmask(i)}) != 0) AS step_{i + 1}"
+                for i in range(self.context.max_steps)
+            ]
         )
         step_results2 = ",".join([f"sum(step_{i + 1}) AS step_{i + 1}" for i in range(self.context.max_steps)])
 
@@ -345,8 +359,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         conditions: list[ast.Expr] = []
 
         if funnelStep >= 0:
-            # Check if the user completed this specific step using bitTest
-            conditions.append(parse_expr(f"bitTest(steps_bitfield, {funnelStep - 1})"))
+            # Match users who reached this step or any later step. Using the exact bit would drop
+            # everyone who skipped an optional step, so the actor list wouldn't match the step count.
+            conditions.append(parse_expr(f"bitAnd(steps_bitfield, {self._reached_step_bitmask(funnelStep - 1)}) != 0"))
         else:
             # For dropoff at step N, check that user completed the prior REQUIRED step but not step N
             # With optional steps, we need to find the last required step before the dropoff step
@@ -362,9 +377,13 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             if prior_required_step_index is None:
                 raise ValueError("Missing prior required step in actors query")
 
-            # User completed the prior required step but not the target step
-            conditions.append(parse_expr(f"bitTest(steps_bitfield, {prior_required_step_index})"))
-            conditions.append(parse_expr(f"NOT bitTest(steps_bitfield, {target_step_index})"))
+            # User reached the prior required step but not the target step (nor any step beyond it)
+            conditions.append(
+                parse_expr(f"bitAnd(steps_bitfield, {self._reached_step_bitmask(prior_required_step_index)}) != 0")
+            )
+            conditions.append(
+                parse_expr(f"bitAnd(steps_bitfield, {self._reached_step_bitmask(target_step_index)}) = 0")
+            )
 
         if funnelStepBreakdown is not None:
             if isinstance(funnelStepBreakdown, int | float) and breakdownType != "cohort":

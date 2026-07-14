@@ -57,7 +57,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific'))), in(e.event, tuple('$pageview'))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 1)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
      INNER JOIN
        (SELECT person.id AS id,

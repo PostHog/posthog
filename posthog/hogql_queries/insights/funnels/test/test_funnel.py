@@ -5513,6 +5513,37 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, results[0]["count"])
         self.assertEqual(0, results[1]["count"])
 
+    def test_funnel_optional_step_skipped_by_everyone_is_not_zero(self):
+        # Regression: an optional step every user skips must not read 0 while the required step
+        # after it reads more people — that renders a mathematically impossible ordered funnel.
+        journeys_for(
+            {
+                "skips_optional_1": [
+                    {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                ],
+                "skips_optional_2": [
+                    {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two", optionalInFunnel=True),
+                EventsNode(event="step three"),
+            ],
+            dateRange=DateRange(date_from="2012-01-01 00:00:00", date_to="2012-02-01 23:59:59"),
+        )
+
+        result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        # Both users reached step 3 having skipped optional step 2, so every step counts them.
+        self.assertEqual([step["count"] for step in result], [2, 2, 2])
+
     def test_funnel_with_optional_steps(self):
         # Define all the different user journeys
         journeys_for(
@@ -5577,17 +5608,20 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
+        # Optional steps count everyone who reached that position (did the step OR skipped past it),
+        # so the funnel stays monotonic instead of showing a later required step above an earlier
+        # optional one.
         self.assertEqual(result[0]["name"], "step one")
         self.assertEqual(result[0]["count"], 8)  # all users who did at least step 1
 
         self.assertEqual(result[1]["name"], "step two")
-        self.assertEqual(result[1]["count"], 3)  # users who did step 2 (optional)
+        self.assertEqual(result[1]["count"], 7)  # everyone who reached step 2 or beyond (optional)
 
         self.assertEqual(result[2]["name"], "step three")
         self.assertEqual(result[2]["count"], 7)  # users who did step 3 (required)
 
         self.assertEqual(result[3]["name"], "step four")
-        self.assertEqual(result[3]["count"], 3)  # users who did step 4 (optional)
+        self.assertEqual(result[3]["count"], 5)  # everyone who reached step 4 or beyond (optional)
 
         self.assertEqual(result[4]["name"], "step five")
         self.assertEqual(result[4]["count"], 4)  # users who completed the funnel
@@ -5648,7 +5682,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["count"], 4)  # all users who did at least 1 event
 
         self.assertEqual(result[1]["name"], "same_event")
-        self.assertEqual(result[1]["count"], 2)  # both of the users with two events and no $current_url
+        # everyone who reached step 2 or beyond (optional): the two two/three-event users plus the
+        # $current_url user, who reached steps 3 and 4 and so passed step 2's position
+        self.assertEqual(result[1]["count"], 3)
 
         self.assertEqual(result[2]["name"], "same_event")
         self.assertEqual(result[2]["count"], 1)  # the user with $current_url set in the second event

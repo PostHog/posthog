@@ -45,7 +45,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed'))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')) AS date_to,
@@ -155,7 +155,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed', 'insight updated'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 7), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')) AS date_to,
@@ -274,7 +274,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed')), ifNull(equals(e__person.properties___foo, 'bar'), 0)), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
+        WHERE ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,

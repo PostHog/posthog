@@ -18,7 +18,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -95,7 +95,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -172,7 +172,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -249,7 +249,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -336,7 +336,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -423,7 +423,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -510,7 +510,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -580,7 +580,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -650,7 +650,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,

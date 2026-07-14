@@ -9,7 +9,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -77,7 +77,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -145,7 +145,7 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 3), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
@@ -216,8 +216,8 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
-            countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 7), 0), 1)) AS step_1,
+            countIf(ifNull(notEquals(bitAnd(steps_bitfield, 6), 0), 1)) AS step_2,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 4), 0), 1)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
@@ -295,8 +295,8 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
-            countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 7), 0), 1)) AS step_1,
+            countIf(ifNull(notEquals(bitAnd(steps_bitfield, 6), 0), 1)) AS step_2,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 4), 0), 1)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
@@ -376,8 +376,8 @@
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
-    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
-            countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 7), 0), 1)) AS step_1,
+            countIf(ifNull(notEquals(bitAnd(steps_bitfield, 6), 0), 1)) AS step_2,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 4), 0), 1)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
@@ -498,7 +498,7 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(bitTest(steps_bitfield, 0), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))))
+     WHERE and(ifNull(notEquals(bitAnd(steps_bitfield, 7), 0), 1), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -567,7 +567,7 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(bitTest(steps_bitfield, 1), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))))
+     WHERE and(ifNull(notEquals(bitAnd(steps_bitfield, 6), 0), 1), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -636,7 +636,7 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(bitTest(steps_bitfield, 0), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))))
+     WHERE and(ifNull(notEquals(bitAnd(steps_bitfield, 7), 0), 1), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -705,7 +705,7 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(bitTest(steps_bitfield, 1), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))))
+     WHERE and(ifNull(notEquals(bitAnd(steps_bitfield, 6), 0), 1), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
