@@ -69,6 +69,19 @@ FREE_PLAN_COST_LIMIT = UserCostLimit(
     sustained_window_seconds=2592000,
 )
 
+# posthog_code users whose org pays for Code usage (an active subscription
+# with the Code usage product on a paid plan): usage bills to the org at
+# cost, so there is no PostHog-imposed per-user cap - the org's own billing
+# limit is the ceiling. Infinite rather than absent so enforcement, status
+# reporting, and spend recording all flow through the one limit-selection
+# path in _get_config.
+ORG_BILLED_USER_COST_LIMIT = UserCostLimit(
+    burst_limit_usd=float("inf"),
+    burst_window_seconds=86400,
+    sustained_limit_usd=float("inf"),
+    sustained_window_seconds=2592000,
+)
+
 
 _COST_LIMIT_KEY_ALIASES: dict[str, str] = {
     "array": "posthog_code",

@@ -93,6 +93,7 @@ async def get_usage(
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
         seat_missing=plan_info.seat_missing,
+        code_usage_billed=quota_status.code_usage_billing_active,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
     )

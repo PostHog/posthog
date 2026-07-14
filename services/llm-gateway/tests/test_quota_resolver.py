@@ -139,6 +139,40 @@ class TestQuotaResolver:
         assert http_client.get.await_args.kwargs["headers"]["Authorization"] == "Bearer phx_test"
 
     @pytest.mark.asyncio
+    async def test_parses_and_caches_code_usage_billing_flag(self) -> None:
+        redis = AsyncMock()
+        redis.get = AsyncMock(return_value=None)
+        redis.set = AsyncMock()
+        http_client = _make_http_client(
+            _make_response(
+                200,
+                {"team_id": 1, "limited": {"ai_credits": {"limited": False}}, "code_usage_billing_active": True},
+            )
+        )
+        resolver = QuotaResolver(redis=redis, http_client=http_client)
+
+        status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
+        assert status.code_usage_billing_active is True
+
+        # Round-trips through the cache - a one-sided cache would flip a paying
+        # user's cap between hit and miss.
+        cached_payload = redis.set.call_args.args[1]
+        redis.get = AsyncMock(return_value=cached_payload.encode())
+        cached = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
+        assert cached.code_usage_billing_active is True
+
+    @pytest.mark.asyncio
+    async def test_missing_billing_field_defaults_false(self) -> None:
+        # Old Django responses (pre-flag) must read as not-billed, not error.
+        http_client = _make_http_client(
+            _make_response(200, {"team_id": 1, "limited": {"ai_credits": {"limited": False}}})
+        )
+        resolver = QuotaResolver(redis=None, http_client=http_client)
+
+        status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
+        assert status.code_usage_billing_active is False
+
+    @pytest.mark.asyncio
     async def test_fetches_and_parses_unlimited_response(self) -> None:
         http_client = _make_http_client(
             _make_response(200, {"team_id": 1, "limited": {"ai_credits": {"limited": False}}})
@@ -235,7 +269,7 @@ class TestQuotaResolver:
         redis.set.assert_awaited_once()
         call = redis.set.await_args
         assert call.args[0] == _redis_key("ai_credits", 42)
-        assert json.loads(call.args[1]) == {"limited": True}
+        assert json.loads(call.args[1]) == {"limited": True, "code_usage_billing_active": False}
         # Successful fetches use the gateway settings default of 5 minutes.
         assert call.kwargs.get("ex") == 300
 

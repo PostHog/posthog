@@ -53,6 +53,11 @@ _RETRY_DELAYS_SECONDS: tuple[float, ...] = (
 @dataclass
 class QuotaResourceStatus:
     limited: bool
+    # Whether the team's org has an active billing subscription. Fails closed
+    # (False) on every error path — the opposite direction from `limited`,
+    # which fails open: an outage must neither block billable orgs on quota
+    # nor grant subscription-gated behavior to unknown orgs.
+    code_usage_billing_active: bool = False
 
 
 class _TransientUpstreamError(Exception):
@@ -147,7 +152,10 @@ class QuotaResolver:
 
         data = resp.json()
         resource = (data.get("limited") or {}).get(resource_key) or {}
-        return QuotaResourceStatus(limited=bool(resource.get("limited"))), self._cache_ttl
+        return QuotaResourceStatus(
+            limited=bool(resource.get("limited")),
+            code_usage_billing_active=bool(data.get("code_usage_billing_active")),
+        ), self._cache_ttl
 
     async def _get_cached(self, resource_key: str, team_id: int) -> QuotaResourceStatus | None:
         if not self._redis:
@@ -157,7 +165,12 @@ class QuotaResolver:
             if val is None:
                 return None
             payload = json.loads(val.decode())
-            return QuotaResourceStatus(limited=bool(payload.get("limited")))
+            return QuotaResourceStatus(
+                limited=bool(payload.get("limited")),
+                # Entries written before this field existed read as False (capped)
+                # until the TTL turns them over.
+                code_usage_billing_active=bool(payload.get("code_usage_billing_active")),
+            )
         except Exception:
             logger.debug("quota_cache_read_failed", resource=resource_key, team_id=team_id)
             return None
@@ -166,7 +179,9 @@ class QuotaResolver:
         if not self._redis:
             return
         try:
-            payload = json.dumps({"limited": status.limited})
+            payload = json.dumps(
+                {"limited": status.limited, "code_usage_billing_active": status.code_usage_billing_active}
+            )
             await self._redis.set(_redis_key(resource_key, team_id), payload, ex=ttl)
         except Exception:
             logger.debug("quota_cache_write_failed", resource=resource_key, team_id=team_id)
