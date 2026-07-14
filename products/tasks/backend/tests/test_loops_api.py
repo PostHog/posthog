@@ -174,6 +174,47 @@ class LoopSafetyLimitAPITest(LoopsAPITestCase):
         self.assertEqual(allowed.status_code, status.HTTP_201_CREATED, allowed.content)
 
 
+class LoopInternalAndProvenanceAPITest(LoopsAPITestCase):
+    def test_api_created_loop_is_user_facing_and_attributed_to_the_person(self):
+        body = self._create_loop(self.owner_client)
+        self.assertFalse(body["internal"])
+        self.assertEqual(body["origin_product"], "user_created")
+        loop = Loop.objects.unscoped().get(id=body["id"])
+        self.assertFalse(loop.internal)
+        self.assertEqual(loop.origin_product, "user_created")
+
+    def test_internal_and_origin_product_cannot_be_set_through_the_api(self):
+        # A caller must not be able to hide a loop from the UI or forge its provenance.
+        payload = self._valid_loop_payload(internal=True, origin_product="error_tracking")
+        response = self.owner_client.post(self._loops_url(), payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        loop = Loop.objects.unscoped().get(id=response.json()["id"])
+        self.assertFalse(loop.internal)
+        self.assertEqual(loop.origin_product, "user_created")
+
+    def test_internal_loops_are_invisible_and_unreachable_through_the_api(self):
+        # A backend-created internal loop: attached to the team/owner, but never surfaced.
+        internal_loop = Loop.objects.unscoped().create(
+            team=self.team,
+            created_by=self.owner,
+            name="Signals backfill",
+            instructions="internal",
+            runtime_adapter="claude",
+            model="",
+            internal=True,
+            origin_product=Task.OriginProduct.ERROR_TRACKING,
+        )
+
+        listed = self.owner_client.get(self._loops_url())
+        self.assertNotIn(str(internal_loop.id), [loop["id"] for loop in listed.json()["results"]])
+        self.assertEqual(self.owner_client.get(self._loop_url(internal_loop.id)).status_code, status.HTTP_404_NOT_FOUND)
+        # And it can't be mutated or deleted through the user-facing API either.
+        patched = self.owner_client.patch(self._loop_url(internal_loop.id), {"name": "x"}, format="json")
+        self.assertEqual(patched.status_code, status.HTTP_404_NOT_FOUND)
+        deleted = self.owner_client.delete(self._loop_url(internal_loop.id))
+        self.assertEqual(deleted.status_code, status.HTTP_404_NOT_FOUND)
+
+
 class LoopVisibilityAPITest(LoopsAPITestCase):
     def test_personal_loop_hidden_and_immutable_to_teammate(self):
         loop_id = self._create_loop(self.owner_client, visibility="personal")["id"]

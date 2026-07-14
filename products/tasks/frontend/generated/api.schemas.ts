@@ -125,6 +125,8 @@ export interface LoopDTOApi {
     connectors: LoopConnectorsDTOApi
     /** Per-channel notification configuration. */
     notifications: LoopNotificationsDTOApi
+    internal: boolean
+    origin_product: string
     /** @nullable */
     last_run_at: string | null
     /** @nullable */

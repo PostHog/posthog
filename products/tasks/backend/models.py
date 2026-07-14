@@ -1121,6 +1121,19 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     behaviors = models.JSONField(default=dict, blank=True)
     connectors = models.JSONField(default=dict, blank=True)
     notifications = models.JSONField(default=dict, blank=True)
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this loop is for internal use and should not be exposed to end users.",
+    )
+    # What created this loop: `user_created` for loops a person made in the UI/API, other values
+    # mark loops created by a backend flow. Mirrors `Task.origin_product` (attribution, not
+    # ownership; the loop is still team- and owner-scoped via `team`/`created_by`).
+    origin_product = models.CharField(
+        max_length=32,
+        choices=Task.OriginProduct.choices,
+        default=Task.OriginProduct.USER_CREATED,
+        help_text="Which product or flow created this loop.",
+    )
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_run_status = models.CharField(max_length=32, null=True, blank=True)
     last_error = models.TextField(null=True, blank=True)

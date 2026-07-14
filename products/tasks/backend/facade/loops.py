@@ -40,7 +40,7 @@ from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
 from products.tasks.backend.logic.services import loop_runs
 from products.tasks.backend.loop_lifecycle import pause_loops_for_deactivated_user, pause_loops_referencing_integrations
-from products.tasks.backend.models import Loop, LoopTrigger, SandboxEnvironment, TaskRun
+from products.tasks.backend.models import Loop, LoopTrigger, SandboxEnvironment, Task, TaskRun
 
 # --- Enum re-exports ---
 # Value types (not ORM models), safe for presentation to import for serializer choices.
@@ -183,6 +183,8 @@ class LoopDTO:
     behaviors: LoopBehaviorsDTO
     connectors: LoopConnectorsDTO
     notifications: LoopNotificationsDTO
+    internal: bool
+    origin_product: str
     last_run_at: datetime | None
     last_run_status: str | None
     last_error: str | None
@@ -307,6 +309,8 @@ def _loop_to_dto(loop: Loop) -> LoopDTO:
         behaviors=_behaviors_dto(loop.behaviors),
         connectors=_connectors_dto(loop.connectors),
         notifications=_notifications_dto(loop.notifications),
+        internal=loop.internal,
+        origin_product=loop.origin_product,
         last_run_at=loop.last_run_at,
         last_run_status=loop.last_run_status,
         last_error=loop.last_error,
@@ -346,10 +350,12 @@ def _task_run_to_loop_run_dto(run: TaskRun) -> LoopRunDTO:
 
 
 def _visible_loop_queryset(team_id: int, user_id: int | None) -> QuerySet[Loop]:
+    # `internal=False`: loops created by a backend flow for internal use are attached to the
+    # team/owner but never surfaced through the user-facing API (mirrors Task.internal).
     visibility_q = Q(visibility=Loop.Visibility.TEAM)
     if user_id is not None:
         visibility_q |= Q(created_by_id=user_id)
-    return Loop.objects.filter(team_id=team_id, deleted=False).filter(visibility_q)
+    return Loop.objects.filter(team_id=team_id, deleted=False, internal=False).filter(visibility_q)
 
 
 def _is_owner(loop: Loop, user: User | None) -> bool:
@@ -377,7 +383,11 @@ def _fetch_loop_for_write(loop_id: str | UUID, team_id: int, user: User | None) 
     `soft_delete_loop`'s own owner-or-admin check, not general edit rights.
     """
     user_id = getattr(user, "id", None)
-    loop = Loop.objects.filter(team_id=team_id, deleted=False, pk=loop_id).select_related("team").first()
+    # `internal=False`: internal loops are managed by their backend flow, never through the
+    # user-facing write/fire/delete API.
+    loop = (
+        Loop.objects.filter(team_id=team_id, deleted=False, internal=False, pk=loop_id).select_related("team").first()
+    )
     if loop is None:
         return None
     if loop.visibility == Loop.Visibility.TEAM or _is_owner(loop, user):
@@ -497,6 +507,10 @@ def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDT
             behaviors=data.get("behaviors") or {},
             connectors=data.get("connectors") or {},
             notifications=data.get("notifications") or {},
+            # Backend-only: the API write serializer never carries these, so loops made through
+            # the public API are always user-facing and attributed to `user_created`.
+            internal=data.get("internal", False),
+            origin_product=data.get("origin_product", Task.OriginProduct.USER_CREATED),
         )
         created_triggers = [
             LoopTrigger.objects.create(

@@ -433,6 +433,8 @@ class LoopSerializer(DataclassSerializer):
             "behaviors",
             "connectors",
             "notifications",
+            "internal",
+            "origin_product",
             "last_run_at",
             "last_run_status",
             "last_error",
