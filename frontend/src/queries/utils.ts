@@ -807,7 +807,9 @@ const HOGQL_IDENTIFIER_ESCAPE_MAP: Record<string, string> = {
 /** Make sure the property key is wrapped in quotes if it contains any special characters. */
 export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
-        // Same regex as in the backend escape_hogql_identifier
+        // Frontend display only: `$` stays bare here for readability. The backend escape_hogql_identifier
+        // quotes `$` (in lockstep with escape_clickhouse_identifier) so distributed ClickHouse queries don't
+        // spell a `$`-column two ways; frontend HogQL is re-parsed and re-printed server-side, so it is unaffected.
         return identifier // This identifier is simple
     }
     if (isQuoted(identifier)) {
