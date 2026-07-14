@@ -1247,6 +1247,14 @@ class TaskListQuerySerializer(serializers.Serializer):
         ),
     )
     channel = serializers.UUIDField(required=False, help_text="Filter tasks to a channel's feed.")
+    all_team_tasks = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Staff-only. When true, list every task on the team regardless of creator or channel, "
+            "bypassing the per-user visibility filter. Ignored for non-staff users."
+        ),
+    )
 
 
 class ChannelSerializer(DataclassSerializer):

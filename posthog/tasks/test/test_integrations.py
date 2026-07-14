@@ -39,6 +39,41 @@ class TestIntegrationsTasks(APIBaseTest):
             # Both 3 and 4 should be refreshed
             assert refresh_integration_mock.call_args_list == [((integration_3.id,),), ((integration_4.id,),)]
 
+    def test_refresh_integrations_skips_backed_off_and_terminal(self) -> None:
+        expired = {"refreshed_at": time.time() - 3600}
+        eligible = self.create_integration("slack", config=expired)
+        backoff_elapsed = self.create_integration(
+            "slack",
+            config={**expired, "refresh_failure_count": 2, "refresh_next_attempt_at": int(time.time()) - 10},
+        )
+        _backed_off = self.create_integration(
+            "slack",
+            config={**expired, "refresh_failure_count": 2, "refresh_next_attempt_at": int(time.time()) + 300},
+        )
+        _terminal = self.create_integration(
+            "slack", config={**expired, "refresh_failure_count": 5, "refresh_terminal": True}
+        )
+
+        with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
+            refresh_integrations()
+
+        assert refresh_integration_mock.call_args_list == [((eligible.id,),), ((backoff_elapsed.id,),)]
+
+    def test_refresh_integration_skips_when_backed_off(self) -> None:
+        integration = self.create_integration(
+            "slack",
+            config={
+                "refreshed_at": time.time() - 3600,
+                "refresh_failure_count": 1,
+                "refresh_next_attempt_at": int(time.time()) + 300,
+            },
+        )
+
+        with patch("posthog.models.integration.OauthIntegration.refresh_access_token") as refresh_mock:
+            refresh_integration(integration.id)
+
+        assert refresh_mock.called is False
+
     @parameterized.expand(
         [
             ("expired", int(time.time()) - 3600, True),
