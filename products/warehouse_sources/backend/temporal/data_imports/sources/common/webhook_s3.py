@@ -63,7 +63,7 @@ class WebhookSourceManager:
     def _strip_s3_protocol(self, s3_path: str) -> str:
         return s3_path.replace("s3://", "")
 
-    async def webhook_enabled(self, skip_initial_sync_complete_check: bool = False) -> bool:
+    async def webhook_enabled(self, webhook_first: bool = False) -> bool:
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
@@ -71,13 +71,18 @@ class WebhookSourceManager:
             lambda: ExternalDataSchema.objects.get(id=self._inputs.schema_id, team_id=self._inputs.team_id)
         )
 
+        # A webhook-first resource's poll does no backfill, so the poll can neither seed the
+        # table (skip the initial-sync gate) nor rebuild it after a reset (ignore reset_pipeline
+        # — honoring it would force the poll path and orphan rows only webhooks can provide).
         if (
             not schema.is_webhook
-            or (skip_initial_sync_complete_check is not True and not schema.initial_sync_complete)
-            or self._inputs.reset_pipeline
+            or (not webhook_first and not schema.initial_sync_complete)
+            or (not webhook_first and self._inputs.reset_pipeline)
         ):
             await self._logger.adebug(
-                f"webhook_enabled=False. schema.is_webhook={schema.is_webhook}. schema.initial_sync_complete={schema.initial_sync_complete}. self._inputs.reset_pipeline={self._inputs.reset_pipeline}"
+                f"webhook_enabled=False. schema.is_webhook={schema.is_webhook}. "
+                f"schema.initial_sync_complete={schema.initial_sync_complete}. "
+                f"webhook_first={webhook_first}. reset_pipeline={self._inputs.reset_pipeline}"
             )
             return False
 

@@ -402,6 +402,7 @@ def slack_source(
 ) -> SourceResponse:
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
     sort_mode: SortMode = "asc"
+    webhook_first = False
 
     if endpoint == "$channels":
         # Bypass rest_api_resource: Slack's conversations.list pagination is buggy when
@@ -433,11 +434,13 @@ def slack_source(
         # `conversations.history` / `conversations.replies` backfill. That backfill makes one
         # `conversations.replies` request per threaded message, which fans out into tens of
         # thousands of rate-limited requests on workspaces with many channels and threads.
-        # Passing `skip_initial_sync_complete_check=True` activates webhook mode from the very
-        # first sync (the same pattern the Customer.io webhook tables use). Until the webhook is
-        # configured and delivering events, the table stays empty rather than backfilling history.
+        # Passing `webhook_first=True` activates webhook mode from the very first sync and keeps
+        # a requested pipeline reset from wiping the table (the same pattern the Customer.io
+        # webhook tables use). Until the webhook is configured and delivering events, the table
+        # stays empty rather than backfilling history.
         endpoint_config = messages_endpoint_config()
         sort_mode = "desc"
+        webhook_first = True
 
         if channel_id is None:
             raise Exception(f"channel_not_found: {endpoint}")
@@ -459,6 +462,7 @@ def slack_source(
         partition_mode=endpoint_config.partition_mode,
         partition_format=endpoint_config.partition_format,
         sort_mode=sort_mode,
+        webhook_first=webhook_first,
     )
 
 

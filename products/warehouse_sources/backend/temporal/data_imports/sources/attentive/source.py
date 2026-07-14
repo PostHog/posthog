@@ -257,4 +257,5 @@ class AttentiveSource(
             partition_mode="datetime",
             partition_format="week",
             partition_keys=["created_at"],
+            webhook_first=True,
         )

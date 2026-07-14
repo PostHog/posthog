@@ -61,6 +61,10 @@ class SourceResponse:
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
+    webhook_first: bool = False
+    """Webhook-fed resource whose poll path does no backfill: after a wipe the poll cannot
+    rebuild the table, so a requested pipeline reset preserves the Delta table and resumes
+    webhook ingestion instead."""
     chunk_size: Optional[int] = None
     """Override the batcher's rows-per-chunk (defaults to DEFAULT_CHUNK_SIZE)."""
     chunk_size_bytes: Optional[int] = None

@@ -293,6 +293,7 @@ class CustomerIOSource(
             partition_mode="datetime",
             partition_format="week",
             partition_keys=["timestamp"],
+            webhook_first=True,
         )
 
     def _api_source_response(self, config: CustomerIOSourceConfig, inputs: SourceInputs) -> SourceResponse:

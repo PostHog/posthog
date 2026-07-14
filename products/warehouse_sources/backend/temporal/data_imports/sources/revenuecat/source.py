@@ -347,6 +347,7 @@ class RevenueCatSource(
             # the partition layer treats bare ints as seconds, so this gives
             # us correctly-bucketed weekly partitions.
             partition_keys=["created_at"],
+            webhook_first=True,
         )
 
     def _api_source_response(
