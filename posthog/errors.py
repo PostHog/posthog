@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import ServerException, UnknownTypeError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -84,6 +84,29 @@ def clickhouse_error_type(e: Exception) -> str:
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 
+# clickhouse_driver has no Variant column reader, so any query whose result contains a
+# Variant column fails client-side during deserialization with UnknownTypeError (code 50),
+# e.g. "Unknown type Variant(DateTime64(6, 'America/New_York'), String)". ClickHouse produces
+# a Variant when it can't find a common type for the branches of an if()/multiIf()/coalesce()/
+# CASE or the columns of a UNION (use_variant_as_common_type). This is the same root cause as
+# NO_COMMON_TYPE — a user query-shape problem — so we surface it as a user-safe error instead
+# of leaking the raw client-side crash as a platform failure.
+VARIANT_TYPE_PATTERN = re.compile(r"Variant\(.+\)")
+
+
+def _wrap_unsupported_variant_type_error(err: UnknownTypeError) -> "CHQueryErrorUnsupportedVariantType":
+    match = VARIANT_TYPE_PATTERN.search(str(err.message or ""))
+    variant = match.group(0) if match else "a Variant"
+    return CHQueryErrorUnsupportedVariantType(
+        f"This query returned a column that mixes different value types, which ClickHouse "
+        f"resolved to {variant}. Variant result columns aren't supported. This usually comes "
+        f"from an if(), multiIf(), coalesce(), CASE, or UNION whose branches have different "
+        f"types (for example a DateTime and a String). Cast the branches to a common type — "
+        f"e.g. wrap them in toString() — so the column has a single type.",
+        code=err.code,
+        code_name="unsupported_variant_type",
+    )
+
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
@@ -99,6 +122,11 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
+    # Client-side deserialization failures (not ServerException) — surface the unsupported
+    # Variant result type as an actionable user error rather than an opaque platform crash.
+    if isinstance(err, UnknownTypeError) and VARIANT_TYPE_PATTERN.search(str(err.message or "")):
+        return _wrap_unsupported_variant_type_error(err)
+
     if not isinstance(err, ServerException):
         return err
 
@@ -282,6 +310,16 @@ class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
 
 
 class CHQueryErrorUnknownTable(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorUnsupportedVariantType(ExposedCHQueryError):
+    """A query produced a ClickHouse Variant result column (values of different types combined in
+    one expression, e.g. via if()/multiIf()/coalesce()/CASE/UNION). clickhouse_driver can't
+    deserialize Variant, so it fails client-side with UnknownTypeError. Treated as a user error,
+    mirroring NO_COMMON_TYPE — same root cause, just surfaced during result parsing instead of
+    query planning."""
+
     pass
 
 
