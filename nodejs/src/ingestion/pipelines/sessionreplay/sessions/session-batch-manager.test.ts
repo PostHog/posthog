@@ -123,14 +123,6 @@ describe('SessionBatchManager', () => {
         )
     })
 
-    describe('flush', () => {
-        it('flushes the given batch', async () => {
-            const batch = manager.createBatch()
-            await manager.flush(batch)
-            expect(batch.flush).toHaveBeenCalled()
-        })
-    })
-
     describe('shouldFlush', () => {
         it('flushes when the batch is at or over the size limit', () => {
             const batch = manager.createBatch()

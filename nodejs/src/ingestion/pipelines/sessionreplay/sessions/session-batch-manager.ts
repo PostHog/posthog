@@ -1,4 +1,3 @@
-import { logger } from '~/common/utils/logger'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
@@ -32,13 +31,13 @@ export interface SessionBatchManagerConfig {
 }
 
 /**
- * Creates and flushes session batches, and decides when a batch is due to flush.
+ * Creates session batches and decides when a batch is due to flush.
  *
- * Holds no batch state of its own: the layer above the record pipeline owns the current accumulator
- * and threads it back into {@link flush} and {@link shouldFlush}. This keeps the accumulator's
+ * Holds no batch state of its own: the layer above the record pipeline owns the current accumulator,
+ * threads it back into {@link shouldFlush}, and flushes it directly. This keeps the accumulator's
  * lifetime with its owner, ready to move into the accumulating pipeline.
  *
- * Each flush writes one session batch file; the owner mints the next batch with {@link createBatch}:
+ * Each flushed batch is one session batch file; the owner mints the next batch with {@link createBatch}:
  * ```
  * Session Batch File 1 (flushed)
  * ├── Compressed Session Recording Block 1
@@ -90,7 +89,7 @@ export class SessionBatchManager {
 
     /**
      * Mints a fresh, empty batch. The caller owns the returned recorder for one accumulation cycle and
-     * flushes it via {@link flush}.
+     * flushes it when due.
      */
     public createBatch(): SessionBatchRecorder {
         return new SessionBatchRecorder(
@@ -117,15 +116,6 @@ export class SessionBatchManager {
         for (const [partition, offset] of offsets) {
             this.offsetManager.trackOffset({ partition, offset })
         }
-    }
-
-    /**
-     * Flushes the given batch to storage and commits its tracked offsets. The caller mints the next
-     * batch with {@link createBatch}.
-     */
-    public async flush(batch: SessionBatchRecorder): Promise<void> {
-        logger.info('🔁', 'session_batch_manager_flushing', { batchSize: batch.size })
-        await batch.flush()
     }
 
     /**

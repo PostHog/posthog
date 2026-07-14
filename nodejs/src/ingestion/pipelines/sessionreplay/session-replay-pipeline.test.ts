@@ -992,9 +992,8 @@ describe('session-replay-pipeline', () => {
             const messages = [createMessage(0, 1, 'session-1')]
 
             await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
-            const mockBatch = mockBatchRecorder
-            expect(mockBatch.record).toHaveBeenCalledTimes(1)
-            expect(mockBatch.record).toHaveBeenCalledWith(
+            expect(mockBatchRecorder.record).toHaveBeenCalledTimes(1)
+            expect(mockBatchRecorder.record).toHaveBeenCalledWith(
                 expect.objectContaining({
                     team: defaultTeam,
                     message: expect.objectContaining({
@@ -1030,8 +1029,7 @@ describe('session-replay-pipeline', () => {
 
             await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
 
-            const mockBatch = mockBatchRecorder
-            expect(mockBatch.record).toHaveBeenCalledTimes(3)
+            expect(mockBatchRecorder.record).toHaveBeenCalledTimes(3)
         })
 
         it('does not record dropped messages to session batch', async () => {
@@ -1057,8 +1055,7 @@ describe('session-replay-pipeline', () => {
 
             const offsets = await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
 
-            const mockBatch = mockBatchRecorder
-            expect(mockBatch.record).not.toHaveBeenCalled()
+            expect(mockBatchRecorder.record).not.toHaveBeenCalled()
             // Dropped, but its offset is still tracked so the partition commits past it.
             expect(offsets).toEqual(new Map([[0, 1]]))
         })
@@ -1087,8 +1084,7 @@ describe('session-replay-pipeline', () => {
 
             const offsets = await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
 
-            const mockBatch = mockBatchRecorder
-            expect(mockBatch.record).not.toHaveBeenCalled()
+            expect(mockBatchRecorder.record).not.toHaveBeenCalled()
             // Dropped, but its offset is still tracked so the partition commits past it.
             expect(offsets).toEqual(new Map([[0, 1]]))
         })

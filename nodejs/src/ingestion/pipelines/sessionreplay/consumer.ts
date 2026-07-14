@@ -310,9 +310,8 @@ export class SessionRecordingIngester {
             await this.promiseScheduler.waitForAllSettled()
         })
         await this.batchLock(async () => {
-            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
-                this.sessionBatchManager.flush(this.currentBatch)
-            )
+            logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () => this.currentBatch.flush())
             this.currentBatch = this.sessionBatchManager.createBatch()
             this.lastFlushTime = Date.now()
         })
