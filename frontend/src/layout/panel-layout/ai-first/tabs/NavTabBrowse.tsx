@@ -12,6 +12,7 @@ import {
     IconNotification,
     IconCheck,
     IconPencil,
+    IconRocket,
     IconStar,
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -201,6 +202,15 @@ export function NavTabBrowse(): JSX.Element {
                     <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
                 )}
                 <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
+                    <NavLink
+                        to={urls.quickstart()}
+                        label="Quickstart"
+                        icon={<IconRocket />}
+                        isCollapsed={isLayoutNavCollapsed}
+                        data-attr="nav-item-quickstart"
+                        onClick={() => posthog.capture('nav item clicked', { item: 'quickstart' })}
+                    />
+
                     <NavLink
                         to={urls.projectRoot()}
                         label="Home"

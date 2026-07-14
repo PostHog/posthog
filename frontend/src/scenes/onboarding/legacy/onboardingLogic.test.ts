@@ -583,8 +583,7 @@ describe('onboardingLogic — flow composition', () => {
     describe('completion redirect URL', () => {
         // Each entry: [primary, expected redirect path-substring].
         // Verifies that each per-product provider's `completeRedirectUrl` is wired up.
-        // EXPERIMENTS intentionally falls through to urls.default() — same behaviour as
-        // the original central switch.
+        // EXPERIMENTS has no provider URL, so it falls through to the Quickstart page.
         const cases: Array<[ProductKey, RegExp]> = [
             [ProductKey.PRODUCT_ANALYTICS, /quickstart|insight/i],
             [ProductKey.WEB_ANALYTICS, /web/i],
@@ -604,9 +603,9 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onCompleteOnboardingRedirectUrl).toMatch(pattern)
         })
 
-        it('experiments falls through to urls.default()', () => {
+        it('experiments falls through to the quickstart page', () => {
             logic.actions.setProductKey(ProductKey.EXPERIMENTS)
-            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
+            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/quickstart')
         })
 
         it('redirect override takes precedence over the per-product URL', () => {

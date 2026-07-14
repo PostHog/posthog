@@ -430,10 +430,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
+                // Without a product-specific destination, land on Quickstart rather than the
+                // AI home: fresh teams have no events yet, so the home input is a dead end.
                 if (!productKey) {
-                    return urls.default()
+                    return urls.quickstart()
                 }
-                return onboardingProviderRegistry[productKey]?.completeRedirectUrl?.() ?? urls.default()
+                return onboardingProviderRegistry[productKey]?.completeRedirectUrl?.() ?? urls.quickstart()
             },
         ],
     }),
@@ -618,7 +620,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             try {
                 await teamLogic.asyncActions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
                 router.actions.push(
-                    getRelativeNextPath(router.values.searchParams['next'], window.location) ?? urls.default()
+                    getRelativeNextPath(router.values.searchParams['next'], window.location) ?? urls.quickstart()
                 )
             } catch {
                 lemonToast.error("Couldn't finish onboarding. Please try again.")
