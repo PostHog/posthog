@@ -26993,6 +26993,8 @@ export namespace Schemas {
       failed_count: number;
       /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
       failed_pr_count: number;
+      /** Failed/error spans on the default branch (master/main approximation) — the 'matters right now' signal that a flake is breaking the trunk, not just PR branches. */
+      master_failed_count: number;
       /** Distinct git branches across all of the test's flaky-signal spans in the window. */
       branch_count: number;
       /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */

@@ -476,6 +476,9 @@ class FlakyTestItem:
     failed_count: int
     # Distinct PRs among the failed/error spans; master/branch failures carry no PR and don't count.
     failed_pr_count: int
+    # Failed/error spans on the default branch (master/main approximation — the source doesn't record
+    # the default branch); the "matters right now" signal.
+    master_failed_count: int
     # Distinct git branches across all of the test's signal spans in the window.
     branch_count: int
     # Spans where the test failed while quarantined (xfail) — already masked, still flaky.

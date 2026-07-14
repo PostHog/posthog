@@ -139,6 +139,23 @@ function FlakyTestLeaderboard(): JSX.Element {
             render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.failedPrCount)}</span>,
         },
         {
+            title: 'Master failures',
+            key: 'masterFailedCount',
+            width: 130,
+            align: 'right',
+            tooltip:
+                'Failed or errored on the default branch (master/main) — the flake is breaking the trunk, not just PR branches.',
+            sorter: (a, b) => a.masterFailedCount - b.masterFailedCount,
+            render: (_, row) =>
+                row.masterFailedCount > 0 ? (
+                    <span className="tabular-nums font-semibold text-danger">
+                        {humanFriendlyNumber(row.masterFailedCount)}
+                    </span>
+                ) : (
+                    <span className="tabular-nums text-tertiary">0</span>
+                ),
+        },
+        {
             title: 'Last seen',
             key: 'lastSeenAt',
             width: 120,

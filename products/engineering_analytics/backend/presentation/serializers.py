@@ -398,6 +398,10 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "help_text": "Distinct pull requests among the failed/error spans. Failures on master or "
                 "unattributed branches carry no PR number and are excluded here (still in failed_count).",
             },
+            "master_failed_count": {
+                "help_text": "Failed/error spans on the default branch (master/main approximation) — the "
+                "'matters right now' signal that a flake is breaking the trunk, not just PR branches.",
+            },
             "branch_count": {
                 "help_text": "Distinct git branches across all of the test's flaky-signal spans in the window.",
             },

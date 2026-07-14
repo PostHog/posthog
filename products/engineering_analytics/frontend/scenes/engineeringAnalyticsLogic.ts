@@ -442,6 +442,8 @@ export interface FlakyTestRow {
     failedCount: number
     /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
     failedPrCount: number
+    /** Failed/error spans on the default branch (master/main) — the "matters right now" signal. */
+    masterFailedCount: number
     /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
     xfailedCount: number
     lastSeenAt: string
@@ -693,6 +695,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     rerunPassedCount: it.rerun_passed_count,
                                     failedCount: it.failed_count,
                                     failedPrCount: it.failed_pr_count,
+                                    masterFailedCount: it.master_failed_count,
                                     xfailedCount: it.xfailed_count,
                                     lastSeenAt: it.last_seen_at,
                                 })
