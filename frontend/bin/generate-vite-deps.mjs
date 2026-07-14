@@ -31,8 +31,11 @@ async function main() {
         process.stdout.write(chunk)
         if (!ready && chunk.toString().includes('ready in')) {
             ready = true
-            // Trigger dependency discovery by loading the entry graph.
+            // Trigger dependency discovery by loading the entry graph. Plain-HTTP loopback
+            // requests to the local dev server this script just spawned — TLS doesn't apply.
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
             fetch('http://127.0.0.1:8234/').catch(() => {})
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
             fetch('http://127.0.0.1:8234/src/index.tsx').catch(() => {})
         }
     })
