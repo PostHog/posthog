@@ -1,4 +1,4 @@
-import { getNextSorting, Sorting } from './sorting'
+import { compareWithSortings, getNextSorting, getNextSortings, Sorting } from './sorting'
 
 describe('getNextSorting', () => {
     describe.each([
@@ -52,5 +52,54 @@ describe('getNextSorting', () => {
             const result = getNextSorting(current, 'col', true, defaultOrder)
             expect(result).toEqual({ columnKey: 'col', order: firstOrder })
         })
+    })
+})
+
+describe('multi-column sorting', () => {
+    it('keeps existing sort priority when adding, changing, and removing columns', () => {
+        const initial: Sorting[] = [{ columnKey: 'runs', order: -1 }]
+
+        const withDuration = getNextSortings(initial, 'duration', false, -1)
+        expect(withDuration).toEqual([
+            { columnKey: 'runs', order: -1 },
+            { columnKey: 'duration', order: -1 },
+        ])
+
+        const durationAscending = getNextSortings(withDuration, 'duration', false, -1)
+        expect(durationAscending).toEqual([
+            { columnKey: 'runs', order: -1 },
+            { columnKey: 'duration', order: 1 },
+        ])
+
+        expect(getNextSortings(durationAscending, 'duration', false, -1)).toEqual([{ columnKey: 'runs', order: -1 }])
+    })
+
+    it('uses later columns to break ties in earlier columns', () => {
+        const rows = [
+            { name: 'fast-common', runs: 10, duration: 5 },
+            { name: 'slow-common', runs: 10, duration: 20 },
+            { name: 'slow-rare', runs: 2, duration: 30 },
+        ]
+        const comparators = {
+            runs: (a: (typeof rows)[number], b: (typeof rows)[number]) => a.runs - b.runs,
+            duration: (a: (typeof rows)[number], b: (typeof rows)[number]) => a.duration - b.duration,
+        }
+
+        expect(
+            rows
+                .slice()
+                .sort((a, b) =>
+                    compareWithSortings(
+                        a,
+                        b,
+                        [
+                            { columnKey: 'runs', order: -1 },
+                            { columnKey: 'duration', order: -1 },
+                        ],
+                        (columnKey) => comparators[columnKey as keyof typeof comparators]
+                    )
+                )
+                .map(({ name }) => name)
+        ).toEqual(['slow-common', 'fast-common', 'slow-rare'])
     })
 })
