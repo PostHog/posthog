@@ -120,7 +120,6 @@ async def test_personalize_falls_back_to_template_on_llm_failure(ateam):
         )
 
     assert [p.category for p in proposals] == ["events", "logs"]
-    # Fallback copy is templated on the repository so a detected gap always ships a real pitch.
     assert all(REPO in p.summary for p in proposals)
 
 

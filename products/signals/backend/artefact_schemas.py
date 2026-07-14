@@ -201,12 +201,8 @@ class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
 
 class SetupProposal(BaseModel):
     """Content schema for a `proposal` artefact: marks a report as a proposed setup-improvement
-    PR (inbox cold-start content) rather than a signal-derived finding.
-
-    Emitted by the setup-audit workflow after onboarding when a team's PostHog setup is missing a
-    capability (custom events, feature flags, error tracking, logs). The report is never
-    auto-started — a human approves it from the inbox, which kicks off the regular
-    implementation-task flow.
+    PR (inbox cold-start content) rather than a signal-derived finding. Written only by the
+    setup-audit workflow; never auto-started — a human approves it from the inbox.
     """
 
     kind: Literal["setup_improvement"] = Field(

@@ -25,7 +25,6 @@ logger = structlog.get_logger(__name__)
 
 SETUP_AUDIT_CATEGORIES = ("events", "feature_flags", "error_tracking", "logs")
 
-# Category -> the PostHog product the proposed PR sets up.
 CATEGORY_PRODUCTS: dict[str, str] = {
     "events": "product_analytics",
     "feature_flags": "feature_flags",
@@ -33,8 +32,7 @@ CATEGORY_PRODUCTS: dict[str, str] = {
     "logs": "logs",
 }
 
-# Deterministic fallback copy, used verbatim when the personalization LLM call fails. The
-# `{repository}` placeholder is filled in by `_fallback_copy`.
+# Used verbatim when the personalization LLM call fails, so a detected gap always ships a proposal.
 FALLBACK_COPY: dict[str, tuple[str, str]] = {
     "events": (
         "Instrument your key product events",
@@ -96,7 +94,6 @@ class SetupGap:
 @dataclass
 class DetectedGaps:
     gaps: list[SetupGap]
-    # Context handed to the personalization prompt (team name, known event names, ...).
     team_name: str
     event_names: list[str]
 

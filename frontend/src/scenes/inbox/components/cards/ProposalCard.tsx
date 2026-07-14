@@ -8,7 +8,6 @@ import { proposalListLogic } from '../../logics/proposalListLogic'
 import { SignalReport } from '../../types'
 import { inboxCardRowClassName, useReportArchive } from './useReportArchive'
 
-/** Human labels for the products a setup proposal cross-sells. Keyed by `proposal.product`. */
 const PROPOSAL_PRODUCT_LABELS: Record<string, string> = {
     product_analytics: 'Product analytics',
     feature_flags: 'Feature flags',
@@ -16,11 +15,7 @@ const PROPOSAL_PRODUCT_LABELS: Record<string, string> = {
     logs: 'Logs',
 }
 
-/**
- * A setup-improvement proposal on the inbox cold start: what we noticed about the team's setup
- * and the PR we'd like to open. Approving starts the regular implementation-task flow (sandbox
- * agent → draft PR); nothing runs until the user clicks.
- */
+/** A setup-improvement proposal on the inbox cold start. Nothing runs until the user approves. */
 export function ProposalCard({ report }: { report: SignalReport }): JSX.Element {
     const { approvingReportId } = useValues(proposalListLogic)
     const { approveProposal, dismissProposal } = useActions(proposalListLogic)

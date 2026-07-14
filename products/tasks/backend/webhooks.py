@@ -276,12 +276,9 @@ def _complete_wizard_run_on_merge(task_run: TaskRun) -> None:
 
 
 def _start_setup_audit_on_wizard_merge(task_run: TaskRun, repository: str | None) -> None:
-    """Kick the signals setup audit when a wizard's instrumentation PR merges.
-
-    The merged wizard PR is the moment onboarding is really done: the repo is known, the GitHub
-    integration works, and data is about to flow — so it's the right time to audit the team's
-    setup and file proposal reports for the inbox cold start. Best-effort: the webhook must stay
-    2xx even if Temporal is unreachable, and the audit itself is idempotent per team.
+    """Kick the signals setup audit when a wizard's instrumentation PR merges — the moment the
+    repo is known and data is about to flow. Best-effort: the webhook must stay 2xx even if
+    Temporal is unreachable, and the audit is idempotent per team.
     """
     state = task_run.state if isinstance(task_run.state, dict) else {}
     if "wizard_config" not in state:

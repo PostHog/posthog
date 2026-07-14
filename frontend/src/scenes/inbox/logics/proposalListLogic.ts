@@ -14,11 +14,9 @@ import { SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP, SignalReport } from '..
 import { DismissalReasonValue } from '../utils/dismissalReasons'
 import type { proposalListLogicType } from './proposalListLogicType'
 
-// The setup audit files at most one proposal per category (4 today); a small page covers it.
 const PROPOSAL_PAGE_SIZE = 10
 
-// `repo_selection` is one of the first artefacts written on a proposal report, and proposals
-// carry only a handful of artefacts — a small page is guaranteed to include it.
+// Proposals carry only a handful of artefacts, so a small page always includes `repo_selection`.
 const REPO_SELECTION_ARTEFACT_FETCH_LIMIT = 100
 
 function buildProposalPrPrompt(report: SignalReport): string {
@@ -110,8 +108,6 @@ export const proposalListLogic = kea<proposalListLogicType>([
         },
         approveProposal: async ({ report }) => {
             try {
-                // Proposals are created with a preset `repo_selection` artefact (the repo the
-                // wizard integrated), the same source the regular create-PR flow reads.
                 const { results } = await api.signalReports.artefacts(report.id, {
                     limit: REPO_SELECTION_ARTEFACT_FETCH_LIMIT,
                 })
