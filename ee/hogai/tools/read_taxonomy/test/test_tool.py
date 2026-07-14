@@ -5,9 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
+
 from products.posthog_ai.backend.models.assistant import Conversation
 
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import (
     DYNAMIC_EVENT_PROPERTIES_HINT,
     DYNAMIC_PERSON_PROPERTIES_HINT,
@@ -141,3 +144,22 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
 
         self.assertIn(DYNAMIC_EVENT_PROPERTIES_HINT, result)
         self.assertIn("$feature/{flag_key}", result)
+
+    @parameterized.expand(
+        [
+            ("clickhouse_at_capacity", ClickHouseAtCapacity()),
+            (
+                "too_many_simultaneous_queries",
+                CHQueryErrorTooManySimultaneousQueries("simultaneous queries for user max_ai"),
+            ),
+        ]
+    )
+    @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
+    def test_capacity_error_is_translated_to_transient_error(self, _name, capacity_error, mock_toolkit_class):
+        # A busy shared `max_ai` ClickHouse user must surface as a retry-able transient error, not
+        # bubble up as a generic exception that gets re-reported to error tracking.
+        mock_toolkit = mock_toolkit_class.return_value
+        mock_toolkit.retrieve_event_or_action_properties.side_effect = capacity_error
+
+        with pytest.raises(MaxToolTransientError):
+            execute_taxonomy_query(ReadEventProperties(event_name="$pageview"), mock_toolkit, self.team, self.user)
