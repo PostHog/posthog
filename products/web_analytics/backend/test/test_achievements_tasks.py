@@ -6,6 +6,10 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
+from posthog.exceptions import ClickHouseAtCapacity
+
 from products.web_analytics.backend.achievements import tasks
 from products.web_analytics.backend.achievements.evaluators import EvalContext
 from products.web_analytics.backend.models import WebAnalyticsAchievementProgress, WebAnalyticsUserConfig
@@ -144,6 +148,25 @@ class TestRecomputeTask(BaseTest):
         self._run_user(make_evaluators(loyal_days=loyal_that_acks))
         progress.refresh_from_db()
         self.assertEqual(progress.state["pending_celebrations"], [])
+
+    @parameterized.expand(
+        [
+            # A capacity error must escape the task body so Celery's autoretry can back off and retry;
+            # any other evaluator error stays swallowed so one bad track doesn't fail the recompute.
+            ("capacity_error_propagates", ClickHouseAtCapacity, True),
+            ("generic_error_swallowed", ValueError, False),
+        ]
+    )
+    def test_evaluator_error_handling(self, _name: str, exc_type: type[Exception], should_raise: bool) -> None:
+        def boom(_ctx: EvalContext) -> int:
+            raise exc_type()
+
+        evaluators = make_evaluators(cumulative_pageviews=boom, conversions=boom)
+        if should_raise:
+            with self.assertRaises(ClickHouseAtCapacity):
+                self._run_team(evaluators)
+        else:
+            self._run_team(evaluators)
 
     def test_control_user_gets_no_compute(self) -> None:
         with (
