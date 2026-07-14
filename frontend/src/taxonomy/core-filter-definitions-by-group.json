@@ -393,7 +393,7 @@
             "label": "AI git branch"
         },
         "$ai_git_repo": {
-            "description": "The repository the AI session ran in, as owner/name.",
+            "description": "The repository that AI interacted with, as owner/name.",
             "examples": [
                 "PostHog/posthog"
             ],
@@ -4780,7 +4780,7 @@
             "label": "AI git branch"
         },
         "$ai_git_repo": {
-            "description": "The repository the AI session ran in, as owner/name.",
+            "description": "The repository that AI interacted with, as owner/name.",
             "examples": [
                 "PostHog/posthog"
             ],

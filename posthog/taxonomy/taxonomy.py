@@ -2598,7 +2598,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_git_repo": {
             "label": "AI git repository",
-            "description": "The repository the AI session ran in, as owner/name.",
+            "description": "The repository that AI interacted with, as owner/name.",
             "examples": ["PostHog/posthog"],
         },
         "$ai_lib": {
