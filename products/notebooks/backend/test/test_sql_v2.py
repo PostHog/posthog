@@ -7,6 +7,7 @@ import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -52,6 +53,7 @@ from products.notebooks.backend.temporal.sql_v2 import (
     dispatch_sql_v2_run_activity,
     mark_sql_v2_run_failed_activity,
 )
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -959,6 +961,47 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         _columns, rows, _types = decode_arrow_stream(response.content)
         self.assertEqual(sorted(rows), expected_rows)
+
+    @parameterized.expand(
+        [
+            # Same warehouse query, same flag state; only the token's user_id differs. The pair
+            # pins the data plane's user threading end to end: the Celery worker re-hydrates the
+            # token's user_id and builds the HogQL Database with that user's warehouse access
+            # (allowed, so rows come back), while a user-less token fails closed (every warehouse
+            # table is denied) instead of silently querying with someone else's or full access.
+            ("token_with_user_reads_rows", True),
+            ("userless_token_fails_closed", False),
+        ]
+    )
+    def test_warehouse_access_through_the_data_plane_is_bound_to_the_token_user(self, _name, token_has_user):
+        table, _source, _credential, _df, clean_up = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "payments.csv",
+            table_name="payments",
+            table_columns={"id": "String", "amount": "Int64", "plan": "String"},
+            test_bucket="test_storage_bucket-posthog.notebooks.sqlv2.dataplane",
+            team=self.team,
+        )
+        self.addCleanup(clean_up)
+
+        token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id if token_has_user else None)
+        # Warehouse access control is flag-gated per team; force it on so the denial path is
+        # exercised. Keyed on the flag name because Database.create_for consults other flags
+        # through the same helper, and those must keep their default (off).
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda flag, *args, **kwargs: flag == "hogql-warehouse-access-control",
+        ):
+            response = self._post({"query": f"select id, amount from {table.name}"}, token=token)
+            self.assertEqual(response.status_code, 202, response.content)
+            response = self._get_status(response.json()["query_id"], token=token)
+
+        if token_has_user:
+            self.assertEqual(response.status_code, 200, response.content)
+            _columns, rows, _types = decode_arrow_stream(response.content)
+            self.assertEqual(sorted(rows), [("p1", 100), ("p2", 250), ("p3", 975)])
+        else:
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertIn(table.name, response.json()["error"])
 
 
 class TestSQLV2RunContract(APIBaseTest):
