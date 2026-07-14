@@ -51,13 +51,25 @@ class BuildSandboxImageWorkflow(PostHogWorkflow):
             if not scan.passed:
                 return BuildSandboxImageOutput(success=False, error="Security scan failed")
 
-            modal_image_name = await workflow.execute_activity(
+            build = await workflow.execute_activity(
                 build_and_publish_image,
                 activity_input,
                 start_to_close_timeout=timedelta(minutes=45),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
-            return BuildSandboxImageOutput(success=True, modal_image_name=modal_image_name)
+            if build.build_failed_error is not None:
+                # Expected user-caused build failure (returned, not raised). Persist BUILD_FAILED and
+                # stop — no error tracking, no retry.
+                await workflow.execute_activity(
+                    mark_image_build_failed,
+                    MarkImageBuildFailedInput(
+                        image_id=input.image_id, team_id=input.team_id, error=build.build_failed_error
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return BuildSandboxImageOutput(success=False, error=build.build_failed_error)
+            return BuildSandboxImageOutput(success=True, modal_image_name=build.modal_image_name)
 
         except Exception as e:
             await workflow.execute_activity(

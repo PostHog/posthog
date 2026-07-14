@@ -69,6 +69,17 @@ class ScanImageSpecOutput:
     findings: list[dict] = field(default_factory=list)
 
 
+@dataclass
+class BuildAndPublishOutput:
+    """A published image (`modal_image_name`) or a user-caused build failure (`build_failed_error`),
+    never both. A Modal `RemoteError` is a user-caused build failure (bad apt package, a run_command
+    that exits non-zero), an expected domain outcome rather than a defect, so it's returned here rather
+    than raised — that keeps it out of error tracking and off the activity's retry budget."""
+
+    modal_image_name: str | None = None
+    build_failed_error: str | None = None
+
+
 def _get_image(input: ImageBuildActivityInput) -> SandboxCustomImage:
     return SandboxCustomImage.objects.for_team(input.team_id).get(id=input.image_id)
 
@@ -289,8 +300,9 @@ def _flush_build_log_periodically(buffer: _BuildLogBuffer, input: ImageBuildActi
 
 @activity.defn
 @asyncify
-def build_and_publish_image(input: ImageBuildActivityInput) -> str:
+def build_and_publish_image(input: ImageBuildActivityInput) -> BuildAndPublishOutput:
     import modal  # noqa: PLC0415 — heavy dep, keep off the import path of non-worker processes
+    from modal.exception import RemoteError  # noqa: PLC0415 — same heavy dep
 
     with log_activity_execution("build_and_publish_image", **input.to_log_context()):
         image = _get_image(input)
@@ -310,6 +322,12 @@ def build_and_publish_image(input: ImageBuildActivityInput) -> str:
         try:
             with redirect_stdout(log_stream), redirect_stderr(log_stream), modal.enable_output():
                 built = modal_image.build(app)
+        except RemoteError as e:
+            # The user's spec failed to build (bad apt package, a run_command that exits non-zero, a
+            # build timeout). That's a user-caused domain outcome, not a defect: return it so the
+            # workflow can mark the image BUILD_FAILED, instead of raising it into error tracking and
+            # burning a retry. The sanitized build log persisted below is what the user reads to fix it.
+            return BuildAndPublishOutput(build_failed_error=str(e))
         finally:
             stop_flusher.set()
             flusher.join(timeout=10)
@@ -330,7 +348,7 @@ def build_and_publish_image(input: ImageBuildActivityInput) -> str:
             "custom_image_published",
             extra={"image_id": input.image_id, "team_id": input.team_id, "modal_image_name": publish_name},
         )
-        return publish_name
+        return BuildAndPublishOutput(modal_image_name=publish_name)
 
 
 @dataclass
