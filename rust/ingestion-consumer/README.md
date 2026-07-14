@@ -28,13 +28,15 @@ Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` cou
 
 ## Debug API
 
-Set `DEBUG_API_ENABLED=true` to mount a real-time debug API on the health server (default `:3301`), for dev and incident debugging; off by default.
+Set `DEBUG_API_ENABLED=true` **and** `DEBUG_API_SECRET` to mount a real-time debug API on the health server (default `:3301`), for dev and incident debugging; off by default.
+Every request must present the secret as `X-Debug-Api-Secret`; enabling without a secret fails closed (nothing is mounted).
+The secret is dedicated to this control-plane→consumer hop — deliberately not `INTERNAL_API_SECRET` (see `.agents/security.md`).
 The ingestion control plane UI consumes these endpoints to render the consumer's live state.
 `debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events — batch dispatch/assignment/commit, deferrals and flushes, send retries/exhaustion, worker health and membership — recorded at the same points that emit metrics, and it never influences routing.
 
 - `/debug/load` — cheap JSON snapshot (worker health + dispatcher in-flight/pins/stash), safe to poll fast.
 - `/debug/state` — the same plus the retained event backlog.
-- `/debug/events` — SSE stream: backlog replay, then live events.
+- `/debug/events` — SSE stream: backlog replay, then live events (concurrent subscribers capped at 8; 429 beyond).
 
 ## Testing
 
