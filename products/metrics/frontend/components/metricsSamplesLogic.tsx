@@ -19,6 +19,8 @@ export type MetricsPanelTab = 'aggregates' | 'samples'
 
 export const SAMPLES_LIMIT = 50
 
+const EMPTY_MARKERS: ExemplarMarker[] = []
+
 // One row of the Aggregates tab: a series with its headline numbers.
 export interface MetricsAggregateRow {
     name: string
@@ -34,9 +36,9 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             teamLogic,
             ['currentTeamId'],
             metricsViewerLogic,
-            ['metricName', 'dateFrom', 'dateTo', 'queryResults'],
+            ['metricName', 'dateFrom', 'dateTo', 'queryResults', 'queryFilters', 'groupByKeys'],
         ],
-        actions: [metricsViewerLogic, ['setMetricName', 'setDateFrom', 'setDateTo']],
+        actions: [metricsViewerLogic, ['setMetricName', 'setDateFrom', 'setDateTo', 'fetchQueryResultsSuccess']],
     })),
     actions({
         setActiveTab: (activeTab: MetricsPanelTab) => ({ activeTab }),
@@ -74,15 +76,22 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
         ],
     })),
     selectors({
-        // Dots for the chart overlay: traced samples snapped onto the current
-        // series' bucket grid, so a dot sits where its emission was recorded.
+        // Dots for the chart overlay: traced samples floored onto the current
+        // series' bucket grid and re-filtered like the chart. A stable empty
+        // reference while disabled keeps chart-adjacent subscribers from
+        // re-rendering on unrelated samples-tab loads.
         exemplarMarkers: [
-            (s) => [s.samples, s.queryResults],
-            (samples: _MetricEventSampleApi[], queryResults: MetricsViewerSeries[]): ExemplarMarker[] =>
-                exemplarMarkersFromSamples(
-                    samples,
-                    (queryResults[0]?.points ?? []).map((point) => point.time)
-                ),
+            (s) => [s.exemplarsEnabled, s.samples, s.queryResults, s.queryFilters, s.groupByKeys],
+            (
+                exemplarsEnabled: boolean,
+                samples: _MetricEventSampleApi[],
+                queryResults: MetricsViewerSeries[],
+                queryFilters,
+                groupByKeys: string[]
+            ): ExemplarMarker[] =>
+                exemplarsEnabled
+                    ? exemplarMarkersFromSamples(samples, queryResults, { filters: queryFilters, groupByKeys })
+                    : EMPTY_MARKERS,
         ],
         // Rows for the Aggregates tab, derived from the chart's series so both
         // views always describe the same query (colors match the chart legend).
@@ -117,6 +126,14 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             },
             exemplarClicked: ({ marker }) => {
                 router.actions.push(traceUrl({ traceId: marker.traceId, spanId: marker.spanId, ts: marker.timestamp }))
+            },
+            // Live refresh refetches the chart every 15s; the dots must track the same
+            // sliding window or stale samples drift off the grid. The loader's
+            // breakpoint coalesces this with the filter-change listeners below.
+            fetchQueryResultsSuccess: () => {
+                if (values.exemplarsEnabled) {
+                    actions.loadSamples({})
+                }
             },
             // The viewer's filters are the samples' filters: any change that redraws
             // the chart refreshes the visible samples too, but only when they're shown

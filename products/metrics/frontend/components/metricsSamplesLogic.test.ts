@@ -104,25 +104,31 @@ describe('metricsSamplesLogic', () => {
         expect(mockSamplesCreate).toHaveBeenCalledTimes(2)
     })
 
-    it('derives exemplar markers positioned on the chart buckets from traced samples', async () => {
+    it('derives exemplar markers pinned to the series value and refetches on chart refresh', async () => {
         metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
         logic.actions.setExemplarsEnabled(true)
         await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+        const callsAfterEnable = mockSamplesCreate.mock.calls.length
 
-        metricsViewerLogic.actions.fetchQueryResultsSuccess([
-            {
-                labels: {},
-                metricName: 'demo_checkout_duration_ms',
-                clause: 'a',
-                points: [
-                    { time: '2026-07-09T05:46:00+00:00', value: 1 },
-                    { time: '2026-07-09T05:47:00+00:00', value: 2 },
-                ],
-            },
-        ] as any)
+        // Live refresh: every chart refetch re-syncs the samples window while exemplars are on.
+        await expectLogic(logic, () => {
+            metricsViewerLogic.actions.fetchQueryResultsSuccess([
+                {
+                    labels: {},
+                    metricName: 'demo_checkout_duration_ms',
+                    clause: 'a',
+                    points: [
+                        { time: '2026-07-09T05:46:00+00:00', value: 111 },
+                        { time: '2026-07-09T05:47:00+00:00', value: 2 },
+                    ],
+                },
+            ] as any)
+        }).toDispatchActions(['loadSamples', 'loadSamplesSuccess'])
+        expect(mockSamplesCreate.mock.calls.length).toBeGreaterThan(callsAfterEnable)
 
+        // Dots sit on the line: the marker takes the series value at its bucket, not the raw sample value.
         expect(logic.values.exemplarMarkers).toEqual([
-            expect.objectContaining({ index: 0, traceId: SAMPLE.trace_id, value: SAMPLE.value }),
+            expect.objectContaining({ index: 0, traceId: SAMPLE.trace_id, value: 111 }),
         ])
     })
 })

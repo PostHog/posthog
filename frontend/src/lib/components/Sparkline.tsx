@@ -172,7 +172,7 @@ export function Sparkline(props: SparklineProps): JSX.Element {
         props.highlightedRange ||
         props.incompleteBars?.indices?.length ||
         props.referenceLines?.length ||
-        props.markers?.length ||
+        props.markers ||
         props.withXScale ||
         props.withYScale
     )
@@ -312,6 +312,69 @@ function LegacySparkline({
     const [tooltip, setTooltip] = useState<TooltipModel<'bar'> | null>(null)
     const dragStartRef = useRef<{ index: number; x: number } | null>(null)
     const [isDragging, setIsDragging] = useState(false)
+    const dragEndedRef = useRef(false)
+
+    // Markers draw as an overlay plugin, never a dataset: datasets would join axis
+    // auto-scaling and index-mode hover, misplacing dots on time axes and hijacking
+    // the tooltip's bucket resolution. Refs keep click targets fresh without chart
+    // rebuilds (useChart's deps are JSON-serialized, dropping the onClick closures).
+    const markersRef = useRef<SparklineMarker[] | undefined>(markers)
+    markersRef.current = markers
+    const markerHitboxesRef = useRef<{ x: number; y: number; marker: SparklineMarker }[]>([])
+
+    const markersPlugin = useMemo(
+        () => ({
+            id: 'sparklineMarkers',
+            afterDatasetsDraw: (chart: Chart) => {
+                markerHitboxesRef.current = []
+                const currentMarkers = markersRef.current
+                if (!currentMarkers?.length) {
+                    return
+                }
+                const seriesMeta = chart.getDatasetMeta(0)
+                const yScale = chart.scales.y
+                const { top, bottom } = chart.chartArea
+                const ctx = chart.ctx
+                ctx.save()
+                for (const marker of currentMarkers) {
+                    // The series element's x is the bucket's rendered position — correct on
+                    // category and time axes alike, and always aligned with the line.
+                    const element = seriesMeta?.data?.[marker.index]
+                    if (!element) {
+                        continue
+                    }
+                    const x = element.x
+                    const y = Math.min(Math.max(yScale.getPixelForValue(marker.value), top), bottom)
+                    ctx.beginPath()
+                    ctx.arc(x, y, 3.5, 0, Math.PI * 2)
+                    ctx.fillStyle = getColorVar(marker.color || 'danger')
+                    ctx.fill()
+                    ctx.lineWidth = 1.5
+                    ctx.strokeStyle = 'white'
+                    ctx.stroke()
+                    markerHitboxesRef.current.push({ x, y, marker })
+                }
+                ctx.restore()
+            },
+        }),
+        []
+    )
+
+    const findMarkerAt = useCallback((event: any): SparklineMarker | null => {
+        const native = event?.native ?? event
+        const x = native?.offsetX ?? event?.x
+        const y = native?.offsetY ?? event?.y
+        if (typeof x !== 'number' || typeof y !== 'number') {
+            return null
+        }
+        const HIT_RADIUS = 8
+        for (const hitbox of markerHitboxesRef.current) {
+            if (Math.abs(hitbox.x - x) <= HIT_RADIUS && Math.abs(hitbox.y - y) <= HIT_RADIUS) {
+                return hitbox.marker
+            }
+        }
+        return null
+    }, [])
 
     const incompleteBarSet = useMemo(() => new Set(incompleteBars?.indices ?? []), [incompleteBars])
 
@@ -387,84 +450,53 @@ function LegacySparkline({
             const xScale = withXScale ? withXScale(defaultXScale) : defaultXScale
             const yScale = withYScale ? withYScale(defaultYScale) : defaultYScale
 
-            // Markers render as a scatter dataset drawn on top of the series. Kept out of the
-            // stacked group and flagged so the tooltip and click handling can tell it apart.
-            const markerDataset =
-                markers && markers.length > 0
-                    ? [
-                          {
-                              type: 'scatter' as const,
-                              label: '',
-                              data: markers.map((marker) => ({ x: marker.index, y: marker.value })),
-                              backgroundColor: markers.map((marker) => getColorVar(marker.color || 'danger')),
-                              borderColor: 'white',
-                              borderWidth: 1,
-                              pointRadius: 3.5,
-                              pointHoverRadius: 5,
-                              pointHitRadius: 8,
-                              stack: 'sparkline-markers',
-                              // Lowest order draws last, i.e. on top of the series.
-                              order: -1,
-                              sparklineMarkers: true,
-                          } as any,
-                      ]
-                    : []
-
-            const findMarkerHit = (event: any, chart: Chart): number | null => {
-                const nativeEvent = event?.native ?? event
-                if (!nativeEvent) {
-                    return null
-                }
-                const hits = chart.getElementsAtEventForMode(nativeEvent, 'nearest', { intersect: true }, true)
-                const hit = hits.find((element) => (chart.data.datasets[element.datasetIndex] as any)?.sparklineMarkers)
-                return hit ? hit.index : null
-            }
-
             return {
                 type,
                 data: {
                     labels: labels || adjustedData[0].values.map((_, i) => `Entry ${i}`),
-                    datasets: [
-                        ...markerDataset,
-                        ...adjustedData.map((timeseries) => {
-                            const seriesColor = getColorVar(timeseries.color || 'muted')
-                            const hoverColor = getColorVar(timeseries.hoverColor || timeseries.color || 'muted')
-                            // Incomplete (still-ingesting) bars get a faded hatch of the series colour so
-                            // they read as "not final" without losing which series they belong to.
-                            const hatched = incompleteBarSet.size > 0 ? createHashedPattern(seriesColor) : null
-                            const fillFor = (
-                                base: string
-                            ): typeof base | CanvasPattern | ((ctx: { dataIndex: number }) => string | CanvasPattern) =>
-                                hatched
-                                    ? (ctx: { dataIndex: number }) =>
-                                          incompleteBarSet.has(ctx.dataIndex) ? hatched : base
-                                    : base
-                            return {
-                                label: timeseries.name,
-                                data: timeseries.values,
-                                minBarLength: 0,
-                                categoryPercentage: 0.9, // Slightly tighter bar spacing than the default 0.8
-                                backgroundColor: fillFor(seriesColor),
-                                hoverBackgroundColor: fillFor(hoverColor),
-                                borderColor: seriesColor,
-                                borderWidth: type === 'line' ? 2 : 0,
-                                pointRadius: 0,
-                                borderRadius: 2,
-                            }
-                        }),
-                    ],
+                    datasets: adjustedData.map((timeseries) => {
+                        const seriesColor = getColorVar(timeseries.color || 'muted')
+                        const hoverColor = getColorVar(timeseries.hoverColor || timeseries.color || 'muted')
+                        // Incomplete (still-ingesting) bars get a faded hatch of the series colour so
+                        // they read as "not final" without losing which series they belong to.
+                        const hatched = incompleteBarSet.size > 0 ? createHashedPattern(seriesColor) : null
+                        const fillFor = (
+                            base: string
+                        ): typeof base | CanvasPattern | ((ctx: { dataIndex: number }) => string | CanvasPattern) =>
+                            hatched
+                                ? (ctx: { dataIndex: number }) => (incompleteBarSet.has(ctx.dataIndex) ? hatched : base)
+                                : base
+                        return {
+                            label: timeseries.name,
+                            data: timeseries.values,
+                            minBarLength: 0,
+                            categoryPercentage: 0.9, // Slightly tighter bar spacing than the default 0.8
+                            backgroundColor: fillFor(seriesColor),
+                            hoverBackgroundColor: fillFor(hoverColor),
+                            borderColor: seriesColor,
+                            borderWidth: type === 'line' ? 2 : 0,
+                            pointRadius: 0,
+                            borderRadius: 2,
+                        }
+                    }),
                 },
+                plugins: markers ? [markersPlugin] : [],
                 options: {
-                    ...(markers && markers.length > 0
+                    ...(markers
                         ? {
-                              onClick: (event: any, _elements: any, chart: Chart) => {
-                                  const markerIndex = findMarkerHit(event, chart)
-                                  if (markerIndex !== null) {
-                                      markers[markerIndex]?.onClick?.()
+                              onClick: (event: any) => {
+                                  // A drag that ends on a dot still emits a click — don't navigate.
+                                  if (dragEndedRef.current) {
+                                      dragEndedRef.current = false
+                                      return
                                   }
+                                  findMarkerAt(event)?.onClick?.()
                               },
                               onHover: (event: any, _elements: any, chart: Chart) => {
-                                  chart.canvas.style.cursor = findMarkerHit(event, chart) !== null ? 'pointer' : ''
+                                  const cursor = findMarkerAt(event) ? 'pointer' : ''
+                                  if (chart.canvas.style.cursor !== cursor) {
+                                      chart.canvas.style.cursor = cursor
+                                  }
                               },
                           }
                         : {}),
@@ -561,10 +593,7 @@ function LegacySparkline({
     const finalClassName = sparklineClassName(adjustedData[0]?.values?.length || 0, className)
 
     const tooltipVisible = !!(tooltip && tooltip.opacity > 0)
-    // Markers are chart decoration, not a series — keep them out of the hover tooltip.
-    const toolTipDataPoints = (tooltip && tooltip.dataPoints ? tooltip.dataPoints : []).filter(
-        (dp) => !(dp.dataset as any)?.sparklineMarkers
-    )
+    const toolTipDataPoints = tooltip && tooltip.dataPoints ? tooltip.dataPoints : []
 
     const hoveredElementX = toolTipDataPoints[0]?.element?.x ?? 0
     const hoveredElementWidth = (toolTipDataPoints[0]?.element as any)?.width ?? 0
@@ -584,6 +613,8 @@ function LegacySparkline({
                 return
             }
 
+            // The click event that follows this mouseup must not fire a marker's onClick.
+            dragEndedRef.current = true
             setIsDragging(false)
 
             if (!onSelectionChange || !toolTipDataPoints.length || !dragStartRef.current) {

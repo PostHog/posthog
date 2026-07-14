@@ -105,7 +105,7 @@ export const MetricsViewer = (): JSX.Element => {
     // The side panel's logic listens to this viewer's filter changes; mounting it
     // here keeps samples in sync even while the panel itself is off-screen.
     useMountedLogic(metricsSamplesLogic())
-    const { exemplarsEnabled, exemplarMarkers } = useValues(metricsSamplesLogic())
+    const { exemplarsEnabled, exemplarMarkers, samplesLoading } = useValues(metricsSamplesLogic())
     const { setExemplarsEnabled, exemplarClicked } = useActions(metricsSamplesLogic())
     const {
         metricName,
@@ -295,15 +295,17 @@ export const MetricsViewer = (): JSX.Element => {
                     bordered
                     data-attr="metrics-viewer-live-toggle"
                 />
-                <LemonSwitch
-                    label="Exemplars"
-                    checked={exemplarsEnabled}
-                    onChange={setExemplarsEnabled}
-                    tooltip="Overlay trace-linked samples on the chart. Click a dot to open its trace."
-                    bordered
-                    disabledReason={hasMetricName ? undefined : 'Pick a metric first'}
-                    data-attr="metrics-viewer-exemplars-toggle"
-                />
+                {viewMode === 'chart' && (
+                    <LemonSwitch
+                        label="Exemplars"
+                        checked={exemplarsEnabled}
+                        onChange={setExemplarsEnabled}
+                        tooltip="Overlay trace-linked samples on the chart. Click a dot to open its trace."
+                        bordered
+                        disabledReason={hasMetricName ? undefined : 'Pick a metric first'}
+                        data-attr="metrics-viewer-exemplars-toggle"
+                    />
+                )}
                 <LemonButton
                     size="small"
                     type="secondary"
@@ -377,6 +379,11 @@ export const MetricsViewer = (): JSX.Element => {
                         ) : !queryResultsLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">
                                 No data for this metric in the selected range.
+                            </div>
+                        ) : null}
+                        {exemplarsEnabled && !samplesLoading && exemplarMarkers.length === 0 && hasResults ? (
+                            <div className="absolute top-1 right-2 text-xs text-secondary">
+                                No trace-linked samples in this range
                             </div>
                         ) : null}
                         {queryResultsLoading && <SpinnerOverlay />}
