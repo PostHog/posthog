@@ -25,7 +25,6 @@ block, advisories never do); the fix loop is ``--fix`` — see the running-ci-pr
 from __future__ import annotations
 
 import os
-import sys
 import json
 import time
 import uuid
@@ -366,30 +365,19 @@ _ICON: dict[Status, str] = {"pass": "✓", "fail": "✗", "advisory": "→", "sk
 _COLOR: dict[Status, str] = {"pass": "green", "fail": "red", "advisory": "yellow", "skipped": "bright_black"}
 
 
-class _StdoutCounter:
-    """Tee on ``sys.stdout`` counting what a run prints — in an agent session this
-    is exactly the tool_result injected into the model context, i.e. the run's
-    token cost. Stream-level so no echo call site can bypass the count."""
-
-    def __init__(self, wrapped: Any) -> None:
-        self.wrapped = wrapped
-        self.chars = 0
-        self.lines = 0
-
-    def write(self, s: str) -> int:
-        self.chars += len(s)
-        self.lines += s.count("\n")
-        return self.wrapped.write(s)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.wrapped, name)
-
-
-def _stamp_output_props(summary: dict[str, Any], counter: _StdoutCounter, as_json: bool) -> None:
-    """Sample the counter after the last echo — chars/tokens the run cost an agent."""
-    summary["output_chars"] = counter.chars
-    summary["output_lines"] = counter.lines
-    summary["json_output"] = as_json
+def _stamp_output_props(summary: dict[str, Any]) -> None:
+    """Late-sample the lifecycle output tally (see ``hogli.telemetry.OutputTally``)
+    after the last echo — the chars an agent's context pays for this run. A zero
+    tally means click bypassed the counting proxies (misconfigured-locale rewrap):
+    omit the counts rather than record corrupt zeros."""
+    ctx = click.get_current_context(silent=True)
+    tally = ctx.meta.get("hogli.output_tally") if ctx else None
+    if tally is None:
+        return
+    summary["is_tty"] = tally.is_tty
+    if tally.chars:
+        summary["output_chars"] = tally.chars
+        summary["output_lines"] = tally.lines
 
 
 def _emit_telemetry(summary: dict[str, Any]) -> None:
@@ -413,6 +401,7 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
         "output_chars",
         "output_lines",
         "json_output",
+        "is_tty",
     )
     props: dict[str, Any] = {k: summary[k] for k in keys if k in summary}
     props["results"] = {r["check"]: r["status"] for r in summary["results"]}
@@ -440,21 +429,17 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result summary as JSON.")
 def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool) -> None:
-    counter = _StdoutCounter(sys.stdout)
-    sys.stdout = counter  # type: ignore[assignment]
-    try:
-        _preflight(do_fix, strict, against, as_json, counter)
-    finally:
-        sys.stdout = counter.wrapped
-
-
-def _preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool, counter: _StdoutCounter) -> None:
     # run_id is printed in the output on purpose: it lands verbatim in an agent's
     # transcript, giving an exact join between this run's telemetry and the session
     # that consumed it.
     run_id = uuid.uuid4().hex[:12]
     if os.environ.get("HOGLI_PREFLIGHT_DISABLED", "").lower() in {"1", "true"}:
-        disabled_summary: dict[str, Any] = {"mode": "disabled", "results": [], "run_id": run_id}
+        disabled_summary: dict[str, Any] = {
+            "mode": "disabled",
+            "results": [],
+            "run_id": run_id,
+            "json_output": as_json,
+        }
         if as_json:
             click.echo(json.dumps(disabled_summary))
         else:
@@ -463,7 +448,7 @@ def _preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool, c
                 f"do not unset. Nothing to check, CI remains the gate. run_id={run_id}",
                 fg="yellow",
             )
-        _stamp_output_props(disabled_summary, counter, as_json)
+        _stamp_output_props(disabled_summary)
         _emit_telemetry(disabled_summary)
         return
 
@@ -514,6 +499,7 @@ def _preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool, c
         "advisories": advisories,
         "mode": "fix" if do_fix else ("strict" if strict else "advisory"),
         "run_id": run_id,
+        "json_output": as_json,
         "results": results,
         **stale_props,
     }
@@ -535,7 +521,7 @@ def _preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool, c
             )
         click.echo()
 
-    _stamp_output_props(summary, counter, as_json)
+    _stamp_output_props(summary)
     _emit_telemetry(summary)
 
     # Advisory by default — --strict turns verified *failures* into a non-zero exit

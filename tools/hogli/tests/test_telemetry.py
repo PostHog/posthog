@@ -234,6 +234,9 @@ class TestInvokeTelemetry:
             assert completed["properties"]["outcome"] == "success"
             assert "duration_s" in completed["properties"]
             assert "is_ci" in completed["properties"]
+            # Output tally: everything the run wrote through the lifecycle tee.
+            assert completed["properties"]["is_tty"] is False
+            assert completed["properties"]["output_chars"] == len(result.output)
 
     def test_first_run_shows_notice_and_emits_events(self, monkeypatch: pytest.MonkeyPatch, telemetry_config: Path):
         """A brand-new install (no config file) must arm itself and emit events

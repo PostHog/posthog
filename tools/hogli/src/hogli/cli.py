@@ -13,6 +13,7 @@ import shutil
 import platform
 import functools
 import importlib
+import contextlib
 import importlib.metadata
 from collections import defaultdict
 from pathlib import Path
@@ -77,25 +78,40 @@ class CategorizedGroup(click.Group):
     def invoke(self, ctx: click.Context) -> Any:
         ctx.meta["hogli.start_time"] = _time.monotonic()
         ctx.meta["hogli.has_extra_argv"] = len(sys.argv) > 2
-        exit_code = 0
         try:
-            return super().invoke(ctx)
-        except SystemExit as e:
-            exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
-            raise
-        except KeyboardInterrupt:
-            exit_code = 130
-            raise
+            is_tty = sys.stdout.isatty()
         except Exception:
-            exit_code = 1
-            raise
-        finally:
-            _fire_telemetry(ctx, exit_code)
+            is_tty = False
+        tally = telemetry.OutputTally(is_tty=is_tty)
+        ctx.meta["hogli.output_tally"] = tally
+        exit_code = 0
+        # Tee stdout+stderr through the tally for the whole run, post-command
+        # hooks included -- in an agent session this output is the tool_result
+        # context cost that command_completed reports.
+        with (
+            contextlib.redirect_stdout(telemetry.CountingStream(sys.stdout, tally)),  # type: ignore[arg-type]
+            contextlib.redirect_stderr(telemetry.CountingStream(sys.stderr, tally)),  # type: ignore[arg-type]
+        ):
             try:
-                telemetry.flush()
+                return super().invoke(ctx)
+            except SystemExit as e:
+                exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
+                raise
+            except KeyboardInterrupt:
+                exit_code = 130
+                raise
             except Exception:
-                pass
-            _fire_post_command_hooks(ctx.invoked_subcommand, exit_code)
+                exit_code = 1
+                raise
+            finally:
+                # Hooks fire before telemetry so their output lands in the tally
+                # (both are never-raise).
+                _fire_post_command_hooks(ctx.invoked_subcommand, exit_code)
+                _fire_telemetry(ctx, exit_code)
+                try:
+                    telemetry.flush()
+                except Exception:
+                    pass
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format commands grouped by category, git-style with extends tree."""
@@ -684,6 +700,14 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
             "has_extra_argv": ctx.meta.get("hogli.has_extra_argv", False),
             **_env_properties(command),
         }
+        tally = ctx.meta.get("hogli.output_tally")
+        if tally is not None:
+            props["is_tty"] = tally.is_tty
+            # A zero tally means click bypassed the counting proxies
+            # (misconfigured-locale rewrap): omit rather than record corrupt zeros.
+            if tally.chars:
+                props["output_chars"] = tally.chars
+                props["output_lines"] = tally.lines
         # Merge devenv-specific properties (set by dev:generate)
         devenv = ctx.meta.get("hogli.devenv")
         if devenv:

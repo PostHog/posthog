@@ -24,9 +24,10 @@ import time
 import uuid
 import atexit
 import threading
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, TextIO, TypedDict
 
 import click
 import requests
@@ -48,6 +49,47 @@ _CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", 
 def is_ci() -> bool:
     """True when any common CI provider's environment variable is present."""
     return any(os.environ.get(v) for v in _CI_ENV_VARS)
+
+
+# ---------------------------------------------------------------------------
+# Output accounting
+# ---------------------------------------------------------------------------
+
+
+class OutputTally:
+    """Running count of chars/lines a command run writes to stdout+stderr.
+
+    In an AI agent session this output is the tool_result injected into the
+    model context, i.e. the run's context cost. Python-level writes only:
+    subprocess output goes to the real fd and is not counted, and click
+    bypasses the counting proxies entirely on misconfigured (ASCII-locale)
+    streams -- a zero tally means "not measured", never "printed nothing".
+    """
+
+    def __init__(self, is_tty: bool = False) -> None:
+        self.is_tty = is_tty
+        self.chars = 0
+        self.lines = 0
+
+
+class CountingStream:
+    """Write-through stream proxy that adds everything written to an OutputTally."""
+
+    def __init__(self, wrapped: TextIO, tally: OutputTally) -> None:
+        self.wrapped = wrapped
+        self.tally = tally
+
+    def write(self, s: str) -> int:
+        self.tally.chars += len(s)
+        self.tally.lines += s.count("\n")
+        return self.wrapped.write(s)
+
+    def writelines(self, lines: Iterable[str]) -> None:
+        for line in lines:
+            self.write(line)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.wrapped, name)
 
 
 # ---------------------------------------------------------------------------
