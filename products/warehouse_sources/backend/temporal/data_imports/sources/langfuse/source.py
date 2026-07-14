@@ -86,7 +86,6 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
