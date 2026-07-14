@@ -304,3 +304,44 @@ caller recovers its own typed error via `StepError::try_into_reject::<E>()`
 enum; a dedicated `Gate` trait with typed request/response phases remains open
 for the real implementation if the reject-vs-unexpected distinction proves too
 thin in practice.
+
+## §capture, continued — full request→events pipeline breakdown
+
+`process_batch` is now: request pipeline → guard → event pipeline → serialize →
+publish (sink) → merge → response. Everything between the decoded request and
+the sink is a pipeline step with a single responsibility:
+
+- **Request pipeline** (`CaptureRequestPipeline<Vec<WrappedEvent>>`, one item =
+  the request): `ValidateBatch` (structural request checks; rejects) →
+  `ValidateEvents` (Batch → per-event `WrappedEvent` state; uuid integrity
+  failures reject, malformed events are stamped `Drop`). The batch→events
+  expansion is expressed as an ordinary type-changing `Continue` (`Batch` →
+  `Vec<WrappedEvent>`) — the framework has no 1→N fan-out, and this avoids
+  needing one.
+- **Guard** (in `process_batch`, deliberately between the pipelines): an
+  all-invalid batch answers 200 with per-event drops and must not reach the
+  quota step (402) or the sink (may be unconfigured).
+- **Event pipeline** (one `CapturePipeline`): `ApplyGatewayProvenance` (fail-
+  closed) → `ApplyQuotaLimits` (global 402 via `StepError::Reject`; scoped
+  limits stamp drops) → `ApplyRestrictions` → `ApplyHistoricalRerouting` →
+  `ApplyOverflowStamping` → `ApplyTokenDistinctIdLimits` (optional steps gated
+  on their dep being configured, as before).
+- **Outside the pipeline:** `serialize_batch` (the sink boundary — it changes
+  representation, not policy, and its scatter-gather + panic isolation is sink
+  infrastructure), `publish_batch`, `merge_sink_results`, `BatchResponse`.
+
+Other notes:
+
+- `set_batch_metadata` moved before validation (it only stamps context fields;
+  a rejected request never reads them). The `Arc<RequestContext>` snapshot is
+  taken right after it and shared by every step of both pipelines.
+- `run_in_place` is now fallible: `StepError::Reject` surfaces as the typed
+  capture `Error` (via anyhow downcast in `reject_to_error`); any other error
+  maps to a 500 instead of panicking on the request path. On rejection the
+  event vec is left empty — matching the old `?`-return where the batch never
+  reached the sink.
+- The old `apply_gateway_provenance(state, ...)` wrapper is `#[cfg(test)]` —
+  kept solely so the existing provenance tests run unmodified.
+- Not steps, and why: `apply_quota_limits`'s inner shim and the other `apply_*`
+  functions keep their bodies unchanged (steps are thin wrappers) so the
+  existing direct-call tests remain the parity proof.

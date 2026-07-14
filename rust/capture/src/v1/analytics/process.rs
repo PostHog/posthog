@@ -76,31 +76,26 @@ pub async fn process_batch(
         .build();
     let mut events = super::pipeline::run_request(&request_pipeline, batch).await?;
 
-    // Nothing left to process — return 200 with per-event drops.
+    // Nothing left to process — return 200 with per-event drops. This guard
+    // sits between the request and event pipelines deliberately: an all-invalid
+    // batch must answer 200 (per-event drops), never reach the quota step
+    // (which would answer 402 for an over-quota token), and never touch the
+    // sink (which may be unconfigured).
     if events.iter().all(|ev| ev.result != EventResult::Ok) {
         return Ok(BatchResponse::build(context, &events));
     }
 
-    // Verify gateway provenance before the quota limiter so verified events can
-    // be exempted from the llm_events meter (they're wallet-billed, not AIO).
-    let provenance_and_quota = CapturePipeline::builder()
-        .step(ApplyGatewayProvenance::new(
-            state.ai_gateway_signing_secret.clone(),
-            ctx_snapshot.clone(),
-        ))
-        .chunk_step(ApplyQuotaLimits::new(
-            state.quota_limiter.clone(),
-            context.api_token.clone(),
-        ))
-        .build();
-    super::pipeline::run_in_place(&provenance_and_quota, &mut events).await?;
-
-    // The analytics policy phase as one framework pipeline, in the original v1
-    // order: restrictions → historical rerouting → overflow stamping → token:
-    // distinct_id limits. Each step stamps per-event state and always continues
-    // (capture never removes an event; drops/redirects are Destination/
-    // EventResult stamping — see `super::pipeline`). Steps present only when
-    // their dep is configured, exactly matching the previous per-check gating.
+    // The whole event phase as ONE pipeline, in the original v1 order:
+    // gateway provenance → quota → restrictions → historical rerouting →
+    // overflow stamping → token:distinct_id limits. Single responsibility per
+    // step; each stamps per-event state and always continues (capture never
+    // removes an event; drops/redirects are Destination/EventResult stamping —
+    // see `super::pipeline`), except quota, which may reject the whole request
+    // (billing 402) via the framework's `StepError::Reject` gate outcome.
+    // Optional steps are present only when their dep is configured, exactly
+    // matching the previous per-check gating. Provenance runs before quota so
+    // gateway-verified events are exempt from the llm_events meter (they're
+    // wallet-billed, not AIO).
     //
     // Built per batch: the steps close over per-request context (token, server
     // time) and request-scoped deps, which the framework's `'static` step bound
@@ -109,31 +104,39 @@ pub async fn process_batch(
     //
     // Overflow and global rate limit are independent checks on different axes:
     // overflow reroutes bursting keys; global rate limit disables person processing.
-    let mut policy = CapturePipeline::builder();
+    let mut event_pipeline = CapturePipeline::builder()
+        .step(ApplyGatewayProvenance::new(
+            state.ai_gateway_signing_secret.clone(),
+            ctx_snapshot.clone(),
+        ))
+        .chunk_step(ApplyQuotaLimits::new(
+            state.quota_limiter.clone(),
+            context.api_token.clone(),
+        ));
     if let Some(ref service) = state.event_restriction_service {
-        policy = policy.chunk_step(ApplyRestrictions::new(
+        event_pipeline = event_pipeline.chunk_step(ApplyRestrictions::new(
             service.clone(),
             context.api_token.clone(),
             context.server_received_at.timestamp(),
         ));
     }
-    policy = policy.step(ApplyHistoricalRerouting::new(
+    event_pipeline = event_pipeline.step(ApplyHistoricalRerouting::new(
         state.historical_cfg,
         ctx_snapshot.clone(),
     ));
     if let Some(ref limiter) = state.overflow_limiter {
-        policy = policy.step(ApplyOverflowStamping::new(
+        event_pipeline = event_pipeline.step(ApplyOverflowStamping::new(
             limiter.clone(),
             ctx_snapshot.clone(),
         ));
     }
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
-        policy = policy.chunk_step(ApplyTokenDistinctIdLimits::new(
+        event_pipeline = event_pipeline.chunk_step(ApplyTokenDistinctIdLimits::new(
             limiter.clone(),
             ctx_snapshot.clone(),
         ));
     }
-    super::pipeline::run_in_place(&policy.build(), &mut events).await?;
+    super::pipeline::run_in_place(&event_pipeline.build(), &mut events).await?;
 
     histogram!(
         CAPTURE_V1_PROCESSING_DURATION_SECONDS,
