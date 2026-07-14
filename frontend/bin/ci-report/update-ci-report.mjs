@@ -236,7 +236,12 @@ function isWriteConflict(err) {
 // Mark a section resolved (status ok), but only when the report already carries it —
 // a check whose condition passes on every PR must not add a section saying so, while
 // a warning that was real on one push must not linger after a later push fixes it.
-export async function clearSectionIfPresent({ id, summary, body }, { legacyPrefixes = [] } = {}) {
+/**
+ * @param {{ id: string, summary: string, body: string }} section
+ * @param {{ legacyPrefixes?: string[] }} options
+ */
+export async function clearSectionIfPresent({ id, summary, body }, options = {}) {
+    const { legacyPrefixes = [] } = options
     const context = resolvePrContext(`clearing "${id}"`)
     if (!context) {
         return
@@ -267,10 +272,12 @@ export async function clearSectionIfPresent({ id, summary, body }, { legacyPrefi
 // to CREATE the comment can leave duplicates — every attempt merges all report
 // comments' sections into the oldest and deletes the rest, writing the merged content
 // BEFORE deleting so a cancelled job never loses sections that lived only in a duplicate.
-export async function postSection(
-    { id, status, summary, body },
-    { maxAttempts = 3, retryDelayMs = 1000, legacyPrefixes = [] } = {}
-) {
+/**
+ * @param {{ id: string, status: string, summary: string, body: string }} section
+ * @param {{ maxAttempts?: number, retryDelayMs?: number, legacyPrefixes?: string[] }} options
+ */
+export async function postSection({ id, status, summary, body }, options = {}) {
+    const { maxAttempts = 3, retryDelayMs = 1000, legacyPrefixes = [] } = options
     const context = resolvePrContext('comment')
     if (!context) {
         return
