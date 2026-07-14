@@ -261,6 +261,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def last_vacuum_version(self) -> int | None:
+        # Delta version of the schema's snapshot table at its last vacuum (cadence watermark).
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_vacuum_version", None)
+
+        return None
+
+    @property
+    def last_vacuum_version_cdc(self) -> int | None:
+        # Same watermark for the _cdc companion table — a separate delta table whose versions
+        # are unrelated to the snapshot's, so it can't share last_vacuum_version.
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_vacuum_version_cdc", None)
+
+        return None
+
+    @property
     def partition_count_override(self) -> int | None:
         # Operator-pinned partition_count set via the admin repartition action. Unlike
         # `partition_count` (which is auto-detected and wiped on every reset), this key
@@ -465,6 +482,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
+        self._save_sync_type_config()
+
+    @property
+    def delta_revive_required(self) -> dict[str, Any] | None:
+        """Set when the live Delta table is readable but hollow — its log references data files that
+        are gone from S3 (the terminal state an interrupted or interleaved repartition swap leaves).
+        `handle_corrupted_delta_log` honors this to reset + rebuild the table even though the log
+        itself opens fine. Shape: {"reason": str, "missing_path": str, "detected_at": iso8601 str}.
+        """
+        if self.sync_type_config:
+            marker = self.sync_type_config.get("delta_revive_required", None)
+            if isinstance(marker, dict):
+                return marker
+        return None
+
+    def set_delta_revive_required(self, info: dict[str, Any]) -> None:
+        self.sync_type_config["delta_revive_required"] = info
         self._save_sync_type_config()
 
     def stamp_last_repartition_at(self) -> None:

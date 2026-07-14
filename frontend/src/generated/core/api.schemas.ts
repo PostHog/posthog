@@ -117,50 +117,12 @@ export interface OrganizationDomainApi {
     sso_enforcement?: string
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml: boolean
-    /**
-     * SAML IdP entity ID (issuer).
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * SAML single sign-on (ACS) URL.
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /**
-     * SAML IdP X.509 signing certificate (PEM).
-     * @nullable
-     */
-    saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim: boolean
-    /** Whether SCIM provisioning is enabled for this domain. */
-    scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url: string | null
-    /** @nullable */
-    readonly scim_bearer_token: string | null
     /** Returns whether ID-JAG (XAA) is configured for this domain. */
     readonly has_id_jag: boolean
-    /**
-     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_issuer_url?: string | null
-    /**
-     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_jwks_url?: string | null
-    /**
-     * Allowed ID-JAG client IDs. Empty list allows any client_id.
-     * @items.maxLength 256
-     */
-    id_jag_allowed_clients?: string[]
     /**
      * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
      * @nullable
@@ -191,50 +153,12 @@ export interface PatchedOrganizationDomainApi {
     sso_enforcement?: string
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml?: boolean
-    /**
-     * SAML IdP entity ID (issuer).
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * SAML single sign-on (ACS) URL.
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /**
-     * SAML IdP X.509 signing certificate (PEM).
-     * @nullable
-     */
-    saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim?: boolean
-    /** Whether SCIM provisioning is enabled for this domain. */
-    scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url?: string | null
-    /** @nullable */
-    readonly scim_bearer_token?: string | null
     /** Returns whether ID-JAG (XAA) is configured for this domain. */
     readonly has_id_jag?: boolean
-    /**
-     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_issuer_url?: string | null
-    /**
-     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_jwks_url?: string | null
-    /**
-     * Allowed ID-JAG client IDs. Empty list allows any client_id.
-     * @items.maxLength 256
-     */
-    id_jag_allowed_clients?: string[]
     /**
      * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
      * @nullable
@@ -3558,6 +3482,11 @@ export interface UserApi {
     readonly is_impersonated_until: string | null
     /** @nullable */
     readonly is_impersonated_read_only: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
     readonly team: TeamBasicApi
@@ -3660,6 +3589,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_until?: string | null
     /** @nullable */
     readonly is_impersonated_read_only?: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
     readonly team?: TeamBasicApi
