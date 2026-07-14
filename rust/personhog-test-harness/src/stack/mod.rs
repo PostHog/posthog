@@ -248,6 +248,13 @@ impl Stack {
                 ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
                 ("KAFKA_HOSTS", self.config.kafka_hosts.clone()),
                 ("KAFKA_PERSON_STATE_TOPIC", self.topic.clone()),
+                // Must match the spawned writer's consumer group or the
+                // leader's committed-offset queries (warming ranges, dirty
+                // index pruning) silently see no progress at all.
+                (
+                    "WRITER_CONSUMER_GROUP",
+                    "personhog-test-harness-writer".to_string(),
+                ),
                 ("FALLBACK_DATABASE_URL", self.config.persons_db_url.clone()),
                 (
                     "METRICS_PORT",
