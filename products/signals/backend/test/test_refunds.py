@@ -12,6 +12,10 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+# Load the API URLconf (and its pydantic.v1 import chain) before any freeze_time window:
+# first-importing date-subclassing modules under freezegun's fake date raises a metaclass
+# conflict, which standalone runs of this file otherwise hit on the first request.
+import posthog.api.rest_router  # noqa: F401
 from posthog.models import Organization, Team
 
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR
