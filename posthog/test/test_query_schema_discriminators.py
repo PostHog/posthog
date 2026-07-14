@@ -1,7 +1,7 @@
 from django.test.testcases import SimpleTestCase
 
 from parameterized import parameterized
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from posthog.schema import (
     CalendarHeatmapQuery,
@@ -55,7 +55,7 @@ class TestQuerySchemaDiscriminators(SimpleTestCase):
         ]
     )
     def test_unknown_tag_returns_single_union_tag_error(
-        self, _name: str, model: type, payload: dict, field: str | None
+        self, _name: str, model: type[BaseModel], payload: dict, field: str | None
     ) -> None:
         with self.assertRaises(ValidationError) as ctx:
             model.model_validate(payload)
@@ -124,5 +124,5 @@ class TestQuerySchemaDiscriminators(SimpleTestCase):
             ),
         ]
     )
-    def test_valid_payload_still_validates(self, _name: str, model: type, payload: dict) -> None:
+    def test_valid_payload_still_validates(self, _name: str, model: type[BaseModel], payload: dict) -> None:
         model.model_validate(payload)
