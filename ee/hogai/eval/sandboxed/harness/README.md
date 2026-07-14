@@ -23,7 +23,7 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 | ------------------ | -------------------------------------------------------------------------------------------------------------------- |
 | `__main__.py`      | Entry point. Parses args, starts the transcript, configures Django, then hands off to `lifecycle`.                   |
 | `cli.py`           | `HarnessOptions` and the argparse builder. Resolves per-provider defaults.                                           |
-| `env_preflight.py` | Loads the repo-root `.env` (dotenv, shell wins) and validates required env vars via a pydantic model.                |
+| `env_preflight.py` | Loads the repo-root `.env` (stdlib parser, shell wins) and validates per-kind env vars via pydantic models.          |
 | `ports.py`         | The six port constants. Deliberately free of Django imports.                                                         |
 | `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup. |
 | `tunnels.py`       | `NgrokTunnels`. Modal only: generates an ngrok config, starts the agent, waits for public URLs.                      |

@@ -101,7 +101,8 @@ Modal evals use the `MODAL_EVALS` backend, whose sandbox class is pinned to the 
 `PERSONHOG_ADDR` follows the same rule for the same reason: the personhog client is a cached singleton keyed off settings at its first call, and bootstrap-phase reads run before the async-phase `override_settings`.
 `__main__` therefore sets it in the environment before `django.setup()`, pointing at the harness's own router on 15052 — which also shields the run from a `PERSONHOG_ADDR` leaked out of a sourced dev `.env`, where reads would silently hit the dev persons DB.
 
-Env loading follows the same before-`django.setup()` rule: `__main__` loads the repo-root `.env` via `env_preflight.load_env_file()` (dotenv, because hogli's line-based parser cannot represent `.env`'s quoted multiline PEM keys), never overriding variables the shell or hogli's env loading already exported.
+Env loading follows the same before-`django.setup()` rule: `__main__` loads the repo-root `.env` via `env_preflight.load_env_file()` (a stdlib parser that decodes `.env`'s quoted/escaped PEM keys, which hogli's line-based parser cannot represent), never overriding variables the shell or hogli's env loading already exported.
+`products/signals/eval/conftest.py` reuses the same loader, so it is the repo's one `.env` parser — keep it dependency-free.
 The explicit `SANDBOX_PROVIDER` / `PERSONHOG_ADDR` assignments come after the load, so they trump any env file on every path.
 
 `setup_django()` also forces `SELF_CAPTURE=0` before `django.setup()`. The ASGI app must not re-enable the global SDK with the local development personal API key during evals; eval trace emission uses the harness's explicit regional client instead.
