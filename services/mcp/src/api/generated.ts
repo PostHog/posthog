@@ -36982,6 +36982,7 @@ export namespace Schemas {
      * * `signal_finding` - Signal Finding
      * * `repo_selection` - Repo Selection
      * * `suggested_reviewers` - Suggested Reviewers
+     * * `proposal` - Proposal
      * * `dismissal` - Dismissal
      * * `code_reference` - Code Reference
      * * `commit` - Commit
@@ -37002,6 +37003,7 @@ export namespace Schemas {
       SignalFinding: 'signal_finding',
       RepoSelection: 'repo_selection',
       SuggestedReviewers: 'suggested_reviewers',
+      Proposal: 'proposal',
       Dismissal: 'dismissal',
       CodeReference: 'code_reference',
       Commit: 'commit',
@@ -37073,6 +37075,18 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    /**
+     * Shape of the `proposal` field on a report: the latest `proposal` artefact's content.
+     */
+    export interface SignalReportProposal {
+      /** Proposal flavor; `setup_improvement` is the only kind today. */
+      kind: string;
+      /** Setup gap the proposal addresses: `events`, `feature_flags`, `error_tracking`, or `logs`. */
+      category: string;
+      /** PostHog product the proposed PR would set up (e.g. `error_tracking`). */
+      product: string;
+    }
+
     export interface SignalReport {
       readonly id: string;
       /** @nullable */
@@ -37124,6 +37138,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly implementation_pr_url: string | null;
+      /** Content of the latest proposal artefact when this report is a setup-improvement proposal (inbox cold-start content); null for regular reports. */
+      readonly proposal: SignalReportProposal | null;
     }
 
     export interface PaginatedSignalReportList {
@@ -73551,6 +73567,10 @@ export namespace Schemas {
      * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
      */
     has_implementation_pr?: boolean;
+    /**
+     * Filter reports by whether they are setup-improvement proposals (carry a 'proposal' artefact). 'true' keeps only proposals; 'false' excludes them.
+     */
+    has_proposal?: boolean;
     /**
      * Number of results to return per page.
      */

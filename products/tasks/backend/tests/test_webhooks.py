@@ -63,6 +63,11 @@ class TestGitHubPRWebhook(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
+        # The wizard-merge path dispatches the signals setup audit (a Temporal workflow start);
+        # neutralize it class-wide so these tests never open a real Temporal connection.
+        setup_audit_patcher = patch("products.tasks.backend.webhooks.signals_facade.start_setup_audit")
+        self.mock_start_setup_audit = setup_audit_patcher.start()
+        self.addCleanup(setup_audit_patcher.stop)
 
     def _make_webhook_request(self, payload: dict, event_type: str = "pull_request"):
         """Helper to make a webhook request with proper signature."""
@@ -222,6 +227,42 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(mock_signal.call_count, expected_signals)
         if expected_signals:
             mock_signal.assert_called_once_with(run.id, TaskRun.Status.COMPLETED, None)
+
+    @parameterized.expand(
+        [
+            ("wizard_run_with_repo", {"wizard_config": {}}, True, 1),
+            ("non_wizard_run", {}, True, 0),
+            ("wizard_run_without_repo", {"wizard_config": {}}, False, 0),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_dispatches_setup_audit_only_for_wizard_runs(
+        self, _name, state, include_repository, expected_dispatches, _mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/780"
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state=state,
+            output={"pr_url": pr_url},
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {"html_url": pr_url, "merged": True},
+            **({"repository": {"full_name": "posthog/posthog"}} if include_repository else {}),
+        }
+
+        with patch("products.tasks.backend.webhooks.signal_workflow_completion"):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.mock_start_setup_audit.call_count, expected_dispatches)
+        if expected_dispatches:
+            self.mock_start_setup_audit.assert_called_once_with(team_id=self.team.id, repository="posthog/posthog")
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")

@@ -38,12 +38,15 @@ Ground it in the target project first — a scout is only as good as its fit to 
 1. **Read the project.** `posthog:signals-scout-project-profile-get` returns the deterministic snapshot the scout itself cold-starts from: products in use, top events with reach/burst metrics, integrations, existing inbox counts.
    If the scout watches a specific event, confirm it exists and check its shape with `posthog:read-data-schema`.
    A scout for an event the project doesn't capture is dead on arrival.
-2. **See what already runs.** `posthog:signals-scout-config-list` lists every existing scout on the project with its schedule, `enabled`, and `emit` posture, plus each scout's `description` (pulled from the skill's frontmatter) so you can tell what a scout watches without loading its body.
+2. **Read the repo's for-agents context, when you have a checkout.** If you're working from the project's source repo — the wizard's self-driving setup proposing custom scouts is the canonical case — read the agent-facing docs before gap-analyzing: `AGENTS.md`, `CLAUDE.md`, `ARCHITECTURE.md`, `.cursor/rules/`, `.github/copilot-instructions.md`, and any docs written for agents.
+   They are a distilled, maintained map of what the product does, its domain vocabulary, and its moving parts — surfaces like background jobs, integrations, billing flows, and internal pipelines that neither the event list nor a raw source scan reveals cheaply.
+   Ground gap candidates in them: name proposed scouts in the product's own vocabulary, and cross-check that a "gap" isn't a surface the docs say is deliberately out of scope.
+3. **See what already runs.** `posthog:signals-scout-config-list` lists every existing scout on the project with its schedule, `enabled`, and `emit` posture, plus each scout's `description` (pulled from the skill's frontmatter) so you can tell what a scout watches without loading its body.
    Don't duplicate a surface a canonical scout already covers — adapt that one instead.
-3. **Read the closest canonical scout.** It's your template and your reference shape.
+4. **Read the closest canonical scout.** It's your template and your reference shape.
    Pull it with `posthog:skill-get {"skill_name": "signals-scout-<x>"}` (per-team rows) or read it from the repo at `products/signals/skills/signals-scout-*/`.
    The generalist (`signals-scout-general`) is the broad template; if your scope is domain-tight, pick the specialist closest to your surface — list the live roster with `posthog:skill-list {"search": "signals-scout"}` (specialists exist for most product surfaces: error tracking, logs, AI observability, experiments, feature flags, session replay, web analytics, surveys, and more).
-4. **Skim the inbox.** `posthog:inbox-reports-list` shows what reports are actually landing — calibrate so your scout adds signal, not noise.
+5. **Skim the inbox.** `posthog:inbox-reports-list` shows what reports are actually landing — calibrate so your scout adds signal, not noise.
 
 ## Choose the path
 

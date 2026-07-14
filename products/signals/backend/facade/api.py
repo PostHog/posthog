@@ -124,6 +124,37 @@ def has_enabled_source(team_id: int) -> bool:
     return SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists()
 
 
+def start_setup_audit(team_id: int, repository: str) -> None:
+    """Kick off the post-onboarding setup audit for a team (idempotent per team).
+
+    Called by the tasks product (a sync webhook context) when a wizard instrumentation PR
+    merges. The audit files proposal reports for detected setup gaps so the inbox has
+    actionable cold-start content; duplicate calls are no-ops via the per-team workflow id
+    (plus a proposal-existence check inside the workflow for reruns after Temporal retention).
+    """
+    import asyncio  # noqa: PLC0415 — only needed when dispatching
+
+    from products.signals.backend.temporal.setup_audit import (  # noqa: PLC0415 — the temporal package imports the facade back (see emit_signal); resolved lazily
+        SetupAuditInputs,
+        SetupAuditWorkflow,
+    )
+
+    async def _start() -> None:
+        client = await async_connect()
+        try:
+            await client.start_workflow(
+                SetupAuditWorkflow.run,
+                SetupAuditInputs(team_id=team_id, repository=repository),
+                id=SetupAuditWorkflow.workflow_id_for(team_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                run_timeout=timedelta(minutes=30),
+            )
+        except temporalio.exceptions.WorkflowAlreadyStartedError:
+            pass
+
+    asyncio.run(_start())
+
+
 def onboarding_sources(team_id: int) -> list[OnboardingSource]:
     """The onboarding sources, in order, with current enabled state (for pre-checking the checkboxes)."""
     enabled_pairs = set(

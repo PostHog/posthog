@@ -199,6 +199,35 @@ class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
     """Content schema for a `suggested_reviewers` artefact — the content root is a JSON list."""
 
 
+class SetupProposal(BaseModel):
+    """Content schema for a `proposal` artefact: marks a report as a proposed setup-improvement
+    PR (inbox cold-start content) rather than a signal-derived finding.
+
+    Emitted by the setup-audit workflow after onboarding when a team's PostHog setup is missing a
+    capability (custom events, feature flags, error tracking, logs). The report is never
+    auto-started — a human approves it from the inbox, which kicks off the regular
+    implementation-task flow.
+    """
+
+    kind: Literal["setup_improvement"] = Field(
+        default="setup_improvement",
+        description="Proposal flavor; `setup_improvement` is the only kind today.",
+    )
+    category: Literal["events", "feature_flags", "error_tracking", "logs"] = Field(
+        description="Which setup gap this proposal addresses.",
+    )
+    product: str = Field(
+        description="PostHog product the proposed PR would set up (e.g. `product_analytics`, `error_tracking`).",
+    )
+
+    @field_validator("product")
+    @classmethod
+    def product_must_be_identifier(cls, v: str) -> str:
+        if not _IDENTIFIER_PART_RE.match(v):
+            raise ValueError("must be a lowercase identifier (a-z, 0-9, _, -)")
+        return v
+
+
 class Dismissal(BaseModel):
     """Content schema for a `dismissal` artefact: feedback captured when a report is dismissed/snoozed.
 
@@ -484,7 +513,12 @@ class CodeReview(BaseModel):
 # entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
 # `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
 StatusArtefactContent = (
-    SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
+    SafetyJudgment
+    | ActionabilityAssessment
+    | PriorityAssessment
+    | RepoSelectionResult
+    | SuggestedReviewers
+    | SetupProposal
 )
 LogArtefactContent = CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
@@ -499,6 +533,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "signal_finding": SignalFinding,
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
+    "proposal": SetupProposal,
     "dismissal": Dismissal,
     "code_reference": CodeReference,
     "commit": Commit,
@@ -521,8 +556,10 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # be created or edited directly.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
+# `proposal` is system-generated too — the setup-audit workflow is its only writer; accepting it
+# through the API would let a caller dress arbitrary reports up as PostHog-authored proposals.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
-    {"video_segment", "title_change", "summary_change", "code_review"}
+    {"video_segment", "title_change", "summary_change", "code_review", "proposal"}
 )
 
 

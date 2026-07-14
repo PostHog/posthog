@@ -1,6 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    SignalReportProposalApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -75,6 +76,8 @@ export interface SignalReport {
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
     dismissal_note?: string | null
+    /** Setup-improvement proposal content when this report is a proposal (inbox cold start); null otherwise. */
+    proposal?: SignalReportProposalApi | null
 }
 
 export enum SignalReportStatus {

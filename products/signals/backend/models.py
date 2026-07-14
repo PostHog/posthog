@@ -681,6 +681,7 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
+        PROPOSAL = "proposal"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
         COMMIT = "commit"
@@ -708,6 +709,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.PRIORITY_JUDGMENT,
             ArtefactType.REPO_SELECTION,
             ArtefactType.SUGGESTED_REVIEWERS,
+            ArtefactType.PROPOSAL,
         }
     )
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(

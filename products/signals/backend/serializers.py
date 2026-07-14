@@ -273,6 +273,16 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
     )
 
 
+class SignalReportProposalSerializer(serializers.Serializer):
+    """Shape of the `proposal` field on a report: the latest `proposal` artefact's content."""
+
+    kind = serializers.CharField(help_text="Proposal flavor; `setup_improvement` is the only kind today.")
+    category = serializers.CharField(
+        help_text="Setup gap the proposal addresses: `events`, `feature_flags`, `error_tracking`, or `logs`."
+    )
+    product = serializers.CharField(help_text="PostHog product the proposed PR would set up (e.g. `error_tracking`).")
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     priority = serializers.SerializerMethodField(
@@ -300,6 +310,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
     )
+    proposal = serializers.SerializerMethodField(
+        help_text=(
+            "Content of the latest proposal artefact when this report is a setup-improvement "
+            "proposal (inbox cold-start content); null for regular reports."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -323,6 +339,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_products",
             "scout_name",
             "implementation_pr_url",
+            "proposal",
         ]
         read_only_fields = fields
 
@@ -407,6 +424,21 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("note")
         return value if isinstance(value, str) and value else None
+
+    @extend_schema_field(SignalReportProposalSerializer(allow_null=True))
+    def get_proposal(self, obj: SignalReport) -> dict | None:
+        prefetched = getattr(obj, "prefetched_proposal_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            art = obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.PROPOSAL).order_by("-created_at").first()
+        if art is None:
+            return None
+        try:
+            data = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
         source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")

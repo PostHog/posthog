@@ -5164,6 +5164,8 @@ const api = {
             actionability?: string
             /** Filter by whether a shipped implementation PR exists. */
             has_implementation_pr?: 'true' | 'false'
+            /** Filter by whether the report is a setup-improvement proposal (carries a proposal artefact). */
+            has_proposal?: 'true' | 'false'
             /** Comma-separated reviewer user UUIDs (For-you / teammate scope). */
             suggested_reviewers?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
