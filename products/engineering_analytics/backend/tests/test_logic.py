@@ -900,6 +900,28 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.last_failure_at is not None
         assert ci.billable_minutes is None  # no jobs source seeded → no cost figure
 
+    def test_workflow_health_prev_window_survives_raw_scan_floor(self) -> None:
+        # The prev-window query's raw-string scan floor must come from prev_from, not date_from.
+        # A run in [prev_from, date_from) sits below the date_from floor; if that floor leaked into
+        # the prev scan the innermost raw prefilter would drop it and success_rate_prev would go None.
+        # A -30d window puts its prev twin at [-60d, -30d), so _ago(45) lands squarely in it.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(60, "alice", "open", 0, _ago(2), head_sha="sha60")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(6001, "CI", "sha60", "completed", "success", _ago(2), _ago(2), pr_number=60),
+                _run_row(6002, "CI", "sha60p", "completed", "success", _ago(45), _ago(45), pr_number=60),
+            ],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
+        assert ci.success_rate == 1.0
+        assert ci.success_rate_prev == 1.0
+
     def test_workflow_health_duration_percentiles_exclude_cancelled_and_failed_runs(self) -> None:
         self._create_table(
             "github_pull_requests",

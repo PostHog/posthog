@@ -32,6 +32,7 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     window_buckets,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
+from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_cost_per_merge_series,
     query_workflow_window_costs_with_prev,
@@ -83,11 +84,16 @@ def query_default_branch(
     """'master' or 'main', by observed run volume in the window — the cheap standalone variant of the
     detection the overview aggregate gets for free."""
     date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "run_started_floor": run_started_floor_constant(date_from),
+    }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
     response = curated.run(
-        _DEFAULT_BRANCH_SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace("__DATE_TO__", date_to_clause),
+        _DEFAULT_BRANCH_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True)).replace(
+            "__DATE_TO__", date_to_clause
+        ),
         query_type="engineering_analytics.default_branch",
         placeholders=placeholders,
     )
@@ -131,12 +137,15 @@ def query_success_rate_series(
 ) -> list[PassRateBucket]:
     """Pass rate per bucket across the window, oldest first: completed runs that succeeded, all branches —
     the same population as the headline pass rate. Empty buckets carry ``success_rate`` None (a gap)."""
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "run_started_floor": run_started_floor_constant(date_from),
+    }
     date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
     sql = (
-        _PASS_RATE_SERIES_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        _PASS_RATE_SERIES_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BUCKET_FN__", bucket_expr(granularity, "run_started_at"))
     )
@@ -250,6 +259,9 @@ def query_repo_overview(
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
+        # The scan reaches back to prev_from (the previous comparison window), so the raw floor
+        # comes from prev_from, not date_from — a date_from floor would cut the prev-window rows.
+        "run_started_floor": run_started_floor_constant(prev_from),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
@@ -257,7 +269,7 @@ def query_repo_overview(
     runs_sql = (
         _RUNS_SELECT.replace("__CUR__", cur)
         .replace("__PREV__", prev)
-        .replace("__RUNS_SOURCE__", curated.run_source())
+        .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
     )
     runs_response = curated.run(

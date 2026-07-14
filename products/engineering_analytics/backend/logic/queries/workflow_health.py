@@ -38,6 +38,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     branch_filter_clause,
     date_to_filter_clause,
     run_scope_filter_clause,
+    run_started_floor_constant,
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
@@ -119,11 +120,14 @@ def query_time_to_green_series(
     successful, PR-attributed CI runs (default-branch runs excluded). Success-only + PR-scoped — the same
     population workflow-health's percentiles use — so it answers "how long until CI passes on a PR", not
     master build time. Empty buckets carry ``p50_seconds`` None (a gap, not instant CI)."""
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "run_started_floor": run_started_floor_constant(date_from),
+    }
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     run_scope_clause = run_scope_filter_clause(WorkflowHealthRunScope.PULL_REQUEST)
     sql = (
-        _TIME_TO_GREEN_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        _TIME_TO_GREEN_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__RUN_SCOPE__", run_scope_clause)
         .replace("__BUCKET_FN__", bucket_expr(granularity))
@@ -148,12 +152,15 @@ def query_workflow_health(
     run_scope: WorkflowHealthRunScope,
 ) -> list[WorkflowHealthItem]:
     granularity = pick_granularity(date_from, date_to)
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "run_started_floor": run_started_floor_constant(date_from),
+    }
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     branch_clause = branch_filter_clause(branch, placeholders)
     run_scope_clause = run_scope_filter_clause(run_scope)
 
-    runs_source = curated.run_source()
+    runs_source = curated.run_source(started_floor=True)
 
     def fill(template: str) -> str:
         return (
@@ -183,7 +190,13 @@ def query_workflow_health(
     prev_response = curated.run(
         fill(_PREV_SELECT),
         query_type="engineering_analytics.workflow_health_prev",
-        placeholders={**placeholders, "prev_from": ast.Constant(value=prev_from)},
+        # The prev window scans [prev_from, date_from); its scan floor must come from prev_from, not
+        # date_from, or the raw prefilter would cut every previous-window row before the parsed filter.
+        placeholders={
+            **placeholders,
+            "prev_from": ast.Constant(value=prev_from),
+            "run_started_floor": run_started_floor_constant(prev_from),
+        },
     )
     prev_rate_by_workflow: dict[tuple[str, str, str], float | None] = {
         (repo_owner, repo_name, workflow_name): opt_float(success_rate)
