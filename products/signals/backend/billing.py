@@ -144,6 +144,8 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
     stamp must not resurface the report in recency-ordered lists). Callers needing atomicity with
     other writes should hold the report row lock; the auto-start hook does.
     """
+    if reason not in SignalReport.BillingExemptReason.values:
+        raise ValueError(f"Unknown billing exemption reason: {reason!r}")
     if report.billing_exempt_reason:
         return False
     if first_billable_pr_run_at(report.id) is not None:
