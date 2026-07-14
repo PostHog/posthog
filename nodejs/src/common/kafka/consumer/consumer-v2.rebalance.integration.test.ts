@@ -189,6 +189,10 @@ function makeConsumer(
             // Short but realistic session timeout keeps group transitions in these tests fast.
             // 6s is the broker's floor (group.min.session.timeout.ms defaults to 6000).
             'session.timeout.ms': 6_000,
+            // The broker-enforced rebalance timeout (librdkafka sends max.poll.interval.ms as
+            // the JoinGroup rebalance timeout). Every flush in this suite must finish inside
+            // it — except in the fencing test, which lowers it deliberately to get fenced.
+            'max.poll.interval.ms': 30_000,
             // Commit stored offsets promptly so exact committed-offset assertions don't wait
             // out the 5s librdkafka default between polls.
             'auto.commit.interval.ms': 500,
