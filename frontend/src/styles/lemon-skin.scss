@@ -168,9 +168,9 @@
 [data-lemon-skin]
     :is(.quill-button--variant-link, .quill-button--variant-link-muted):not(:disabled, [aria-disabled='true']):hover,
 :is(.quill-button--variant-link, .quill-button--variant-link-muted)[data-lemon-skin]:not(
-        :disabled,
-        [aria-disabled='true']
-    ):hover {
+    :disabled,
+    [aria-disabled='true']
+):hover {
     color: var(--lemon-skin-accent-hover);
     text-decoration-line: none;
     background: none;
