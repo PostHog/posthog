@@ -1,5 +1,7 @@
 from temporalio import activity
 
+from posthog.temporal.common.utils import close_db_connections
+
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.prompt_suggestions import refresh_prompt_suggestion_if_stale
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -7,6 +9,7 @@ from products.replay_vision.backend.temporal.sweep_types import RefreshPromptSug
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def refresh_prompt_suggestion_activity(inputs: RefreshPromptSuggestionInputs) -> str:
     """Daily-gated prompt suggestion refresh, piggybacking on the scanner sweep: regenerates only when

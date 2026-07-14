@@ -10,6 +10,7 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.models.person.util import get_person_by_distinct_id
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.temporal.common.utils import close_db_connections
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import (
@@ -59,6 +60,7 @@ _DEDUP_HASH_BYTES = 8
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> None:
     """Fetch analytics events for a session and stash in Redis; idempotent — a second call finds the key and returns."""

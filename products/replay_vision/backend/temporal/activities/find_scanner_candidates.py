@@ -3,6 +3,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.temporal.common.utils import close_db_connections
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.queries.scanner_candidate_query import (
@@ -18,6 +19,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> FindScannerCandidatesOutput:
     # `enabled=True` short-circuits sweeps the instant a scanner is disabled.

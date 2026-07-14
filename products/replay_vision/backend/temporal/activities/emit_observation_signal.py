@@ -5,6 +5,8 @@ import structlog
 from asgiref.sync import async_to_sync
 from temporalio import activity
 
+from posthog.temporal.common.utils import close_db_connections
+
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -25,6 +27,7 @@ def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs | None:
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int:
     """Emit the observation's side-mission findings as PostHog Signals; fails soft, returns the emitted count."""

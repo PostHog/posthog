@@ -7,6 +7,8 @@ from django.utils import timezone
 import structlog
 from temporalio import activity
 
+from posthog.temporal.common.utils import close_db_connections
+
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
@@ -41,6 +43,7 @@ def _kind_from_error_reason(error_reason: str, valid_kinds: Container[str]) -> s
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def mark_observation_running_activity(inputs: MarkObservationRunningInputs) -> None:
     """Flip pending → running. Idempotent: an at-least-once retry against the now-RUNNING row is a no-op."""
@@ -87,6 +90,7 @@ def mark_observation_terminal(
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def mark_observation_failed_activity(inputs: MarkObservationFailedInputs) -> None:
     """Flip pending/running → failed. Idempotent: FAILED is not in the source filter."""
@@ -101,6 +105,7 @@ def mark_observation_failed_activity(inputs: MarkObservationFailedInputs) -> Non
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def mark_observation_ineligible_activity(inputs: MarkObservationIneligibleInputs) -> None:
     """Flip pending/running → ineligible. Idempotent: INELIGIBLE is not in the source filter."""
@@ -115,6 +120,7 @@ def mark_observation_ineligible_activity(inputs: MarkObservationIneligibleInputs
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) -> None:
     """Flip pending/running → succeeded and persist the scanner result. Idempotent: SUCCEEDED is not in the source filter."""
