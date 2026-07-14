@@ -131,7 +131,9 @@ def validate_credentials(api_key: str) -> tuple[bool, int | None]:
     """Probe a cheap list endpoint. Returns (ok, status_code); status is None on transport failure."""
     url = _build_url("/apps", {"limit": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        # capture=False: Kernel responses carry secret-bearing fields (see SENSITIVE_FIELDS)
+        # that the generic HTTP-sample scrubber does not know to redact.
+        response = make_tracked_session(capture=False).get(url, headers=_get_headers(api_key), timeout=10)
     except Exception:
         return False, None
     return response.status_code == 200, response.status_code
@@ -146,7 +148,9 @@ def get_rows(
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # capture=False: Kernel responses carry secret-bearing fields (see SENSITIVE_FIELDS) that the
+    # generic HTTP-sample scrubber does not know to redact, and sampling happens before redaction.
+    session = make_tracked_session(capture=False)
 
     # Full refresh only: no resumable offset state. A crashed sync restarts from offset 0 and
     # the pipeline overwrites the table on the first chunk, so re-fetched pages never duplicate

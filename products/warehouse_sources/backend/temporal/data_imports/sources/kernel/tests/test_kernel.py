@@ -114,6 +114,8 @@ class TestValidateCredentials:
 
         headers = mock_session.return_value.get.call_args.kwargs["headers"]
         assert headers["Authorization"] == "Bearer sk_test"
+        # Kernel responses carry secrets the generic sampler can't scrub, so capture must be off.
+        assert mock_session.call_args.kwargs["capture"] is False
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_transport_failure_returns_none_status(self, mock_session: Any) -> None:
@@ -136,6 +138,8 @@ class TestGetRows:
 
         assert rows == [{"id": "a1"}, {"id": "a2"}]
         assert mock_session.return_value.get.call_count == 1
+        # Kernel responses carry secrets the generic sampler can't scrub, so capture must be off.
+        assert mock_session.call_args.kwargs["capture"] is False
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_offset_pagination_follows_next_offset_header(self, mock_session: Any) -> None:
