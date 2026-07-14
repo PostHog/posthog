@@ -11,6 +11,7 @@ const DEFAULT_STATE: InboxFilterState = {
     priorityFilter: [],
     sortField: 'priority',
     sortDirection: 'asc',
+    searchQuery: '',
 }
 
 describe('inboxFiltersLogic', () => {
@@ -41,19 +42,21 @@ describe('inboxFiltersLogic', () => {
 
         it.each<[string, InboxFilterState, Record<string, string>]>([
             [
-                'scope + multiple sources + priorities + custom sort',
+                'scope + sources + priorities + custom sort + search',
                 {
                     scope: 'entire-project',
                     sourceProductFilter: ['error_tracking', 'github'],
                     priorityFilter: ['P0', 'P2'],
                     sortField: 'created_at',
                     sortDirection: 'desc',
+                    searchQuery: 'checkout crash',
                 },
                 {
                     scope: 'entire-project',
                     source: 'error_tracking,github',
                     priority: 'P0,P2',
                     sort: 'created_at:desc',
+                    search: 'checkout crash',
                 },
             ],
             [
@@ -66,15 +69,17 @@ describe('inboxFiltersLogic', () => {
             expect(parseFilterSearchParams(expectedParams)).toEqual(state)
         })
 
-        // A shared link is authoritative but untrusted: unknown values (and a malformed teammate id, which
-        // would otherwise reach the report-list API as a bad reviewer UUID) must not leak into filter state.
-        it('drops unknown sources, priorities, malformed teammate scope and sort, falling back to defaults', () => {
+        // A shared link is authoritative but untrusted: unknown values (a malformed teammate id, which would
+        // otherwise reach the report-list API as a bad reviewer UUID, and a syntactically valid but
+        // unsupported sort combination the Sort control can't display) must not leak into filter state.
+        it('drops unknown sources, priorities, malformed teammate scope and unsupported sort', () => {
             expect(
                 parseFilterSearchParams({
                     scope: 'teammate:not-a-uuid',
                     source: 'error_tracking,bogus_source',
                     priority: 'P9,P1',
-                    sort: 'foo:sideways',
+                    // priority:desc has a valid field and direction but is not one of the offered sort options.
+                    sort: 'priority:desc',
                 })
             ).toEqual({
                 ...DEFAULT_STATE,

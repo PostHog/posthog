@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { isUUIDLike } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
-import { INBOX_PRIORITY_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
+import { INBOX_PRIORITY_OPTIONS, INBOX_SORT_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
 import { INBOX_SCOPE_FOR_YOU, InboxScope, SignalReportPriority } from '../types'
 import type { inboxFiltersLogicType } from './inboxFiltersLogicType'
 
@@ -24,11 +24,13 @@ const DEFAULT_SORT_FIELD: InboxSortField = 'priority'
 const DEFAULT_SORT_DIRECTION: InboxSortDirection = 'asc'
 
 // Query-param keys that mirror the filter state so a view can be shared via URL.
-const FILTER_URL_KEYS = ['scope', 'source', 'priority', 'sort'] as const
+const FILTER_URL_KEYS = ['scope', 'source', 'priority', 'sort', 'search'] as const
 
 const VALID_SOURCE_VALUES = new Set(INBOX_SOURCE_OPTIONS.map((o) => o.value))
 const VALID_PRIORITIES = new Set<string>(INBOX_PRIORITY_OPTIONS)
-const VALID_SORT_FIELDS = new Set<string>(['priority', 'created_at', 'updated_at'])
+// Only the field/direction combinations the Sort control actually offers — validating the field and
+// direction independently would accept keys like `priority:desc` that have no matching UI option.
+const VALID_SORT_KEYS = new Set(INBOX_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
 
 export interface InboxFilterState {
     scope: InboxScope
@@ -36,6 +38,7 @@ export interface InboxFilterState {
     priorityFilter: SignalReportPriority[]
     sortField: InboxSortField
     sortDirection: InboxSortDirection
+    searchQuery: string
 }
 
 function parseScopeParam(raw: unknown): InboxScope {
@@ -63,12 +66,10 @@ function parseListParam(raw: unknown, valid: Set<string>): string[] {
 export function parseFilterSearchParams(searchParams: Record<string, any>): InboxFilterState {
     let sortField = DEFAULT_SORT_FIELD
     let sortDirection = DEFAULT_SORT_DIRECTION
-    if (typeof searchParams.sort === 'string') {
+    if (typeof searchParams.sort === 'string' && VALID_SORT_KEYS.has(searchParams.sort)) {
         const [field, direction] = searchParams.sort.split(':')
-        if (VALID_SORT_FIELDS.has(field) && (direction === 'asc' || direction === 'desc')) {
-            sortField = field as InboxSortField
-            sortDirection = direction
-        }
+        sortField = field as InboxSortField
+        sortDirection = direction as InboxSortDirection
     }
     return {
         scope: parseScopeParam(searchParams.scope),
@@ -76,6 +77,7 @@ export function parseFilterSearchParams(searchParams: Record<string, any>): Inbo
         priorityFilter: parseListParam(searchParams.priority, VALID_PRIORITIES) as SignalReportPriority[],
         sortField,
         sortDirection,
+        searchQuery: typeof searchParams.search === 'string' ? searchParams.search : '',
     }
 }
 
@@ -97,6 +99,9 @@ export function filterSearchParams(values: InboxFilterState): Record<string, str
     }
     if (values.sortField !== DEFAULT_SORT_FIELD || values.sortDirection !== DEFAULT_SORT_DIRECTION) {
         params.sort = `${values.sortField}:${values.sortDirection}`
+    }
+    if (values.searchQuery.trim().length > 0) {
+        params.search = values.searchQuery
     }
     return params
 }
@@ -214,11 +219,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 setFilters: () => true,
             },
         ],
-        // Not persisted – matches desktop (searchQuery is excluded from `partialize`).
+        // Not persisted – matches desktop (searchQuery is excluded from `partialize`). It is mirrored to
+        // the URL though, so a shared link reproduces the search too and hydration can reset it.
         searchQuery: [
             '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
+                setFilters: (_, { filters }) => filters.searchQuery,
                 clearFilters: () => '',
             },
         ],
@@ -281,6 +288,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             setSort: toUrl,
             toggleSourceProduct: toUrl,
             togglePriority: toUrl,
+            setSearchQuery: toUrl,
             clearFilters: toUrl,
         }
     }),
@@ -311,7 +319,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 !sameSet(values.sourceProductFilter, parsed.sourceProductFilter) ||
                 !sameSet(values.priorityFilter, parsed.priorityFilter) ||
                 values.sortField !== parsed.sortField ||
-                values.sortDirection !== parsed.sortDirection
+                values.sortDirection !== parsed.sortDirection ||
+                values.searchQuery !== parsed.searchQuery
             if (changed) {
                 actions.setFilters(parsed)
             }
