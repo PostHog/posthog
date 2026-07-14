@@ -1,6 +1,6 @@
 # Sandboxed eval authoring reference
 
-Field-level contracts for eval authors. Paths are relative to `ee/hogai/eval/sandboxed/` unless noted.
+Field-level contracts for eval authors. Paths are relative to `products/posthog_ai/eval_harness/` unless noted.
 When anything here disagrees with the code, the code wins — the sources of truth are `config.py`, `base.py`, and `log_parser.py`.
 
 ## `SandboxedEvalCase` (`config.py`)
@@ -68,7 +68,7 @@ from typing import Any
 
 from braintrust import Score
 
-from ee.hogai.eval.sandboxed.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
+from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 
 
 class SaysHello(JudgedScorer):
@@ -92,9 +92,9 @@ class SaysHello(JudgedScorer):
 
 ## Determinism discipline
 
-The dataset is byte-for-byte reproducible under the fixed `EVAL_SEED` (`ee/hogai/eval/data_setup.py`), and noise generators use fixed seeds.
+The dataset is byte-for-byte reproducible under the fixed `EVAL_SEED` (`products/posthog_ai/eval_harness/data_setup.py`), and noise generators use fixed seeds.
 
-- Reference events, properties, flags, and insight names **exactly** as listed in the Hedgebox dataset reference (`ee/hogai/eval/sandboxed/AGENTS.md`).
+- Reference events, properties, flags, and insight names **exactly** as listed in the Hedgebox dataset reference (`products/posthog_ai/evals/AGENTS.md`).
 - Prefer relative date ranges (`-30d`, `-8w`, `-6m`) and shape-based assertions; never hard-code absolute counts — they drift when the simulation changes.
 - Mirror seeded insights with `filterTestAccounts=True`; use the `account` group type (index 0) for group math.
 - Share constants between synthesizer/seeder, prompts, and scorers by importing them (the warehouse needle pattern) instead of restating strings.

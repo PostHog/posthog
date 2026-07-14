@@ -12,7 +12,7 @@ from posthoganalytics.ai.openai import AsyncOpenAI
 from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.models import Organization, Team
 
-from ee.hogai.eval.sandboxed.harness.env_preflight import load_env_file
+from products.posthog_ai.eval_harness.harness.env_preflight import load_env_file
 
 load_env_file()
 
