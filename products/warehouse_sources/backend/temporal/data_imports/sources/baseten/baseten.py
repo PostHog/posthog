@@ -40,6 +40,13 @@ def _headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _get_session(api_key: str) -> requests.Session:
+    # Redact the key everywhere the tracked transport might surface it (logged URLs, captured
+    # samples). The `Authorization` header is already dropped wholesale by the sampler, but masking
+    # the literal value is cheap defense-in-depth in case it ever lands in an error body or URL.
+    return make_tracked_session(redact_values=(api_key,))
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -69,8 +76,10 @@ def _fetch(
 
     if not response.ok:
         # 404 is expected during fan-out when a parent resource is deleted mid-sync; caller handles it.
+        # Log only status + url — upstream error bodies can echo workspace metadata or secret-adjacent
+        # data, so we never persist `response.text`.
         log = logger.warning if response.status_code == 404 else logger.error
-        log(f"Baseten API error: status={response.status_code}, body={response.text}, url={url}")
+        log(f"Baseten API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -80,7 +89,7 @@ def validate_credentials(api_key: str) -> bool:
     # /v1/users/me is the cheapest workspace-scoped probe and doesn't depend on any resource existing.
     url = f"{BASETEN_BASE_URL}/v1/users/me"
     try:
-        response = make_tracked_session().get(url, headers=_headers(api_key), timeout=10)
+        response = _get_session(api_key).get(url, headers=_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -135,8 +144,11 @@ def _paginated_rows(
         if not next_cursor:
             break
 
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it; merge
-        # dedupes the re-pulled rows on the primary key.
+        # Save AFTER yielding so a crash re-yields the last page rather than skipping it. These are
+        # full-refresh tables (append writes, no primary-key merge), so a resumed run can re-append
+        # at most the one in-flight page — bounded, and cleared by the next clean full refresh. We
+        # prefer that transient duplicate over the alternative (save-before-yield), which would drop
+        # a page entirely on a crash in the same window.
         manager.save_state(BasetenResumeConfig(cursor=next_cursor))
         cursor = next_cursor
 
@@ -163,12 +175,23 @@ def _fan_out_rows(
     assert config.fan_out_parent is not None
     parent_config = BASETEN_ENDPOINTS[config.fan_out_parent]
     parents = _iter_parents(session, headers, parent_config, logger)
-    parent_ids = [str(p.get(config.fan_out_parent_field)) for p in parents]
+
+    # Drop parents missing the fan-out id. Stringifying a missing id would build a bogus child path
+    # (e.g. `/v1/models/None/deployments`) and could sync child rows keyed to a literal "None".
+    parented: list[tuple[str, dict[str, Any]]] = []
+    for parent in parents:
+        raw_id = parent.get(config.fan_out_parent_field)
+        if raw_id is None or raw_id == "":
+            logger.warning(f"Baseten: skipping {config.fan_out_parent} without {config.fan_out_parent_field}")
+            continue
+        parented.append((str(raw_id), parent))
+    parent_ids = [pid for pid, _ in parented]
 
     # Resolve the saved parent bookmark to the slice still to process. If the bookmarked parent no
-    # longer exists (deleted between runs), start over — merge dedupes the re-pulled rows.
+    # longer exists (deleted between runs), start over. These are full-refresh tables, so re-pulling
+    # a parent's children can at most re-append them (bounded, cleared by the next clean full refresh).
     resume = manager.load_state() if manager.can_resume() else None
-    remaining = list(zip(parent_ids, parents))
+    remaining = parented
     if resume is not None and resume.parent_id is not None and resume.parent_id in parent_ids:
         start = parent_ids.index(resume.parent_id)
         remaining = remaining[start:]
@@ -211,7 +234,7 @@ def get_rows(
     config = BASETEN_ENDPOINTS[endpoint]
     headers = _headers(api_key)
     # One session reused across every page/parent so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    session = _get_session(api_key)
 
     if config.paginated:
         yield from _paginated_rows(session, headers, config, resumable_source_manager, logger)

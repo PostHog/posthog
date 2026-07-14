@@ -165,6 +165,18 @@ class TestFanOut:
         batches, _ = _drive("deployments", manager, responses)
         assert batches == [[{"id": "d2", "model_id": "m2"}]]
 
+    def test_parent_without_id_is_skipped(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        responses = [
+            _response({"models": [{"id": "m1"}, {"name": "orphan"}]}),  # second parent has no id
+            _response({"deployments": [{"id": "d1"}]}),  # only m1's children are fetched
+        ]
+        batches, captured = _drive("deployments", manager, responses)
+        assert batches == [[{"id": "d1", "model_id": "m1"}]]
+        # The id-less parent must not produce a request against a stringified "None" id.
+        assert not any("/models/None/" in c["url"] for c in captured)
+
     def test_resume_starts_from_bookmarked_parent(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
