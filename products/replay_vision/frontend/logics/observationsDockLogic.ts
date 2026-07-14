@@ -150,10 +150,6 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             loadObservationsSuccess: reschedulePoll,
             loadObservationsFailure: reschedulePoll,
 
-            observeFailure: () => {
-                metricCount('replay_vision_frontend_observe_failures')
-            },
-
             observe: async ({ scannerId }) => {
                 actions.setScannerPickerOpen(false)
                 const teamId = teamLogic.values.currentTeamId
@@ -176,6 +172,9 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     actions.loadObservations()
                     refreshVisionQuota()
                 } catch (error: any) {
+                    // Counted here rather than on observeFailure, which also fires for benign
+                    // paths (scanner already run, no team) that would pollute the failure rate.
+                    metricCount('replay_vision_frontend_observe_failures')
                     lemonToast.error(`Failed to start observation${error.detail ? `: ${error.detail}` : ''}`)
                     actions.observeFailure()
                 }

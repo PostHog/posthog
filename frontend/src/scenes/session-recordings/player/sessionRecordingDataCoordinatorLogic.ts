@@ -187,8 +187,11 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             actions.reportUsageIfFullyLoaded()
         },
 
-        loadRecordingMetaFailure: () => {
-            metricCount('replay_player_load_failures', 1, { kind: 'meta' })
+        loadRecordingMetaFailure: ({ errorObject }) => {
+            // A 404 is an expected outcome (expired or deleted recording), not a player
+            // failure; separate series so real failures stay alertable.
+            const is404 = (errorObject as { status?: number } | undefined)?.status === 404
+            metricCount('replay_player_load_failures', 1, { kind: is404 ? 'meta_not_found' : 'meta' })
         },
 
         loadNextSnapshotSource: () => {
