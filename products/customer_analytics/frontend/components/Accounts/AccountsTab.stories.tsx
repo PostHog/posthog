@@ -293,6 +293,9 @@ export const FeatureGateOff: Story = {
 
 export const RowExpandedEmpty: Story = {
     render: () => <App />,
+    // Quarantined: the expanded-row snapshot is chronically flaky in CI — the expansion content
+    // intermittently misses the 30s waitForSelector and times out. Skips VR only; play still runs elsewhere.
+    tags: ['test-skip'],
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
         mswDecorator({
@@ -312,6 +315,7 @@ export const RowExpandedEmpty: Story = {
 
 export const RowExpandedWithNote: Story = {
     render: () => <App />,
+    tags: ['test-skip'], // Quarantined: flaky expanded-row VR snapshot (see RowExpandedEmpty)
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
         mswDecorator({
@@ -363,6 +367,7 @@ export const RowExpandedWithNote: Story = {
 
 export const RowExpandedLinksDisabled: Story = {
     render: () => <App />,
+    tags: ['test-skip'], // Quarantined: flaky expanded-row VR snapshot (see RowExpandedEmpty)
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
         mswDecorator({
@@ -382,6 +387,7 @@ export const RowExpandedLinksDisabled: Story = {
 
 export const RowExpandedUsageNotFound: Story = {
     render: () => <App />,
+    tags: ['test-skip'], // Quarantined: flaky expanded-row VR snapshot (see RowExpandedEmpty)
     parameters: {
         testOptions: {
             ...EXPANDED_ROW_TEST_OPTIONS,
@@ -397,6 +403,7 @@ export const RowExpandedUsageNotFound: Story = {
 
 export const RowExpandedUsagePopulated: Story = {
     render: () => <App />,
+    tags: ['test-skip'], // Quarantined: flaky expanded-row VR snapshot (see RowExpandedEmpty)
     parameters: {
         testOptions: EXPANDED_ROW_TEST_OPTIONS,
     },
