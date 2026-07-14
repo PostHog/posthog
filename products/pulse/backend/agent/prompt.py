@@ -7,7 +7,8 @@ this prompt carries only the run-specific bundle plus the output contract.
 import json
 
 from products.pulse.backend.agent.mission import MissionBundle
-from products.pulse.backend.generation.prompts import sanitize_for_prompt
+from products.pulse.backend.generation.goal import GoalStatus
+from products.pulse.backend.generation.prompts import render_goal_block, sanitize_for_prompt
 
 REPORT_PATH = "/tmp/pulse/report.json"
 
@@ -16,7 +17,7 @@ _MISSION_TEMPLATE = """You are the PostHog pulse analyst agent. Load and follow 
 <team_focus>
 {focus_prompt}
 </team_focus>
-
+{goal_block}
 Observation window (frozen — every number you report must come from this window):
 window_start: {window_start}
 window_end: {window_end}
@@ -25,10 +26,12 @@ period_days: {period_days}
 Seed observations from the deterministic scan (start here; investigate with your PostHog MCP tools, and compute — correlation, significance — where it strengthens a claim):
 {seeds_block}
 
+Beyond the seeds, use your MCP tools to investigate feature-flag rollouts, heatmap hotspots, and notable event trends when they bear on the focus or goal.
+
 Output contract — when done, write EXACTLY ONE JSON object to {report_path} (create the directory) with this shape and nothing else on stdout:
 {{
   "sections": [{{"kind": str, "title": str, "markdown": str, "citations": [str], "confidence": float}}],
-  "opportunities": [{{"kind": "build"|"fix"|"instrument", "title": str, "summary": str, "suggested_action": str, "evidence_refs": [str], "fingerprint_hint": str, "confidence": float}}],
+  "opportunities": [{{"kind": "build"|"fix"|"instrument", "title": str, "summary": str, "suggested_action": str, "evidence_refs": [str], "fingerprint_hint": str, "confidence": float, "goal_relevant": bool, "proposed_experiment": {{"hypothesis": str, "flag_key_suggestion": str, "target_metric_insight_short_id": str, "variant_sketch": str}} | null}}],
   "window_start": "{window_start}",
   "window_end": "{window_end}",
   "artifacts": []
@@ -37,10 +40,13 @@ At most {max_opportunities} opportunities. Copy fingerprint_hint values from see
 
 
 def render_mission_prompt(bundle: MissionBundle) -> str:
+    goal_status = GoalStatus(**bundle.goal_status) if bundle.goal_status else None
     return _MISSION_TEMPLATE.format(
         # Angle brackets neutralized, so the <team_focus> fence cannot be broken out of
         # (same posture as SYNTHESIZE_PROMPT in generation/synthesize.py).
         focus_prompt=sanitize_for_prompt(bundle.focus_prompt),
+        # Empty string for a goalless brief; the same shared renderer the synthesize prompt uses.
+        goal_block=render_goal_block(goal_status, bundle.period_days),
         window_start=bundle.window_start.isoformat(),
         window_end=bundle.window_end.isoformat(),
         period_days=bundle.period_days,

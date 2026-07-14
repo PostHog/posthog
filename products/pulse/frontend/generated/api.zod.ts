@@ -13,6 +13,11 @@ export const pulseBriefConfigsCreateBodyNameMax = 400
 
 export const pulseBriefConfigsCreateBodyFocusPromptMax = 2000
 
+export const pulseBriefConfigsCreateBodyConfidenceThresholdMin = 0
+export const pulseBriefConfigsCreateBodyConfidenceThresholdMax = 1
+
+export const pulseBriefConfigsCreateBodyMaxOpportunitiesMax = 10
+
 export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(pulseBriefConfigsCreateBodyNameMax).describe('Human-readable name for this brief focus.'),
     focus_prompt: zod
@@ -51,6 +56,20 @@ export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe('Insight whose trend measures progress toward the goal. Null when the goal is qualitative.'),
+    confidence_threshold: zod
+        .number()
+        .min(pulseBriefConfigsCreateBodyConfidenceThresholdMin)
+        .max(pulseBriefConfigsCreateBodyConfidenceThresholdMax)
+        .nullish()
+        .describe(
+            'Minimum confidence, between 0 and 1, an item needs before it appears in briefs for this focus. Leave empty to use the default.'
+        ),
+    max_opportunities: zod
+        .number()
+        .min(1)
+        .max(pulseBriefConfigsCreateBodyMaxOpportunitiesMax)
+        .nullish()
+        .describe('Most opportunities a brief for this focus will surface. Leave empty to use the default.'),
     enabled: zod.boolean().optional().describe('Whether this config generates briefs.'),
     deleted: zod
         .boolean()
@@ -63,6 +82,11 @@ export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
 export const pulseBriefConfigsUpdateBodyNameMax = 400
 
 export const pulseBriefConfigsUpdateBodyFocusPromptMax = 2000
+
+export const pulseBriefConfigsUpdateBodyConfidenceThresholdMin = 0
+export const pulseBriefConfigsUpdateBodyConfidenceThresholdMax = 1
+
+export const pulseBriefConfigsUpdateBodyMaxOpportunitiesMax = 10
 
 export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(pulseBriefConfigsUpdateBodyNameMax).describe('Human-readable name for this brief focus.'),
@@ -102,6 +126,20 @@ export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe('Insight whose trend measures progress toward the goal. Null when the goal is qualitative.'),
+    confidence_threshold: zod
+        .number()
+        .min(pulseBriefConfigsUpdateBodyConfidenceThresholdMin)
+        .max(pulseBriefConfigsUpdateBodyConfidenceThresholdMax)
+        .nullish()
+        .describe(
+            'Minimum confidence, between 0 and 1, an item needs before it appears in briefs for this focus. Leave empty to use the default.'
+        ),
+    max_opportunities: zod
+        .number()
+        .min(1)
+        .max(pulseBriefConfigsUpdateBodyMaxOpportunitiesMax)
+        .nullish()
+        .describe('Most opportunities a brief for this focus will surface. Leave empty to use the default.'),
     enabled: zod.boolean().optional().describe('Whether this config generates briefs.'),
     deleted: zod
         .boolean()
@@ -114,6 +152,11 @@ export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
 export const pulseBriefConfigsPartialUpdateBodyNameMax = 400
 
 export const pulseBriefConfigsPartialUpdateBodyFocusPromptMax = 2000
+
+export const pulseBriefConfigsPartialUpdateBodyConfidenceThresholdMin = 0
+export const pulseBriefConfigsPartialUpdateBodyConfidenceThresholdMax = 1
+
+export const pulseBriefConfigsPartialUpdateBodyMaxOpportunitiesMax = 10
 
 export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -157,6 +200,20 @@ export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe('Insight whose trend measures progress toward the goal. Null when the goal is qualitative.'),
+    confidence_threshold: zod
+        .number()
+        .min(pulseBriefConfigsPartialUpdateBodyConfidenceThresholdMin)
+        .max(pulseBriefConfigsPartialUpdateBodyConfidenceThresholdMax)
+        .nullish()
+        .describe(
+            'Minimum confidence, between 0 and 1, an item needs before it appears in briefs for this focus. Leave empty to use the default.'
+        ),
+    max_opportunities: zod
+        .number()
+        .min(1)
+        .max(pulseBriefConfigsPartialUpdateBodyMaxOpportunitiesMax)
+        .nullish()
+        .describe('Most opportunities a brief for this focus will surface. Leave empty to use the default.'),
     enabled: zod.boolean().optional().describe('Whether this config generates briefs.'),
     deleted: zod
         .boolean()

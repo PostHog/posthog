@@ -209,6 +209,9 @@ export interface BriefConfigForm {
     goal: string
     // Insight short ID typed as plain text for v1 — no picker; validated server-side.
     goal_metric_short_id: string
+    // Null means "use the default" — the tunables are optional overrides on the config.
+    confidence_threshold: number | null
+    max_opportunities: number | null
 }
 
 const EMPTY_CONFIG_FORM: BriefConfigForm = {
@@ -217,6 +220,8 @@ const EMPTY_CONFIG_FORM: BriefConfigForm = {
     dashboards: [],
     goal: '',
     goal_metric_short_id: '',
+    confidence_threshold: null,
+    max_opportunities: null,
 }
 
 export type BriefScheduleFrequency = 'daily' | 'weekly'
@@ -288,6 +293,8 @@ export const pulseLogic = kea<pulseLogicType>([
                     anchors,
                     goal: formValues.goal.trim(),
                     goal_metric: goalMetricShortId ? { insight_short_id: goalMetricShortId } : null,
+                    confidence_threshold: formValues.confidence_threshold,
+                    max_opportunities: formValues.max_opportunities,
                 }
                 const saved = editing
                     ? await pulseBriefConfigsPartialUpdate(currentProjectId(), editing.id, payload)
@@ -691,6 +698,8 @@ export const pulseLogic = kea<pulseLogicType>([
                     dashboards: config?.anchors?.dashboards ?? [],
                     goal: config?.goal ?? '',
                     goal_metric_short_id: config?.goal_metric?.insight_short_id ?? '',
+                    confidence_threshold: config?.confidence_threshold ?? null,
+                    max_opportunities: config?.max_opportunities ?? null,
                 })
                 actions.resetScheduleForm(EMPTY_SCHEDULE_FORM)
             },

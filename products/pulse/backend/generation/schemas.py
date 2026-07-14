@@ -1,7 +1,6 @@
-import datetime as dt
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 from products.pulse.backend.models import Opportunity
 
@@ -55,6 +54,7 @@ class OpportunityOut(BaseModel):
     fingerprint_hint: str = Field(description="The fingerprint_hint of the source item, copied through unchanged.")
     confidence: float = Field(description="Confidence in this opportunity, 0.0-1.0.")
     goal_relevant: bool = Field(
+        default=False,
         description=(
             "True only when this opportunity plausibly advances the stated focus goal and its cited "
             "evidence supports that. Always false when the brief has no goal."
@@ -75,19 +75,16 @@ class BriefOut(BaseModel):
     opportunities: list[OpportunityOut] = Field(description="Ranked opportunities, best first.")
 
 
-class AgentOpportunityOut(OpportunityOut):
-    # The agent mission has no goal wiring yet, so its report contract omits both fields;
-    # defaulting them keeps persist's goalless invariants (no proposal, no reorder) intact.
-    goal_relevant: bool = Field(default=False, description="Always false: the agent mission carries no goal.")
-    proposed_experiment: ProposedExperimentOut | None = Field(
-        default=None, description="Always null: proposals require a goal, which the agent mission has none of."
-    )
-
-
 class AgentBriefOut(BriefOut):
-    """The BriefOut-shaped contract a sandbox agent report must satisfy (see agent/prompt.py)."""
+    """The BriefOut-shaped contract a sandbox agent report must satisfy (see agent/prompt.py).
 
-    opportunities: list[AgentOpportunityOut] = Field(description="Ranked opportunities, best first.")
-    window_start: dt.datetime = Field(description="Start of the frozen window the agent reported on.")
-    window_end: dt.datetime = Field(description="End of the frozen window the agent reported on.")
+    Reuses BriefOut's opportunities as-is; it only adds the window echo (validated against the
+    pinned mission window) and artifact keys the base brief has no concept of.
+    """
+
+    # AwareDatetime (not bare datetime): a naive echo is rejected as a schema violation and funnels
+    # through validate_agent_report's ValidationError path, so _check_window never subtracts a naive
+    # from an aware DB datetime (USE_TZ=True) and raises an uncaught TypeError.
+    window_start: AwareDatetime = Field(description="Start of the frozen window the agent reported on.")
+    window_end: AwareDatetime = Field(description="End of the frozen window the agent reported on.")
     artifacts: list[str] = Field(default_factory=list, description="Object-storage keys for agent artifacts.")

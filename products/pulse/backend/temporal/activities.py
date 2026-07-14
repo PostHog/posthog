@@ -13,6 +13,7 @@ from posthog.sync import database_sync_to_async
 from products.pulse.backend.agent.mission import MissionBundle, build_general_brief_mission
 from products.pulse.backend.agent.sandbox_run import run_mission
 from products.pulse.backend.generation.accountability import OpportunityStatusLine, collect_accountability
+from products.pulse.backend.generation.gate import gate_thresholds
 from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
 from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut
@@ -25,6 +26,7 @@ from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
     GenerateBriefWorkflowInputs,
     MarkBriefFailedInputs,
+    MarkBriefQuietInputs,
     RunAgentInputs,
     SynthesizeActivityInputs,
     ValidatePersistInputs,
@@ -110,7 +112,17 @@ async def prepare_mission_activity(inputs: GenerateBriefWorkflowInputs) -> dict:
     config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
     brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
     items = await _gather_source_items(team, config, inputs.period_days)
-    bundle = build_general_brief_mission(team=team, brief=brief, config=config, items=items)
+    goal_status: GoalStatus | None = None
+    # Goal framing is config-scoped and best-effort: a broken metric read degrades inside the
+    # collector; this guard covers everything else. The agent targets the goal via the mission prompt.
+    if config is not None:
+        try:
+            goal_status = await database_sync_to_async(collect_goal_status, thread_sensitive=False)(
+                team, config, inputs.period_days
+            )
+        except Exception:
+            logger.exception("pulse_goal_status_failed", team_id=team.id, brief_id=inputs.brief_id)
+    bundle = build_general_brief_mission(team=team, brief=brief, config=config, items=items, goal_status=goal_status)
 
     def _pin_window() -> None:
         ProductBrief.objects.for_team(inputs.team_id).filter(id=inputs.brief_id).update(
@@ -160,24 +172,36 @@ async def validate_and_persist_activity(inputs: ValidatePersistInputs) -> str:
     brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
     if brief.window_start is None or brief.window_end is None:
         raise ApplicationError("brief has no pinned window; prepare_mission must run first", non_retryable=True)
+    confidence_threshold, max_opportunities = gate_thresholds(brief.config)
     try:
-        out = validate_agent_report(inputs.report, window_start=brief.window_start, window_end=brief.window_end)
+        out = validate_agent_report(
+            inputs.report,
+            window_start=brief.window_start,
+            window_end=brief.window_end,
+            has_goal=inputs.has_goal,
+            confidence_threshold=confidence_threshold,
+            max_opportunities=max_opportunities,
+        )
     except AgentReportInvalid as err:
+        # Structured context here — mark_brief_failed only sees the message string, so correlating
+        # a spike of rejections to the run that produced them needs these fields on this log.
+        logger.exception("pulse_agent_report_rejected", team_id=inputs.team_id, brief_id=inputs.brief_id)
         # Deterministic rejection: retrying re-validates the same bytes. Never persist.
         raise ApplicationError(f"agent report rejected: {err}", non_retryable=True) from err
     items = [SourceItem(**item) for item in inputs.seed_items]
 
-    def _persist() -> str:
+    def _persist() -> list[Opportunity]:
         brief.agent_session_ref = inputs.agent_session_ref
         artifacts = list(out.artifacts)
         if inputs.transcript_key and inputs.transcript_key not in artifacts:
             artifacts.append(inputs.transcript_key)
         brief.artifacts = artifacts
         brief.save(update_fields=["agent_session_ref", "artifacts", "updated_at"])
-        persist_brief_output(brief=brief, out=out, items=items)
-        return brief.status
+        return persist_brief_output(brief=brief, out=out, items=items)
 
-    return await database_sync_to_async(_persist, thread_sensitive=False)()
+    created = await database_sync_to_async(_persist, thread_sensitive=False)()
+    await _surface_brief_outcome(brief, out, created)
+    return brief.status
 
 
 @temporalio.activity.defn
@@ -225,6 +249,13 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
     created = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
         brief=brief, out=out, items=items, results_cache=results_cache
     )
+    await _surface_brief_outcome(brief, out, created)
+    return brief.status
+
+
+async def _surface_brief_outcome(brief: ProductBrief, out: BriefOut, created: list[Opportunity]) -> None:
+    """Shared tail of both engines: surface opportunities in the signals inbox and fire the
+    product_brief_generated event, so outcomes are chartable, not just DB rows."""
     emit_failed_count = await _emit_opportunity_signals(brief, out, created)
     try:
         # ph_scoped_capture (not posthoganalytics.capture): outside request context the global
@@ -234,7 +265,6 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         )
     except Exception:
         logger.exception("pulse_brief_generated_capture_failed", team_id=brief.team_id, brief_id=str(brief.id))
-    return brief.status
 
 
 def _report_brief_generated(brief: ProductBrief, new_opportunity_count: int, emit_failed_count: int) -> None:
@@ -307,13 +337,13 @@ async def _emit_opportunity_signal(
 
 
 @temporalio.activity.defn
-async def mark_brief_quiet_activity(inputs: MarkBriefFailedInputs) -> None:
-    """Quiet-week cheap path: no seeds means no sandbox and no LLM spend. Reuses
-    MarkBriefFailedInputs for its team/brief coordinates; `error` is ignored."""
+async def mark_brief_quiet_activity(inputs: MarkBriefQuietInputs) -> None:
+    """Quiet-week cheap path: no seeds means no sandbox and no LLM spend. Stores a human-readable
+    reason on the brief so the user sees why nothing was generated."""
 
     def _mark_quiet() -> None:
         ProductBrief.objects.for_team(inputs.team_id).filter(id=inputs.brief_id).update(
-            status=ProductBrief.Status.QUIET
+            status=ProductBrief.Status.QUIET, error=inputs.reason
         )
 
     await database_sync_to_async(_mark_quiet, thread_sensitive=False)()

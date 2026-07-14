@@ -37,6 +37,10 @@ class BriefConfig(PulseModel):
     # {"insight_short_id": str} | null — a subset of Opportunity.metric_ref (no series_index:
     # the goal metric is always the insight's first series)
     goal_metric = models.JSONField(null=True, blank=True)
+    # Say-less gate thresholds: per-config overrides of the shared defaults in generation/gate.py.
+    # Null means "use the shared default" — legacy rows and zero-config briefs both fall back.
+    confidence_threshold = models.FloatField(null=True, blank=True)
+    max_opportunities = models.IntegerField(null=True, blank=True)
     enabled = models.BooleanField(default=True)
     # Soft delete: configs are recoverable and brief history keeps pointing at them.
     deleted = models.BooleanField(default=False)

@@ -75,7 +75,9 @@ class TestRunMission(BaseTest):
         run_mission(bundle, user=self.user, run_id=RUN_ID)
 
         self.mint.assert_called_once_with(
-            self.user, self.team.pk, scopes=["query:read", "insight:read", "dashboard:read"]
+            self.user,
+            self.team.pk,
+            scopes=["query:read", "insight:read", "dashboard:read", "feature_flag:read", "heatmap:read"],
         )
         create_config = self.get_cls.return_value.create.call_args.args[0]
         assert create_config.environment_variables == {"POSTHOG_PROJECT_ID": "1"}

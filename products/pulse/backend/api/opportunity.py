@@ -16,12 +16,12 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.pulse.backend.api.brief import PULSE_FEATURE_FLAG
 from products.pulse.backend.api.feedback import (
     FeedbackFieldsSerializerMixin,
     FeedbackVoteRequestSerializer,
     record_vote,
 )
+from products.pulse.backend.config import PULSE_FEATURE_FLAG
 from products.pulse.backend.models import Opportunity
 
 

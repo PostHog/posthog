@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -14,7 +16,8 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.product_analytics.backend.models.insight import Insight
-from products.pulse.backend.api.brief import AGENT_DAILY_RUN_CAP
+from products.pulse.backend.api.brief import _hours_until_window_frees
+from products.pulse.backend.config import AGENT_DAILY_RUN_CAP
 from products.pulse.backend.models import BriefConfig, ProductBrief
 
 _TRENDS_QUERY = {
@@ -27,6 +30,22 @@ def _temporal_client() -> MagicMock:
     client = MagicMock()
     client.start_workflow = AsyncMock()
     return client
+
+
+class TestHoursUntilWindowFrees(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # No counted briefs yet -> the full rolling window.
+            ("none_defaults_to_full_window", None, 24),
+            # Oldest already aged out (negative remaining) -> floored to 1, never 0.
+            ("already_aged_out_floors_to_1", 30, 1),
+            # 1.5h remaining must round UP to 2, not truncate to 1.
+            ("rounds_up_partial_hour", 22.5, 2),
+        ]
+    )
+    def test_hours_until_window_frees(self, _name: str, hours_ago: float | None, expected: int) -> None:
+        oldest = None if hours_ago is None else timezone.now() - datetime.timedelta(hours=hours_ago)
+        assert _hours_until_window_frees(oldest) == expected
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -165,16 +184,43 @@ class TestPulseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         workflow_inputs = client.start_workflow.call_args.args[1]
         assert workflow_inputs.engine == "agent"
-        assert client.start_workflow.call_args.kwargs["execution_timeout"] == datetime.timedelta(minutes=45)
+        assert client.start_workflow.call_args.kwargs["execution_timeout"] == datetime.timedelta(minutes=55)
 
-    def test_generate_returns_429_past_daily_agent_cap(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+    @parameterized.expand(
+        [
+            # At the cap with runs that consumed a sandbox: blocked, and never dispatched.
+            ("at_cap_blocks", AGENT_DAILY_RUN_CAP, ProductBrief.Status.GENERATING, status.HTTP_429_TOO_MANY_REQUESTS),
+            # One below the cap: the >= boundary must still let this through.
+            ("below_cap_succeeds", AGENT_DAILY_RUN_CAP - 1, ProductBrief.Status.GENERATING, status.HTTP_201_CREATED),
+            # Quiet briefs cost no sandbox run, so they must not burn the cap.
+            ("quiet_does_not_count", AGENT_DAILY_RUN_CAP, ProductBrief.Status.QUIET, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_daily_agent_cap(
+        self,
+        mock_connect: MagicMock,
+        _mock_flag: MagicMock,
+        _name: str,
+        existing_count: int,
+        existing_status: str,
+        expected_code: int,
+    ) -> None:
+        mock_connect.return_value = _temporal_client()
         with team_scope(self.team.pk, canonical=True):
-            for _ in range(AGENT_DAILY_RUN_CAP):
-                ProductBrief.objects.create(team=self.team, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7)
+            for _ in range(existing_count):
+                ProductBrief.objects.create(
+                    team=self.team,
+                    trigger=ProductBrief.Trigger.ON_DEMAND,
+                    period_days=7,
+                    status=existing_status,
+                )
         response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert response.json()["detail"] == "Daily agent brief limit reached"
-        mock_connect.assert_not_called()
+        assert response.status_code == expected_code, response.json()
+        if expected_code == status.HTTP_429_TOO_MANY_REQUESTS:
+            body = response.json()
+            assert "Daily brief limit reached" in body["detail"]
+            assert body["retry_after_hours"] >= 1
+            mock_connect.assert_not_called()
 
     def test_generate_with_soft_deleted_config_returns_400(
         self, mock_connect: MagicMock, _mock_flag: MagicMock

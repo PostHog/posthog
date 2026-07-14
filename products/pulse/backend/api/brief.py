@@ -1,3 +1,4 @@
+import math
 import asyncio
 import datetime as dt
 from typing import cast
@@ -29,6 +30,7 @@ from products.pulse.backend.api.feedback import (
     FeedbackVoteRequestSerializer,
     record_vote,
 )
+from products.pulse.backend.config import AGENT_DAILY_RUN_CAP, AGENT_WORKFLOW_EXECUTION_TIMEOUT, PULSE_FEATURE_FLAG
 from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.sources.anchored_insights import resolve_metric_insight
 from products.pulse.backend.temporal.inputs import (
@@ -37,21 +39,16 @@ from products.pulse.backend.temporal.inputs import (
     pulse_brief_workflow_id,
 )
 
-PULSE_FEATURE_FLAG = "pulse"
-# Soft rolling-24h cap on sandbox agent runs per team: the count is deliberately cheap and
-# unlocked, so concurrent requests can slip slightly past it. Single-flight per team+config
-# plus the 30-min run_agent activity timeout bound the worst case.
-AGENT_DAILY_RUN_CAP = 10
-
 logger = structlog.get_logger(__name__)
 
-# Caps total wall-clock across Temporal retries/re-executions. Worst-case activity budget
-# in temporal/workflow.py is ~18min (gather 2 attempts x 5min + synthesize 5min +
-# mark-failed 3 x 1min); 20 keeps the in-workflow failure path authoritative.
-_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
-# The agent path budgets differently: prepare 2 x 5min + run_agent 30min + validate 2 x 5min
-# + mark-failed 3 x 1min; 45 keeps the in-workflow failure path authoritative there too.
-_AGENT_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=45)
+
+def _hours_until_window_frees(oldest_created_at: dt.datetime | None) -> int:
+    """Hours until the oldest counted brief ages out of the rolling 24h window and frees a slot."""
+    if oldest_created_at is None:
+        return 24
+    remaining = (oldest_created_at + dt.timedelta(hours=24)) - timezone.now()
+    # Round up, but never report 0 while the team is still capped.
+    return max(1, math.ceil(remaining.total_seconds() / 3600))
 
 
 class BriefAnchorsSerializer(serializers.Serializer):
@@ -85,6 +82,20 @@ class BriefConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Insight whose trend measures progress toward the goal. Null when the goal is qualitative.",
     )
+    confidence_threshold = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Minimum confidence, between 0 and 1, an item needs before it appears in briefs for this focus. Leave empty to use the default.",
+    )
+    max_opportunities = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=10,
+        help_text="Most opportunities a brief for this focus will surface. Leave empty to use the default.",
+    )
 
     class Meta:
         model = BriefConfig
@@ -95,6 +106,8 @@ class BriefConfigSerializer(serializers.ModelSerializer):
             "anchors",
             "goal",
             "goal_metric",
+            "confidence_threshold",
+            "max_opportunities",
             "enabled",
             "deleted",
             "created_at",
@@ -182,7 +195,9 @@ class ProductBriefSerializer(FeedbackFieldsSerializerMixin, serializers.ModelSer
             },
             "trigger": {"help_text": "What started the generation: on_demand or scheduled."},
             "period_days": {"help_text": "Number of days the brief covers."},
-            "error": {"help_text": "Error detail when status is failed."},
+            "error": {
+                "help_text": "Error detail when status is failed, or why nothing was generated when status is quiet."
+            },
         }
 
 
@@ -206,6 +221,13 @@ class GenerateBriefRequestSerializer(serializers.Serializer):
         min_value=1,
         max_value=90,
         help_text="Number of days the brief should cover. Defaults to 7.",
+    )
+
+
+class DailyLimitReachedSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Human-readable message explaining the cap and what to do next.")
+    retry_after_hours = serializers.IntegerField(
+        help_text="Hours until the oldest counted brief ages out of the rolling 24h window and frees a slot.",
     )
 
 
@@ -256,7 +278,10 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         responses={
             201: ProductBriefSerializer,
             409: OpenApiResponse(description="A generation for this brief is already in progress"),
-            429: OpenApiResponse(description="The team's daily agent brief limit has been reached"),
+            429: OpenApiResponse(
+                response=DailyLimitReachedSerializer,
+                description="The team's daily agent brief limit has been reached",
+            ),
         },
     )
     @action(methods=["POST"], detail=False, url_path="generate")
@@ -282,12 +307,25 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
 
         # The agent engine is the only engine; the product-level `pulse` flag is the
         # internal-only gate. The synthesize path survives for the quiet-week cheap
-        # path and the eval command, not as a user-selectable engine.
+        # path and internal callers, not as a user-selectable engine.
         engine = "agent"
         window_start = timezone.now() - dt.timedelta(hours=24)
-        runs_today = ProductBrief.objects.for_team(self.team_id).filter(created_at__gte=window_start).count()
-        if runs_today >= AGENT_DAILY_RUN_CAP:
-            return Response({"detail": "Daily agent brief limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        # Count only briefs that consumed (or are consuming) a sandbox run — quiet weeks cost
+        # nothing, so they must not burn the cap.
+        recent_runs = (
+            ProductBrief.objects.for_team(self.team_id)
+            .filter(created_at__gte=window_start)
+            .exclude(status=ProductBrief.Status.QUIET)
+        )
+        if recent_runs.count() >= AGENT_DAILY_RUN_CAP:
+            oldest_created_at = recent_runs.order_by("created_at").values_list("created_at", flat=True).first()
+            limit_reached = DailyLimitReachedSerializer(
+                {
+                    "detail": "Daily brief limit reached. Try again later or view your existing briefs.",
+                    "retry_after_hours": _hours_until_window_frees(oldest_created_at),
+                }
+            )
+            return Response(limit_reached.data, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         brief = ProductBrief.objects.for_team(self.team_id).create(
             team_id=self.team_id,
@@ -314,9 +352,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                     # running for the same focus hits WorkflowAlreadyStartedError.
                     id=pulse_brief_workflow_id(self.team_id, str(config.id) if config else None),
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                    execution_timeout=(
-                        _AGENT_WORKFLOW_EXECUTION_TIMEOUT if engine == "agent" else _WORKFLOW_EXECUTION_TIMEOUT
-                    ),
+                    execution_timeout=AGENT_WORKFLOW_EXECUTION_TIMEOUT,
                 )
             )
         except WorkflowAlreadyStartedError:

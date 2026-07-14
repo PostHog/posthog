@@ -163,6 +163,40 @@ export function BriefConfigModal(): JSX.Element {
                         />
                     )}
                 </LemonField>
+                <LemonField
+                    name="confidence_threshold"
+                    label="Confidence threshold"
+                    info="Minimum confidence, between 0 and 1, an item needs before it appears in briefs for this focus. Leave empty to use the default."
+                >
+                    {({ value, onChange }) => (
+                        <LemonInput
+                            type="number"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={value ?? undefined}
+                            onChange={(v) => onChange(v === undefined || Number.isNaN(v) ? null : v)}
+                            placeholder="Default"
+                        />
+                    )}
+                </LemonField>
+                <LemonField
+                    name="max_opportunities"
+                    label="Max opportunities"
+                    info="Most opportunities a brief for this focus will surface. Leave empty to use the default."
+                >
+                    {({ value, onChange }) => (
+                        <LemonInput
+                            type="number"
+                            min={1}
+                            max={10}
+                            step={1}
+                            value={value ?? undefined}
+                            onChange={(v) => onChange(v === undefined || Number.isNaN(v) ? null : v)}
+                            placeholder="Default"
+                        />
+                    )}
+                </LemonField>
             </Form>
             {editingConfig ? (
                 <div className="mt-4 flex flex-col gap-2 border-t pt-4">

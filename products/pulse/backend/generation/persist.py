@@ -175,8 +175,13 @@ def persist_brief_output(
         # A brief with only opportunities still has something to say — QUIET means nothing survived the gate.
         has_content = bool(out.sections or out.opportunities)
         brief.status = ProductBrief.Status.READY if has_content else ProductBrief.Status.QUIET
+        # Mirror the pre-sandbox quiet path: when nothing survives the gate, tell the user why
+        # (the error field's help_text promises a quiet-reason across both quiet routes).
+        brief.error = (
+            None if has_content else "Nothing cleared the confidence bar this period, so there's nothing to report yet."
+        )
         brief.sources_used = sorted({item.source for item in items})
-        brief.save(update_fields=["sections", "status", "sources_used", "updated_at"])
+        brief.save(update_fields=["sections", "status", "error", "sources_used", "updated_at"])
         if not new_opportunities:
             return []
         # ignore_conflicts: the (team, fingerprint) unique constraint absorbs concurrent-persist races.

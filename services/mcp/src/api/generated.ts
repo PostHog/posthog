@@ -11658,6 +11658,20 @@ export namespace Schemas {
       goal?: string;
       /** Insight whose trend measures progress toward the goal. Null when the goal is qualitative. */
       goal_metric?: BriefGoalMetric | null;
+      /**
+         * Minimum confidence, between 0 and 1, an item needs before it appears in briefs for this focus. Leave empty to use the default.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence_threshold?: number | null;
+      /**
+         * Most opportunities a brief for this focus will surface. Leave empty to use the default.
+         * @minimum 1
+         * @maximum 10
+         * @nullable
+         */
+      max_opportunities?: number | null;
       /** Whether this config generates briefs. */
       enabled?: boolean;
       /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
@@ -14540,6 +14554,13 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    export interface DailyLimitReached {
+      /** Human-readable message explaining the cap and what to do next. */
+      detail: string;
+      /** Hours until the oldest counted brief ages out of the rolling 24h window and frees a slot. */
+      retry_after_hours: number;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -32972,7 +32993,7 @@ export namespace Schemas {
       /** Names of the brief sources that contributed items. */
       readonly sources_used: readonly string[];
       /**
-         * Error detail when status is failed.
+         * Error detail when status is failed, or why nothing was generated when status is quiet.
          * @nullable
          */
       readonly error: string | null;
@@ -36989,6 +37010,20 @@ export namespace Schemas {
       goal?: string;
       /** Insight whose trend measures progress toward the goal. Null when the goal is qualitative. */
       goal_metric?: BriefGoalMetric | null;
+      /**
+         * Minimum confidence, between 0 and 1, an item needs before it appears in briefs for this focus. Leave empty to use the default.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence_threshold?: number | null;
+      /**
+         * Most opportunities a brief for this focus will surface. Leave empty to use the default.
+         * @minimum 1
+         * @maximum 10
+         * @nullable
+         */
+      max_opportunities?: number | null;
       /** Whether this config generates briefs. */
       enabled?: boolean;
       /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
@@ -43851,7 +43886,7 @@ export namespace Schemas {
       /** Names of the brief sources that contributed items. */
       readonly sources_used: readonly string[];
       /**
-         * Error detail when status is failed.
+         * Error detail when status is failed, or why nothing was generated when status is quiet.
          * @nullable
          */
       readonly error: string | null;

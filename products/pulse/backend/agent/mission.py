@@ -18,12 +18,21 @@ from pydantic import BaseModel, Field
 
 from posthog.models.team import Team
 
-from products.pulse.backend.generation.gate import MAX_OPPORTUNITIES
+from products.pulse.backend.generation.gate import MAX_OPPORTUNITIES, gate_thresholds
+from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.sources.base import SourceItem
 
 GENERAL_BRIEF_MISSION = "general_brief"
-POSTHOG_MCP_SCOPES: list[str] = ["query:read", "insight:read", "dashboard:read"]
+# The sandbox agent self-serves enrichment via these read scopes: base analytics plus feature-flag
+# rollouts and heatmap hotspots, so it can investigate flags/heatmaps when they bear on the goal.
+POSTHOG_MCP_SCOPES: list[str] = [
+    "query:read",
+    "insight:read",
+    "dashboard:read",
+    "feature_flag:read",
+    "heatmap:read",
+]
 
 
 class McpToolGrant(BaseModel):
@@ -55,14 +64,14 @@ class MissionBundle(BaseModel):
     seed_items: list[dict[str, Any]]
     tool_grants: list[McpToolGrant]
     max_opportunities: int = MAX_OPPORTUNITIES
+    # Serialized GoalStatus (dataclasses.asdict) or None for a goalless brief. Rendered into the
+    # mission prompt's goal block so the agent targets the user's goal; figures stay code-computed.
+    goal_status: dict[str, Any] | None = None
 
     @property
     def required_scopes(self) -> list[str]:
-        seen: dict[str, None] = {}
-        for grant in self.tool_grants:
-            for scope in grant.scopes:
-                seen.setdefault(scope, None)
-        return list(seen)
+        # Order-preserving dedup across all grants' scopes.
+        return list(dict.fromkeys(scope for grant in self.tool_grants for scope in grant.scopes))
 
 
 def _posthog_mcp_grant() -> McpToolGrant:
@@ -74,9 +83,15 @@ def _posthog_mcp_grant() -> McpToolGrant:
 
 
 def build_general_brief_mission(
-    *, team: Team, brief: ProductBrief, config: BriefConfig | None, items: list[SourceItem]
+    *,
+    team: Team,
+    brief: ProductBrief,
+    config: BriefConfig | None,
+    items: list[SourceItem],
+    goal_status: GoalStatus | None = None,
 ) -> MissionBundle:
     window_end = timezone.now()
+    _, max_opportunities = gate_thresholds(config)
     return MissionBundle(
         mission=GENERAL_BRIEF_MISSION,
         team_id=team.pk,
@@ -87,4 +102,6 @@ def build_general_brief_mission(
         focus_prompt=(config.focus_prompt if config else "") or "the whole product",
         seed_items=[dataclasses.asdict(item) for item in items],
         tool_grants=[_posthog_mcp_grant()],
+        max_opportunities=max_opportunities,
+        goal_status=dataclasses.asdict(goal_status) if goal_status is not None else None,
     )

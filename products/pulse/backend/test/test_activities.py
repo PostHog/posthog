@@ -25,6 +25,7 @@ from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
     MAX_ITEMS,
     gather_brief_inputs_activity,
+    mark_brief_quiet_activity,
     prepare_mission_activity,
     run_agent_activity,
     synthesize_brief_activity,
@@ -32,6 +33,7 @@ from products.pulse.backend.temporal.activities import (
 )
 from products.pulse.backend.temporal.inputs import (
     GenerateBriefWorkflowInputs,
+    MarkBriefQuietInputs,
     RunAgentInputs,
     SynthesizeActivityInputs,
     ValidatePersistInputs,
@@ -349,23 +351,33 @@ async def test_validate_and_persist_activity_persists_valid_report(team, user) -
     window_start = window_end - datetime.timedelta(days=7)
     await _pin_window(brief, window_start, window_end)
     env = ActivityEnvironment()
-    status = await env.run(
-        validate_and_persist_activity,
-        ValidatePersistInputs(
-            team_id=team.pk,
-            brief_id=str(brief.id),
-            report=_agent_report(window_start, window_end),
-            agent_session_ref="sb-1",
-            transcript_key="pulse/briefs/t.log",
-            seed_items=[],
-        ),
-    )
+    scoped_capture = MagicMock()
+    capture_mock = scoped_capture.return_value.__enter__.return_value
+    with (
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock) as emit_mock,
+        patch("products.pulse.backend.temporal.activities.ph_scoped_capture", scoped_capture),
+    ):
+        status = await env.run(
+            validate_and_persist_activity,
+            ValidatePersistInputs(
+                team_id=team.pk,
+                brief_id=str(brief.id),
+                report=_agent_report(window_start, window_end),
+                agent_session_ref="sb-1",
+                transcript_key="pulse/briefs/t.log",
+                seed_items=[],
+            ),
+        )
     assert status == ProductBrief.Status.READY
     reloaded = await _reload_brief(brief.id)
     assert reloaded.status == ProductBrief.Status.READY
     assert reloaded.agent_session_ref == "sb-1"
     assert "pulse/briefs/t.log" in reloaded.artifacts
     assert await _opportunity_count(team) == 1
+    # Observability parity with the synthesize engine: agent briefs surface opportunities in the
+    # signals inbox and fire product_brief_generated so their outcomes are chartable.
+    emit_mock.assert_awaited_once()
+    assert capture_mock.call_args.kwargs["event"] == "product_brief_generated"
 
 
 async def test_validate_and_persist_activity_rejects_invalid_report_without_persisting(team, user) -> None:
@@ -389,6 +401,18 @@ async def test_validate_and_persist_activity_rejects_invalid_report_without_pers
     reloaded = await _reload_brief(brief.id)
     assert reloaded.status == ProductBrief.Status.GENERATING  # the workflow's failure envelope marks it FAILED
     assert await _opportunity_count(team) == 0
+
+
+async def test_mark_brief_quiet_activity_sets_quiet_status_and_reason(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    await env.run(
+        mark_brief_quiet_activity,
+        MarkBriefQuietInputs(team_id=team.pk, brief_id=str(brief.id), reason="Nothing happened this week."),
+    )
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.status == ProductBrief.Status.QUIET
+    assert reloaded.error == "Nothing happened this week."
 
 
 async def test_validate_and_persist_activity_requires_pinned_window(team, user) -> None:

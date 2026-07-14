@@ -269,7 +269,9 @@ function BriefDetail(): JSX.Element | null {
 
     if (briefDetail.status === ProductBriefStatusEnumApi.Quiet) {
         return (
-            <div className="border rounded p-8 text-center text-muted">Quiet period — nothing confident to report</div>
+            <div className="border rounded p-8 text-center text-muted">
+                {briefDetail.error || 'Quiet period — nothing confident to report'}
+            </div>
         )
     }
 

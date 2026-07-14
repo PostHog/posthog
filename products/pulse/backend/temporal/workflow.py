@@ -17,8 +17,12 @@ from products.pulse.backend.temporal.activities import (
 )
 from products.pulse.backend.temporal.inputs import (
     GENERATE_BRIEF_WORKFLOW_NAME,
+    MISSION_GOAL_STATUS_KEY,
+    MISSION_SEED_ITEMS_KEY,
+    QUIET_BRIEF_STATUS,
     GenerateBriefWorkflowInputs,
     MarkBriefFailedInputs,
+    MarkBriefQuietInputs,
     RunAgentInputs,
     SynthesizeActivityInputs,
     ValidatePersistInputs,
@@ -74,15 +78,19 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
         )
-        if not bundle.get("seed_items"):
+        if not bundle.get(MISSION_SEED_ITEMS_KEY):
             # Quiet-week cheap path: no seeds -> no sandbox, no LLM spend.
             await temporalio.workflow.execute_activity(
                 mark_brief_quiet_activity,
-                MarkBriefFailedInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, error=""),
+                MarkBriefQuietInputs(
+                    team_id=inputs.team_id,
+                    brief_id=inputs.brief_id,
+                    reason=f"No significant activity in the last {inputs.period_days} days, so there's nothing to report yet.",
+                ),
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
             )
-            return "quiet"
+            return QUIET_BRIEF_STATUS
         result: dict = await temporalio.workflow.execute_activity(
             run_agent_activity,
             RunAgentInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, bundle=bundle),
@@ -98,8 +106,13 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
                 report=result["report"],
                 agent_session_ref=result["agent_session_ref"],
                 transcript_key=result["transcript_key"],
-                seed_items=bundle.get("seed_items", []),
+                seed_items=bundle.get(MISSION_SEED_ITEMS_KEY, []),
+                has_goal=bundle.get(MISSION_GOAL_STATUS_KEY) is not None,
             ),
             start_to_close_timeout=dt.timedelta(minutes=5),
+            # Unlike synthesize, a retry here is cheap and worth it: the expensive agent run is
+            # already captured in `result`, so a transient persist failure shouldn't waste it.
+            # persist is fingerprint-idempotent; a post-commit crash-retry re-emits no signals and
+            # at worst double-counts one product_brief_generated event (count=0) — accepted.
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
         )

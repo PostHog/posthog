@@ -6,13 +6,9 @@ from parameterized import parameterized
 from products.pulse.backend.generation.accountability import METRIC_UNAVAILABLE, OpportunityStatusLine
 from products.pulse.backend.generation.gate import CONFIDENCE_THRESHOLD, MAX_OPPORTUNITIES, apply_say_less_gate
 from products.pulse.backend.generation.goal import GoalStatus
+from products.pulse.backend.generation.prompts import render_goal_block
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
-from products.pulse.backend.generation.synthesize import (
-    _render_accountability_block,
-    _render_goal_block,
-    _render_items,
-    synthesize_brief,
-)
+from products.pulse.backend.generation.synthesize import _render_accountability_block, _render_items, synthesize_brief
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import EvidenceRef, SourceItem
 
@@ -346,7 +342,7 @@ class TestRenderItems:
     def test_goal_block_degrades_per_metric_state(
         self, _name: str, goal_status: GoalStatus | None, expected_metric_line: str | None
     ) -> None:
-        rendered = _render_goal_block(goal_status, 7)
+        rendered = render_goal_block(goal_status, 7)
 
         if expected_metric_line is None:
             assert rendered == ""
@@ -394,7 +390,7 @@ class TestRenderItems:
             [
                 _render_items(items),
                 _render_accountability_block(status_lines),
-                _render_goal_block(goal_status, 7),
+                render_goal_block(goal_status, 7),
             ]
         )
 

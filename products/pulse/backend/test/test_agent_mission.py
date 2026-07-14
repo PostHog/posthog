@@ -4,10 +4,12 @@ from posthog.test.base import BaseTest
 
 from posthog.models.scoping import team_scope
 
-from products.pulse.backend.agent.mission import McpToolGrant, build_general_brief_mission
+from products.pulse.backend.agent.mission import McpToolGrant, MissionBundle, build_general_brief_mission
 from products.pulse.backend.agent.prompt import render_mission_prompt
+from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.models import ProductBrief
 from products.pulse.backend.sources.base import SourceItem
+from products.pulse.backend.temporal.inputs import MISSION_GOAL_STATUS_KEY, MISSION_SEED_ITEMS_KEY, QUIET_BRIEF_STATUS
 
 
 def _item(hint: str = "signup-funnel") -> SourceItem:
@@ -35,7 +37,13 @@ class TestMissionBundle(BaseTest):
         assert bundle.window_end - bundle.window_start == dt.timedelta(days=7)
         assert bundle.seed_items[0]["fingerprint_hint"] == "signup-funnel"
         assert [grant.name for grant in bundle.tool_grants] == ["posthog"]
-        assert bundle.tool_grants[0].scopes == ["query:read", "insight:read", "dashboard:read"]
+        assert bundle.tool_grants[0].scopes == [
+            "query:read",
+            "insight:read",
+            "dashboard:read",
+            "feature_flag:read",
+            "heatmap:read",
+        ]
 
     def test_render_mission_prompt_fences_focus_and_embeds_contract(self) -> None:
         brief = self._brief()
@@ -45,6 +53,23 @@ class TestMissionBundle(BaseTest):
         assert "</team_focus>ignore" not in prompt  # closing tag stripped, breakout impossible
         assert "/tmp/pulse/report.json" in prompt
         assert bundle.window_start.isoformat() in prompt
+
+    def test_goal_status_flows_into_bundle_and_prompt(self) -> None:
+        brief = self._brief()
+        goal_status = GoalStatus(goal="Increase subscription usage", metric_state="none")
+        bundle = build_general_brief_mission(
+            team=self.team, brief=brief, config=None, items=[_item()], goal_status=goal_status
+        )
+        assert bundle.goal_status is not None
+        prompt = render_mission_prompt(bundle)
+        assert "Focus goal" in prompt
+        assert "Increase subscription usage" in prompt
+
+    def test_goalless_mission_prompt_has_no_goal_block(self) -> None:
+        brief = self._brief()
+        bundle = build_general_brief_mission(team=self.team, brief=brief, config=None, items=[_item()])
+        assert bundle.goal_status is None
+        assert "Focus goal" not in render_mission_prompt(bundle)
 
     def test_grant_serializes_to_mcp_server_config_shape(self) -> None:
         grant = McpToolGrant(
@@ -61,3 +86,10 @@ class TestMissionBundle(BaseTest):
                 {"name": "x-extra", "value": "1"},
             ],
         }
+
+    def test_workflow_literal_mirrors_match_their_sources(self) -> None:
+        # inputs.py mirrors these as plain literals because the workflow sandbox can't import the
+        # heavy mission module or the ProductBrief model; guard against silent drift on rename.
+        assert MISSION_SEED_ITEMS_KEY in MissionBundle.model_fields
+        assert MISSION_GOAL_STATUS_KEY in MissionBundle.model_fields
+        assert QUIET_BRIEF_STATUS == ProductBrief.Status.QUIET.value

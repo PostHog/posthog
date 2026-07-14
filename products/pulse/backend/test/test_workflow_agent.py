@@ -9,6 +9,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from products.pulse.backend.temporal.inputs import (
     GenerateBriefWorkflowInputs,
     MarkBriefFailedInputs,
+    MarkBriefQuietInputs,
     RunAgentInputs,
     SynthesizeActivityInputs,
     ValidatePersistInputs,
@@ -38,7 +39,7 @@ def _stub_activities(bundle: dict, calls: list[str]) -> list:
         return "ready"
 
     @activity.defn(name="mark_brief_quiet_activity")
-    async def mark_brief_quiet_activity(inputs: MarkBriefFailedInputs) -> None:
+    async def mark_brief_quiet_activity(inputs: MarkBriefQuietInputs) -> None:
         calls.append("quiet")
 
     @activity.defn(name="mark_brief_failed_activity")
