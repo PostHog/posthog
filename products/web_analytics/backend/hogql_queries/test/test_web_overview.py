@@ -1239,3 +1239,20 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
         # keep results correct while regressing the sessions scan back to
         # aggregating every session in range.
         assert "globalIn(raw_sessions.session_id_v7" in sql
+
+    def test_two_phase_falls_back_to_join_when_filter_is_unselective(self):
+        self._create_pageviews()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+                with patch(
+                    "products.web_analytics.backend.hogql_queries.web_overview.TWO_PHASE_MAX_MATCHING_SESSIONS", 0
+                ):
+                    runner = self._make_runner()
+                    gated_results = runner.calculate().results
+                    assert runner._two_phase_selectivity_ok is False
+
+            join_results = self._make_runner().calculate().results
+
+        for gated, join in zip(gated_results, join_results):
+            assert gated.value == join.value, f"{gated.key}: {gated.value} != {join.value}"

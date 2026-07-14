@@ -35,6 +35,13 @@ from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated im
 
 logger = structlog.get_logger(__name__)
 
+# Ceiling on the phase-1 id set for the two-phase fast path. Above this, shipping the
+# id set to every shard trends toward the known GLOBAL IN broadcast regression, and a
+# filter matching this many sessions isn't selective enough to beat the join anyway.
+# ~1M UInt128 ids ≈ 16 MB per shard — comfortably small; the measured sweet spot
+# (62k ids) is orders of magnitude below.
+TWO_PHASE_MAX_MATCHING_SESSIONS = 1_000_000
+
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
     query: WebOverviewQuery
@@ -47,15 +54,61 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", "v2")
         self.use_v2_tables = team_version == "v2" if team_version else use_v2_tables
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
+        # None = not yet checked (e.g. EXPLAIN paths); set by `_calculate` before execution.
+        self._two_phase_selectivity_ok: Optional[bool] = None
 
     def to_query(self) -> ast.SelectQuery:
         if self.should_skip_session_join:
             WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview").inc()
             return self.no_join_select
-        if self.should_use_two_phase:
+        if self.should_use_two_phase and self._two_phase_selectivity_ok is not False:
             WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview_two_phase").inc()
             return self.two_phase_select
         return self.outer_select
+
+    def _check_two_phase_selectivity(self) -> bool:
+        """Preflight: is the filtered session-id set small enough to ship to shards?
+
+        A cheap count over the filtered events (materialized columns only) — the
+        events scan is work phase 1 does anyway, so this bounds the worst case at
+        one extra sub-second query for eligible teams. Fails closed to the join
+        path on error.
+        """
+        count_query = parse_select(
+            """
+SELECT uniq(events.$session_id) AS matching_sessions
+FROM events
+WHERE and(
+    {events_session_id_present},
+    {event_type_expr},
+    {inside_timestamp_period},
+    {filters},
+)
+            """,
+            placeholders={
+                "events_session_id_present": self.events_session_id_present,
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "filters": property_to_expr(list(self.query.properties), team=self.team),
+            },
+        )
+        try:
+            response = execute_hogql_query(
+                query_type="web_overview_two_phase_preflight",
+                query=count_query,
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+            matching = response.results[0][0] if response.results else None
+            if matching is None:
+                return False
+            return matching <= TWO_PHASE_MAX_MATCHING_SESSIONS
+        except Exception as e:
+            logger.exception("web_overview_two_phase_preflight_failed", error=e)
+            return False
 
     @cached_property
     def should_use_two_phase(self) -> bool:
@@ -323,8 +376,15 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
         pre_aggregated_response = self.get_pre_aggregated_response()
 
-        execution_modifiers = self.modifiers
         if self.should_use_two_phase and not self.should_skip_session_join:
+            self._two_phase_selectivity_ok = self._check_two_phase_selectivity()
+
+        execution_modifiers = self.modifiers
+        if (
+            self.should_use_two_phase
+            and self._two_phase_selectivity_ok is not False
+            and not self.should_skip_session_join
+        ):
             # The two-phase shape relies on `build_direct_session_id_in_pushdown`
             # rewriting the id-set filter below the sessions GROUP BY; that rewrite
             # is gated on the sessionIdPushdown modifier.
