@@ -126,6 +126,8 @@ export function getSessionIdWithKey(
             return { key, value: String(resourceAttributeValue), source: 'resource_attribute' }
         }
     }
+    // Built-in convention fallback only — the configured-key pass already ran above,
+    // so isSessionIdKey is deliberately called without configuredKeys here.
     for (const [key, value] of Object.entries(attributes || {})) {
         if (isSessionIdKey(key) && value) {
             return { key, value: String(value), source: 'attribute' }

@@ -20,10 +20,9 @@ interface LogContextSelectorProps {
 export function LogContextSelector({ log, size = 'xsmall', noPadding }: LogContextSelectorProps): JSX.Element | null {
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
     const { closeLogDetails } = useActions(logDetailsModalLogic)
-    const { logsConfig } = useValues(logsConfigLogic)
+    const { configuredSessionIdKeys } = useValues(logsConfigLogic)
 
-    const configuredSessionKeys = logsConfig?.logs_session_id_attribute_keys
-    const contexts = getAvailableContexts(log, configuredSessionKeys)
+    const contexts = getAvailableContexts(log, configuredSessionIdKeys)
     if (contexts.length === 0) {
         return null
     }
@@ -36,7 +35,7 @@ export function LogContextSelector({ log, size = 'xsmall', noPadding }: LogConte
                 onClick: () => {
                     posthog.capture('logs context viewed', { context_type: ctx.type })
                     closeLogDetails()
-                    const filters = buildContextFilters(log, ctx.type, configuredSessionKeys)
+                    const filters = buildContextFilters(log, ctx.type, configuredSessionIdKeys)
                     openLogsViewerModal({
                         id: `context-${log.uuid}-${ctx.type}`,
                         fullScreen: false,

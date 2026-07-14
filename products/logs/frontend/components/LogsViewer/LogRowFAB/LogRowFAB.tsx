@@ -36,15 +36,11 @@ export function LogRowFAB({
     showScrollButtons = false,
 }: LogRowFABProps): JSX.Element {
     const { id } = useValues(logsViewerLogic)
-    const { logsConfig } = useValues(logsConfigLogic)
+    const { configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { copyLinkToLog } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
     const { startScrolling, stopScrolling } = useCellScrollControls({ id, cellKey: 'message' })
-    const sessionId = getSessionIdFromLogAttributes(
-        log.attributes,
-        log.resource_attributes,
-        logsConfig?.logs_session_id_attribute_keys
-    )
+    const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
 
     return (
         <div

@@ -26,7 +26,7 @@ export const AttributeCell = memo(function AttributeCell({
     width,
 }: AttributeCellProps): JSX.Element {
     const { id, isAttributeColumn } = useValues(logsViewerLogic)
-    const { logsConfig } = useValues(logsConfigLogic)
+    const { configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { addFilter, toggleAttributeColumn } = useActions(logsViewerLogic)
 
     const { scrollRef, handleScroll, startScrolling, stopScrolling } = useCellScroll({
@@ -48,7 +48,7 @@ export const AttributeCell = memo(function AttributeCell({
                         <span className="font-mono text-xs whitespace-nowrap pr-24" title={value}>
                             <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
                         </span>
-                    ) : isSessionIdKey(attributeKey, logsConfig?.logs_session_id_attribute_keys) && value ? (
+                    ) : isSessionIdKey(attributeKey, configuredSessionIdKeys) && value ? (
                         <ViewRecordingButton
                             sessionId={value}
                             openPlayerIn={RecordingPlayerType.Modal}

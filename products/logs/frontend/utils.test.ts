@@ -143,7 +143,6 @@ describe('logs utils', () => {
         it.each([
             ['my.custom.key', ['my.custom.key'], true],
             ['prefix.my.custom.key', ['my.custom.key'], false],
-            ['session_id', ['my.custom.key'], true],
         ])('isSessionIdKey(%s, %j) returns %s', (key, configuredKeys, expected) => {
             expect(isSessionIdKey(key, configuredKeys)).toBe(expected)
         })

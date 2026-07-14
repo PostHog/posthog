@@ -18,7 +18,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'LogDetailsModal', 'logDetailsModalLogic']),
     props({} as LogDetailsModalProps),
     key((props) => props.id),
-    connect(() => ({ values: [logsConfigLogic, ['logsConfig']] })),
+    connect({ values: [logsConfigLogic, ['configuredSessionIdKeys']] }),
 
     actions({
         openLogDetails: (log: ParsedLogMessage) => ({ log }),
@@ -74,13 +74,13 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
 
     selectors({
         sessionId: [
-            (s) => [s.selectedLog, s.logsConfig],
-            (selectedLog, logsConfig): string | null =>
+            (s) => [s.selectedLog, s.configuredSessionIdKeys],
+            (selectedLog, configuredSessionIdKeys): string | null =>
                 selectedLog
                     ? getSessionIdFromLogAttributes(
                           selectedLog.attributes,
                           selectedLog.resource_attributes,
-                          logsConfig?.logs_session_id_attribute_keys
+                          configuredSessionIdKeys
                       )
                     : null,
         ],

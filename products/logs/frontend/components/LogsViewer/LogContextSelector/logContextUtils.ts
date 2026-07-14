@@ -4,7 +4,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalF
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
-import { getSessionIdWithKey } from 'products/logs/frontend/utils'
+import { SessionIdMatch, getSessionIdWithKey } from 'products/logs/frontend/utils'
 
 export type LogContextType = 'surrounding_service' | 'surrounding_all' | 'trace' | 'session'
 
@@ -24,15 +24,8 @@ function getServiceName(log: ParsedLogMessage): string | null {
     return serviceName ? String(serviceName) : null
 }
 
-function getSessionMatch(
-    log: ParsedLogMessage,
-    configuredSessionKeys?: string[]
-): { key: string; value: string; source: 'attribute' | 'resource_attribute' } | null {
-    return getSessionIdWithKey(
-        log.attributes,
-        log.resource_attributes as Record<string, unknown> | undefined,
-        configuredSessionKeys
-    )
+function getSessionMatch(log: ParsedLogMessage, configuredKeys?: string[]): SessionIdMatch | null {
+    return getSessionIdWithKey(log.attributes, log.resource_attributes, configuredKeys)
 }
 
 function buildDateRangeAround(timestamp: string, windowMinutes: number): { date_from: string; date_to: string } {
@@ -62,7 +55,7 @@ function buildFilterGroup(key: string, value: string, propertyType: PropertyFilt
     }
 }
 
-export function getAvailableContexts(log: ParsedLogMessage, configuredSessionKeys?: string[]): LogContextOption[] {
+export function getAvailableContexts(log: ParsedLogMessage, configuredKeys?: string[]): LogContextOption[] {
     const contexts: LogContextOption[] = []
     const serviceName = getServiceName(log)
 
@@ -88,7 +81,7 @@ export function getAvailableContexts(log: ParsedLogMessage, configuredSessionKey
         })
     }
 
-    if (getSessionMatch(log, configuredSessionKeys)) {
+    if (getSessionMatch(log, configuredKeys)) {
         contexts.push({
             type: 'session',
             label: 'View session logs',
@@ -102,7 +95,7 @@ export function getAvailableContexts(log: ParsedLogMessage, configuredSessionKey
 export function buildContextFilters(
     log: ParsedLogMessage,
     contextType: LogContextType,
-    configuredSessionKeys?: string[]
+    configuredKeys?: string[]
 ): Partial<LogsViewerFilters> {
     const base: Pick<LogsViewerFilters, 'searchTerm' | 'severityLevels'> = {
         searchTerm: '',
@@ -133,7 +126,7 @@ export function buildContextFilters(
             }
         }
         case 'session': {
-            const session = getSessionMatch(log, configuredSessionKeys)
+            const session = getSessionMatch(log, configuredKeys)
             return {
                 ...base,
                 dateRange: buildDateRangeAround(log.timestamp, SESSION_WINDOW_MINUTES),

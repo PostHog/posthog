@@ -28,7 +28,7 @@ export interface LogAttributesProps {
 
 export function LogAttributes({ attributes, type, logUuid, title }: LogAttributesProps): JSX.Element {
     const { expandedAttributeBreakdowns, id, isAttributeColumn } = useValues(logsViewerLogic)
-    const { logsConfig } = useValues(logsConfigLogic)
+    const { configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { addFilter, toggleAttributeColumn, toggleAttributeBreakdown } = useActions(logsViewerLogic)
 
     const expandedBreakdownsForThisLog = expandedAttributeBreakdowns[logUuid] || []
@@ -140,7 +140,7 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                                         <span onClick={(e) => e.stopPropagation()}>
                                             <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
                                         </span>
-                                    ) : isSessionIdKey(record.key, logsConfig?.logs_session_id_attribute_keys) ? (
+                                    ) : isSessionIdKey(record.key, configuredSessionIdKeys) ? (
                                         <ViewRecordingButton
                                             sessionId={record.value}
                                             openPlayerIn={RecordingPlayerType.Modal}
