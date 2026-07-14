@@ -21,7 +21,6 @@ class TestBuildConsumerConfig:
         assert config.recovery_grace_seconds == 300
         assert config.lease_ttl_seconds == config.recovery_grace_seconds
         assert config.poll_failure_liveness_threshold == 10
-        assert config.claim_path == "legacy"
 
     @parameterized.expand(
         [
@@ -34,14 +33,20 @@ class TestBuildConsumerConfig:
             (["--recovery-grace", "900"], "recovery_grace_seconds", 900),
             (["--poll-failure-liveness-threshold", "5"], "poll_failure_liveness_threshold", 5),
             (["--poll-failure-liveness-threshold", "0"], "poll_failure_liveness_threshold", None),
-            (["--claim-path", "state"], "claim_path", "state"),
-            (["--claim-path", "legacy"], "claim_path", "legacy"),
         ]
     )
     def test_flag_overrides_reach_the_config(self, argv: list[str], field: str, expected):
         config = build_consumer_config(_parse_options(argv))
 
         assert getattr(config, field) == expected
+
+    @parameterized.expand([(["--claim-path", "state"],), (["--claim-path", "legacy"],)])
+    def test_deprecated_claim_path_flag_is_still_accepted(self, argv: list[str]):
+        # Deployed pods still pass --claim-path; dropping the arg would crash
+        # the whole fleet at startup with "unrecognized arguments".
+        config = build_consumer_config(_parse_options(argv))
+
+        assert not hasattr(config, "claim_path")
 
     def test_lease_ttl_follows_recovery_grace_when_not_set(self):
         config = build_consumer_config(_parse_options(["--recovery-grace", "900"]))

@@ -314,6 +314,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     const signal = logsController.signal
                     actions.cancelInProgressLogs(logsController)
 
+                    // Capture before the await: a draft applied mid-flight would otherwise pair this
+                    // response's aliases against the newer expressions rather than the ones actually sent.
+                    const sentCustomColumns = values.customColumns
+                    const sentExpressions = sentCustomColumns ?? []
+
                     const response = await api.logs.query({
                         query: {
                             limit: values.initialLogsLimit ?? DEFAULT_LOGS_PAGE_SIZE,
@@ -323,7 +328,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
-                            customColumns: values.customColumns,
+                            customColumns: sentCustomColumns,
                         },
                         signal,
                     })
@@ -333,7 +338,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.setMaxExportableLogs(response.maxExportableLogs)
                     // Server echoes aliases in request order, so pair each with the expression that
                     // produced it. Keying by expression survives column reorders that don't re-fetch.
-                    const sentExpressions = values.customColumns ?? []
                     const aliasByExpression =
                         response.columns && response.columns.length > 0
                             ? Object.fromEntries(
@@ -341,7 +345,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                               )
                             : null
                     actions.setCustomColumnAliases(aliasByExpression)
-                    cache.lastSentCustomColumns = JSON.stringify(values.customColumns ?? null)
+                    cache.lastSentCustomColumns = JSON.stringify(sentCustomColumns ?? null)
                     // The checkpoint (fixed per query, identical on every row) marks the latest
                     // timestamp ingestion is known to have fully caught up to — used to flag the
                     // still-loading tail of the sparkline.

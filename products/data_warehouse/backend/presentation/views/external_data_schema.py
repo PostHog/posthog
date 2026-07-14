@@ -29,6 +29,7 @@ from products.data_warehouse.backend.facade.api import (
     get_postgres_source_location,
     hide_direct_mysql_table,
     hide_direct_postgres_table,
+    hide_direct_redshift_table,
     hide_direct_snowflake_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
@@ -37,6 +38,7 @@ from products.data_warehouse.backend.facade.api import (
     reconcile_webhook_events,
     reproject_direct_mysql_table,
     reproject_direct_postgres_table,
+    reproject_direct_redshift_table,
     reproject_direct_snowflake_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
@@ -874,7 +876,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync if should_sync is not None else instance.should_sync:
                 trigger_refresh = True
 
-        # When re-enabling a webhook schema, force a full refresh to avoid missing data
+        # When re-enabling a webhook schema, request a pipeline reset so a gap from the
+        # off-window gets filled. Poll-backfillable sources honor it as a wipe plus full
+        # re-crawl; webhook-only sources (no poll backfill) resume webhook ingestion over
+        # the existing table instead of wiping it — see handle_reset_or_full_refresh.
         if (
             should_sync is True
             and instance.should_sync is False
@@ -900,6 +905,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     reproject = reproject_direct_postgres_table
                 elif source.is_direct_snowflake:
                     reproject = reproject_direct_snowflake_table
+                elif source.is_direct_redshift:
+                    reproject = reproject_direct_redshift_table
                 else:
                     reproject = reproject_direct_mysql_table
                 validated_data["table"] = reproject(
@@ -913,6 +920,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     hide_direct_postgres_table(instance.table)
                 elif source.is_direct_snowflake:
                     hide_direct_snowflake_table(instance.table)
+                elif source.is_direct_redshift:
+                    hide_direct_redshift_table(instance.table)
                 else:
                     hide_direct_mysql_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
@@ -1372,6 +1381,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 hide_direct_postgres_table(instance.table)
             elif instance.source.is_direct_snowflake:
                 hide_direct_snowflake_table(instance.table)
+            elif instance.source.is_direct_redshift:
+                hide_direct_redshift_table(instance.table)
             else:
                 hide_direct_mysql_table(instance.table)
             instance.should_sync = False

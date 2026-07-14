@@ -540,8 +540,10 @@ describe('hogFlowEditorLogic', () => {
             // Freshly constructed but deep-equal, as an auto-save round-trip would deliver.
             await applyFlow(makeFlow())
 
-            logic.values.nodes.forEach((node, index) => expect(node).toBe(initialNodes[index]))
-            logic.values.edges.forEach((edge, index) => expect(edge).toBe(initialEdges[index]))
+            // Array identity, not just item identity: ReactFlow diffs its nodes/edges props by
+            // reference, so a fresh array wrapper per rebuild re-syncs its store every render.
+            expect(logic.values.nodes).toBe(initialNodes)
+            expect(logic.values.edges).toBe(initialEdges)
         })
 
         it('replaces only the changed node reference when one action changes', async () => {

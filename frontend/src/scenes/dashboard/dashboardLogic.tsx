@@ -2545,17 +2545,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let tilesAbortedCount = 0
 
             if (sortedTilesToRefresh.length > 0) {
-                await breakpoint()
-                actions.resetIntermittentFilters()
-
-                // Pin the progress denominator to the batch size before enrolling the insights
+                // Mark tiles as queued before the breakpoint's await, so there's no render gap
+                // between the refreshDashboardItems reducer wiping refreshStatus to {} and it
+                // being repopulated - otherwise tiles briefly show as "not queued" and fall
+                // through to the query's default empty state instead of the loading state.
                 actions.setRefreshTilesTotal(tilesStaleCount)
-                // Set refresh status for all insights
                 actions.setRefreshStatuses(
                     sortedTilesToRefresh.map((tile) => tile.insight.short_id),
                     false,
                     true
                 )
+
+                await breakpoint()
+                actions.resetIntermittentFilters()
 
                 actions.abortAnyRunningQuery()
                 cache.abortController = new AbortController()

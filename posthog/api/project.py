@@ -1588,13 +1588,14 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["GET", "PATCH"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="logs_config",
     )
     def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage logs product configuration for this project's canonical environment.
-        Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
-        alongside the legacy /api/environments/:id/logs_config/ alias."""
+        Members can read; writing requires project admin, matching the admin-only
+        settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+        resolves alongside the legacy /api/environments/:id/logs_config/ alias."""
         project = self.get_object()
         return handle_logs_config(request, project.passthrough_team)
 

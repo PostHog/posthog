@@ -191,6 +191,7 @@ rules:
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageTemplate
+                              |Metric
                               |MCPAnalyticsSubmission
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -213,10 +214,15 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationLabel
+                              |ReplayObservationUsage
                               |ReplayScanner
                               |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
+                              |ReviewReport
+                              |ReviewReportArtefact
+                              |ReviewSkillConfig
+                              |ReviewUserSettings
                               |SandboxCustomImage
                               |SandboxEnvironment
                               |ScoreDefinition
@@ -248,15 +254,18 @@ rules:
                               |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
+                              |TableCertification
                               |Tag
                               |Tagger
                               |Task
+                              |TaskArtifact
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
+                              |ChannelFeedMessage
                               |EmailChannel
                               |EvaluationReport
                               |Text
@@ -473,6 +482,7 @@ rules:
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
+                        |Metric
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
                         |MCPSession
@@ -494,10 +504,15 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationLabel
+                        |ReplayObservationUsage
                         |ReplayScanner
                         |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
+                        |ReviewReport
+                        |ReviewReportArtefact
+                        |ReviewSkillConfig
+                        |ReviewUserSettings
                         |SandboxCustomImage
                         |SandboxEnvironment
                         |ScoreDefinition
@@ -529,15 +544,18 @@ rules:
                         |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive
+                        |TableCertification
                         |Tag
                         |Tagger
                         |Task
+                        |TaskArtifact
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
+                        |ChannelFeedMessage
                         |EmailChannel
                         |EvaluationReport
                         |Text
@@ -663,7 +681,6 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
-                              |ReplayObservationUsage
                               |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
@@ -732,7 +749,6 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
-                        |ReplayObservationUsage
                         |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference
