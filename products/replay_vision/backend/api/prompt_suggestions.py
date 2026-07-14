@@ -40,6 +40,7 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
 from products.replay_vision.backend.prompt_evaluation import (
     EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
     EVALUATION_SESSION_CAP,
+    EVALUATION_SESSION_DEFAULT,
     build_running_evaluation,
     evaluation_in_flight,
     evaluation_supported,
@@ -157,13 +158,13 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
 class EvaluatePromptSuggestionRequestSerializer(serializers.Serializer):
     session_limit = serializers.IntegerField(
         required=False,
-        default=EVALUATION_SESSION_CAP,
+        default=EVALUATION_SESSION_DEFAULT,
         min_value=1,
         max_value=EVALUATION_SESSION_CAP,
         help_text=(
             "How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges "
-            "credits like a normal observation of the same model. Defaults to `evaluation_session_cap`, "
-            "which is also the maximum."
+            f"credits like a normal observation of the same model. Defaults to {EVALUATION_SESSION_DEFAULT}. "
+            "The maximum is `evaluation_session_cap`."
         ),
     )
 

@@ -292,18 +292,6 @@ describe('TrendsLineChart', () => {
             expect(tooltip.title()).toMatch(/Wednesday/i)
             expect(tooltip.title()).toMatch(/12.+Jun/)
         })
-
-        it('keeps the weekday in the quill tooltip (PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS on)', async () => {
-            renderInsight({
-                query: buildTrendsQuery({ interval: 'day' }),
-                featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]: true },
-            })
-
-            const tooltip = await chart.hoverTooltip(2)
-
-            expect(tooltip.title()).toMatch(/Wednesday/i)
-            expect(tooltip.title()).toMatch(/12.+Jun/)
-        })
     })
 
     describe('alert overlays', () => {
@@ -350,8 +338,13 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByLabelText(/chart with/i)
-            expect(getHogChart().xAxisLabel()).toBe('Signup date')
-            expect(getHogChart().yAxisLabel()).toBe('Unique users')
+            // Axis titles are a layout-dependent overlay that commits a tick after the
+            // chart's aria-label appears (like referenceLines/valueLabels below), so read
+            // them through waitFor rather than synchronously.
+            await waitFor(() => {
+                expect(getHogChart().xAxisLabel()).toBe('Signup date')
+                expect(getHogChart().yAxisLabel()).toBe('Unique users')
+            })
         })
     })
 

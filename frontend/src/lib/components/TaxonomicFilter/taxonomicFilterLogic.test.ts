@@ -1106,6 +1106,15 @@ describe('taxonomicFilterLogic', () => {
                 expectedOptions: [{ name: '$pathname', group: TaxonomicFilterGroupType.EventProperties }],
             },
             {
+                description:
+                    "SuggestedFilters surfaces the event's primary property then its MCP suggested properties when eventNames=['$mcp_tool_call']",
+                eventNames: ['$mcp_tool_call'],
+                expectedOptions: [
+                    { name: '$mcp_tool_name', group: TaxonomicFilterGroupType.EventProperties },
+                    { name: '$mcp_is_error', group: TaxonomicFilterGroupType.EventProperties },
+                ],
+            },
+            {
                 description: 'SuggestedFilters has empty options when eventNames is empty',
                 eventNames: [] as string[],
                 expectedOptions: [],

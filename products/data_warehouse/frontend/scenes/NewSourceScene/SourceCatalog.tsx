@@ -66,7 +66,11 @@ const SourceTile = memo(function SourceTile({
     )
 
     if (item.status === 'coming_soon') {
-        return <div className={TILE_CLASS}>{content}</div>
+        return (
+            <Tooltip title="This source isn't available yet. Choose 'Notify me' and we'll let you know when it launches.">
+                <div className={`${TILE_CLASS} cursor-default`}>{content}</div>
+            </Tooltip>
+        )
     }
 
     if (accessDisabledReason) {

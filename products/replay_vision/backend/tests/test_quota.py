@@ -191,7 +191,7 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
         [
             ("running_counts_unsettled", "running", timedelta(0), 2, 3),
             # A dead workflow can't charge anymore, so a stale "running" row holds no quota.
-            ("stale_running_ignored", "running", timedelta(hours=3), 0, 0),
+            ("stale_running_ignored", "running", timedelta(hours=4), 0, 0),
             ("finished_ignored", "succeeded", timedelta(0), 0, 0),
         ]
     )

@@ -309,6 +309,7 @@ class CustomPropertyDefinitionView:
     name: str = ""
     description: str | None = None
     display_type: str = "text"
+    target_type: str = "account"
     is_big_number: bool = False
     created_at: datetime | None = None
     created_by: int | None = None
@@ -325,15 +326,18 @@ class CustomPropertySourceView:
 
     ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
     saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
-    Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    Account-target sources set ``saved_query`` + ``source_column``; person-target sources set
+    ``external_data_schema`` + ``column_property_map`` instead. Defaults exist so the wrapping
+    serializer can parse partial request bodies (see :class:`AccountView`).
     """
 
     id: UUID | None = None
     definition: UUID | None = None
     saved_query: UUID | None = None
-    source_column: str = ""
+    external_data_schema: UUID | None = None
+    source_column: str | None = ""
     key_column: str = ""
+    column_property_map: dict | None = None
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None

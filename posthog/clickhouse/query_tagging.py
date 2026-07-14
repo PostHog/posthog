@@ -52,6 +52,7 @@ class Product(StrEnum):
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    DATA_CATALOG = "data_catalog"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"

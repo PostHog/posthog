@@ -36,6 +36,8 @@ from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated imp
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
     ChannelTypeStrategy,
     FrustrationMetricsStrategy,
+    NoJoinPathBounceAvgTimeStrategy,
+    NoJoinPathBounceStrategy,
     PathBounceAvgTimeStrategy,
     PathBounceStrategy,
     SimpleBreakdownStrategy,
@@ -156,6 +158,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     def _strategy_name(self, strategy: StatsTableQueryStrategy) -> str:
         if isinstance(strategy, FrustrationMetricsStrategy):
             return "stats_table_frustration_metrics"
+        # No-join variants first: they don't subclass the join strategies.
+        if isinstance(strategy, NoJoinPathBounceAvgTimeStrategy):
+            return "stats_table_no_join_path_bounce_and_avg_time"
+        if isinstance(strategy, NoJoinPathBounceStrategy):
+            return "stats_table_no_join_path_bounce"
         if isinstance(strategy, PathBounceAvgTimeStrategy):
             return "stats_table_path_bounce_and_avg_time"
         if isinstance(strategy, PathBounceStrategy):
@@ -181,8 +188,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             if self.query.conversionGoal:
                 return SimpleBreakdownStrategy(self)
             if self.query.includeAvgTimeOnPage:
+                if self.should_skip_session_join:
+                    return NoJoinPathBounceAvgTimeStrategy(self)
                 return PathBounceAvgTimeStrategy(self)
             if self.query.includeBounceRate:
+                if self.should_skip_session_join:
+                    return NoJoinPathBounceStrategy(self)
                 return PathBounceStrategy(self)
 
         if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
@@ -898,6 +909,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))
         if self.query.includeHost:
             return self._prepend_host(ast.Field(chain=["events", "properties", "$host"]), path)
+        return path
+
+    def _bounce_entry_pathname_breakdown_sessions(self):
+        """Same as `_bounce_entry_pathname_breakdown`, but with field chains resolving
+        against the sessions table directly (no-join strategies query FROM sessions)."""
+        path = self._apply_path_cleaning(ast.Field(chain=["$entry_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["$entry_hostname"]), path)
         return path
 
     def _bounce_entry_pathname_breakdown(self):
