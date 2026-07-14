@@ -140,7 +140,7 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                                         <span onClick={(e) => e.stopPropagation()}>
                                             <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
                                         </span>
-                                    ) : isSessionIdKey(record.key, configuredSessionIdKeys) ? (
+                                    ) : isSessionIdKey(record.key, configuredSessionIdKeys) && record.value ? (
                                         <ViewRecordingButton
                                             sessionId={record.value}
                                             openPlayerIn={RecordingPlayerType.Modal}
