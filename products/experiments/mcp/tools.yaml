@@ -496,8 +496,8 @@ tools:
 
 
             Launch a draft experiment. Validates the feature flag is multivariate with 2 to 20 variants. Activates the
-            feature flag (sets active=true), sets start_date to the current server time, recomputes metric
-            fingerprints, and transitions status from draft to running.
+            feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints,
+            and transitions status from draft to running.
 
 
             Returns 400 if the experiment has already been launched ("Experiment has already been launched.") or if the
@@ -994,9 +994,8 @@ tools:
                     Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in
                     the flag's own filters shape. This is the canonical input for flag config. Set
                     filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100;
-                    the analysis baseline defaults to the variant keyed 'control' when present, else the first
-                    variant — except web experiments, which must keep a variant keyed 'control') to change the
-                    variant split. Set
+                    the analysis baseline defaults to the variant keyed 'control' when present, else the first variant —
+                    except web experiments, which must keep a variant keyed 'control') to change the variant split. Set
                     filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to change the
                     overall rollout. Config this object omits is preserved from the flag's current state. On a running
                     experiment this requires update_feature_flag_params=true (see rule 1: warn the user first).
