@@ -282,20 +282,22 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             secure_value=hash_key_value(key_value),
             scopes=scopes,
         )
-        auth = {"HTTP_AUTHORIZATION": f"Bearer {key_value}"}
+        authorization = f"Bearer {key_value}"
 
-        list_response = self.client.get(f"/api/projects/{self.team.id}/alerts", **auth)
+        list_response = self.client.get(f"/api/projects/{self.team.id}/alerts", HTTP_AUTHORIZATION=authorization)
         assert list_response.status_code == 200, list_response.json()
         listed_ids = {result["id"] for result in list_response.json()["results"]}
         assert (alert["id"] in listed_ids) is visible
 
-        detail_response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}", **auth)
+        detail_response = self.client.get(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}", HTTP_AUTHORIZATION=authorization
+        )
         assert detail_response.status_code == (200 if visible else 404), detail_response.json()
 
         # Thresholds (nested under the insight) embed full alerts including check values, so they
         # must be gated the same way.
         thresholds_response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/{insight['id']}/thresholds", **auth
+            f"/api/projects/{self.team.id}/insights/{insight['id']}/thresholds", HTTP_AUTHORIZATION=authorization
         )
         assert thresholds_response.status_code == 200, thresholds_response.json()
         threshold_alert_ids = {

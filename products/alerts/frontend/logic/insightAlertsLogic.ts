@@ -32,9 +32,16 @@ export interface InsightAlertsLogicProps {
     deferInitialAlertsLoad?: boolean
 }
 
+/** Per-kind feature-flag state threaded from call sites into the alert-support predicates. */
+export interface AlertSupportFlagOptions {
+    hogqlAlertsEnabled?: boolean
+    funnelAlertsEnabled?: boolean
+    metricsAlertsEnabled?: boolean
+}
+
 export const areAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean; metricsAlertsEnabled?: boolean } = {}
+    options: AlertSupportFlagOptions = {}
 ): boolean => {
     if (!query) {
         return false
@@ -57,7 +64,7 @@ export const areAlertsSupportedForInsight = (
 
 export const areAnomalyAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean } = {}
+    options: AlertSupportFlagOptions = {}
 ): boolean => {
     if (!areAlertsSupportedForInsight(query, options)) {
         return false
@@ -71,11 +78,7 @@ export const areAnomalyAlertsSupportedForInsight = (
 
 // List only the insight types this account can actually alert on — naming a flag-gated type the
 // user doesn't have would disclose an unreleased feature.
-const alertableInsightTypesLabel = (options: {
-    hogqlAlertsEnabled?: boolean
-    funnelAlertsEnabled?: boolean
-    metricsAlertsEnabled?: boolean
-}): string =>
+const alertableInsightTypesLabel = (options: AlertSupportFlagOptions): string =>
     [
         'trends',
         options.hogqlAlertsEnabled && 'SQL',
@@ -86,11 +89,7 @@ const alertableInsightTypesLabel = (options: {
         .join(', ')
 
 export const alertsUnsupportedReason = (
-    options: {
-        hogqlAlertsEnabled?: boolean
-        funnelAlertsEnabled?: boolean
-        metricsAlertsEnabled?: boolean
-    },
+    options: AlertSupportFlagOptions,
     query?: Record<string, any> | null
 ): string => {
     // A funnel on a viz type without a conversion-rate metric otherwise reads as a contradiction —
