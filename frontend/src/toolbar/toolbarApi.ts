@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isBenignNetworkError } from '~/toolbar/toolbarPosthogJS'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/types'
 import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour, Survey } from '~/types'
 
@@ -164,7 +164,10 @@ async function request<T>(
             isNetworkError: true,
         }
         toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
+        // Don't report expected `Failed to fetch` network/CORS failures as exceptions —
+        // they're constant noise on third-party customer pages. Genuinely unexpected
+        // throws here (not a network TypeError) are still worth capturing.
+        if (captureOnError && !isBenignNetworkError(e)) {
             captureToolbarException(e, context, { reason: 'network' })
         }
         emitToast(toastOnError, error)

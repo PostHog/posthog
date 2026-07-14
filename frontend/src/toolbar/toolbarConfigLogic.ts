@@ -657,9 +657,10 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // This CORS HEAD is a UX helper, not a security boundary (see afterMount), and
+            // `Failed to fetch` fires for any offline / ad-blocker / CORS / unreachable host.
+            // The `toolbar ui host check` capture below already records the failure with its
+            // error_type, so we don't also report it as an exception — that was pure noise.
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',

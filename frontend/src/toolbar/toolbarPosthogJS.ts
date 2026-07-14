@@ -58,6 +58,17 @@ export function captureToolbarException(
     })
 }
 
+/**
+ * `TypeError: Failed to fetch` is what the browser throws for offline, ad-blocker,
+ * CORS, or a page navigating away mid-request. On the third-party customer pages the
+ * toolbar runs on these fire constantly and are not toolbar defects, so callers skip
+ * reporting them to error tracking (the failure is still logged and still shows up in
+ * per-request telemetry) to keep genuine toolbar errors from being drowned out.
+ */
+export function isBenignNetworkError(error: unknown): boolean {
+    return error instanceof TypeError
+}
+
 export const useToolbarFeatureFlag = (flag: FeatureFlagKey, match?: string): boolean => {
     const [flagValue, setFlagValue] = useState<boolean | string | undefined>(toolbarPosthogJS.getFeatureFlag(flag))
 

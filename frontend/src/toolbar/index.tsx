@@ -17,7 +17,7 @@ import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
 import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isBenignNetworkError } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {
@@ -49,10 +49,15 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
                     reducer_key: reducerKey,
                     action_key: actionKey,
                 })
-                captureToolbarException(error, 'kea_loader', {
-                    reducer_key: reducerKey,
-                    action_key: actionKey,
-                })
+                // Skip expected `Failed to fetch` network/CORS failures — on third-party
+                // customer pages they fire constantly and aren't toolbar defects. Real
+                // loader bugs (any non-network error) still get reported.
+                if (!isBenignNetworkError(error)) {
+                    captureToolbarException(error, 'kea_loader', {
+                        reducer_key: reducerKey,
+                        action_key: actionKey,
+                    })
+                }
             },
         }),
         subscriptionsPlugin,
