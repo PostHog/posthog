@@ -263,14 +263,14 @@ async def handle_reset_or_full_refresh(
     schema: "ExternalDataSchema",
     delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
-    webhook_first: bool = False,
+    webhook_only: bool = False,
 ) -> None:
     from products.warehouse_sources.backend.models.external_data_schema import (
         ExternalDataSchema,
         update_sync_type_config_keys,
     )
 
-    if reset_pipeline and webhook_first:
+    if reset_pipeline and webhook_only:
         # A webhook-first table's rows exist only as webhook-delivered events — the poll does
         # no backfill, so a wipe could never be rebuilt. Consume the reset request by resuming
         # webhook ingestion over the existing table: buffered webhook files drain this run, and

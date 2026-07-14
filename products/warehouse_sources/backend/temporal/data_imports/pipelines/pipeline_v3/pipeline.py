@@ -285,7 +285,7 @@ class PipelineV3(Generic[ResumableData]):
                     self._schema,
                     self._delta_table_helper,
                     self._logger,
-                    webhook_first=self._resource.webhook_first,
+                    webhook_only=self._resource.webhook_only,
                 )
 
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None

@@ -240,7 +240,7 @@ class AttentiveSource(
 
     def source_for_pipeline(self, config: AttentiveSourceConfig, inputs: SourceInputs) -> SourceResponse:
         webhook_source_manager = self.get_webhook_source_manager(inputs)
-        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(True)
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=True)
 
         def items() -> Iterable[Any] | AsyncIterable[Any]:
             if webhook_enabled:
@@ -257,5 +257,5 @@ class AttentiveSource(
             partition_mode="datetime",
             partition_format="week",
             partition_keys=["created_at"],
-            webhook_first=True,
+            webhook_only=True,
         )

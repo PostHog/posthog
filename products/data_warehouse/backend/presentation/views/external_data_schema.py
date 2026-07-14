@@ -878,7 +878,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         # When re-enabling a webhook schema, request a pipeline reset so a gap from the
         # off-window gets filled. Poll-backfillable sources honor it as a wipe plus full
-        # re-crawl; webhook-first sources (no poll backfill) resume webhook ingestion over
+        # re-crawl; webhook-only sources (no poll backfill) resume webhook ingestion over
         # the existing table instead of wiping it — see handle_reset_or_full_refresh.
         if (
             should_sync is True

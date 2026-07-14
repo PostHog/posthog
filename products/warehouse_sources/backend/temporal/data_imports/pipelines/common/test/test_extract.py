@@ -242,7 +242,7 @@ class TestHandleResetOrFullRefresh:
             initial_sync_complete=True,
         )
 
-    def test_webhook_first_reset_preserves_table_and_state(self, team):
+    def test_webhook_only_reset_preserves_table_and_state(self, team):
         # The data-loss regression: a reset on a webhook-first schema must not wipe the Delta
         # table (the poll can't rebuild webhook-accumulated rows). The reset request is consumed,
         # while the watermark and initial_sync_complete survive so webhook ingestion resumes.
@@ -250,7 +250,7 @@ class TestHandleResetOrFullRefresh:
         helper = MagicMock(reset_table=AsyncMock())
 
         async_to_sync(handle_reset_or_full_refresh)(
-            True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_first=True
+            True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=True
         )
 
         helper.reset_table.assert_not_awaited()
@@ -266,7 +266,7 @@ class TestHandleResetOrFullRefresh:
         helper = MagicMock(reset_table=AsyncMock())
 
         async_to_sync(handle_reset_or_full_refresh)(
-            True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_first=False
+            True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=False
         )
 
         helper.reset_table.assert_awaited_once()

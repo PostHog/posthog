@@ -248,7 +248,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                 self._schema,
                 self._delta_table_helper,
                 self._logger,
-                webhook_first=self._resource.webhook_first,
+                webhook_only=self._resource.webhook_only,
             )
 
             # If the schema has no DWH table, it's a first ever sync

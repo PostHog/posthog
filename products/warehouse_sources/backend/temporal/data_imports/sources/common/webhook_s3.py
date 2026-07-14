@@ -63,7 +63,7 @@ class WebhookSourceManager:
     def _strip_s3_protocol(self, s3_path: str) -> str:
         return s3_path.replace("s3://", "")
 
-    async def webhook_enabled(self, webhook_first: bool = False) -> bool:
+    async def webhook_enabled(self, webhook_only: bool = False) -> bool:
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
@@ -76,13 +76,13 @@ class WebhookSourceManager:
         # — honoring it would force the poll path and orphan rows only webhooks can provide).
         if (
             not schema.is_webhook
-            or (not webhook_first and not schema.initial_sync_complete)
-            or (not webhook_first and self._inputs.reset_pipeline)
+            or (not webhook_only and not schema.initial_sync_complete)
+            or (not webhook_only and self._inputs.reset_pipeline)
         ):
             await self._logger.adebug(
                 f"webhook_enabled=False. schema.is_webhook={schema.is_webhook}. "
                 f"schema.initial_sync_complete={schema.initial_sync_complete}. "
-                f"webhook_first={webhook_first}. reset_pipeline={self._inputs.reset_pipeline}"
+                f"webhook_only={webhook_only}. reset_pipeline={self._inputs.reset_pipeline}"
             )
             return False
 

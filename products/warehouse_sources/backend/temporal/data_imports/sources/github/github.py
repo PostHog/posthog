@@ -920,9 +920,9 @@ def github_source(
     # is no backfill to lose for these, so activate webhook mode from the first run, the same
     # way the Slack source does; being webhook-first also means a requested pipeline reset must
     # not force the poll path or wipe the table (see handle_reset_or_full_refresh).
-    webhook_first = endpoint_config.initial_lookback_days == 0
+    webhook_only = endpoint_config.initial_lookback_days == 0
     webhook_enabled = (
-        async_to_sync(webhook_source_manager.webhook_enabled)(webhook_first)
+        async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
         if webhook_source_manager is not None
         else False
     )
@@ -976,7 +976,7 @@ def github_source(
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="week" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
-        webhook_first=webhook_first,
+        webhook_only=webhook_only,
     )
 
 
