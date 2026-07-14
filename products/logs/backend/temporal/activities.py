@@ -20,13 +20,16 @@ from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import PropertyGroupFilter
 
-from posthog.cdp.internal_events import flush_internal_events_producer
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
 
-from products.alerts.backend.destinations import produce_alert_internal_event
+from products.alerts.backend.destinations import (
+    alert_internal_event_delivered,
+    flush_alert_internal_events,
+    produce_alert_internal_event,
+)
 from products.logs.backend.alert_check_query import (
     AlertCheckQuery,
     BatchedAlertCheckQuery,
@@ -921,31 +924,21 @@ def _resolve_notification_deliveries(dispatched: list[_DispatchedAlert]) -> list
     if all(d.produce_result is None for d in dispatched):
         return dispatched
 
-    try:
-        remaining = flush_internal_events_producer(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
-        if remaining:
-            logger.warning("Kafka flush timed out with undelivered messages", remaining=remaining)
-    except Exception as e:
-        logger.exception("Kafka flush failed", error=str(e))
-        capture_exception(e, {"phase": "notification_flush"})
+    flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
 
     resolved: list[_DispatchedAlert] = []
     for d in dispatched:
         if d.produce_result is None:
             resolved.append(d)
             continue
-        try:
-            # Delivery callbacks only fire while flush()/poll() pumps the queue,
-            # so after the flush above each result is already resolved or never
-            # will be this cycle — timeout=0 reads the outcome without blocking.
-            d.produce_result.get(timeout=0)
+        if alert_internal_event_delivered(
+            d.produce_result,
+            team_id=d.evaluation.alert.team_id,
+            alert_id=str(d.evaluation.alert.id),
+            event_name=d.evaluation.outcome.notification.value,
+        ):
             resolved.append(d)
-        except Exception:
-            logger.warning(
-                "Notification not delivered before flush deadline; rolling back state for retry",
-                alert_id=str(d.evaluation.alert.id),
-                team_id=d.evaluation.alert.team_id,
-            )
+        else:
             resolved.append(dataclasses.replace(d, notification_failed=True))
     return resolved
 
@@ -1304,16 +1297,12 @@ def _produce_alert_internal_event(
     properties: dict,
     now: datetime,
 ) -> ProduceResult | None:
-    try:
-        return produce_alert_internal_event(
-            team_id=alert.team_id,
-            event_name=event_name,
-            properties=properties,
-            timestamp=now,
-        )
-    except Exception as e:
-        capture_exception(e, {"alert_id": str(alert.id), "event": event_name})
-        return None
+    return produce_alert_internal_event(
+        team_id=alert.team_id,
+        event_name=event_name,
+        properties=properties,
+        timestamp=now,
+    )
 
 
 def _emit_alert_event(

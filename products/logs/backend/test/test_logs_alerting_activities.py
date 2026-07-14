@@ -288,8 +288,11 @@ class TestResolveNotificationDeliveries(unittest.TestCase):
             ("still_pending_after_flush", TimeoutError("undelivered"), True),
         ]
     )
-    @patch("products.logs.backend.temporal.activities.flush_internal_events_producer", return_value=0)
-    def test_folds_delivery_outcome_into_notification_failed(self, _name, get_side_effect, expect_failed, mock_flush):
+    @patch("products.alerts.backend.destinations.flush_internal_events_producer", return_value=0)
+    @patch("products.alerts.backend.destinations.capture_exception")
+    def test_folds_delivery_outcome_into_notification_failed(
+        self, _name, get_side_effect, expect_failed, _mock_capture, mock_flush
+    ):
         from products.logs.backend.temporal.activities import _resolve_notification_deliveries
 
         result = MagicMock()
@@ -301,7 +304,7 @@ class TestResolveNotificationDeliveries(unittest.TestCase):
         assert resolved[0].notification_failed is expect_failed
         mock_flush.assert_called_once()
 
-    @patch("products.logs.backend.temporal.activities.flush_internal_events_producer")
+    @patch("products.alerts.backend.destinations.flush_internal_events_producer")
     def test_skips_flush_when_nothing_was_produced(self, mock_flush):
         from products.logs.backend.temporal.activities import _resolve_notification_deliveries
 
@@ -312,9 +315,9 @@ class TestResolveNotificationDeliveries(unittest.TestCase):
         assert resolved == [dispatched]
         mock_flush.assert_not_called()
 
-    @patch("products.logs.backend.temporal.activities.capture_exception")
+    @patch("products.alerts.backend.destinations.capture_exception")
     @patch(
-        "products.logs.backend.temporal.activities.flush_internal_events_producer",
+        "products.alerts.backend.destinations.flush_internal_events_producer",
         side_effect=Exception("kafka down"),
     )
     def test_flush_failure_does_not_raise_and_marks_pending_failed(self, mock_flush, _mock_capture):
@@ -777,7 +780,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event", side_effect=Exception("Kafka down"))
-    @patch("products.logs.backend.temporal.activities.capture_exception")
+    @patch("products.alerts.backend.destinations.capture_exception")
     def test_last_notified_at_not_set_on_kafka_failure(self, mock_capture, mock_produce, mock_query_cls):
         _mock_buckets(mock_query_cls, [50])
         alert = self._make_alert()
@@ -1065,7 +1068,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.increment_notification_failures")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event", side_effect=Exception("Kafka down"))
-    @patch("products.logs.backend.temporal.activities.capture_exception")
+    @patch("products.alerts.backend.destinations.capture_exception")
     def test_notification_failures_counter(
         self,
         expected_action_name,
@@ -1266,7 +1269,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
-    @patch("products.logs.backend.temporal.activities.capture_exception")
+    @patch("products.alerts.backend.destinations.capture_exception")
     def test_broken_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
         mock_query_cls.return_value.execute_rolling_checks.side_effect = Exception(
             "Code: 160. DB::Exception: Estimated query execution time is too long"
@@ -1307,7 +1310,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.increment_notification_failures")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event", side_effect=Exception("Kafka down"))
-    @patch("products.logs.backend.temporal.activities.capture_exception")
+    @patch("products.alerts.backend.destinations.capture_exception")
     def test_notification_failures_counter_for_error_and_broken(
         self,
         _name,
@@ -2064,7 +2067,7 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.alerts_checked == 1
 
     @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities.flush_internal_events_producer", return_value=0)
+    @patch("products.alerts.backend.destinations.flush_internal_events_producer", return_value=0)
     @patch("products.alerts.backend.destinations.produce_internal_event")
     @patch("products.logs.backend.temporal.activities._run_cohort_query")
     def test_undelivered_notification_rolls_back_state_before_save(
