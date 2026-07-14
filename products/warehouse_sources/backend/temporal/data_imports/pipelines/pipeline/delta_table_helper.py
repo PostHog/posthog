@@ -50,18 +50,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
-# Partitioned incremental merges run per chunk of partition values (static `IN (...)`
-# prunes like the per-partition `= literal` it replaced), paying merge planning/commit
-# overhead once per chunk instead of once per partition. The byte cap is the memory
-# bound — a merge's peak RSS tracks the rewrite working set of its chunk, and a
-# partition exceeding the cap merges alone (the old behavior). The count cap only
-# bounds predicate size and planner/writer fan-out. Benchmarks in PR #70495.
-#
-# The byte cap counts at-rest (compressed) bytes, and the decompressed Arrow working
-# set runs ~20x that (see DATA_WAREHOUSE_TARGET_PARTITION_BYTES) — 128 MiB ≈ ~2.5 GiB
-# peak per merge, so several concurrent chunk merges still fit a multi-tenant pod.
-# Unlike the per-partition budget (a rare worst case), chunk packing makes the cap the
-# COMMON case, so it must be sized for concurrency, not for a single merge.
+# Partitioned incremental merges run per chunk of partition values: a static `IN (...)`
+# prunes like the per-partition `= literal` it replaced, paying planning/commit overhead
+# once per chunk. The byte cap is the memory bound and counts at-rest (compressed) bytes;
+# the decompressed Arrow working set runs ~20x that (see DATA_WAREHOUSE_TARGET_PARTITION_BYTES),
+# so 128 MiB ≈ ~2.5 GiB peak per merge — sized for several concurrent merges per pod, since
+# packing makes hitting the cap the common case. An oversized partition merges alone (the
+# old behavior); the count cap only bounds predicate size and writer fan-out.
 MERGE_PARTITION_CHUNK_SIZE = 100
 MERGE_CHUNK_MAX_TARGET_BYTES = 128 * 1024 * 1024
 
