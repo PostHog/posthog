@@ -480,8 +480,11 @@ jobs:
     # check while it soaks.
     personhog-gate:
         name: PersonHog e2e gate
-        needs: changes
-        if: needs.changes.outputs.rust == 'true'
+        needs: [changes, affected]
+        # Gated on the affected computation: a determinator package-rule
+        # marks the harness affected whenever a personhog service it spawns
+        # changes, so unrelated rust PRs skip the job entirely.
+        if: needs.changes.outputs.rust == 'true' && contains(needs.affected.outputs.affected_crates, 'personhog-test-harness')
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 25
         permissions:
