@@ -28,7 +28,7 @@ describe('createStreamConnection', () => {
         expect(streamSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('clears a scheduled reconnect when aborted', () => {
+    it('stops the underlying retry and clears the scheduled reconnect when aborted', () => {
         const streamSpy = jest.spyOn(api, 'stream').mockResolvedValue(undefined)
         const connection = createStreamConnection({
             url: new URL('https://example.com/events'),
