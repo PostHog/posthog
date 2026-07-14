@@ -147,6 +147,21 @@ class TestValidateCredentials:
             call = patched.return_value.get.call_args
             assert call.args[0] == "https://us.cloud.langfuse.com/api/public/projects"
             assert call.kwargs["auth"] == ("pk", "sk")
+            # Stream so a hostile host can't force the probe to buffer a huge body.
+            assert call.kwargs["stream"] is True
+
+    def test_unknown_status_reads_bounded_body_not_text(self):
+        # A non-2xx/401/403 status reads the error message from a bounded stream — never the
+        # unbounded response.text/.json() a hostile host could inflate. Distinct values on each
+        # source catch a revert to the unbounded reads.
+        resp = _response(status_code=500)
+        resp.iter_content.return_value = iter([b'{"message": "from-stream"}'])
+        resp.text = "from-text"
+        resp.json.return_value = {"message": "from-json"}
+        with self._patch_session(resp):
+            valid, msg = validate_credentials(None, "pk", "sk")
+        assert valid is False
+        assert msg == "from-stream"
 
 
 class TestLangfuseSourceResponse:
@@ -325,6 +340,8 @@ class TestGetRows:
         manager = self._manager()
         _rows, session = self._run(manager, [_page([{"id": "1"}], total_pages=1)])
         assert session.get.call_args.kwargs["allow_redirects"] is False
+        # Streaming is what lets _read_json_capped bound the body — guard it isn't dropped.
+        assert session.get.call_args.kwargs["stream"] is True
 
     def test_raises_when_host_not_allowed(self):
         manager = self._manager()

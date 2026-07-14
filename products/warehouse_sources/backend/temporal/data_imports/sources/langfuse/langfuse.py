@@ -53,6 +53,9 @@ MAX_PAGES = 100_000
 # Ceiling on a single decoded page. Without it a hostile host could ignore the `limit` param
 # and return an arbitrarily large body, exhausting the import worker's memory.
 MAX_RESPONSE_BYTES = 100 * 1024 * 1024  # 100 MiB
+# Error/redirect bodies come from the same customer-controlled host; only a short snippet is
+# ever useful for diagnostics, so never buffer the whole thing.
+MAX_ERROR_BODY_BYTES = 8 * 1024  # 8 KiB
 
 HOST_NOT_ALLOWED_ERROR = "Langfuse host is not allowed"
 
@@ -90,6 +93,28 @@ def _read_json_capped(response: requests.Response) -> Any:
             )
         chunks.append(chunk)
     return json.loads(b"".join(chunks)) if chunks else {}
+
+
+def _read_text_capped(response: requests.Response, limit: int = MAX_ERROR_BODY_BYTES) -> str:
+    """Read at most ``limit`` bytes of a (possibly streamed) body for diagnostics.
+
+    Never touch ``response.text``/``.content`` on a customer-controlled error or redirect
+    response — that buffers the whole body, so a hostile host could OOM the worker with a
+    large 4xx body. Reads a bounded snippet and closes the connection.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        for chunk in response.iter_content(chunk_size=1024):
+            if not chunk:
+                continue
+            chunks.append(chunk)
+            total += len(chunk)
+            if total >= limit:
+                break
+    finally:
+        response.close()
+    return b"".join(chunks)[:limit].decode("utf-8", errors="replace")
 
 
 @dataclasses.dataclass
@@ -183,36 +208,42 @@ def validate_credentials(
 
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address,
-        # defeating the host check above (SSRF).
+        # defeating the host check above (SSRF). Stream so a large body isn't buffered.
         response = make_tracked_session().get(
             f"{base_url}/api/public/projects",
             auth=(public_key, secret_key),
             timeout=10,
             allow_redirects=False,
+            stream=True,
         )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
-    if response.is_redirect or response.is_permanent_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
-
-    if response.status_code == 200:
-        return True, None
-
-    if response.status_code == 401:
-        return False, "Invalid Langfuse public/secret key pair. Confirm the keys and the region host match."
-
-    if response.status_code == 403:
-        if schema_name is None:
-            # Valid keys, missing permission for this probe — let source creation through.
-            return True, None
-        return False, "Langfuse API keys lack the required permissions for this endpoint"
-
     try:
-        body = response.json()
-        return False, body.get("message", response.text)
-    except Exception:
-        return False, response.text
+        if response.is_redirect or response.is_permanent_redirect:
+            return False, HOST_NOT_ALLOWED_ERROR
+
+        if response.status_code == 200:
+            return True, None
+
+        if response.status_code == 401:
+            return False, "Invalid Langfuse public/secret key pair. Confirm the keys and the region host match."
+
+        if response.status_code == 403:
+            if schema_name is None:
+                # Valid keys, missing permission for this probe — let source creation through.
+                return True, None
+            return False, "Langfuse API keys lack the required permissions for this endpoint"
+
+        # Unknown status: read a bounded snippet of the (customer-controlled) body for the message.
+        body_text = _read_text_capped(response)
+        try:
+            parsed = json.loads(body_text)
+            return False, parsed.get("message", body_text) if isinstance(parsed, dict) else body_text
+        except json.JSONDecodeError:
+            return False, body_text
+    finally:
+        response.close()
 
 
 def _parse_retry_after(response: requests.Response) -> float | None:
@@ -299,6 +330,8 @@ def get_rows(
 
         if response.status_code == 429 or response.status_code >= 500:
             retry_after = _parse_retry_after(response) if response.status_code == 429 else None
+            # Streamed response: release the connection without buffering the (untrusted) body.
+            response.close()
             raise LangfuseRetryableError(
                 f"Langfuse API error (retryable): status={response.status_code}, url={request_url}",
                 retry_after=retry_after,
@@ -307,12 +340,15 @@ def get_rows(
         # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather
         # than silently parsing the redirect body as data.
         if response.is_redirect or response.is_permanent_redirect:
+            response.close()
             raise LangfuseHostNotAllowedError(
                 f"Langfuse API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
             )
 
         if not response.ok:
-            logger.error(f"Langfuse API error: status={response.status_code}, body={response.text}, url={request_url}")
+            # Read a bounded snippet — never response.text — since the host is customer-controlled.
+            body = _read_text_capped(response)
+            logger.error(f"Langfuse API error: status={response.status_code}, body={body}, url={request_url}")
             response.raise_for_status()
 
         return response
