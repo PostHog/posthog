@@ -255,11 +255,12 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 sourceColumn,
                 keyColumn,
                 warehouseTable,
-                columnMappings,
             }: CustomPropertyFormValues) => {
                 const isPerson = targetType === 'person'
                 const isAccountWarehouse = !isPerson && sourceMode === 'data_warehouse'
-                const hasMapping = columnMappings.some((m) => m.column.trim() && m.property.trim())
+                // The table + column map are create-only, so only require them when creating a new
+                // person source — an existing source keeps only key_column and enabled editable.
+                const isNewPersonSource = isPerson && !values.editingDefinition?.source
                 return {
                     name: !name?.trim() ? 'Name is required' : undefined,
                     options:
@@ -270,8 +271,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     sourceColumn: isAccountWarehouse && !sourceColumn ? 'Select the value column' : undefined,
                     keyColumn:
                         (isAccountWarehouse || isPerson) && !keyColumn?.trim() ? 'Enter the key column' : undefined,
-                    warehouseTable: isPerson && !warehouseTable ? 'Select a warehouse table' : undefined,
-                    columnMappings: isPerson && !hasMapping ? 'Map at least one column to a property' : undefined,
+                    warehouseTable: isNewPersonSource && !warehouseTable ? 'Select a warehouse table' : undefined,
                 }
             },
             submit: async (formValues: CustomPropertyFormValues) => {
@@ -299,7 +299,14 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                                 key_column: keyColumn ?? '',
                                 is_enabled: isEnabled,
                             })
-                        } else if (schemaId && keyColumn?.trim()) {
+                        } else if (!schemaId) {
+                            // Form validation passed but the table's schema no longer resolves — it was
+                            // deleted or unsynced between load and save. Surface it instead of silently
+                            // creating the definition without its source.
+                            throw new Error('The selected warehouse table is no longer available')
+                        } else if (!keyColumn?.trim()) {
+                            throw new Error('Enter the distinct ID column')
+                        } else {
                             await customPropertySourcesCreate(projectId, {
                                 definition: definition.id,
                                 external_data_schema: schemaId,

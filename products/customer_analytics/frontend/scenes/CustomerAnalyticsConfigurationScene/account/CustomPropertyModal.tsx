@@ -60,7 +60,9 @@ function PersonSourceEditor(): JSX.Element {
     const mappings = customPropertyForm.columnMappings
     const setMappings = (next: typeof mappings): void => setCustomPropertyFormValue('columnMappings', next)
 
-    if (noTables) {
+    // Only block on missing tables while creating a source — an existing source still needs its
+    // key column and enabled switch editable even if its table was later deleted or filtered out.
+    if (noTables && !hasExistingSource) {
         return (
             <LemonBanner type="info">
                 No synced data warehouse tables found. Connect and sync a source (e.g. your users table) first, then it
@@ -260,14 +262,23 @@ export function CustomPropertyModal(): JSX.Element {
             : option
     )
 
+    // A new person source needs at least one complete column → property pair. The mapping rows
+    // aren't LemonFields, so this gates the submit button rather than showing a per-field error.
+    const missingPersonMapping =
+        targetType === 'person' &&
+        !hasExistingSource &&
+        !customPropertyForm.columnMappings.some((mapping) => mapping.column.trim() && mapping.property.trim())
+
     const submitDisabledReason =
         customPropertyForm.displayType === 'select' && customPropertyForm.options.length === 0
             ? 'Add at least one option'
-            : sourceMode === 'data_warehouse' && noViews
-              ? 'No materialized views are available'
-              : sourceMode === 'workflow' && editingReferences.length === 0
-                ? 'Create a workflow that updates this property first'
-                : undefined
+            : missingPersonMapping
+              ? 'Map at least one column to a property'
+              : sourceMode === 'data_warehouse' && noViews
+                ? 'No materialized views are available'
+                : sourceMode === 'workflow' && editingReferences.length === 0
+                  ? 'Create a workflow that updates this property first'
+                  : undefined
 
     return (
         <LemonModal

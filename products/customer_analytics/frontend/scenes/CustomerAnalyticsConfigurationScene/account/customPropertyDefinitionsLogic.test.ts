@@ -401,6 +401,41 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(patchedBody).toEqual({ source_column: 'mrr', key_column: 'org_id', is_enabled: false })
     })
 
+    it('saves an existing person source even when its warehouse table is no longer selectable', async () => {
+        // The table + column map are create-only and hidden on edit, so form validation must not
+        // require a re-selected warehouse table — only key_column and is_enabled stay editable.
+        let patchedBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            get: { ...defaultMocks().get, [WAREHOUSE_TABLES_URL]: { count: 0, results: [] } },
+            patch: {
+                ...defaultMocks().patch,
+                [SOURCE_URL]: async ({ request }) => {
+                    patchedBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        logic.actions.openEditModal(
+            buildDefinition({
+                target_type: 'person',
+                source: buildSource({
+                    saved_query: null,
+                    source_column: null,
+                    key_column: 'distinct_id',
+                    column_property_map: { plan: 'plan_tier' },
+                } as Partial<CustomPropertySourceApi>),
+            })
+        )
+        logic.actions.setCustomPropertyFormValue('isEnabled', false)
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormSuccess',
+        ])
+        expect(patchedBody).toEqual({ key_column: 'distinct_id', is_enabled: false })
+    })
+
     it('deletes the source when saving after switching away from data warehouse mode', async () => {
         let sourceDeleted = false
         useMocks({
